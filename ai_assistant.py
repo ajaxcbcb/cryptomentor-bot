@@ -1435,7 +1435,7 @@ Risk Factors:"""
 - Liquidasi minimal detected
 - Pattern: Stable market conditions
 - Signal: Lower risk environment
-- Action: Normal position sizing OK"""ity"
+- Action: Normal position sizing OK"""
         
         liq_ratio = long_liq / (short_liq + 1)  # Avoid division by zero
         
@@ -1770,6 +1770,325 @@ Error: {str(e)}
 ⚠️ **Risk Warning:**
 Futures trading is high risk!
 Use proper risk management and don't FOMO!"""
+
+    def generate_timeframe_analysis(self, symbol, timeframe='1h', language='id', crypto_api=None):
+        """Generate comprehensive timeframe analysis for a single coin"""
+        if not crypto_api:
+            if language == 'id':
+                return f"""❌ **Error: API tidak tersedia**
+
+Tidak dapat mengakses data untuk analisis timeframe {symbol} ({timeframe}).
+Silakan coba lagi nanti.
+
+⚠️ **Risk Warning:**
+Trading berisiko tinggi! Gunakan proper risk management."""
+            else:
+                return f"""❌ **Error: API unavailable**
+
+Cannot access data for timeframe analysis {symbol} ({timeframe}).
+Please try again later.
+
+⚠️ **Risk Warning:**
+Trading is high risk! Use proper risk management."""
+
+        try:
+            # Get comprehensive timeframe data
+            timeframe_data = crypto_api.get_timeframe_analysis(symbol, timeframe)
+            
+            if 'error' in timeframe_data:
+                if language == 'id':
+                    return f"""❌ **Error dalam Analisis Timeframe**
+
+Gagal menganalisis {symbol} pada timeframe {timeframe}.
+Error: {timeframe_data.get('error')}
+
+Silakan coba dengan timeframe lain atau symbol yang berbeda."""
+                else:
+                    return f"""❌ **Error in Timeframe Analysis**
+
+Failed to analyze {symbol} on {timeframe} timeframe.
+Error: {timeframe_data.get('error')}
+
+Please try with different timeframe or symbol."""
+
+            # Extract data
+            price_data = timeframe_data.get('price_data', {})
+            trend_analysis = timeframe_data.get('trend_analysis', {})
+            support_resistance = timeframe_data.get('support_resistance', {})
+            volatility = timeframe_data.get('volatility', {})
+            mark_data = timeframe_data.get('mark_data', {})
+            funding_data = timeframe_data.get('funding_data', {})
+            ls_data = timeframe_data.get('long_short_data', {})
+            candlesticks = timeframe_data.get('candlesticks', [])
+
+            current_price = price_data.get('price', 0)
+            price_change = price_data.get('change_24h', 0)
+
+            if language == 'id':
+                message = f"""📊 **Analisis Timeframe {timeframe.upper()} - {symbol}**
+
+💰 **Data Harga Real-time:**
+- Current Price: ${self._format_price_smart(current_price)}
+- 24h Change: {price_change:+.2f}%
+- Timeframe: {timeframe}
+- Volume 24h: ${price_data.get('volume_24h', 0):,.0f}
+
+📈 **Analisis Trend ({timeframe}):**
+- Trend Direction: {self._format_trend_id(trend_analysis.get('direction', 'neutral'))}
+- Trend Strength: {self._format_strength_id(trend_analysis.get('strength', 'weak'))}
+- Price Change: {trend_analysis.get('price_change_pct', 0):+.2f}%
+- SMA 5: ${self._format_price_smart(trend_analysis.get('sma_5', 0))}
+- SMA 10: ${self._format_price_smart(trend_analysis.get('sma_10', 0))}
+- SMA 20: ${self._format_price_smart(trend_analysis.get('sma_20', 0))}
+
+🎯 **Support & Resistance:**
+- Support: ${self._format_price_smart(support_resistance.get('support', 0))}
+- Resistance: ${self._format_price_smart(support_resistance.get('resistance', 0))}
+- Distance to Support: {support_resistance.get('distance_to_support', 0):.1f}%
+- Distance to Resistance: {support_resistance.get('distance_to_resistance', 0):.1f}%
+
+⚡ **Volatility Analysis:**
+- Volatility Level: {self._format_volatility_id(volatility.get('volatility', 'low'))}
+- Price Range (10 periods): {volatility.get('price_range', 0):.2f}%
+- ATR: {volatility.get('atr', 0):.4f}
+
+📊 **Futures Data:**
+- Long/Short Ratio: {ls_data.get('long_ratio', 50):.1f}% / {ls_data.get('short_ratio', 50):.1f}%
+- Funding Rate: {funding_data.get('last_funding_rate', 0)*100:.4f}%
+- Mark Price: ${self._format_price_smart(mark_data.get('mark_price', 0))}
+
+🔍 **Recent Candlesticks:**
+{self._format_recent_candles(candlesticks[-5:], language)}
+
+⚡ **Trading Signal ({timeframe}):**
+{self._generate_timeframe_signal(trend_analysis, support_resistance, volatility, ls_data, current_price, language)}
+
+⚠️ **Risk Management:**
+- Stop Loss: {self._calculate_stop_loss(current_price, support_resistance, trend_analysis):.2f}
+- Take Profit: {self._calculate_take_profit(current_price, support_resistance, trend_analysis):.2f}
+- Position Size: {self._recommend_position_size(volatility, language)}
+
+🕐 **Update:** {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Source:** Multiple Binance APIs (Real-time)"""
+
+            else:
+                message = f"""📊 **{timeframe.upper()} Timeframe Analysis - {symbol}**
+
+💰 **Real-time Price Data:**
+- Current Price: ${self._format_price_smart(current_price)}
+- 24h Change: {price_change:+.2f}%
+- Timeframe: {timeframe}
+- Volume 24h: ${price_data.get('volume_24h', 0):,.0f}
+
+📈 **Trend Analysis ({timeframe}):**
+- Trend Direction: {trend_analysis.get('direction', 'neutral').title()}
+- Trend Strength: {trend_analysis.get('strength', 'weak').title()}
+- Price Change: {trend_analysis.get('price_change_pct', 0):+.2f}%
+- SMA 5: ${self._format_price_smart(trend_analysis.get('sma_5', 0))}
+- SMA 10: ${self._format_price_smart(trend_analysis.get('sma_10', 0))}
+- SMA 20: ${self._format_price_smart(trend_analysis.get('sma_20', 0))}
+
+🎯 **Support & Resistance:**
+- Support: ${self._format_price_smart(support_resistance.get('support', 0))}
+- Resistance: ${self._format_price_smart(support_resistance.get('resistance', 0))}
+- Distance to Support: {support_resistance.get('distance_to_support', 0):.1f}%
+- Distance to Resistance: {support_resistance.get('distance_to_resistance', 0):.1f}%
+
+⚡ **Volatility Analysis:**
+- Volatility Level: {volatility.get('volatility', 'low').replace('_', ' ').title()}
+- Price Range (10 periods): {volatility.get('price_range', 0):.2f}%
+- ATR: {volatility.get('atr', 0):.4f}
+
+📊 **Futures Data:**
+- Long/Short Ratio: {ls_data.get('long_ratio', 50):.1f}% / {ls_data.get('short_ratio', 50):.1f}%
+- Funding Rate: {funding_data.get('last_funding_rate', 0)*100:.4f}%
+- Mark Price: ${self._format_price_smart(mark_data.get('mark_price', 0))}
+
+🔍 **Recent Candlesticks:**
+{self._format_recent_candles(candlesticks[-5:], language)}
+
+⚡ **Trading Signal ({timeframe}):**
+{self._generate_timeframe_signal(trend_analysis, support_resistance, volatility, ls_data, current_price, language)}
+
+⚠️ **Risk Management:**
+- Stop Loss: {self._calculate_stop_loss(current_price, support_resistance, trend_analysis):.2f}
+- Take Profit: {self._calculate_take_profit(current_price, support_resistance, trend_analysis):.2f}
+- Position Size: {self._recommend_position_size(volatility, language)}
+
+🕐 **Update:** {datetime.now().strftime('%H:%M:%S')}
+📡 **Source:** Multiple Binance APIs (Real-time)"""
+
+            return message
+
+        except Exception as e:
+            print(f"Error in generate_timeframe_analysis: {e}")
+            if language == 'id':
+                return f"""❌ **Error dalam Analisis Timeframe {symbol}**
+
+Terjadi kesalahan saat menganalisis timeframe {timeframe}.
+Error: {str(e)}
+
+Silakan coba lagi atau gunakan timeframe lain."""
+            else:
+                return f"""❌ **Error in Timeframe Analysis {symbol}**
+
+Error occurred while analyzing {timeframe} timeframe.
+Error: {str(e)}
+
+Please try again or use different timeframe."""
+
+    def _format_price_smart(self, price):
+        """Smart price formatting"""
+        if price >= 1000:
+            return f"{price:,.2f}"
+        elif price >= 1:
+            return f"{price:.4f}"
+        elif price >= 0.01:
+            return f"{price:.6f}"
+        else:
+            return f"{price:.8f}"
+
+    def _format_trend_id(self, trend):
+        """Format trend in Indonesian"""
+        mapping = {
+            'bullish': '🟢 Bullish (Naik)',
+            'bearish': '🔴 Bearish (Turun)', 
+            'sideways': '🟡 Sideways (Samping)',
+            'neutral': '⚪ Neutral'
+        }
+        return mapping.get(trend, trend)
+
+    def _format_strength_id(self, strength):
+        """Format strength in Indonesian"""
+        mapping = {
+            'strong': '💪 Kuat',
+            'moderate': '📊 Sedang',
+            'weak': '📉 Lemah'
+        }
+        return mapping.get(strength, strength)
+
+    def _format_volatility_id(self, volatility):
+        """Format volatility in Indonesian"""
+        mapping = {
+            'very_high': '🔴 Sangat Tinggi',
+            'high': '🟠 Tinggi',
+            'moderate': '🟡 Sedang',
+            'low': '🟢 Rendah'
+        }
+        return mapping.get(volatility, volatility)
+
+    def _format_recent_candles(self, candles, language='id'):
+        """Format recent candlesticks"""
+        if not candles:
+            return "Data candlestick tidak tersedia" if language == 'id' else "Candlestick data unavailable"
+
+        result = ""
+        for i, candle in enumerate(candles[-3:]):  # Last 3 candles
+            open_price = float(candle['open'])
+            close_price = float(candle['close'])
+            change = ((close_price - open_price) / open_price) * 100
+            change_emoji = "🟢" if change >= 0 else "🔴"
+            
+            time_str = candle.get('close_time_iso', '')[:16].replace('T', ' ')
+            result += f"{change_emoji} {time_str}: {change:+.2f}%\n"
+
+        return result
+
+    def _generate_timeframe_signal(self, trend_analysis, support_resistance, volatility, ls_data, current_price, language='id'):
+        """Generate trading signal based on timeframe analysis"""
+        signal_score = 0
+        signals = []
+
+        # Trend signal
+        direction = trend_analysis.get('direction', 'neutral')
+        strength = trend_analysis.get('strength', 'weak')
+        
+        if direction == 'bullish' and strength == 'strong':
+            signal_score += 3
+            signals.append("🟢 Strong bullish trend")
+        elif direction == 'bullish':
+            signal_score += 1
+            signals.append("🟡 Moderate bullish trend")
+        elif direction == 'bearish' and strength == 'strong':
+            signal_score -= 3
+            signals.append("🔴 Strong bearish trend")
+        elif direction == 'bearish':
+            signal_score -= 1
+            signals.append("🟡 Moderate bearish trend")
+
+        # Support/Resistance signal
+        dist_to_support = support_resistance.get('distance_to_support', 0)
+        dist_to_resistance = support_resistance.get('distance_to_resistance', 0)
+
+        if dist_to_support < 2:
+            signal_score += 1
+            signals.append("🎯 Near support level")
+        elif dist_to_resistance < 2:
+            signal_score -= 1
+            signals.append("⚠️ Near resistance level")
+
+        # Long/Short ratio signal
+        long_ratio = ls_data.get('long_ratio', 50)
+        if long_ratio > 70:
+            signal_score -= 1
+            signals.append("📊 High long bias (contrarian bearish)")
+        elif long_ratio < 30:
+            signal_score += 1
+            signals.append("📊 High short bias (contrarian bullish)")
+
+        # Final signal
+        if signal_score >= 3:
+            signal_type = "🟢 STRONG BUY" if language == 'id' else "🟢 STRONG BUY"
+        elif signal_score >= 1:
+            signal_type = "🟡 BUY" if language == 'id' else "🟡 BUY"
+        elif signal_score <= -3:
+            signal_type = "🔴 STRONG SELL" if language == 'id' else "🔴 STRONG SELL"
+        elif signal_score <= -1:
+            signal_type = "🟡 SELL" if language == 'id' else "🟡 SELL"
+        else:
+            signal_type = "⚪ HOLD" if language == 'id' else "⚪ HOLD"
+
+        result = f"**Signal: {signal_type}** (Score: {signal_score}/5)\n\n"
+        result += "**Faktor Signal:**\n" if language == 'id' else "**Signal Factors:**\n"
+        for signal in signals[:4]:  # Top 4 signals
+            result += f"• {signal}\n"
+
+        return result
+
+    def _calculate_stop_loss(self, current_price, support_resistance, trend_analysis):
+        """Calculate stop loss level"""
+        direction = trend_analysis.get('direction', 'neutral')
+        
+        if direction == 'bullish':
+            support = support_resistance.get('support', current_price * 0.95)
+            return support * 0.99  # Just below support
+        else:
+            resistance = support_resistance.get('resistance', current_price * 1.05)
+            return resistance * 1.01  # Just above resistance
+
+    def _calculate_take_profit(self, current_price, support_resistance, trend_analysis):
+        """Calculate take profit level"""
+        direction = trend_analysis.get('direction', 'neutral')
+        
+        if direction == 'bullish':
+            resistance = support_resistance.get('resistance', current_price * 1.05)
+            return resistance * 0.99  # Just below resistance
+        else:
+            support = support_resistance.get('support', current_price * 0.95)
+            return support * 1.01  # Just above support
+
+    def _recommend_position_size(self, volatility, language='id'):
+        """Recommend position size based on volatility"""
+        vol_level = volatility.get('volatility', 'low')
+        
+        if vol_level == 'very_high':
+            return "Sangat kecil (1-2%)" if language == 'id' else "Very small (1-2%)"
+        elif vol_level == 'high':
+            return "Kecil (2-3%)" if language == 'id' else "Small (2-3%)"
+        elif vol_level == 'moderate':
+            return "Normal (3-5%)" if language == 'id' else "Normal (3-5%)"
+        else:
+            return "Standard (5-10%)" if language == 'id' else "Standard (5-10%)"
 
     def generate_futures_signals(self, language='id', crypto_api=None):
         """Generate advanced futures trading signals with comprehensive multi-API analysis"""

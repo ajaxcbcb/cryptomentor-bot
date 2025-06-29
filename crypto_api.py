@@ -546,6 +546,163 @@ class CryptoAPI:
         ]
         return mock_news[:limit]
 
+    def get_timeframe_analysis(self, symbol, timeframe='1h'):
+        """Get comprehensive timeframe analysis using Binance API"""
+        try:
+            # Get candlestick data for the timeframe
+            candles_data = self.get_binance_candlestick(symbol, timeframe, 50)
+            if 'error' in candles_data:
+                return {'error': f"Failed to get candlestick data: {candles_data.get('error')}"}
+
+            # Get current price and futures data
+            price_data = self.get_binance_futures_price(symbol)
+            mark_data = self.get_binance_mark_price(symbol)
+            funding_data = self.get_binance_funding_rate(symbol)
+            oi_data = self.get_binance_open_interest(symbol)
+            ls_data = self.get_binance_long_short_ratio(symbol)
+            liq_data = self.get_binance_liquidation_orders(symbol)
+
+            # Analyze candlestick patterns and trends
+            candlesticks = candles_data.get('candlesticks', [])
+            trend_analysis = self._analyze_trend_from_candles(candlesticks, timeframe)
+            support_resistance = self._calculate_support_resistance(candlesticks)
+            volatility = self._calculate_volatility(candlesticks)
+
+            return {
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'price_data': price_data,
+                'mark_data': mark_data,
+                'funding_data': funding_data,
+                'open_interest_data': oi_data,
+                'long_short_data': ls_data,
+                'liquidation_data': liq_data,
+                'candlesticks': candlesticks[-20:],  # Last 20 candles
+                'trend_analysis': trend_analysis,
+                'support_resistance': support_resistance,
+                'volatility': volatility,
+                'source': 'binance_timeframe_analysis'
+            }
+        except Exception as e:
+            return {'error': f"Timeframe analysis error: {str(e)}"}
+
+    def _analyze_trend_from_candles(self, candlesticks, timeframe):
+        """Analyze trend from candlestick data"""
+        if not candlesticks or len(candlesticks) < 10:
+            return {'trend': 'unknown', 'strength': 'weak', 'direction': 'neutral'}
+
+        # Calculate trend using moving averages
+        closes = [float(candle['close']) for candle in candlesticks[-20:]]
+        
+        # Simple moving averages
+        sma_5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else closes[-1]
+        sma_10 = sum(closes[-10:]) / 10 if len(closes) >= 10 else closes[-1]
+        sma_20 = sum(closes) / len(closes)
+
+        # Trend direction
+        if sma_5 > sma_10 > sma_20:
+            direction = 'bullish'
+            strength = 'strong' if (sma_5 - sma_20) / sma_20 > 0.02 else 'moderate'
+        elif sma_5 < sma_10 < sma_20:
+            direction = 'bearish'
+            strength = 'strong' if (sma_20 - sma_5) / sma_20 > 0.02 else 'moderate'
+        else:
+            direction = 'sideways'
+            strength = 'weak'
+
+        # Calculate momentum
+        price_change = (closes[-1] - closes[0]) / closes[0] * 100
+        
+        return {
+            'trend': direction,
+            'strength': strength,
+            'direction': direction,
+            'price_change_pct': price_change,
+            'sma_5': sma_5,
+            'sma_10': sma_10,
+            'sma_20': sma_20,
+            'timeframe': timeframe
+        }
+
+    def _calculate_support_resistance(self, candlesticks):
+        """Calculate support and resistance levels"""
+        if not candlesticks or len(candlesticks) < 10:
+            return {'support': 0, 'resistance': 0, 'levels': []}
+
+        highs = [float(candle['high']) for candle in candlesticks[-20:]]
+        lows = [float(candle['low']) for candle in candlesticks[-20:]]
+
+        # Simple support/resistance calculation
+        resistance = max(highs)
+        support = min(lows)
+        
+        # Current price
+        current_price = float(candlesticks[-1]['close'])
+        
+        # Calculate key levels
+        levels = []
+        for i in range(1, len(candlesticks) - 1):
+            high = float(candlesticks[i]['high'])
+            low = float(candlesticks[i]['low'])
+            
+            # Check for local highs (resistance)
+            if (high > float(candlesticks[i-1]['high']) and 
+                high > float(candlesticks[i+1]['high'])):
+                levels.append({'type': 'resistance', 'price': high})
+            
+            # Check for local lows (support)
+            if (low < float(candlesticks[i-1]['low']) and 
+                low < float(candlesticks[i+1]['low'])):
+                levels.append({'type': 'support', 'price': low})
+
+        return {
+            'support': support,
+            'resistance': resistance,
+            'current_price': current_price,
+            'distance_to_support': (current_price - support) / current_price * 100,
+            'distance_to_resistance': (resistance - current_price) / current_price * 100,
+            'key_levels': levels[-5:]  # Last 5 key levels
+        }
+
+    def _calculate_volatility(self, candlesticks):
+        """Calculate volatility metrics"""
+        if not candlesticks or len(candlesticks) < 10:
+            return {'volatility': 'low', 'atr': 0, 'price_range': 0}
+
+        # Calculate Average True Range (ATR)
+        atr_values = []
+        for i in range(1, len(candlesticks)):
+            high = float(candlesticks[i]['high'])
+            low = float(candlesticks[i]['low'])
+            prev_close = float(candlesticks[i-1]['close'])
+            
+            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+            atr_values.append(tr)
+
+        atr = sum(atr_values[-14:]) / min(14, len(atr_values))  # 14-period ATR
+        
+        # Calculate price range
+        recent_highs = [float(c['high']) for c in candlesticks[-10:]]
+        recent_lows = [float(c['low']) for c in candlesticks[-10:]]
+        price_range = (max(recent_highs) - min(recent_lows)) / min(recent_lows) * 100
+
+        # Volatility classification
+        if price_range > 10:
+            volatility = 'very_high'
+        elif price_range > 5:
+            volatility = 'high'
+        elif price_range > 2:
+            volatility = 'moderate'
+        else:
+            volatility = 'low'
+
+        return {
+            'volatility': volatility,
+            'atr': atr,
+            'price_range': price_range,
+            'classification': volatility
+        }
+
     def get_market_overview(self):
         """Get market overview data"""
         try:
