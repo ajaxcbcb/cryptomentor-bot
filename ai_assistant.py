@@ -1371,6 +1371,72 @@ Risk Factors:"""
         if total_liq < 50000000:
             return "🟢 Low Liquidation Risk: Minimal liquidation activity"
         
+        if total_liq > 200000000:  # >200M liquidation
+            if long_liq > short_liq * 2:  # 2x more long liquidations
+                return f"""🔴 **EXTREME LONG LIQUIDATION CASCADE**
+- Massive long liquidation: ${long_liq:,.0f}
+- Total liquidation: ${total_liq:,.0f}
+- Pattern: Long squeeze in progress
+- Signal: Extreme bearish pressure
+- Action: AVOID longs until stabilization"""
+            
+            elif short_liq > long_liq * 2:  # 2x more short liquidations
+                return f"""🔴 **EXTREME SHORT LIQUIDATION CASCADE**
+- Massive short liquidation: ${short_liq:,.0f}
+- Total liquidation: ${total_liq:,.0f}
+- Pattern: Short squeeze in progress
+- Signal: Extreme bullish pressure
+- Action: AVOID shorts until stabilization"""
+            
+            else:
+                return f"""🔴 **EXTREME MIXED LIQUIDATION EVENT**
+- Total liquidation: ${total_liq:,.0f}
+- Balanced liquidation between long/short
+- Pattern: High volatility environment
+- Signal: Extreme caution needed
+- Action: Reduce position size"""
+
+        elif total_liq > 100000000:  # 100-200M liquidation
+            if long_liq > short_liq * 1.5:  # 1.5x more long liquidations
+                return f"""🟡 **MODERATE LONG LIQUIDATION WAVE**
+- Long liquidation: ${long_liq:,.0f}
+- Total liquidation: ${total_liq:,.0f}
+- Pattern: Long position cleanup
+- Signal: Bearish momentum
+- Action: Careful with long entries"""
+            
+            elif short_liq > long_liq * 1.5:  # 1.5x more short liquidations
+                return f"""🟡 **MODERATE SHORT LIQUIDATION WAVE**
+- Short liquidation: ${short_liq:,.0f}
+- Total liquidation: ${total_liq:,.0f}
+- Pattern: Short position cleanup
+- Signal: Bullish momentum
+- Action: Careful with short entries"""
+            
+            else:
+                return f"""🟡 **MODERATE MIXED LIQUIDATION**
+- Total liquidation: ${total_liq:,.0f}
+- Balanced liquidation between long/short
+- Pattern: High volatility environment
+- Signal: Extreme caution needed
+- Action: Reduce position size"""
+
+        elif total_liq > 50000000:  # 50-100M liquidation
+            return f"""🟡 **MODERATE LIQUIDATION RISK**
+- Total liquidasi: ${total_liq:,.0f}
+- Aktivitas liquidasi sedang
+- Pattern: Normal market volatility
+- Signal: Standard risk management
+- Action: Use proper stop losses"""
+
+        else:
+            return f"""🟢 **LOW LIQUIDATION RISK**
+- Total liquidasi: ${total_liq:,.0f}
+- Liquidasi minimal detected
+- Pattern: Stable market conditions
+- Signal: Lower risk environment
+- Action: Normal position sizing OK"""ity"
+        
         liq_ratio = long_liq / (short_liq + 1)  # Avoid division by zero
         
         if long_liq > short_liq * 3 and total_liq > 100000000:
@@ -1890,10 +1956,24 @@ Use proper risk management and don't FOMO!"""
 
             # Check if we have enough data
             if len(comprehensive_analysis) == 0:
-                if language == 'id':
-                    return """❌ **Data Tidak Tersedia**
+            if language == 'id':
+                return """❌ **Data Tidak Tersedia**
 
-Gagal mengambil data komprehensif untuk semua symbol.
+Gagal mengambil data pasar real-time. Silakan coba lagi dalam beberapa menit.
+
+💡 **Saran:**
+• Cek koneksi internet Anda
+• Coba command lain seperti `/price btc`
+• Hubungi admin jika masalah berlanjut"""
+            else:
+                return """❌ **Data Unavailable**
+
+Failed to fetch real-time market data. Please try again in a few minutes.
+
+💡 **Suggestions:**
+• Check your internet connection
+• Try other commands like `/price btc`
+• Contact admin if issue persists""" data komprehensif untuk semua symbol.
 Silakan coba lagi dalam beberapa menit.
 
 📊 Alternatif: Gunakan `/futures <symbol>` untuk analisis individual.
@@ -2248,7 +2328,6 @@ Futures trading is high risk!"""
                 neutral_count += 1
 
         # Calculate sentiment score (1-10)
-
         if total_articles > 0:
             score = (
                 (positive_count * 2 + neutral_count) / total_articles) * 5 + 5
@@ -2336,8 +2415,18 @@ Futures trading is high risk!"""
                     emoji = '⭐'
 
                 reasons_id = {
-                    'Strong ecosystem growth':
-                    'Pertumbuhan ekosistem yang kuat',
+                    'Strong ecosystem growth': 'Pertumbuhan ekosistem yang kuat',
+                    'DeFi adoption increasing': 'Adopsi DeFi meningkat',
+                    'Layer 2 scaling solution': 'Solusi scaling Layer 2',
+                    'Interoperability focus': 'Fokus interoperabilitas',
+                    'Oracle network leader': 'Leader jaringan oracle',
+                    'Smart contract development': 'Pengembangan smart contract'
+                }
+                
+                reason_id = reasons_id.get(coin['reason'], coin['reason'])
+                watchlist.append(f"{emoji} **{coin['name']}** ({coin['potential']}): {reason_id}")
+                
+            return '\n'.join(watchlist)
                     'DeFi adoption increasing': 'Adopsi DeFi meningkat',
                     'Layer 2 scaling solution': 'Solusi scaling Layer 2',
                     'Interoperability focus': 'Fokus interoperabilitas',
@@ -3404,8 +3493,20 @@ Confidence Factors:
 - Action: AVOID longs, monitor for reversal"""
 
                 elif short_liq > long_liq * 3:  # 3x more short liquidations
-                    return """🪤 **SHORT LIQUIDATION TRAP DETECTED**
+                    return f"""🪤 **SHORT LIQUIDATION TRAP DETECTED**
 - Massive short liquidation: ${short_liq:,.0f}
+- Liquidation ratio: Short dominant 3:1
+- Pattern: Short trap in progress
+- Signal: Expect further upside
+- Action: AVOID shorts, monitor for reversal"""
+                
+                else:
+                    return f"""🔥 **EXTREME LIQUIDATION CHAOS**
+- Total liquidation: ${total_liq:,.0f}
+- Mixed liquidation environment
+- Pattern: Extreme market volatility
+- Signal: Market in panic mode
+- Action: STAY OUT until clarity"""ve short liquidation: ${short_liq:,.0f}
 - Liquidation ratio: Short dominant 3:1
 - Pattern: Short squeeze in progress
 - Signal: Expect further upside
