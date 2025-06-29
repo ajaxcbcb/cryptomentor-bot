@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
+
 class AIAssistant:
 
     def __init__(self, name="CryptoMentor AI"):
@@ -2275,24 +2277,10 @@ Use proper risk management and don't FOMO!"""
 
             # Check if we have enough data
             if len(comprehensive_analysis) == 0:
-            if language == 'id':
-                return """❌ **Data Tidak Tersedia**
+                if language == 'id':
+                    return """❌ **Data Tidak Tersedia**
 
-Gagal mengambil data pasar real-time. Silakan coba lagi dalam beberapa menit.
-
-💡 **Saran:**
-• Cek koneksi internet Anda
-• Coba command lain seperti `/price btc`
-• Hubungi admin jika masalah berlanjut"""
-            else:
-                return """❌ **Data Unavailable**
-
-Failed to fetch real-time market data. Please try again in a few minutes.
-
-💡 **Suggestions:**
-• Check your internet connection
-• Try other commands like `/price btc`
-• Contact admin if issue persists""" data komprehensif untuk semua symbol.
+Gagal mengambil data komprehensif untuk semua symbol.
 Silakan coba lagi dalam beberapa menit.
 
 📊 Alternatif: Gunakan `/futures <symbol>` untuk analisis individual.
@@ -2576,6 +2564,43 @@ Futures trading is high risk!"""
                 symbol, sentiment_score, language)
 
             message = f"""📊 **Fundamental Analysis {symbol}**
+
+💰 **Price & Performance Data:**
+- Current Price: ${price_data.get('price', 0):,.2f}
+- 24h Change: {price_data.get('change_24h', 0):+.2f}%
+- Volume: ${price_data.get('volume_24h', 0):,.0f}
+
+📰 **1. Market Sentiment & Trend Analysis:**
+{sentiment_score['analysis']}
+- Sentiment Score: {sentiment_score['score']}/10
+- Trend Direction: {sentiment_score['trend']}
+- News Impact: {sentiment_score['impact']}
+
+🚀 **2. Altcoin Watchlist:**
+{altcoins}
+
+⚠️ **3. Risk Assessment & Alerts:**
+- Risk Level: {risk_level}
+{risk_warnings}
+
+🔄 **4. Contrarian Analysis:**
+{contrarian_signal}
+
+📅 **5. Weekly Market Outlook:**
+{weekly_strategy}
+
+📈 **Futures Data (Reference):**
+- Long Ratio: {futures_data.get('long_ratio', 0)}%
+- Short Ratio: {futures_data.get('short_ratio', 0)}%
+- L/S Ratio: {futures_data.get('long_short_ratio', 0)}
+
+📊 **Analysis Summary:**
+- Fundamental outlook shows {sentiment_score['trend'].lower()} trend
+- Market structure indicates normal conditions
+- Volume activity shows moderate interest
+- Risk assessment: {risk_level.split()[1] if len(risk_level.split()) > 1 else 'Moderate'}
+
+📊 Source: {futures_data.get('source', 'API')} | ⏰ Real-time"""
 
 💰 **Price & Performance Data:**
 - Current Price: ${price_data.get('price', 0):,.2f}
