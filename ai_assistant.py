@@ -1008,13 +1008,14 @@ Ask me anything about crypto! 🚀"""
 - Confidence: {confidence}
 - Signal Score: {signal_score:+.1f}/5
 📋 **Signal Factors:**"""
-                for factor in signal_factors[:5]:  # Show top 5 factors
-            analysis += f"\n  • {factor}"
+for factor in signal_factors[:5]:  # Show top 5 factors
+    analysis += f"\n  • {factor}"
                     return analysis
+            
     def _generate_technical_analysis(self, price, change_24h, volume, long_ratio, funding_rate):
         """Generate technical analysis"""
-                analyses = []
-                # Price momentum
+        analyses = []
+        # Price momentum
         if abs(change_24h) > 5:
             momentum = "Strong"
             analyses.append(f"📈 Momentum: {momentum} ({change_24h:+.1f}%)")
@@ -1051,9 +1052,9 @@ Ask me anything about crypto! 🚀"""
                 return "\n".join(analyses)
     def _generate_risk_assessment(self, long_ratio, oi_change, funding_rate, total_liq, market_trend):
         """Generate comprehensive risk assessment"""
-                risk_score = 0
+        risk_score = 0
         risk_factors = []
-                # Long ratio risk
+        # Long ratio risk
         if long_ratio > 75 or long_ratio < 25:
             risk_score += 2
             risk_factors.append("⚠️ Extreme position bias")
