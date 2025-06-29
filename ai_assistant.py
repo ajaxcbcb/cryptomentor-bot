@@ -2602,10 +2602,13 @@ Futures trading is high risk!"""
 
 📊 Source: {futures_data.get('source', 'API')} | ⏰ Real-time"""
 
-💰 **Price & Performance Data:**
+return f"""💰 **Price & Performance Data:**
+
 - Current Price: ${price_data.get('price', 0):,.2f}
 - 24h Change: {price_data.get('change_24h', 0):+.2f}%
 - Volume: ${price_data.get('volume_24h', 0):,.0f}
+"""
+
 
 📰 **1. Market Sentiment & Trend Analysis:**
 {sentiment_score['analysis']}
