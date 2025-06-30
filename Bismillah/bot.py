@@ -559,7 +559,7 @@ Contoh: `/add_coin btc 0.5`
         await update.message.reply_text(message)
 
     async def market_command(self, update: Update, context: CallbackContext):
-        """Handle /market command"""
+        """Handle /market command with enhanced error handling"""
         user_id = update.message.from_user.id
         credits = self.db.get_user_credits(user_id)
         is_premium = self.db.is_user_premium(user_id)
@@ -570,12 +570,33 @@ Contoh: `/add_coin btc 0.5`
             await update.message.reply_text("❌ Credit tidak cukup! Overview pasar membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
 
-        # Show loading message for comprehensive analysis
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time...")
+        # Show enhanced loading message
+        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari multiple API...")
 
         try:
+            print(f"🔄 Market command initiated by user {user_id}")
+            
+            # Verify API availability first
+            if not self.crypto_api:
+                await loading_msg.edit_text("❌ API tidak tersedia. Silakan coba lagi dalam beberapa menit.", parse_mode='Markdown')
+                return
+
             # Get comprehensive market overview with real-time data
+            print("📊 Calling AI market sentiment analysis...")
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
+            
+            if not market_data or len(market_data.strip()) < 50:
+                # Fallback if data is too short
+                market_data = """🌍 **OVERVIEW PASAR CRYPTO**
+
+⚠️ **Data sementara tidak lengkap**
+
+💡 **Alternatif yang bisa dicoba:**
+• `/price btc` - Cek harga Bitcoin
+• `/price eth` - Cek harga Ethereum  
+• `/analyze btc` - Analisis mendalam Bitcoin
+
+🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
             # Deduct credit only for non-premium, non-admin users (20 credits for market overview)
             if not is_premium and not is_admin:
@@ -587,12 +608,26 @@ Contoh: `/add_coin btc 0.5`
             elif is_admin:
                 market_data += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Edit loading message with the comprehensive overview
-            await loading_msg.edit_text(market_data, parse_mode='Markdown')
+            print(f"✅ Market analysis completed, sending response ({len(market_data)} chars)")
+
+            # Handle long messages
+            if len(market_data) > 4000:
+                # Split into chunks
+                chunks = [market_data[i:i+4000] for i in range(0, len(market_data), 4000)]
+                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                
+                for chunk in chunks[1:]:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+            else:
+                # Edit loading message with the comprehensive overview
+                await loading_msg.edit_text(market_data, parse_mode='Markdown')
 
         except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan saat menganalisis pasar: {str(e)}")
-            print(f"Error in market command: {e}")
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc`\n• `/analyze ethereum`\n• `/futures_signals`"
+            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            print(f"❌ Error in market command: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def futures_signals_command(self, update: Update, context: CallbackContext):
         """Handle /futures_signals command with real-time data"""

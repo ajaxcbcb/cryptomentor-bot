@@ -212,126 +212,209 @@ I'm here to help you learn about cryptocurrency!
 Ask me anything about crypto! 🚀"""
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get comprehensive market overview with sentiment analysis using multiple APIs"""
+        """Get comprehensive market sentiment analysis using multiple APIs"""
+        from datetime import datetime
+
         try:
+            print(f"🔄 Generating comprehensive market overview...")
+
             if not crypto_api:
                 return self._get_fallback_market_overview(language)
 
-            # Get comprehensive market overview data
-            from datetime import datetime
-
-            # 1. Get global market data from CoinGecko
+            # Get comprehensive data from multiple sources
+            # 1. CoinGecko global data
             global_data = crypto_api.get_coingecko_global_data()
+
+            # 2. Enhanced market overview
             market_data = crypto_api.get_market_overview()
 
-            # 2. Get multi-symbol price data from Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOT', 'MATIC', 'AVAX', 'LINK']
-            multi_prices = crypto_api.get_multiple_prices(major_symbols)
+            # 3. Multiple price data from top cryptocurrencies
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'AVAX', 'LINK']
+            multi_prices = {}
+            print(f"📊 Fetching real-time data for {len(major_symbols)} major cryptocurrencies...")
 
-            # 3. Get crypto news for sentiment
-            news_data = crypto_api.get_crypto_news(3)
+            for symbol in major_symbols:
+                try:
+                    price_data = crypto_api.get_multi_api_price(symbol, force_refresh=True)
+                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        multi_prices[symbol] = price_data
+                        print(f"✅ {symbol}: ${price_data.get('price', 0):,.2f}")
+                except Exception as e:
+                    print(f"⚠️ Failed to get {symbol} data: {e}")
+                    continue
 
-            # 4. Get futures sentiment for BTC and ETH
-            futures_btc = crypto_api.get_binance_long_short_ratio('BTC')
-            futures_eth = crypto_api.get_binance_long_short_ratio('ETH')
+            # 4. Crypto news sentiment
+            try:
+                news_data = crypto_api.get_crypto_news(3)
+                if news_data and len(news_data) > 0:
+                    print(f"📰 Retrieved {len(news_data)} latest crypto news")
+                else:
+                    news_data = []
+            except:
+                news_data = []
 
-            # 5. Analyze comprehensive market health
+            # 5. Futures sentiment (BTC and ETH)
+            try:
+                futures_btc = crypto_api.get_binance_long_short_ratio('BTC')
+                print(f"📈 BTC L/S Ratio: {futures_btc.get('long_ratio', 0):.1f}%/{futures_btc.get('short_ratio', 0):.1f}%")
+            except:
+                futures_btc = {'long_ratio': 50, 'short_ratio': 50, 'source': 'fallback'}
+
+            try:
+                futures_eth = crypto_api.get_binance_long_short_ratio('ETH')
+                print(f"📈 ETH L/S Ratio: {futures_eth.get('long_ratio', 0):.1f}%/{futures_eth.get('short_ratio', 0):.1f}%")
+            except:
+                futures_eth = {'long_ratio': 50, 'short_ratio': 50, 'source': 'fallback'}
+
+            # 6. Additional market metrics
+            try:
+                btc_funding = crypto_api.get_binance_funding_rate('BTC')
+                eth_funding = crypto_api.get_binance_funding_rate('ETH')
+            except:
+                btc_funding = {'last_funding_rate': 0, 'source': 'fallback'}
+                eth_funding = {'last_funding_rate': 0, 'source': 'fallback'}
+
+            # Analyze comprehensive market health
             market_health = self._analyze_comprehensive_market_health(global_data, multi_prices, news_data)
+            print(f"🏥 Market Health Score: {market_health.get('score', 5)}/10 - {market_health.get('status', 'Unknown')}")
 
+            # Format comprehensive response
             if language == 'id':
-                return self._format_safe_market_overview_id(
+                return self._format_comprehensive_market_overview_id(
                     global_data, market_data, multi_prices, news_data, 
-                    futures_btc, futures_eth, market_health
+                    futures_btc, futures_eth, market_health, btc_funding, eth_funding
                 )
             else:
-                return self._format_safe_market_overview_en(
+                return self._format_comprehensive_market_overview_en(
                     global_data, market_data, multi_prices, news_data, 
-                    futures_btc, futures_eth, market_health
+                    futures_btc, futures_eth, market_health, btc_funding, eth_funding
                 )
 
         except Exception as e:
-            print(f"Error in comprehensive market overview: {e}")
-            return self._get_fallback_market_overview(language)
+            print(f"❌ Error in comprehensive market overview: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_fallback_market_overview_with_error(language, str(e))
 
     def _analyze_comprehensive_market_health(self, global_data, prices_data, news_data):
         """Analyze comprehensive market health from multiple APIs"""
         health_score = 5  # Base score
         health_factors = []
 
-        # CoinGecko global metrics
+        # 1. CoinGecko global metrics analysis
         if global_data and 'error' not in global_data:
             mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
             btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 50)
 
-            if mcap_change > 2:
+            # Market cap change scoring
+            if mcap_change > 5:
                 health_score += 2
-                health_factors.append("🟢 Market cap global naik kuat")
-            elif mcap_change > 0:
+                health_factors.append("📈 Market cap sangat bullish (+5%+)")
+            elif mcap_change > 2:
                 health_score += 1
-                health_factors.append("🟡 Market cap global naik moderat")
-            elif mcap_change < -2:
+                health_factors.append("📈 Market cap positif (+2%+)")
+            elif mcap_change > -2:
+                health_factors.append("📊 Market cap stabil (±2%)")
+            elif mcap_change > -5:
+                health_score -= 1
+                health_factors.append("📉 Market cap menurun (-2% to -5%)")
+            else:
                 health_score -= 2
-                health_factors.append("🔴 Market cap global turun")
-            else:
-                health_factors.append("⚪ Market cap global stabil")
+                health_factors.append("📉 Market cap sangat bearish (-5%+)")
 
-            if 45 <= btc_dominance <= 55:
+            # BTC dominance analysis
+            if 45 <= btc_dominance <= 60:
                 health_score += 1
-                health_factors.append(f"⚖️ BTC dominance seimbang ({btc_dominance:.1f}%)")
-            elif btc_dominance > 55:
-                health_factors.append(f"📈 BTC dominance tinggi ({btc_dominance:.1f}%) - Risk-off mode")
-            else:
-                health_factors.append(f"🔄 BTC dominance rendah ({btc_dominance:.1f}%) - Altcoin season")
+                health_factors.append("🟢 BTC dominance sehat (45-60%)")
+            elif btc_dominance > 65:
+                health_score -= 1
+                health_factors.append("🟡 BTC dominance terlalu tinggi (>65%)")
+            elif btc_dominance < 40:
+                health_score -= 1
+                health_factors.append("🟡 BTC dominance terlalu rendah (<40%)")
+        else:
+            health_score -= 1
+            health_factors.append("⚠️ Data global tidak tersedia")
 
-        # Price momentum analysis
-        if prices_data:
-            positive_moves = 0
-            total_moves = 0
+        # 2. Individual cryptocurrency performance analysis
+        if prices_data and len(prices_data) > 0:
+            positive_changes = sum(1 for data in prices_data.values() 
+                                 if isinstance(data, dict) and data.get('change_24h', 0) > 0)
+            total_cryptos = len(prices_data)
+            positive_ratio = positive_changes / total_cryptos if total_cryptos > 0 else 0
 
-            for symbol, data in prices_data.items():
-                change_24h = data.get('change_24h', 0)
-                if change_24h > 0:
-                    positive_moves += 1
-                total_moves += 1
+            # Calculate average change
+            changes = [data.get('change_24h', 0) for data in prices_data.values() 
+                      if isinstance(data, dict) and 'change_24h' in data]
+            avg_change = sum(changes) / len(changes) if changes else 0
 
-            if total_moves > 0:
-                positive_ratio = positive_moves / total_moves
-                if positive_ratio > 0.7:
-                    health_score += 1.5
-                    health_factors.append(f"🟢 {positive_moves}/{total_moves} major crypto naik (Bullish breadth)")
-                elif positive_ratio > 0.5:
-                    health_score += 0.5
-                    health_factors.append(f"🟡 {positive_moves}/{total_moves} major crypto naik (Mixed sentiment)")
-                else:
-                    health_score -= 1
-                    health_factors.append(f"🔴 {positive_moves}/{total_moves} major crypto naik (Bearish breadth)")
-
-        # News sentiment
-        if news_data and len(news_data) > 0:
-            news_sentiment = self._analyze_news_sentiment(news_data, 'MARKET')
-            if news_sentiment['score'] > 7:
+            if positive_ratio > 0.7:
+                health_score += 2
+                health_factors.append(f"🟢 {positive_ratio*100:.0f}% crypto naik (sangat bullish)")
+            elif positive_ratio > 0.5:
                 health_score += 1
-                health_factors.append("📰 Berita crypto sangat positif")
-            elif news_sentiment['score'] > 5:
-                health_factors.append("📰 Berita crypto netral-positif")
+                health_factors.append(f"🟢 {positive_ratio*100:.0f}% crypto naik (bullish)")
+            elif positive_ratio > 0.3:
+                health_factors.append(f"🟡 {positive_ratio*100:.0f}% crypto naik (mixed)")
             else:
                 health_score -= 1
-                health_factors.append("📰 Berita crypto negatif")
+                health_factors.append(f"🔴 {positive_ratio*100:.0f}% crypto naik (bearish)")
 
-        # Determine overall health
+            # Average change analysis
+            if avg_change > 3:
+                health_score += 1
+                health_factors.append(f"📈 Rata-rata perubahan: +{avg_change:.1f}%")
+            elif avg_change < -3:
+                health_score -= 1
+                health_factors.append(f"📉 Rata-rata perubahan: {avg_change:.1f}%")
+        else:
+            health_score -= 1
+            health_factors.append("⚠️ Data harga real-time terbatas")
+
+        # 3. News sentiment analysis
+        if news_data and len(news_data) > 0:
+            # Simple sentiment analysis based on news availability
+            health_score += 0.5
+            health_factors.append("📰 Berita crypto tersedia (sentiment normal)")
+
+            # Analyze news titles for sentiment keywords
+            positive_keywords = ['bull', 'rise', 'surge', 'pump', 'gain', 'rally', 'high', 'adoption', 'breakthrough']
+            negative_keywords = ['bear', 'fall', 'crash', 'dump', 'loss', 'decline', 'low', 'ban', 'hack']
+
+            news_sentiment = 0
+            for news in news_data[:3]:  # Check first 3 news
+                title = news.get('title', '').lower()
+                if any(keyword in title for keyword in positive_keywords):
+                    news_sentiment += 1
+                elif any(keyword in title for keyword in negative_keywords):
+                    news_sentiment -= 1
+
+            if news_sentiment > 0:
+                health_score += 0.5
+                health_factors.append("📰 Sentiment berita positif")
+            elif news_sentiment < 0:
+                health_score -= 0.5
+                health_factors.append("📰 Sentiment berita negatif")
+        else:
+            health_factors.append("📰 Data berita tidak tersedia")
+
+        # Ensure score stays within bounds
+        health_score = max(0, min(10, health_score))
+
+        # Determine overall health status
         if health_score >= 8:
             overall_health = "🟢 SANGAT SEHAT"
-        elif health_score >= 6:
+        elif health_score >= 6.5:
             overall_health = "🟢 SEHAT"
-        elif health_score >= 4:
+        elif health_score >= 5:
             overall_health = "🟡 STABIL"
-        elif health_score >= 2:
+        elif health_score >= 3:
             overall_health = "🟡 LEMAH"
         else:
             overall_health = "🔴 TIDAK SEHAT"
 
         return {
-            'score': health_score,
+            'score': round(health_score, 1),
             'status': overall_health,
             'factors': health_factors
         }
@@ -500,7 +583,7 @@ Ask me anything about crypto! 🚀"""
             print(f"Error formatting market overview (EN): {e}")
             return "❌ Failed to format market overview. Try again later."
 
-    def _format_comprehensive_market_overview_id(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health):
+    def _format_comprehensive_market_overview_id(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health, btc_funding=None, eth_funding=None):
         """Format comprehensive market overview in Indonesian using multiple APIs"""
         from datetime import datetime
 
@@ -555,8 +638,14 @@ Ask me anything about crypto! 🚀"""
         message += f"""
 
 ⚡ **4. Futures Sentiment (Binance):**
-- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%
+- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+        if btc_funding:
+            message += f" (Funding: {btc_funding.get('last_funding_rate', 0):.4f}%)"
+
+        message += f"""
 - **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+        if eth_funding:
+            message += f" (Funding: {eth_funding.get('last_funding_rate', 0):.4f}%)"
 
         # News sentiment
         if news_data and len(news_data) > 0:
@@ -577,7 +666,7 @@ Ask me anything about crypto! 🚀"""
 
         return message
 
-    def _format_comprehensive_market_overview_en(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health):
+    def _format_comprehensive_market_overview_en(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health, btc_funding=None, eth_funding=None):
         """Format comprehensive market overview in English using multiple APIs"""
         from datetime import datetime
 
@@ -593,7 +682,8 @@ Ask me anything about crypto! 🚀"""
             mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
             btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
             eth_dominance = global_data.get('market_cap_percentage', {}).get('eth', 0)
-            active_cryptos = global_data.get('active_cryptocurrencies', 0)
+            active_cryptos = global_data.get('```python
+active_cryptocurrencies', 0)
 
             message += f"""
 - **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
@@ -632,8 +722,14 @@ Ask me anything about crypto! 🚀"""
         message += f"""
 
 ⚡ **4. Futures Sentiment (Binance):**
-- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%
+- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+        if btc_funding:
+            message += f" (Funding: {btc_funding.get('last_funding_rate', 0):.4f}%)"
+
+        message += f"""
 - **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+        if eth_funding:
+            message += f" (Funding: {eth_funding.get('last_funding_rate', 0):.4f}%)"
 
         # News sentiment
         if news_data and len(news_data) > 0:
@@ -2470,3 +2566,36 @@ Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
             risk_factors.append("📊 Kondisi trading dalam range normal")
 
         return f"Risk Level: {risk_level}\n" + '\n'.join(risk_factors)
+
+    def _get_fallback_market_overview_with_error(self, language='id', error_message=""):
+        """Fallback market overview when APIs fail, including error message"""
+        if language == 'id':
+            return f"""❌ **OVERVIEW PASAR CRYPTO** (Mode Offline)
+
+💰 **Data Pasar:**
+- Total Market Cap: $2.4T (+1.5%)
+- Dominasi BTC: 52.3%
+- Crypto Aktif: 12,000+ koin
+
+📈 **Status:** Pasar dalam fase recovery
+
+⚠️ **Catatan:** Data real-time tidak tersedia, gunakan command lain untuk analisis live.
+
+**Error:** {error_message}
+
+Coba lagi dalam beberapa menit untuk data real-time."""
+        else:
+            return f"""❌ **CRYPTO MARKET OVERVIEW** (Offline Mode)
+
+💰 **Market Data:**
+- Total Market Cap: $2.4T (+1.5%)
+- BTC Dominance: 52.3%
+- Active Cryptos: 12,000+ coins
+
+📈 **Status:** Market in recovery phase
+
+⚠️ **Note:** Real-time data unavailable, use other commands for live analysis.
+
+**Error:** {error_message}
+
+Try again in a few minutes for real-time data."""
