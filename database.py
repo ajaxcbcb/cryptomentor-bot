@@ -452,7 +452,7 @@ class Database:
     def grant_premium(self, telegram_id, days=30):
         """Grant premium access to a user"""
         return self.grant_premium_access(telegram_id, None, days)
-    
+
     def grant_permanent_premium(self, telegram_id):
         """Grant permanent premium access to a user"""
         return self.grant_premium_access(telegram_id, None, None)
@@ -475,7 +475,86 @@ class Database:
             return row[0] if row else 0
         except Exception as e:
             print(f"DB Error (get_user_by_referral_code): {e}")
-            return 0
+            return
+
+    def update_user_language(self, telegram_id, language):
+        """Update user language preference"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET language = ? WHERE telegram_id = ?
+            """, (language, telegram_id))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (update_user_language): {e}")
+            return False
+
+    def get_bot_statistics(self):
+        """Get bot usage statistics"""
+        try:
+            # Total users
+            self.cursor.execute("SELECT COUNT(*) FROM users")
+            total_users = self.cursor.fetchone()[0]
+
+            # Premium users
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM users 
+                WHERE premium_expires_at > datetime('now') OR premium_expires_at IS NULL AND is_premium = 1
+            """)
+            premium_users = self.cursor.fetchone()[0]
+
+            # Active today (users with activity in last 24 hours)
+            self.cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM user_activity 
+                WHERE created_at > datetime('now', '-1 day')
+            """)
+            active_today = self.cursor.fetchone()[0]
+
+            # Total credits used (estimate based on activity)
+            self.cursor.execute("SELECT COUNT(*) FROM user_activity")
+            total_activities = self.cursor.fetchone()[0]
+            total_credits_used = total_activities * 15  # Average credit cost
+
+            return {
+                'total_users': total_users,
+                'premium_users': premium_users,
+                'active_today': active_today,
+                'total_credits_used': total_credits_used
+            }
+        except Exception as e:
+            print(f"DB Error (get_bot_statistics): {e}")
+            return {
+                'total_users': 0,
+                'premium_users': 0,
+                'active_today': 0,
+                'total_credits_used': 0
+            }
+
+    def get_recent_activity(self, limit=10):
+        """Get recent user activity"""
+        try:
+            self.cursor.execute("""
+                SELECT user_id, action, details, created_at 
+                FROM user_activity 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (limit,))
+
+            rows = self.cursor.fetchall()
+            activities = []
+
+            for row in rows:
+                activities.append({
+                    'user_id': row[0],
+                    'action': row[1],
+                    'details': row[2],
+                    'timestamp': row[3]
+                })
+
+            return activities
+        except Exception as e:
+            print(f"DB Error (get_recent_activity): {e}")
+            return []
 
     def get_referral_count(self, telegram_id):
         """Get number of successful referrals for a user"""
@@ -623,7 +702,7 @@ class Database:
             ]
         except Exception as e:
             print(f"DB Error (get_recent_activity): {e}")
-            return []
+            return [] []
 
     def get_all_users(self):
         """Get all users for broadcast functionality"""
@@ -635,7 +714,7 @@ class Database:
                 ORDER BY created_at DESC
             """)
             rows = self.cursor.fetchall()
-            
+
             users = []
             for row in rows:
                 if row[0] and str(row[0]).isdigit():  # Validate telegram_id
@@ -646,10 +725,10 @@ class Database:
                         'is_premium': row[3] or 0,
                         'created_at': row[4]
                     })
-            
+
             print(f"📊 Retrieved {len(users)} valid users for broadcast")
             return users
-            
+
         except Exception as e:
             print(f"DB Error (get_all_users): {e}")
             return []
