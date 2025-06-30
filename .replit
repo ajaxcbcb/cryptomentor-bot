@@ -1,0 +1,16 @@
+[deployment]
+run = ["sh", "-c", "cd Bismillah && python main.py"]
+deploymentTarget = "gce"
+ignorePorts = true
+
+[workflows]
+runButton = "Run Bot"
+
+[[workflows.workflow]]
+name = "Run Bot"
+author = 43938181
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd Bismillah && python main.py"
