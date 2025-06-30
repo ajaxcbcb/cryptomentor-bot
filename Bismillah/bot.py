@@ -237,52 +237,66 @@ class TelegramBot:
 
 🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari multiple API.
 
-🚀 **Fitur Premium:**
-• Analisis teknikal mendalam
-• Signal futures real-time  
-• Data multi-API (Binance + CoinGecko + CryptoNews)
-• Portfolio tracker advanced
-• Unlimited analysis
+📊 **Harga & Data Pasar:**
+• `/price <symbol>` - Harga real-time
+• `/market` - Overview pasar komprehensif
 
-💎 **Credits System:**
-• Analisis: 5 credits
-• Market overview: 3 credits  
-• Futures signals: 5 credits
-• Premium users: Unlimited
+📈 **Analisis Trading:**
+• `/analyze <symbol>` - Analisis mendalam (20 credit)
+• `/futures <symbol>` - Analisis futures 1 coin (20 credit)
+• `/futures_signals` - Sinyal futures lengkap (30 credit)
 
-📋 **Quick Start:**
-• `/price btc` - Cek harga Bitcoin
-• `/analyze eth` - Analisis Ethereum
-• `/market` - Overview pasar
+💼 **Portfolio & Credit:**
+• `/portfolio` - Lihat portfolio
+• `/add_coin <symbol> <amount>` - Tambah ke portfolio
+• `/credits` - Cek sisa credit
+• `/subscribe` - Upgrade premium
+
+🎯 **Lainnya:**
+• `/ask_ai <pertanyaan>` - Tanya AI crypto
+• `/referral` - Program referral
+• `/language` - Ubah bahasa
 • `/help` - Panduan lengkap
 
-Ketik command untuk memulai trading journey Anda! 📈"""
+💡 **Tips:**
+- Ketik nama crypto langsung untuk harga cepat
+- Fitur premium = unlimited access
+- Gunakan referral untuk bonus credit
+
+🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
         else:
             welcome_text = f"""🎉 **Welcome to CryptoMentor AI, {user.first_name}!**
 
 🤖 I'm your comprehensive crypto trading AI assistant with real-time multi-API data.
 
-🚀 **Premium Features:**
-• In-depth technical analysis
-• Real-time futures signals
-• Multi-API data (Binance + CoinGecko + CryptoNews)  
-• Advanced portfolio tracker
-• Unlimited analysis
+📊 **Price & Market Data:**
+• `/price <symbol>` - Real-time prices
+• `/market` - Comprehensive market overview
 
-💎 **Credits System:**
-• Analysis: 5 credits
-• Market overview: 3 credits
-• Futures signals: 5 credits
-• Premium users: Unlimited
+📈 **Trading Analysis:**
+• `/analyze <symbol>` - In-depth analysis (20 credit)
+• `/futures <symbol>` - Futures analysis 1 coin (20 credit)
+• `/futures_signals` - Complete futures signals (30 credit)
 
-📋 **Quick Start:**
-• `/price btc` - Check Bitcoin price
-• `/analyze eth` - Analyze Ethereum
-• `/market` - Market overview
+💼 **Portfolio & Credit:**
+• `/portfolio` - View portfolio
+• `/add_coin <symbol> <amount>` - Add to portfolio
+• `/credits` - Check remaining credit
+• `/subscribe` - Upgrade premium
+
+🎯 **Others:**
+• `/ask_ai <question>` - Ask AI crypto
+• `/referral` - Referral program
+• `/language` - Change language
 • `/help` - Complete guide
 
-Type a command to start your trading journey! 📈"""
+💡 **Tips:**
+- Type crypto name directly for quick price
+- Premium features = unlimited access
+- Use referral for bonus credit
+
+🚀 **All analysis uses real-time data from multiple APIs!**"""
 
         await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -677,44 +691,47 @@ Contoh: `/add_coin btc 0.5`
         is_admin = user_id == self.admin_id
 
         if is_admin:
-            message = f"""
-💳 **Credit Information - Admin**
+            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
-👑 Status: **ADMIN** 
-♾️ Credit: **UNLIMITED**
-🛠️ Akses penuh semua fitur dan kontrol bot!
+👑 **Status**: **ADMIN** 
+♾️ **Credit**: **UNLIMITED**
 
-Selamat mengelola CryptoMentor AI!
-            """
+🛠️ **Akses Admin:**
+• Unlimited semua fitur
+• Kontrol penuh bot
+• Panel admin tersedia
+
+Selamat mengelola CryptoMentor AI!"""
         elif is_premium:
-            message = f"""
-💳 **Credit Information - Premium User**
+            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
-⭐ Status: **PREMIUM** 
-♾️ Credit: **UNLIMITED**
-🚀 Akses penuh semua fitur!
+⭐ **Status**: **PREMIUM** 
+♾️ **Credit**: **UNLIMITED**
 
-Terima kasih telah menjadi member premium!
-            """
+🚀 **Fitur Premium:**
+• Unlimited analisis
+• Akses semua command
+• Priority support
+
+Terima kasih telah menjadi member premium!"""
         else:
-            message = f"""
-💳 **Credit Information - Free User**
+            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
-💰 Credit tersisa: **{credits}**
-📊 **Biaya per fitur:**
-• `/analyze` - 20 credit (analisis komprehensif)
-• `/futures` - 20 credit (analisis futures 1 coin)
+💰 **Credit tersisa**: **{credits}**
+
+📊 **Biaya per Fitur:**
+• `/analyze <symbol>` - 20 credit (analisis komprehensif)
+• `/futures <symbol>` - 20 credit (analisis futures 1 coin)
 • `/futures_signals` - 30 credit (sinyal futures lengkap)
 • `/market` - 20 credit (overview pasar)
-• Fitur lain - Gratis
-🎁 User baru mendapat 10 credit gratis
+• Fitur lainnya - **Gratis**
 
-💡 **Cara mendapat lebih banyak credit:**
+💡 **Cara Mendapat Credit:**
 • `/referral` - Ajak teman (10 credit/referral)
 • `/subscribe` - Upgrade ke Premium (unlimited)
+• 🎁 User baru mendapat 10 credit gratis
 
-Gunakan credit dengan bijak!
-            """
+**Gunakan credit dengan bijak!**"""
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def subscribe_command(self, update: Update, context: CallbackContext):

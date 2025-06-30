@@ -17,32 +17,34 @@ class AIAssistant:
             return "Saya tidak yakin, tapi saya akan bantu cari datanya."
 
     def help_message(self):
-        return """🤖 *CryptoMentor AI - Panduan Lengkap*
+        return """🤖 **CryptoMentor AI Bot - Help**
 
-📋 *Command Utama:*
-- `/price <symbol>` - Cek harga real-time
-- `/analyze <symbol>` - Analisis AI mendalam (5 credit)
-- `/market` - Overview pasar crypto (3 credit)
-- `/portfolio` - Kelola portfolio Anda
-- `/add_coin <symbol> <amount>` - Tambah ke portfolio
+📊 **Harga & Data Pasar:**
+• `/price <symbol>` - Harga real-time
+• `/market` - Overview pasar komprehensif
 
-🔮 *Fitur Advanced:*
-- `/futures_signals` - Sinyal futures harian (5 credit)
-- `/futures <symbol>` - Analisis futures 1 coin (5 credit)
-- `/ask_ai <pertanyaan>` - Tanya AI langsung
+📈 **Analisis Trading:**
+• `/analyze <symbol>` - Analisis mendalam (20 credit)
+• `/futures <symbol>` - Analisis futures 1 coin (20 credit)
+• `/futures_signals` - Sinyal futures lengkap (30 credit)
 
-⚙️ *Pengaturan:*
-- `/credits` - Cek sisa credit
-- `/subscribe` - Upgrade premium
-- `/referral` - Dapatkan bonus
-- `/language` - Ganti bahasa
+💼 **Portfolio & Credit:**
+• `/portfolio` - Lihat portfolio
+• `/add_coin <symbol> <amount>` - Tambah ke portfolio
+• `/credits` - Cek sisa credit
+• `/subscribe` - Upgrade premium
 
-*Contoh penggunaan:*
-- `/price btc` - Harga Bitcoin
-- `/analyze eth` - Analisis Ethereum
-- `/add_coin ada 100` - Tambah 100 ADA
+🎯 **Lainnya:**
+• `/ask_ai <pertanyaan>` - Tanya AI crypto
+• `/referral` - Program referral
+• `/language` - Ubah bahasa
 
-Ketik command untuk memulai!"""
+💡 **Tips:**
+- Ketik nama crypto langsung untuk harga cepat
+- Fitur premium = unlimited access
+- Gunakan referral untuk bonus credit
+
+🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
