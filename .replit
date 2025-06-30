@@ -1,5 +1,5 @@
 [deployment]
-run = ["sh", "-c", "cd Bismillah && python main.py"]
+run = ["sh", "-c", "cd Bismillah && python3 main.py"]
 deploymentTarget = "gce"
 ignorePorts = true
 
@@ -13,4 +13,4 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd Bismillah && python main.py"
+args = "cd Bismillah && python3 main.py"
