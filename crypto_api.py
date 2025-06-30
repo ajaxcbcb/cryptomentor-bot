@@ -8,8 +8,10 @@ class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
+        self.coingecko_key = os.getenv("COINGECKO_API_KEY")
         self.binance_spot_url = "https://api.binance.com/api/v3"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
+        self.coingecko_base_url = "https://pro-api.coingecko.com/api/v3" if self.coingecko_key else "https://api.coingecko.com/api/v3"
 
     # === BINANCE SPOT API METHODS ===
 
@@ -391,6 +393,326 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Comprehensive data error: {str(e)}"}
 
+    # === COINGECKO API METHODS ===
+
+    def get_coingecko_price(self, symbol):
+        """Get price data from CoinGecko API"""
+        try:
+            # Convert symbol to CoinGecko ID format
+            symbol_map = {
+                'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin',
+                'ADA': 'cardano', 'SOL': 'solana', 'XRP': 'ripple',
+                'DOT': 'polkadot', 'DOGE': 'dogecoin', 'MATIC': 'polygon',
+                'AVAX': 'avalanche-2', 'LINK': 'chainlink', 'LTC': 'litecoin',
+                'UNI': 'uniswap', 'ATOM': 'cosmos', 'FIL': 'filecoin',
+                'TRX': 'tron', 'ETC': 'ethereum-classic', 'XLM': 'stellar',
+                'AAVE': 'aave', 'ALGO': 'algorand', 'VET': 'vechain'
+            }
+
+            coin_id = symbol_map.get(symbol.upper(), symbol.lower())
+            
+            headers = {}
+            if self.coingecko_key:
+                headers['x-cg-pro-api-key'] = self.coingecko_key
+
+            params = {
+                'ids': coin_id,
+                'vs_currencies': 'usd',
+                'include_24hr_change': 'true',
+                'include_24hr_vol': 'true',
+                'include_market_cap': 'true',
+                'include_last_updated_at': 'true'
+            }
+
+            response = requests.get(
+                f"{self.coingecko_base_url}/simple/price",
+                params=params,
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if coin_id in data:
+                coin_data = data[coin_id]
+                return {
+                    'symbol': symbol.upper(),
+                    'coin_id': coin_id,
+                    'price': coin_data.get('usd', 0),
+                    'change_24h': coin_data.get('usd_24h_change', 0),
+                    'volume_24h': coin_data.get('usd_24h_vol', 0),
+                    'market_cap': coin_data.get('usd_market_cap', 0),
+                    'last_updated': coin_data.get('last_updated_at', 0),
+                    'source': 'coingecko_pro' if self.coingecko_key else 'coingecko_free'
+                }
+            else:
+                return {'error': f"Symbol {symbol} not found in CoinGecko"}
+
+        except Exception as e:
+            return {'error': f"CoinGecko API error: {str(e)}"}
+
+    def get_coingecko_market_data(self, symbol):
+        """Get comprehensive market data from CoinGecko"""
+        try:
+            symbol_map = {
+                'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin',
+                'ADA': 'cardano', 'SOL': 'solana', 'XRP': 'ripple',
+                'DOT': 'polkadot', 'DOGE': 'dogecoin', 'MATIC': 'polygon'
+            }
+
+            coin_id = symbol_map.get(symbol.upper(), symbol.lower())
+            
+            headers = {}
+            if self.coingecko_key:
+                headers['x-cg-pro-api-key'] = self.coingecko_key
+
+            response = requests.get(
+                f"{self.coingecko_base_url}/coins/{coin_id}",
+                params={
+                    'localization': 'false',
+                    'tickers': 'false',
+                    'market_data': 'true',
+                    'community_data': 'false',
+                    'developer_data': 'false',
+                    'sparkline': 'false'
+                },
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            market_data = data.get('market_data', {})
+            
+            return {
+                'symbol': symbol.upper(),
+                'coin_id': coin_id,
+                'name': data.get('name', ''),
+                'current_price': market_data.get('current_price', {}).get('usd', 0),
+                'market_cap': market_data.get('market_cap', {}).get('usd', 0),
+                'market_cap_rank': market_data.get('market_cap_rank', 0),
+                'total_volume': market_data.get('total_volume', {}).get('usd', 0),
+                'high_24h': market_data.get('high_24h', {}).get('usd', 0),
+                'low_24h': market_data.get('low_24h', {}).get('usd', 0),
+                'price_change_24h': market_data.get('price_change_24h', 0),
+                'price_change_percentage_24h': market_data.get('price_change_percentage_24h', 0),
+                'price_change_percentage_7d': market_data.get('price_change_percentage_7d', 0),
+                'price_change_percentage_30d': market_data.get('price_change_percentage_30d', 0),
+                'circulating_supply': market_data.get('circulating_supply', 0),
+                'total_supply': market_data.get('total_supply', 0),
+                'max_supply': market_data.get('max_supply', 0),
+                'ath': market_data.get('ath', {}).get('usd', 0),
+                'ath_change_percentage': market_data.get('ath_change_percentage', {}).get('usd', 0),
+                'ath_date': market_data.get('ath_date', {}).get('usd', ''),
+                'atl': market_data.get('atl', {}).get('usd', 0),
+                'atl_change_percentage': market_data.get('atl_change_percentage', {}).get('usd', 0),
+                'atl_date': market_data.get('atl_date', {}).get('usd', ''),
+                'last_updated': data.get('last_updated', ''),
+                'source': 'coingecko_pro' if self.coingecko_key else 'coingecko_free'
+            }
+
+        except Exception as e:
+            return {'error': f"CoinGecko market data error: {str(e)}"}
+
+    def get_coingecko_global_data(self):
+        """Get global crypto market data from CoinGecko"""
+        try:
+            headers = {}
+            if self.coingecko_key:
+                headers['x-cg-pro-api-key'] = self.coingecko_key
+
+            response = requests.get(
+                f"{self.coingecko_base_url}/global",
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            global_data = data.get('data', {})
+            
+            return {
+                'total_market_cap': global_data.get('total_market_cap', {}).get('usd', 0),
+                'total_volume': global_data.get('total_volume', {}).get('usd', 0),
+                'market_cap_percentage': global_data.get('market_cap_percentage', {}),
+                'market_cap_change_percentage_24h_usd': global_data.get('market_cap_change_percentage_24h_usd', 0),
+                'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
+                'upcoming_icos': global_data.get('upcoming_icos', 0),
+                'ongoing_icos': global_data.get('ongoing_icos', 0),
+                'ended_icos': global_data.get('ended_icos', 0),
+                'markets': global_data.get('markets', 0),
+                'updated_at': global_data.get('updated_at', 0),
+                'source': 'coingecko_global'
+            }
+
+        except Exception as e:
+            return {'error': f"CoinGecko global data error: {str(e)}"}
+
+    # === MULTI-API INTEGRATION METHODS ===
+
+    def get_multi_api_price(self, symbol, force_refresh=False):
+        """Get price from multiple APIs and combine the best data"""
+        price_sources = {}
+
+        # 1. Try Binance first (fastest and most accurate for real-time)
+        try:
+            binance_data = self.get_binance_price(symbol)
+            if 'error' not in binance_data and binance_data.get('price', 0) > 0:
+                price_sources['binance'] = binance_data
+        except:
+            pass
+
+        # 2. Try CoinGecko (comprehensive market data)
+        try:
+            coingecko_data = self.get_coingecko_price(symbol)
+            if 'error' not in coingecko_data and coingecko_data.get('price', 0) > 0:
+                price_sources['coingecko'] = coingecko_data
+        except:
+            pass
+
+        # 3. Try CoinGecko market data for additional insights
+        try:
+            market_data = self.get_coingecko_market_data(symbol)
+            if 'error' not in market_data and market_data.get('current_price', 0) > 0:
+                price_sources['coingecko_market'] = market_data
+        except:
+            pass
+
+        # Combine best data from multiple sources
+        if price_sources:
+            return self._combine_price_data(symbol, price_sources)
+        else:
+            return self._fallback_price(symbol, "All APIs unavailable")
+
+    def _combine_price_data(self, symbol, price_sources):
+        """Combine price data from multiple sources intelligently"""
+        combined_data = {
+            'symbol': symbol.upper(),
+            'sources_used': list(price_sources.keys()),
+            'data_quality': 'excellent' if len(price_sources) >= 2 else 'good'
+        }
+
+        # Priority: Binance for real-time price, CoinGecko for market data
+        if 'binance' in price_sources:
+            binance = price_sources['binance']
+            combined_data.update({
+                'price': binance.get('price', 0),
+                'change_24h': binance.get('change_24h', 0),
+                'volume_24h': binance.get('volume_24h', 0),
+                'high_24h': binance.get('high_24h', 0),
+                'low_24h': binance.get('low_24h', 0),
+                'primary_source': 'binance'
+            })
+
+        # Add CoinGecko market insights
+        if 'coingecko_market' in price_sources:
+            cg_market = price_sources['coingecko_market']
+            combined_data.update({
+                'market_cap': cg_market.get('market_cap', 0),
+                'market_cap_rank': cg_market.get('market_cap_rank', 0),
+                'circulating_supply': cg_market.get('circulating_supply', 0),
+                'max_supply': cg_market.get('max_supply', 0),
+                'ath': cg_market.get('ath', 0),
+                'ath_change_percentage': cg_market.get('ath_change_percentage', 0),
+                'price_change_7d': cg_market.get('price_change_percentage_7d', 0),
+                'price_change_30d': cg_market.get('price_change_percentage_30d', 0),
+                'market_data_source': 'coingecko'
+            })
+
+            # Use CoinGecko price if Binance not available
+            if 'price' not in combined_data:
+                combined_data.update({
+                    'price': cg_market.get('current_price', 0),
+                    'change_24h': cg_market.get('price_change_percentage_24h', 0),
+                    'primary_source': 'coingecko'
+                })
+
+        # Add simple CoinGecko data if available
+        if 'coingecko' in price_sources and 'price' not in combined_data:
+            cg_simple = price_sources['coingecko']
+            combined_data.update({
+                'price': cg_simple.get('price', 0),
+                'change_24h': cg_simple.get('change_24h', 0),
+                'volume_24h': cg_simple.get('volume_24h', 0),
+                'primary_source': 'coingecko'
+            })
+
+        return combined_data
+
+    def get_comprehensive_analysis_data(self, symbol):
+        """Get comprehensive data from all APIs for analysis"""
+        analysis_data = {
+            'symbol': symbol.upper(),
+            'timestamp': datetime.now().isoformat(),
+            'data_sources': {},
+            'successful_calls': 0,
+            'total_calls': 0
+        }
+
+        # 1. Binance price data
+        try:
+            binance_price = self.get_binance_price(symbol)
+            analysis_data['data_sources']['binance_price'] = binance_price
+            analysis_data['total_calls'] += 1
+            if 'error' not in binance_price:
+                analysis_data['successful_calls'] += 1
+        except:
+            pass
+
+        # 2. Binance futures data
+        try:
+            binance_futures = self.get_comprehensive_futures_data(symbol)
+            analysis_data['data_sources']['binance_futures'] = binance_futures
+            analysis_data['total_calls'] += 1
+            if 'error' not in binance_futures:
+                analysis_data['successful_calls'] += 1
+        except:
+            pass
+
+        # 3. CoinGecko market data
+        try:
+            coingecko_market = self.get_coingecko_market_data(symbol)
+            analysis_data['data_sources']['coingecko_market'] = coingecko_market
+            analysis_data['total_calls'] += 1
+            if 'error' not in coingecko_market:
+                analysis_data['successful_calls'] += 1
+        except:
+            pass
+
+        # 4. CoinGecko global data
+        try:
+            global_data = self.get_coingecko_global_data()
+            analysis_data['data_sources']['coingecko_global'] = global_data
+            analysis_data['total_calls'] += 1
+            if 'error' not in global_data:
+                analysis_data['successful_calls'] += 1
+        except:
+            pass
+
+        # 5. Crypto news
+        try:
+            news_data = self.get_crypto_news(5)
+            analysis_data['data_sources']['crypto_news'] = news_data
+            analysis_data['total_calls'] += 1
+            if news_data and 'error' not in (news_data[0] if news_data else {}):
+                analysis_data['successful_calls'] += 1
+        except:
+            pass
+
+        # Calculate data quality score
+        success_rate = (analysis_data['successful_calls'] / analysis_data['total_calls']) if analysis_data['total_calls'] > 0 else 0
+        
+        if success_rate >= 0.8:
+            analysis_data['data_quality'] = 'excellent'
+        elif success_rate >= 0.6:
+            analysis_data['data_quality'] = 'good'
+        elif success_rate >= 0.4:
+            analysis_data['data_quality'] = 'fair'
+        else:
+            analysis_data['data_quality'] = 'poor'
+
+        return analysis_data
+
     # === LEGACY METHOD REPLACEMENTS ===
 
     def get_futures_data(self, symbol):
@@ -401,14 +723,8 @@ class CryptoAPI:
         return ls_data
 
     def get_price(self, symbol, force_refresh=False):
-        """Get price with Binance as primary source"""
-        # Try Binance first
-        binance_data = self.get_binance_price(symbol)
-        if 'error' not in binance_data:
-            return binance_data
-
-        # Fallback to CoinGecko if available
-        return self._fallback_price(symbol, "Binance unavailable")
+        """Get price with multi-API integration"""
+        return self.get_multi_api_price(symbol, force_refresh)
 
     
 
@@ -828,40 +1144,57 @@ class CryptoAPI:
         return prices_data if prices_data else {'error': 'No price data available'}
 
     def get_market_overview(self):
-        """Get enhanced market overview data using Binance"""
+        """Get enhanced market overview data using multiple APIs"""
         try:
-            # Get major cryptocurrencies for market analysis
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']
-            prices_data = self.get_multiple_prices(major_symbols)
+            # Try CoinGecko global data first (most comprehensive)
+            global_data = self.get_coingecko_global_data()
             
-            if 'error' not in prices_data:
-                # Calculate market metrics from available data
-                btc_data = prices_data.get('BTC', {})
-                eth_data = prices_data.get('ETH', {})
-                
-                # Estimate market cap and dominance
-                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
-                btc_volume = btc_data.get('volume_24h', 0)
-                
-                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
-                
-                # Calculate average market change
-                changes = [data.get('change_24h', 0) for data in prices_data.values() if 'change_24h' in data]
-                avg_change = sum(changes) / len(changes) if changes else 0
-                
+            if 'error' not in global_data:
+                # Use real CoinGecko global data
                 return {
-                    'total_market_cap': total_volume * 10,  # Rough estimate
-                    'market_cap_change_24h': avg_change,
-                    'btc_dominance': btc_dominance,
-                    'eth_dominance': 18.0,  # Rough estimate
-                    'btc_price': btc_data.get('price', 0),
-                    'eth_price': eth_data.get('price', 0),
-                    'btc_change_24h': btc_data.get('change_24h', 0),
-                    'eth_change_24h': eth_data.get('change_24h', 0),
-                    'active_cryptocurrencies': len(prices_data),
-                    'source': 'binance_enhanced'
+                    'total_market_cap': global_data.get('total_market_cap', 0),
+                    'market_cap_change_24h': global_data.get('market_cap_change_percentage_24h_usd', 0),
+                    'btc_dominance': global_data.get('market_cap_percentage', {}).get('btc', 0),
+                    'eth_dominance': global_data.get('market_cap_percentage', {}).get('eth', 0),
+                    'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
+                    'total_volume': global_data.get('total_volume', 0),
+                    'markets': global_data.get('markets', 0),
+                    'source': 'coingecko_global',
+                    'last_updated': global_data.get('updated_at', 0)
                 }
             else:
-                return {'error': 'Market overview unavailable'}
+                # Fallback to Binance-based estimation
+                major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']
+                prices_data = self.get_multiple_prices(major_symbols)
+                
+                if 'error' not in prices_data:
+                    # Calculate market metrics from available data
+                    btc_data = prices_data.get('BTC', {})
+                    eth_data = prices_data.get('ETH', {})
+                    
+                    # Estimate market cap and dominance
+                    total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
+                    btc_volume = btc_data.get('volume_24h', 0)
+                    
+                    btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
+                    
+                    # Calculate average market change
+                    changes = [data.get('change_24h', 0) for data in prices_data.values() if 'change_24h' in data]
+                    avg_change = sum(changes) / len(changes) if changes else 0
+                    
+                    return {
+                        'total_market_cap': total_volume * 15,  # Better estimate
+                        'market_cap_change_24h': avg_change,
+                        'btc_dominance': btc_dominance,
+                        'eth_dominance': 18.0,
+                        'btc_price': btc_data.get('price', 0),
+                        'eth_price': eth_data.get('price', 0),
+                        'btc_change_24h': btc_data.get('change_24h', 0),
+                        'eth_change_24h': eth_data.get('change_24h', 0),
+                        'active_cryptocurrencies': len(prices_data),
+                        'source': 'binance_fallback'
+                    }
+                else:
+                    return {'error': 'Market overview unavailable'}
         except Exception as e:
             return {'error': f"Market overview error: {str(e)}"}

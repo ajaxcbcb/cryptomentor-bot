@@ -210,37 +210,286 @@ I'm here to help you learn about cryptocurrency!
 Ask me anything about crypto! 🚀"""
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market overview with real-time data from Binance API"""
+        """Get comprehensive market overview using multiple APIs (Binance + CoinGecko + CryptoNews)"""
         if not crypto_api:
             return self._get_fallback_market_overview(language)
 
         try:
-            # Get market overview data
+            # Get comprehensive market data from multiple sources
+            global_data = crypto_api.get_coingecko_global_data()
             market_data = crypto_api.get_market_overview()
+            news_data = crypto_api.get_crypto_news(5)
 
-            # Get prices for major cryptocurrencies
-            major_symbols = ['bitcoin', 'ethereum', 'binancecoin', 'cardano', 'solana', 'ripple', 'polkadot', 'dogecoin']
-            prices_data = crypto_api.get_multiple_prices(major_symbols)
+            # Get major crypto data
+            major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
+            multi_prices = {}
+            
+            for symbol in major_symbols:
+                try:
+                    price_data = crypto_api.get_multi_api_price(symbol)
+                    if 'error' not in price_data:
+                        multi_prices[symbol] = price_data
+                except:
+                    continue
 
-            # Get crypto news for sentiment
-            news_data = []
-            try:
-                news_data = crypto_api.get_crypto_news(3)
-            except:
-                pass
-
-            # Get futures data for major coins
+            # Get futures data for sentiment
             futures_btc = crypto_api.get_futures_data('BTC')
             futures_eth = crypto_api.get_futures_data('ETH')
 
+            # Analyze comprehensive market health
+            market_health = self._analyze_comprehensive_market_health(global_data, multi_prices, news_data)
+
             if language == 'id':
-                return self._format_market_overview_id(market_data, prices_data, news_data, futures_btc, futures_eth)
+                return self._format_comprehensive_market_overview_id(
+                    global_data, market_data, multi_prices, news_data, 
+                    futures_btc, futures_eth, market_health
+                )
             else:
-                return self._format_market_overview_en(market_data, prices_data, news_data, futures_btc, futures_eth)
+                return self._format_comprehensive_market_overview_en(
+                    global_data, market_data, multi_prices, news_data, 
+                    futures_btc, futures_eth, market_health
+                )
 
         except Exception as e:
-            print(f"Error in market overview: {e}")
+            print(f"Error in comprehensive market overview: {e}")
             return self._get_fallback_market_overview(language)
+
+    def _analyze_comprehensive_market_health(self, global_data, prices_data, news_data):
+        """Analyze comprehensive market health from multiple APIs"""
+        health_score = 5  # Base score
+        health_factors = []
+
+        # CoinGecko global metrics
+        if global_data and 'error' not in global_data:
+            mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 50)
+            
+            if mcap_change > 2:
+                health_score += 2
+                health_factors.append("🟢 Market cap global naik kuat")
+            elif mcap_change > 0:
+                health_score += 1
+                health_factors.append("🟡 Market cap global naik moderat")
+            elif mcap_change < -2:
+                health_score -= 2
+                health_factors.append("🔴 Market cap global turun")
+            else:
+                health_factors.append("⚪ Market cap global stabil")
+
+            if 45 <= btc_dominance <= 55:
+                health_score += 1
+                health_factors.append(f"⚖️ BTC dominance seimbang ({btc_dominance:.1f}%)")
+            elif btc_dominance > 55:
+                health_factors.append(f"📈 BTC dominance tinggi ({btc_dominance:.1f}%) - Risk-off mode")
+            else:
+                health_factors.append(f"🔄 BTC dominance rendah ({btc_dominance:.1f}%) - Altcoin season")
+
+        # Price momentum analysis
+        if prices_data:
+            positive_moves = 0
+            total_moves = 0
+            
+            for symbol, data in prices_data.items():
+                change_24h = data.get('change_24h', 0)
+                if change_24h > 0:
+                    positive_moves += 1
+                total_moves += 1
+
+            if total_moves > 0:
+                positive_ratio = positive_moves / total_moves
+                if positive_ratio > 0.7:
+                    health_score += 1.5
+                    health_factors.append(f"🟢 {positive_moves}/{total_moves} major crypto naik (Bullish breadth)")
+                elif positive_ratio > 0.5:
+                    health_score += 0.5
+                    health_factors.append(f"🟡 {positive_moves}/{total_moves} major crypto naik (Mixed sentiment)")
+                else:
+                    health_score -= 1
+                    health_factors.append(f"🔴 {positive_moves}/{total_moves} major crypto naik (Bearish breadth)")
+
+        # News sentiment
+        if news_data and len(news_data) > 0:
+            news_sentiment = self._analyze_news_sentiment(news_data, 'MARKET')
+            if news_sentiment['score'] > 7:
+                health_score += 1
+                health_factors.append("📰 Berita crypto sangat positif")
+            elif news_sentiment['score'] > 5:
+                health_factors.append("📰 Berita crypto netral-positif")
+            else:
+                health_score -= 1
+                health_factors.append("📰 Berita crypto negatif")
+
+        # Determine overall health
+        if health_score >= 8:
+            overall_health = "🟢 SANGAT SEHAT"
+        elif health_score >= 6:
+            overall_health = "🟢 SEHAT"
+        elif health_score >= 4:
+            overall_health = "🟡 STABIL"
+        elif health_score >= 2:
+            overall_health = "🟡 LEMAH"
+        else:
+            overall_health = "🔴 TIDAK SEHAT"
+
+        return {
+            'score': health_score,
+            'status': overall_health,
+            'factors': health_factors
+        }
+
+    def _format_comprehensive_market_overview_id(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health):
+        """Format comprehensive market overview in Indonesian using multiple APIs"""
+        from datetime import datetime
+
+        message = f"""🌍 **OVERVIEW PASAR CRYPTO KOMPREHENSIF**
+
+🔍 **Analisis Multi-API:** CoinGecko + Binance + CryptoNews
+
+📊 **1. Data Global (CoinGecko):**"""
+
+        # Global market data
+        if global_data and 'error' not in global_data:
+            total_mcap = global_data.get('total_market_cap', 0)
+            mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
+            eth_dominance = global_data.get('market_cap_percentage', {}).get('eth', 0)
+            active_cryptos = global_data.get('active_cryptocurrencies', 0)
+
+            message += f"""
+- **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
+- **BTC Dominance**: {btc_dominance:.1f}%
+- **ETH Dominance**: {eth_dominance:.1f}%
+- **Active Cryptocurrencies**: {active_cryptos:,}"""
+
+        # Market health analysis
+        message += f"""
+
+🏥 **2. Kesehatan Pasar:** {market_health['status']}
+{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
+
+        # Top movers from multi-API data
+        message += f"""
+
+📈 **3. Top Movers (Multi-API):**"""
+
+        if prices_data:
+            sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
+            
+            gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
+            losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
+
+            message += f"\n**Gainers:**"
+            for symbol, data in gainers:
+                sources = ', '.join(data.get('sources_used', ['binance']))
+                message += f"\n• {symbol}: +{data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+
+            message += f"\n\n**Losers:**"
+            for symbol, data in losers:
+                sources = ', '.join(data.get('sources_used', ['binance']))
+                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+
+        # Futures sentiment
+        message += f"""
+
+⚡ **4. Futures Sentiment (Binance):**
+- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%
+- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+
+        # News sentiment
+        if news_data and len(news_data) > 0:
+            latest_news = news_data[0]
+            message += f"""
+
+📰 **5. Sentiment Berita:**
+- **Latest**: {latest_news.get('title', 'N/A')[:60]}...
+- **Source**: {latest_news.get('source', 'CryptoNews')}
+- **Impact**: Positive pada sentiment pasar"""
+
+        message += f"""
+
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Sources**: CoinGecko Global + Binance Real-time + CryptoNews Sentiment
+
+💡 **Trading Outlook**: {market_health['status']} - {"Bullish bias" if market_health['score'] >= 6 else "Bearish bias" if market_health['score'] <= 4 else "Neutral stance"}"""
+
+        return message
+
+    def _format_comprehensive_market_overview_en(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health):
+        """Format comprehensive market overview in English using multiple APIs"""
+        from datetime import datetime
+
+        message = f"""🌍 **COMPREHENSIVE CRYPTO MARKET OVERVIEW**
+
+🔍 **Multi-API Analysis:** CoinGecko + Binance + CryptoNews
+
+📊 **1. Global Data (CoinGecko):**"""
+
+        # Global market data
+        if global_data and 'error' not in global_data:
+            total_mcap = global_data.get('total_market_cap', 0)
+            mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
+            eth_dominance = global_data.get('market_cap_percentage', {}).get('eth', 0)
+            active_cryptos = global_data.get('active_cryptocurrencies', 0)
+
+            message += f"""
+- **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
+- **BTC Dominance**: {btc_dominance:.1f}%
+- **ETH Dominance**: {eth_dominance:.1f}%
+- **Active Cryptocurrencies**: {active_cryptos:,}"""
+
+        # Market health analysis
+        message += f"""
+
+🏥 **2. Market Health:** {market_health['status']}
+{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
+
+        # Top movers from multi-API data
+        message += f"""
+
+📈 **3. Top Movers (Multi-API):**"""
+
+        if prices_data:
+            sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
+            
+            gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
+            losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
+
+            message += f"\n**Gainers:**"
+            for symbol, data in gainers:
+                sources = ', '.join(data.get('sources_used', ['binance']))
+                message += f"\n• {symbol}: +{data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+
+            message += f"\n\n**Losers:**"
+            for symbol, data in losers:
+                sources = ', '.join(data.get('sources_used', ['binance']))
+                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+
+        # Futures sentiment
+        message += f"""
+
+⚡ **4. Futures Sentiment (Binance):**
+- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%
+- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+
+        # News sentiment
+        if news_data and len(news_data) > 0:
+            latest_news = news_data[0]
+            message += f"""
+
+📰 **5. News Sentiment:**
+- **Latest**: {latest_news.get('title', 'N/A')[:60]}...
+- **Source**: {latest_news.get('source', 'CryptoNews')}
+- **Impact**: Positive market sentiment"""
+
+        message += f"""
+
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
+📡 **Sources**: CoinGecko Global + Binance Real-time + CryptoNews Sentiment
+
+💡 **Trading Outlook**: {market_health['status']} - {"Bullish bias" if market_health['score'] >= 6 else "Bearish bias" if market_health['score'] <= 4 else "Neutral stance"}"""
+
+        return message
 
     def _format_market_overview_id(self, market_data, prices_data, news_data, futures_btc, futures_eth):
         """Format market overview in Indonesian"""
@@ -400,7 +649,7 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate futures trading signals using Binance API"""
+        """Generate futures trading signals using multiple APIs (Binance + CoinGecko + CryptoNews)"""
         # Major symbols to analyze
         major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
 
@@ -425,42 +674,51 @@ Futures trading is high risk!
 Use proper risk management and don't FOMO!"""
 
         try:
+            # Get global market sentiment first
+            global_data = crypto_api.get_coingecko_global_data()
+            news_data = crypto_api.get_crypto_news(3)
+            
+            # Analyze global market sentiment
+            global_sentiment = self._analyze_global_market_sentiment(global_data, news_data)
+            
             signals_data = []
 
             for symbol in major_symbols:
                 try:
-                    # Get price data
-                    price_data = crypto_api.get_price(symbol)
-                    current_price = price_data.get('price', 0) if price_data else 0
-                    change_24h = price_data.get('change_24h', 0) if price_data else 0
+                    # Get comprehensive data for each symbol
+                    comprehensive_data = crypto_api.get_comprehensive_analysis_data(symbol)
+                    
+                    binance_data = comprehensive_data.get('data_sources', {}).get('binance_price', {})
+                    binance_futures = comprehensive_data.get('data_sources', {}).get('binance_futures', {})
+                    coingecko_market = comprehensive_data.get('data_sources', {}).get('coingecko_market', {})
 
-                    # Get futures data
-                    futures_data = crypto_api.get_futures_data(symbol)
-                    long_ratio = futures_data.get('long_ratio', 50)
+                    # Extract key metrics
+                    current_price = binance_data.get('price', 0) if 'error' not in binance_data else 0
+                    change_24h = binance_data.get('change_24h', 0) if 'error' not in binance_data else 0
+                    
+                    # Futures metrics
+                    long_ratio = 50
+                    funding_rate = 0
+                    if binance_futures and 'error' not in binance_futures:
+                        ls_data = binance_futures.get('long_short_ratio_data', {})
+                        funding_data = binance_futures.get('funding_rate_data', {})
+                        long_ratio = ls_data.get('long_ratio', 50)
+                        funding_rate = funding_data.get('last_funding_rate', 0)
 
-                    # Generate signal
-                    if long_ratio > 70:
-                        signal_type = "SHORT"
-                        signal_strength = "STRONG" if long_ratio > 75 else "MODERATE"
-                        signal_emoji = "🔴"
-                    elif long_ratio < 30:
-                        signal_type = "LONG"
-                        signal_strength = "STRONG" if long_ratio < 25 else "MODERATE"
-                        signal_emoji = "🟢"
-                    else:
-                        signal_type = "HOLD"
-                        signal_strength = "WEAK"
-                        signal_emoji = "⚪"
+                    # CoinGecko fundamentals
+                    market_rank = 999
+                    ath_change = -50
+                    if coingecko_market and 'error' not in coingecko_market:
+                        market_rank = coingecko_market.get('market_cap_rank', 999)
+                        ath_change = coingecko_market.get('ath_change_percentage', -50)
 
-                    signals_data.append({
-                        'symbol': symbol,
-                        'price': current_price,
-                        'change_24h': change_24h,
-                        'long_ratio': long_ratio,
-                        'signal_type': signal_type,
-                        'signal_strength': signal_strength,
-                        'signal_emoji': signal_emoji
-                    })
+                    # Generate multi-factor signal
+                    signal_analysis = self._generate_multi_factor_signal(
+                        symbol, current_price, change_24h, long_ratio, 
+                        funding_rate, market_rank, ath_change, global_sentiment
+                    )
+
+                    signals_data.append(signal_analysis)
 
                 except Exception as e:
                     print(f"Error getting data for {symbol}: {e}")
@@ -472,61 +730,249 @@ Use proper risk management and don't FOMO!"""
                 else:
                     return "❌ **Data Unavailable** - Failed to fetch data for all symbols."
 
-            # Build message
-            if language == 'id':
-                message = f"""⚡ **Sinyal Futures Trading Harian**
+            # Sort by signal strength
+            signals_data.sort(key=lambda x: x['signal_score'], reverse=True)
 
-🎯 **Trading Signals:**
+            # Build comprehensive message
+            if language == 'id':
+                message = f"""⚡ **Sinyal Futures Trading Multi-API**
+
+🌍 **Market Sentiment Global:** {global_sentiment['status']}
+📊 **Market Health:** {global_sentiment['health']}
+
+🎯 **Top Trading Signals:**
 """
                 for signal in signals_data:
-                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** ({signal['signal_strength']})"
-                    message += f"\n  └ Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
-                    message += f"\n  └ Long Ratio: {signal['long_ratio']:.1f}%"
+                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Score: {signal['signal_score']:.1f}/10)"
+                    message += f"\n  💰 Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
+                    message += f"\n  📊 L/S Ratio: {signal['long_ratio']:.1f}% | Rank: #{signal['market_rank']}"
+                    message += f"\n  🎯 {signal['reasoning']}"
+                    message += f"\n  📈 Entry: ${signal['entry']:,.2f} | TP: ${signal['tp']:,.2f} | SL: ${signal['sl']:,.2f}\n"
 
                 message += f"""
+🔍 **Multi-API Analysis:**
+• ✅ Binance: Real-time price + futures data
+• ✅ CoinGecko: Market fundamentals + ranking  
+• ✅ CryptoNews: Market sentiment analysis
 
 ⚠️ **Risk Warning:**
 Futures trading sangat berisiko! Gunakan proper risk management.
 
-📡 **Source:** Binance API | 🕐 **Update:** {datetime.now().strftime('%H:%M:%S')}"""
+📡 **Multi-API Sources:** Binance + CoinGecko + CryptoNews
+🕐 **Update:** {datetime.now().strftime('%H:%M:%S WIB')}"""
 
             else:
-                message = f"""⚡ **Daily Futures Trading Signals**
+                message = f"""⚡ **Multi-API Futures Trading Signals**
 
-🎯 **Trading Signals:**
+🌍 **Global Market Sentiment:** {global_sentiment['status']}
+📊 **Market Health:** {global_sentiment['health']}
+
+🎯 **Top Trading Signals:**
 """
                 for signal in signals_data:
-                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** ({signal['signal_strength']})"
-                    message += f"\n  └ Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
-                    message += f"\n  └ Long Ratio: {signal['long_ratio']:.1f}%"
+                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Score: {signal['signal_score']:.1f}/10)"
+                    message += f"\n  💰 Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
+                    message += f"\n  📊 L/S Ratio: {signal['long_ratio']:.1f}% | Rank: #{signal['market_rank']}"
+                    message += f"\n  🎯 {signal['reasoning']}"
+                    message += f"\n  📈 Entry: ${signal['entry']:,.2f} | TP: ${signal['tp']:,.2f} | SL: ${signal['sl']:,.2f}\n"
 
                 message += f"""
+🔍 **Multi-API Analysis:**
+• ✅ Binance: Real-time price + futures data
+• ✅ CoinGecko: Market fundamentals + ranking
+• ✅ CryptoNews: Market sentiment analysis
 
 ⚠️ **Risk Warning:**
 Futures trading is high risk! Use proper risk management.
 
-📡 **Source:** Binance API | 🕐 **Update:** {datetime.now().strftime('%H:%M:%S')}"""
+📡 **Multi-API Sources:** Binance + CoinGecko + CryptoNews
+🕐 **Update:** {datetime.now().strftime('%H:%M:%S UTC')}"""
 
             return message
 
         except Exception as e:
             print(f"Error in generate_futures_signals: {e}")
             if language == 'id':
-                return f"""❌ **Error dalam Futures Signals**
+                return f"""❌ **Error dalam Multi-API Futures Signals**
 
-Terjadi kesalahan saat mengambil data.
+Terjadi kesalahan saat mengambil data dari multiple API.
 Error: {str(e)}
 
 ⚠️ **Risk Warning:**
 Futures trading berisiko tinggi!"""
             else:
-                return f"""❌ **Error in Futures Signals**
+                return f"""❌ **Error in Multi-API Futures Signals**
 
-Error occurred while fetching data.
+Error occurred while fetching data from multiple APIs.
 Error: {str(e)}
 
 ⚠️ **Risk Warning:**
 Futures trading is high risk!"""
+
+    def _analyze_global_market_sentiment(self, global_data, news_data):
+        """Analyze global market sentiment from CoinGecko and news"""
+        sentiment_score = 5  # Base neutral
+        
+        # Global market analysis
+        if global_data and 'error' not in global_data:
+            mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 50)
+            
+            # Market cap trend
+            if mcap_change > 3:
+                sentiment_score += 2
+            elif mcap_change > 0:
+                sentiment_score += 1
+            elif mcap_change < -3:
+                sentiment_score -= 2
+            elif mcap_change < 0:
+                sentiment_score -= 1
+            
+            # BTC dominance factor
+            if btc_dominance > 55:  # High BTC dominance = risk-off
+                sentiment_score -= 0.5
+            elif btc_dominance < 40:  # Low BTC dominance = risk-on/altcoin season
+                sentiment_score += 0.5
+
+        # News sentiment
+        if news_data and len(news_data) > 0:
+            news_sentiment = self._analyze_news_sentiment(news_data, 'CRYPTO')
+            sentiment_score = (sentiment_score + news_sentiment['score']) / 2
+
+        # Determine status and health
+        if sentiment_score >= 7:
+            status = "🟢 Bullish"
+            health = "Strong"
+        elif sentiment_score >= 6:
+            status = "🟡 Cautiously Bullish" 
+            health = "Good"
+        elif sentiment_score <= 3:
+            status = "🔴 Bearish"
+            health = "Weak"
+        elif sentiment_score <= 4:
+            status = "🟡 Cautiously Bearish"
+            health = "Fair"
+        else:
+            status = "⚪ Neutral"
+            health = "Stable"
+
+        return {
+            'score': sentiment_score,
+            'status': status,
+            'health': health
+        }
+
+    def _generate_multi_factor_signal(self, symbol, price, change_24h, long_ratio, funding_rate, market_rank, ath_change, global_sentiment):
+        """Generate trading signal based on multiple factors"""
+        signal_score = 5  # Base score
+        
+        # Price momentum factor
+        if change_24h > 5:
+            signal_score += 1.5
+        elif change_24h > 0:
+            signal_score += 0.5
+        elif change_24h < -5:
+            signal_score -= 1.5
+        elif change_24h < 0:
+            signal_score -= 0.5
+
+        # Long/Short ratio factor (contrarian approach)
+        if long_ratio > 75:
+            signal_score -= 2  # Too bullish = short signal
+            contrarian_signal = "SHORT"
+        elif long_ratio < 25:
+            signal_score += 2  # Too bearish = long signal
+            contrarian_signal = "LONG"
+        elif long_ratio > 65:
+            signal_score -= 1
+            contrarian_signal = "SHORT"
+        elif long_ratio < 35:
+            signal_score += 1
+            contrarian_signal = "LONG"
+        else:
+            contrarian_signal = "HOLD"
+
+        # Funding rate factor
+        if funding_rate > 0.01:  # 1% funding = expensive to be long
+            signal_score -= 1
+        elif funding_rate < -0.01:  # Negative funding = cheap to be long
+            signal_score += 1
+
+        # Market rank factor (fundamental strength)
+        if market_rank <= 10:
+            signal_score += 0.5
+        elif market_rank <= 50:
+            signal_score += 0.2
+
+        # ATH distance factor
+        if -20 < ath_change < -10:  # Good entry zone
+            signal_score += 1
+        elif ath_change > -5:  # Very close to ATH = risky
+            signal_score -= 1
+
+        # Global sentiment factor
+        global_score = global_sentiment['score']
+        if global_score >= 7:
+            signal_score += 1
+        elif global_score <= 3:
+            signal_score -= 1
+
+        # Determine final signal
+        signal_score = min(10, max(1, signal_score))
+        
+        if signal_score >= 7:
+            if contrarian_signal == "LONG":
+                signal_type = "STRONG LONG"
+                signal_emoji = "🟢"
+            else:
+                signal_type = "LONG"
+                signal_emoji = "🟢"
+        elif signal_score >= 6:
+            signal_type = "LONG" if contrarian_signal == "LONG" else "WEAK LONG"
+            signal_emoji = "🟡"
+        elif signal_score <= 3:
+            if contrarian_signal == "SHORT":
+                signal_type = "STRONG SHORT"
+                signal_emoji = "🔴"
+            else:
+                signal_type = "SHORT"
+                signal_emoji = "🔴"
+        elif signal_score <= 4:
+            signal_type = "SHORT" if contrarian_signal == "SHORT" else "WEAK SHORT"
+            signal_emoji = "🟡"
+        else:
+            signal_type = "HOLD"
+            signal_emoji = "⚪"
+
+        # Calculate entry, TP, SL
+        entry_price = price
+        if "LONG" in signal_type:
+            tp_price = price * 1.03  # 3% profit target
+            sl_price = price * 0.98  # 2% stop loss
+            reasoning = f"Bullish momentum + good fundamentals"
+        elif "SHORT" in signal_type:
+            tp_price = price * 0.97  # 3% profit target
+            sl_price = price * 1.02  # 2% stop loss
+            reasoning = f"Bearish sentiment + overleverage risk"
+        else:
+            tp_price = price * 1.02
+            sl_price = price * 0.98
+            reasoning = f"Mixed signals, wait for clarity"
+
+        return {
+            'symbol': symbol,
+            'price': price,
+            'change_24h': change_24h,
+            'long_ratio': long_ratio,
+            'market_rank': market_rank,
+            'signal_type': signal_type,
+            'signal_emoji': signal_emoji,
+            'signal_score': signal_score,
+            'reasoning': reasoning,
+            'entry': entry_price,
+            'tp': tp_price,
+            'sl': sl_price
+        }
 
     def generate_single_futures_signal(self, symbol, language='id', crypto_api=None):
         """Generate futures trading signal for a single coin using Binance API"""
@@ -693,93 +1139,160 @@ Error: {str(e)}
 Futures trading is high risk!"""
 
     def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Get comprehensive crypto analysis using Binance API"""
-        if language == 'id':
-            # Get news data for market sentiment
-            news_data = []
-            if crypto_api:
-                try:
-                    news_data = crypto_api.get_crypto_news(5)
-                except:
-                    pass
+        """Get comprehensive crypto analysis using multiple APIs (Binance + CoinGecko + CryptoNews)"""
+        if not crypto_api:
+            return "❌ API tidak tersedia untuk analisis komprehensif"
 
-            # Analyze market sentiment from news
-            sentiment_score = self._analyze_news_sentiment(news_data, symbol)
+        try:
+            # Get comprehensive data from all APIs
+            comprehensive_data = crypto_api.get_comprehensive_analysis_data(symbol)
+            
+            # Extract data from different sources
+            binance_data = comprehensive_data.get('data_sources', {}).get('binance_price', {})
+            binance_futures = comprehensive_data.get('data_sources', {}).get('binance_futures', {})
+            coingecko_market = comprehensive_data.get('data_sources', {}).get('coingecko_market', {})
+            global_data = comprehensive_data.get('data_sources', {}).get('coingecko_global', {})
+            news_data = comprehensive_data.get('data_sources', {}).get('crypto_news', [])
 
-            # Risk assessment
-            risk_level, risk_warnings = self._assess_market_risks(futures_data, price_data, sentiment_score)
+            # Calculate multi-API sentiment and risk
+            multi_sentiment = self._analyze_multi_api_sentiment(binance_data, coingecko_market, news_data, symbol)
+            market_health = self._analyze_market_health(global_data, coingecko_market)
+            risk_assessment = self._assess_comprehensive_risks(binance_data, binance_futures, coingecko_market, multi_sentiment)
 
-            message = f"""📊 **Analisis Komprehensif {symbol}**
+            if language == 'id':
+                message = f"""📊 **Analisis Komprehensif Multi-API {symbol}**
 
-💰 **Data Harga & Performa:**
-- Current Price: ${price_data.get('price', 0):,.2f}
-- 24h Change: {price_data.get('change_24h', 0):+.2f}%
-- Volume: ${price_data.get('volume_24h', 0):,.0f}
+🔍 **Kualitas Data:** {comprehensive_data.get('data_quality', 'unknown').upper()} ({comprehensive_data.get('successful_calls', 0)}/{comprehensive_data.get('total_calls', 0)} API berhasil)
+📡 **Sumber:** Binance + CoinGecko + CryptoNews
 
-📰 **1. Analisis Sentimen & Trend Pasar:**
-{sentiment_score['analysis']}
-- Sentiment Score: {sentiment_score['score']}/10
-- Trend Direction: {sentiment_score['trend']}
-- News Impact: {sentiment_score['impact']}
+💰 **1. Data Harga Terkini:**"""
 
-⚠️ **2. Risk Assessment & Alerts:**
-- Risk Level: {risk_level}
-{risk_warnings}
+                # Price data (prioritize best source)
+                if 'error' not in binance_data:
+                    message += f"""
+- **Real-time Price**: ${binance_data.get('price', 0):,.2f} (Binance)
+- **24h Change**: {binance_data.get('change_24h', 0):+.2f}%
+- **Volume 24h**: ${binance_data.get('volume_24h', 0):,.0f}"""
 
-📈 **Data Futures (Referensi):**
-- Long Ratio: {futures_data.get('long_ratio', 0)}%
-- Short Ratio: {futures_data.get('short_ratio', 0)}%
+                # Add CoinGecko market insights
+                if 'error' not in coingecko_market:
+                    message += f"""
 
-📊 **Ringkasan Analisis:**
-- Outlook fundamental menunjukkan trend {sentiment_score['trend'].lower()}
-- Struktur pasar menunjukkan kondisi normal
-- Aktivitas volume menunjukkan minat moderat
-- Risk assessment: {risk_level.split()[1] if len(risk_level.split()) > 1 else 'Moderate'}
+📈 **2. Data Pasar Mendalam (CoinGecko):**
+- **Market Cap**: ${coingecko_market.get('market_cap', 0):,.0f}
+- **Market Rank**: #{coingecko_market.get('market_cap_rank', 0)}
+- **Circulating Supply**: {coingecko_market.get('circulating_supply', 0):,.0f}
+- **ATH**: ${coingecko_market.get('ath', 0):,.2f} ({coingecko_market.get('ath_change_percentage', 0):+.1f}%)
+- **7d Change**: {coingecko_market.get('price_change_percentage_7d', 0):+.2f}%
+- **30d Change**: {coingecko_market.get('price_change_percentage_30d', 0):+.2f}%"""
 
-📡 Source: Binance API | ⏰ Real-time"""
+                # Market health analysis
+                message += f"""
 
-        else:
-            # English version
-            news_data = []
-            if crypto_api:
-                try:
-                    news_data = crypto_api.get_crypto_news(5)
-                except:
-                    pass
+🌍 **3. Analisis Kesehatan Pasar Global:**
+{market_health}
 
-            sentiment_score = self._analyze_news_sentiment(news_data, symbol)
-            risk_level, risk_warnings = self._assess_market_risks(futures_data, price_data, sentiment_score)
+📰 **4. Analisis Sentimen Multi-Source:**
+{multi_sentiment['analysis']}
+- **Sentiment Score**: {multi_sentiment['score']}/10
+- **Confidence Level**: {multi_sentiment['confidence']}
+- **Market Bias**: {multi_sentiment['bias']}"""
 
-            message = f"""📊 **Comprehensive Analysis {symbol}**
+                # Futures data if available
+                if binance_futures and 'error' not in binance_futures:
+                    futures_price = binance_futures.get('price_data', {})
+                    ls_ratio = binance_futures.get('long_short_ratio_data', {})
+                    funding = binance_futures.get('funding_rate_data', {})
+                    
+                    message += f"""
 
-💰 **Price & Performance Data:**
-- Current Price: ${price_data.get('price', 0):,.2f}
-- 24h Change: {price_data.get('change_24h', 0):+.2f}%
-- Volume: ${price_data.get('volume_24h', 0):,.0f}
+⚡ **5. Data Futures Advance (Binance):**
+- **Long/Short Ratio**: {ls_ratio.get('long_ratio', 0):.1f}% / {ls_ratio.get('short_ratio', 0):.1f}%
+- **Funding Rate**: {funding.get('last_funding_rate', 0):.4f}%
+- **Open Interest**: ${binance_futures.get('open_interest_data', {}).get('open_interest', 0):,.0f}"""
 
-📰 **1. Market Sentiment & Trend Analysis:**
-{sentiment_score['analysis']}
-- Sentiment Score: {sentiment_score['score']}/10
-- Trend Direction: {sentiment_score['trend']}
-- News Impact: {sentiment_score['impact']}
+                # Risk assessment
+                message += f"""
 
-⚠️ **2. Risk Assessment & Alerts:**
-- Risk Level: {risk_level}
-{risk_warnings}
+⚠️ **6. Risk Assessment Multi-Faktor:**
+{risk_assessment}
 
-📈 **Futures Data (Reference):**
-- Long Ratio: {futures_data.get('long_ratio', 0)}%
-- Short Ratio: {futures_data.get('short_ratio', 0)}%
+📊 **7. Ringkasan Analisis:**
+- **Teknikal**: {multi_sentiment['technical_signal']}
+- **Fundamental**: {multi_sentiment['fundamental_outlook']}
+- **Sentiment**: {multi_sentiment['bias']} 
+- **Rekomendasi**: {multi_sentiment['recommendation']}
 
-📊 **Analysis Summary:**
-- Fundamental outlook shows {sentiment_score['trend'].lower()} trend
-- Market structure indicates normal conditions
-- Volume activity shows moderate interest
-- Risk assessment: {risk_level.split()[1] if len(risk_level.split()) > 1 else 'Moderate'}
+📡 **Multi-API Sources**: Binance (Real-time) + CoinGecko (Market) + CryptoNews (Sentiment)
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
 
-📡 Source: Binance API | ⏰ Real-time"""
+            else:
+                # English version with same multi-API structure
+                message = f"""📊 **Multi-API Comprehensive Analysis {symbol}**
 
-        return message
+🔍 **Data Quality:** {comprehensive_data.get('data_quality', 'unknown').upper()} ({comprehensive_data.get('successful_calls', 0)}/{comprehensive_data.get('total_calls', 0)} APIs successful)
+📡 **Sources:** Binance + CoinGecko + CryptoNews
+
+💰 **1. Real-time Price Data:**"""
+
+                if 'error' not in binance_data:
+                    message += f"""
+- **Real-time Price**: ${binance_data.get('price', 0):,.2f} (Binance)
+- **24h Change**: {binance_data.get('change_24h', 0):+.2f}%
+- **Volume 24h**: ${binance_data.get('volume_24h', 0):,.0f}"""
+
+                if 'error' not in coingecko_market:
+                    message += f"""
+
+📈 **2. Deep Market Data (CoinGecko):**
+- **Market Cap**: ${coingecko_market.get('market_cap', 0):,.0f}
+- **Market Rank**: #{coingecko_market.get('market_cap_rank', 0)}
+- **Circulating Supply**: {coingecko_market.get('circulating_supply', 0):,.0f}
+- **ATH**: ${coingecko_market.get('ath', 0):,.2f} ({coingecko_market.get('ath_change_percentage', 0):+.1f}%)
+- **7d Change**: {coingecko_market.get('price_change_percentage_7d', 0):+.2f}%
+- **30d Change**: {coingecko_market.get('price_change_percentage_30d', 0):+.2f}%"""
+
+                message += f"""
+
+🌍 **3. Global Market Health:**
+{market_health}
+
+📰 **4. Multi-Source Sentiment:**
+{multi_sentiment['analysis']}
+- **Sentiment Score**: {multi_sentiment['score']}/10
+- **Confidence Level**: {multi_sentiment['confidence']}
+- **Market Bias**: {multi_sentiment['bias']}"""
+
+                if binance_futures and 'error' not in binance_futures:
+                    ls_ratio = binance_futures.get('long_short_ratio_data', {})
+                    funding = binance_futures.get('funding_rate_data', {})
+                    
+                    message += f"""
+
+⚡ **5. Advanced Futures Data (Binance):**
+- **Long/Short Ratio**: {ls_ratio.get('long_ratio', 0):.1f}% / {ls_ratio.get('short_ratio', 0):.1f}%
+- **Funding Rate**: {funding.get('last_funding_rate', 0):.4f}%
+- **Open Interest**: ${binance_futures.get('open_interest_data', {}).get('open_interest', 0):,.0f}"""
+
+                message += f"""
+
+⚠️ **6. Multi-Factor Risk Assessment:**
+{risk_assessment}
+
+📊 **7. Analysis Summary:**
+- **Technical**: {multi_sentiment['technical_signal']}
+- **Fundamental**: {multi_sentiment['fundamental_outlook']}
+- **Sentiment**: {multi_sentiment['bias']}
+- **Recommendation**: {multi_sentiment['recommendation']}
+
+📡 **Multi-API Sources**: Binance (Real-time) + CoinGecko (Market) + CryptoNews (Sentiment)
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}"""
+
+            return message
+
+        except Exception as e:
+            error_msg = f"❌ Error dalam analisis multi-API: {str(e)}" if language == 'id' else f"❌ Error in multi-API analysis: {str(e)}"
+            return error_msg
 
     def _analyze_news_sentiment(self, news_data, symbol):
         """Analyze market sentiment from crypto news"""
@@ -1205,3 +1718,219 @@ Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
                 patterns.append("🔻 Shooting Star - Potential reversal")
 
         return '\n'.join([f"• {pattern}" for pattern in patterns]) if patterns else "• Normal candlestick patterns"
+
+    def _analyze_multi_api_sentiment(self, binance_data, coingecko_data, news_data, symbol):
+        """Analyze sentiment from multiple API sources"""
+        sentiment_factors = {}
+        total_score = 0
+        factor_count = 0
+
+        # 1. Binance price momentum
+        if binance_data and 'error' not in binance_data:
+            change_24h = binance_data.get('change_24h', 0)
+            volume = binance_data.get('volume_24h', 0)
+            
+            if change_24h > 5:
+                sentiment_factors['binance_momentum'] = {'score': 8, 'signal': 'Strong Bullish'}
+            elif change_24h > 0:
+                sentiment_factors['binance_momentum'] = {'score': 6, 'signal': 'Bullish'}
+            elif change_24h > -5:
+                sentiment_factors['binance_momentum'] = {'score': 4, 'signal': 'Neutral'}
+            else:
+                sentiment_factors['binance_momentum'] = {'score': 2, 'signal': 'Bearish'}
+            
+            total_score += sentiment_factors['binance_momentum']['score']
+            factor_count += 1
+
+        # 2. CoinGecko fundamental metrics
+        if coingecko_data and 'error' not in coingecko_data:
+            # ATH distance analysis
+            ath_change = coingecko_data.get('ath_change_percentage', 0)
+            change_7d = coingecko_data.get('price_change_percentage_7d', 0)
+            change_30d = coingecko_data.get('price_change_percentage_30d', 0)
+            market_rank = coingecko_data.get('market_cap_rank', 999)
+
+            fundamental_score = 5  # Base score
+            
+            # ATH distance factor
+            if ath_change > -20:  # Close to ATH
+                fundamental_score += 2
+            elif ath_change > -50:
+                fundamental_score += 1
+            elif ath_change < -80:
+                fundamental_score -= 1
+
+            # Trend analysis
+            if change_7d > 0 and change_30d > 0:
+                fundamental_score += 1
+            elif change_7d < 0 and change_30d < 0:
+                fundamental_score -= 1
+
+            # Market cap ranking
+            if market_rank <= 10:
+                fundamental_score += 1
+            elif market_rank <= 50:
+                fundamental_score += 0.5
+
+            sentiment_factors['coingecko_fundamental'] = {
+                'score': min(10, max(1, fundamental_score)),
+                'signal': 'Strong Fundamental' if fundamental_score >= 7 else 'Good Fundamental' if fundamental_score >= 5 else 'Weak Fundamental'
+            }
+            
+            total_score += sentiment_factors['coingecko_fundamental']['score']
+            factor_count += 1
+
+        # 3. News sentiment
+        if news_data and len(news_data) > 0 and 'error' not in news_data[0]:
+            news_score = self._analyze_news_sentiment(news_data, symbol)
+            sentiment_factors['news_sentiment'] = {
+                'score': news_score['score'],
+                'signal': news_score['trend']
+            }
+            total_score += news_score['score']
+            factor_count += 1
+
+        # Calculate overall sentiment
+        overall_score = (total_score / factor_count) if factor_count > 0 else 5
+
+        # Determine bias and confidence
+        if overall_score >= 7:
+            bias = "Strongly Bullish"
+            technical_signal = "BUY"
+            recommendation = "Consider LONG position"
+        elif overall_score >= 6:
+            bias = "Bullish"
+            technical_signal = "WEAK BUY"
+            recommendation = "Cautious LONG"
+        elif overall_score <= 3:
+            bias = "Strongly Bearish"
+            technical_signal = "SELL"
+            recommendation = "Consider SHORT position"
+        elif overall_score <= 4:
+            bias = "Bearish"
+            technical_signal = "WEAK SELL"
+            recommendation = "Cautious SHORT"
+        else:
+            bias = "Neutral"
+            technical_signal = "HOLD"
+            recommendation = "Wait for clear signal"
+
+        confidence = "High" if factor_count >= 3 else "Medium" if factor_count >= 2 else "Low"
+
+        # Generate analysis text
+        analysis_points = []
+        for source, data in sentiment_factors.items():
+            if source == 'binance_momentum':
+                analysis_points.append(f"• Binance: {data['signal']} momentum (Score: {data['score']}/10)")
+            elif source == 'coingecko_fundamental':
+                analysis_points.append(f"• CoinGecko: {data['signal']} metrics (Score: {data['score']}/10)")
+            elif source == 'news_sentiment':
+                analysis_points.append(f"• News: {data['signal']} sentiment (Score: {data['score']}/10)")
+
+        return {
+            'score': round(overall_score, 1),
+            'bias': bias,
+            'technical_signal': technical_signal,
+            'recommendation': recommendation,
+            'confidence': confidence,
+            'fundamental_outlook': bias,
+            'analysis': '\n'.join(analysis_points) if analysis_points else '• Analisis multi-source sedang diproses'
+        }
+
+    def _analyze_market_health(self, global_data, market_data):
+        """Analyze overall market health from CoinGecko global data"""
+        if not global_data or 'error' in global_data:
+            return "• Data global market tidak tersedia"
+
+        health_points = []
+        
+        # Market cap analysis
+        total_mcap = global_data.get('total_market_cap', 0)
+        mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+        
+        if mcap_change > 3:
+            health_points.append("🟢 Market cap global naik signifikan (+3%+)")
+        elif mcap_change > 0:
+            health_points.append("🟡 Market cap global naik moderat")
+        elif mcap_change > -3:
+            health_points.append("🟡 Market cap global turun ringan")
+        else:
+            health_points.append("🔴 Market cap global turun signifikan (-3%+)")
+
+        # Bitcoin dominance
+        btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
+        if btc_dominance > 50:
+            health_points.append(f"📈 BTC dominance tinggi ({btc_dominance:.1f}%) - Flight to safety")
+        elif btc_dominance > 40:
+            health_points.append(f"⚖️ BTC dominance seimbang ({btc_dominance:.1f}%) - Healthy altcoin market")
+        else:
+            health_points.append(f"🔄 BTC dominance rendah ({btc_dominance:.1f}%) - Altcoin season potential")
+
+        # Market activity
+        active_cryptos = global_data.get('active_cryptocurrencies', 0)
+        markets = global_data.get('markets', 0)
+        
+        health_points.append(f"📊 {active_cryptos:,} crypto aktif di {markets:,} market")
+
+        return '\n'.join(health_points)
+
+    def _assess_comprehensive_risks(self, binance_data, futures_data, market_data, sentiment):
+        """Comprehensive risk assessment from all data sources"""
+        risk_factors = []
+        risk_score = 0
+
+        # Price volatility risk
+        if binance_data and 'error' not in binance_data:
+            change_24h = abs(binance_data.get('change_24h', 0))
+            if change_24h > 15:
+                risk_factors.append("🔴 Volatilitas sangat tinggi (>15%) - High risk trading")
+                risk_score += 3
+            elif change_24h > 10:
+                risk_factors.append("🟡 Volatilitas tinggi (>10%) - Increased risk")
+                risk_score += 2
+            elif change_24h > 5:
+                risk_factors.append("🟡 Volatilitas moderat (>5%) - Normal risk")
+                risk_score += 1
+
+        # Market position risk (from CoinGecko)
+        if market_data and 'error' not in market_data:
+            ath_distance = abs(market_data.get('ath_change_percentage', 0))
+            if ath_distance < 10:
+                risk_factors.append("⚠️ Dekat ATH - Risk of profit taking")
+                risk_score += 2
+            elif ath_distance > 70:
+                risk_factors.append("💎 Jauh dari ATH - Potential accumulation zone")
+                risk_score -= 1
+
+        # Futures risk (if available)
+        if futures_data and 'error' not in futures_data:
+            ls_ratio = futures_data.get('long_short_ratio_data', {})
+            if ls_ratio:
+                long_ratio = ls_ratio.get('long_ratio', 50)
+                if long_ratio > 75:
+                    risk_factors.append("🔴 Extreme long bias - Long squeeze risk")
+                    risk_score += 3
+                elif long_ratio < 25:
+                    risk_factors.append("🔴 Extreme short bias - Short squeeze risk")
+                    risk_score += 2
+
+        # Sentiment risk
+        if sentiment['confidence'] == 'Low':
+            risk_factors.append("⚠️ Low confidence signal - Ambiguous market direction")
+            risk_score += 1
+
+        # Overall risk level
+        if risk_score >= 6:
+            risk_level = "🔴 SANGAT TINGGI"
+        elif risk_score >= 4:
+            risk_level = "🟡 TINGGI"
+        elif risk_score >= 2:
+            risk_level = "🟡 SEDANG"
+        else:
+            risk_level = "🟢 RENDAH"
+
+        if not risk_factors:
+            risk_factors.append("✅ Tidak ada risk factor signifikan terdeteksi")
+            risk_factors.append("📊 Kondisi trading dalam range normal")
+
+        return f"Risk Level: {risk_level}\n" + '\n'.join(risk_factors)

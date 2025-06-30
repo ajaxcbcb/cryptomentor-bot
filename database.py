@@ -534,175 +534,24 @@ class Database:
         """Get recent user activity"""
         try:
             self.cursor.execute("""
-                SELECT user_id, action, details, created_at 
+                SELECT user_id, action, details, timestamp 
                 FROM user_activity 
-                ORDER BY created_at DESC 
+                ORDER BY timestamp DESC 
                 LIMIT ?
             """, (limit,))
 
-            rows = self.cursor.fetchall()
             activities = []
-
-            for row in rows:
+            for row in self.cursor.fetchall():
                 activities.append({
                     'user_id': row[0],
                     'action': row[1],
                     'details': row[2],
                     'timestamp': row[3]
                 })
-
             return activities
         except Exception as e:
-            print(f"DB Error (get_recent_activity): {e}")
+            print(f"Error getting recent activity: {e}")
             return []
-
-    def get_referral_count(self, telegram_id):
-        """Get number of successful referrals for a user"""
-        try:
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM users WHERE referred_by = ?
-            """, (telegram_id,))
-            row = self.cursor.fetchone()
-            return row[0] if row else 0
-        except Exception as e:
-            print(f"DB Error (get_referral_count): {e}")
-            return 0
-
-    def add_credits(self, telegram_id, amount):
-        """Add credits to user account"""
-        try:
-            self.cursor.execute("""
-                UPDATE users SET credits = credits + ? WHERE telegram_id = ?
-            """, (amount, telegram_id))
-            self.conn.commit()
-            return self.cursor.rowcount > 0
-        except Exception as e:
-            print(f"DB Error (add_credits): {e}")
-            return False
-
-    def set_user_credits(self, telegram_id, amount):
-        """Set user credits to a specific amount"""
-        try:
-            self.cursor.execute("""
-                UPDATE users SET credits = ? WHERE telegram_id = ?
-            """, (amount, telegram_id))
-            self.conn.commit()
-            return self.cursor.rowcount > 0
-        except Exception as e:
-            print(f"DB Error (set_user_credits): {e}")
-            return False
-
-    def fix_user_credits(self, telegram_id, amount=10):
-        """Fix credits for existing users who didn't get their initial credits"""
-        try:
-            # Check current credits
-            current_credits = self.get_user_credits(telegram_id)
-            if current_credits < amount:
-                self.cursor.execute("""
-                    UPDATE users SET credits = ? WHERE telegram_id = ?
-                """, (amount, telegram_id))
-                self.conn.commit()
-                return True
-            return False
-        except Exception as e:
-            print(f"DB Error (fix_user_credits): {e}")
-            return False
-
-    def fix_all_user_credits(self, amount=10):
-        """Fix credits for all users who have less than the minimum amount"""
-        try:
-            self.cursor.execute("""
-                UPDATE users SET credits = ? WHERE credits < ?
-            """, (amount, amount))
-            affected_rows = self.cursor.rowcount
-            self.conn.commit()
-            return affected_rows > 0
-        except Exception as e:
-            print(f"DB Error (fix_all_user_credits): {e}")
-            return False
-
-    def get_bot_statistics(self):
-        """Get comprehensive bot statistics for admin panel"""
-        try:
-            # Total users
-            self.cursor.execute("SELECT COUNT(*) FROM users")
-            total_users = self.cursor.fetchone()[0]
-
-            # Premium users
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
-            premium_users = self.cursor.fetchone()[0]
-
-            # Active today (users with activity in last 24 hours)
-            self.cursor.execute("""
-                SELECT COUNT(DISTINCT telegram_id) FROM user_activity 
-                WHERE timestamp >= datetime('now', '-1 day')
-            """)
-            active_today = self.cursor.fetchone()[0]
-
-            # Total credits distributed
-            self.cursor.execute("SELECT SUM(credits) FROM users")
-            total_credits_result = self.cursor.fetchone()[0]
-            total_credits = total_credits_result if total_credits_result else 0
-
-            # Average credits per user
-            avg_credits = total_credits / total_users if total_users > 0 else 0
-
-            # Commands today (count of activities today)
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM user_activity 
-                WHERE timestamp >= datetime('now', '-1 day')
-            """)
-            commands_today = self.cursor.fetchone()[0]
-
-            # Analyses count (count of analyze/futures commands)
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM user_activity 
-                WHERE action IN ('analyze', 'futures_analysis', 'market_analysis')
-            """)
-            analyses_count = self.cursor.fetchone()[0]
-
-            return {
-                'total_users': total_users,
-                'premium_users': premium_users,
-                'active_today': active_today,
-                'total_credits': total_credits,
-                'avg_credits': avg_credits,
-                'commands_today': commands_today,
-                'analyses_count': analyses_count
-            }
-        except Exception as e:
-            print(f"DB Error (get_bot_statistics): {e}")
-            return {
-                'total_users': 0,
-                'premium_users': 0, 
-                'active_today': 0,
-                'total_credits': 0,
-                'avg_credits': 0,
-                'commands_today': 0,
-                'analyses_count': 0
-            }
-
-    def get_recent_activity(self, limit=10):
-        """Get recent user activity for admin panel"""
-        try:
-            self.cursor.execute("""
-                SELECT telegram_id, action, details, timestamp 
-                FROM user_activity 
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            """, (limit,))
-            rows = self.cursor.fetchall()
-            return [
-                {
-                    'user_id': row[0],
-                    'action': row[1],
-                    'details': row[2],
-                    'timestamp': row[3]
-                } for row in rows
-            ]
-        except Exception as e:
-            print(f"DB Error (get_recent_activity): {e}")
-            return [] []
 
     def get_all_users(self):
         """Get all users for broadcast functionality"""
