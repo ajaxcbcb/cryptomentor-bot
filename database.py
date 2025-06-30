@@ -493,33 +493,52 @@ class Database:
         """Get bot usage statistics"""
         try:
             # Total users
-            self.cursor.execute("SELECT COUNT(*) FROM users")
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
             total_users = self.cursor.fetchone()[0]
 
-            # Premium users
+            # Premium users - fixed query
             self.cursor.execute("""
                 SELECT COUNT(*) FROM users 
-                WHERE premium_expires_at > datetime('now') OR premium_expires_at IS NULL AND is_premium = 1
+                WHERE is_premium = 1 AND telegram_id IS NOT NULL
             """)
             premium_users = self.cursor.fetchone()[0]
 
-            # Active today (users with activity in last 24 hours)
+            # Active today (users with activity in last 24 hours) - fixed column name
             self.cursor.execute("""
-                SELECT COUNT(DISTINCT user_id) FROM user_activity 
-                WHERE created_at > datetime('now', '-1 day')
+                SELECT COUNT(DISTINCT telegram_id) FROM user_activity 
+                WHERE timestamp >= datetime('now', '-1 day')
             """)
             active_today = self.cursor.fetchone()[0]
 
-            # Total credits used (estimate based on activity)
-            self.cursor.execute("SELECT COUNT(*) FROM user_activity")
-            total_activities = self.cursor.fetchone()[0]
-            total_credits_used = total_activities * 15  # Average credit cost
+            # Total credits 
+            self.cursor.execute("SELECT COALESCE(SUM(credits), 0) FROM users WHERE telegram_id IS NOT NULL")
+            total_credits = self.cursor.fetchone()[0]
+
+            # Commands today
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE timestamp >= datetime('now', '-1 day')
+            """)
+            commands_today = self.cursor.fetchone()[0]
+
+            # Average credits per user
+            avg_credits = (total_credits / total_users) if total_users > 0 else 0
+
+            # Total analyses count
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action IN ('analyze', 'futures_analysis', 'market_overview')
+            """)
+            analyses_count = self.cursor.fetchone()[0]
 
             return {
                 'total_users': total_users,
                 'premium_users': premium_users,
                 'active_today': active_today,
-                'total_credits_used': total_credits_used
+                'total_credits': total_credits,
+                'commands_today': commands_today,
+                'avg_credits': avg_credits,
+                'analyses_count': analyses_count
             }
         except Exception as e:
             print(f"DB Error (get_bot_statistics): {e}")
@@ -527,7 +546,10 @@ class Database:
                 'total_users': 0,
                 'premium_users': 0,
                 'active_today': 0,
-                'total_credits_used': 0
+                'total_credits': 0,
+                'commands_today': 0,
+                'avg_credits': 0,
+                'analyses_count': 0
             }
 
     def get_recent_activity(self, limit=10):

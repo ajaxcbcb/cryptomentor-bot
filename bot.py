@@ -196,98 +196,94 @@ class TelegramBot:
 
     async def start_command(self, update: Update, context: CallbackContext):
         """Handle /start command"""
-        user_id = update.message.from_user.id
-        username = update.message.from_user.username or "Unknown"
-        first_name = update.message.from_user.first_name or ""
-        last_name = update.message.from_user.last_name or ""
+        user = update.effective_user
 
-        # Check for referral code
-        referral_code = None
-        referrer_id = None
-        if context.args and context.args[0].startswith('ref_'):
-            referral_code = context.args[0][4:]  # Remove 'ref_' prefix
-            referrer_id = self.db.get_user_by_referral_code(referral_code)
+        try:
+            # Check if user exists
+            existing_user = self.db.get_user(user.id)
 
-        # Check if user exists
-        existing_user = self.db.get_user(user_id)
+            if not existing_user:
+                # Create new user with proper error handling
+                success = self.db.create_user(
+                    telegram_id=user.id,
+                    username=user.username or 'no_username',
+                    first_name=user.first_name or 'Unknown',
+                    last_name=user.last_name,
+                    language_code=user.language_code or 'id'
+                )
 
-        if not existing_user:
-            # Register new user in database with 10 base credits + 5 if referred
-            success = self.db.create_user(user_id, username, first_name, last_name, referred_by=referrer_id)
-
-            if success:
-                # Give referral bonus to referrer
-                if referrer_id:
-                    self.db.add_credits(referrer_id, 10)  # 10 credits to referrer
-                    self.db.log_user_activity(referrer_id, "referral_bonus", f"Got 10 credits from referring user {user_id}")
-                    self.db.log_user_activity(user_id, "referred_signup", f"Signed up via referral from user {referrer_id}")
-
-                    # Get referrer info for welcome message
-                    referrer_data = self.db.get_user(referrer_id)
-                    referrer_name = referrer_data.get('first_name', 'Unknown') if referrer_data else 'Unknown'
-
-                    welcome_message = f"""
-🚀 **Selamat datang di CryptoMentor AI Bot!**
-
-🎁 **Bonus Referral**: Anda mendapat **15 credit** (10 + 5 bonus) karena diundang oleh {referrer_name}!
-💝 **{referrer_name}** juga mendapat 10 credit bonus!
-
-🎁 **Bonus**: Total **15 credit gratis** untuk mencoba semua fitur!
-
-Saya adalah asisten AI yang akan membantu Anda dalam:
-• 📊 Analisis harga cryptocurrency
-• 📈 Sinyal trading
-• 💼 Manajemen portfolio
-• 📰 Berita crypto terbaru
-
-**Perintah yang tersedia:**
-• `/price <symbol>` - Cek harga crypto
-• `/analyze <symbol>` - Analisis mendalam
-• `/futures <symbol>` - Analisis futures 1 coin
-• `/portfolio` - Lihat portfolio Anda
-• `/market` - Overview pasar
-• `/credits` - Cek sisa credit Anda
-• `/help` - Bantuan lengkap
-
-Mulai dengan mengetik `/help` untuk melihat semua fitur!
-                """
+                if success:
+                    print(f"✅ New user created: {user.id} ({user.first_name})")
+                    # Log user registration
+                    self.db.log_user_activity(user.id, "user_registered", f"New user: {user.first_name}")
                 else:
-                    welcome_message = """
-🚀 **Selamat datang di CryptoMentor AI Bot!**
+                    print(f"❌ Failed to create user: {user.id}")
 
-🎁 **Bonus**: Anda mendapat **10 credit gratis** untuk mencoba semua fitur!
-
-Saya adalah asisten AI yang akan membantu Anda dalam:
-• 📊 Analisis harga cryptocurrency
-• 📈 Sinyal trading
-• 💼 Manajemen portfolio
-• 📰 Berita crypto terbaru
-
-**Perintah yang tersedia:**
-• `/price <symbol>` - Cek harga crypto
-• `/analyze <symbol>` - Analisis mendalam
-• `/futures <symbol>` - Analisis futures 1 coin
-• `/portfolio` - Lihat portfolio Anda
-• `/market` - Overview pasar
-• `/credits` - Cek sisa credit Anda
-• `/help` - Bantuan lengkap
-
-Mulai dengan mengetik `/help` untuk melihat semua fitur!
-                    """
             else:
-                welcome_message = "❌ Terjadi kesalahan saat mendaftarkan akun. Silakan coba lagi."
+                print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
+                # Log user return
+                self.db.log_user_activity(user.id, "user_returned", "User started bot again")
+
+        except Exception as e:
+            print(f"❌ Error in start command: {e}")
+            # Continue anyway to not break user experience
+
+        # Welcome message
+        language = user.language_code or 'id'
+
+        if language == 'id':
+            welcome_text = f"""🎉 **Selamat datang di CryptoMentor AI, {user.first_name}!**
+
+🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari multiple API.
+
+🚀 **Fitur Premium:**
+• Analisis teknikal mendalam
+• Signal futures real-time  
+• Data multi-API (Binance + CoinGecko + CryptoNews)
+• Portfolio tracker advanced
+• Unlimited analysis
+
+💎 **Credits System:**
+• Analisis: 5 credits
+• Market overview: 3 credits  
+• Futures signals: 5 credits
+• Premium users: Unlimited
+
+📋 **Quick Start:**
+• `/price btc` - Cek harga Bitcoin
+• `/analyze eth` - Analisis Ethereum
+• `/market` - Overview pasar
+• `/help` - Panduan lengkap
+
+Ketik command untuk memulai trading journey Anda! 📈"""
+
         else:
-            # Returning user
-            credits = self.db.get_user_credits(user_id)
-            welcome_message = f"""
-👋 **Selamat datang kembali {first_name}!**
+            welcome_text = f"""🎉 **Welcome to CryptoMentor AI, {user.first_name}!**
 
-💳 Credit tersisa: **{credits}**
+🤖 I'm your comprehensive crypto trading AI assistant with real-time multi-API data.
 
-Gunakan `/help` untuk melihat semua fitur yang tersedia!
-            """
+🚀 **Premium Features:**
+• In-depth technical analysis
+• Real-time futures signals
+• Multi-API data (Binance + CoinGecko + CryptoNews)  
+• Advanced portfolio tracker
+• Unlimited analysis
 
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
+💎 **Credits System:**
+• Analysis: 5 credits
+• Market overview: 3 credits
+• Futures signals: 5 credits
+• Premium users: Unlimited
+
+📋 **Quick Start:**
+• `/price btc` - Check Bitcoin price
+• `/analyze eth` - Analyze Ethereum
+• `/market` - Market overview
+• `/help` - Complete guide
+
+Type a command to start your trading journey! 📈"""
+
+        await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
     async def help_command(self, update: Update, context: CallbackContext):
         """Handle /help command"""
@@ -744,341 +740,7 @@ Gunakan credit dengan bijak!
 • **Username:** @{username}
 • **Nama:** {first_name}
 
-🚀 **Fitur Premium:**
-• ♾️ Unlimited analisis
-• 📊 Analisis futures lengkap
-• 🚨 Alert harga real-time
-• 📈 Sinyal trading premium
-• 🎯 Support prioritas
-• 🔔 Notifikasi breakout otomatis
-
-💰 **Harga Premium:**
-• **Rp 320.000** (per bulan)
-
-💳 **Metode Pembayaran:**
-
-🏦 **Transfer Bank:**
-• Bank Mandiri
-• A/N: NABIL FARREL AL FARI
-• No. Rek: 1560018407074
-
-📱 **E-Wallet:**
-• Shopee Pay / Dana / GO-PAY
-• No. HP: 087779274400
-
-📋 **Cara Upgrade:**
-1. Transfer Rp 320.000
-2. Kirim bukti pembayaran ke admin @Billfarr
-3. **Sertakan informasi ini:**
-   • User ID: `{user_id}`
-   • Username: @{username}
-   • Nama: {first_name}
-4. Tunggu konfirmasi aktivasi (maks 24 jam)
-
-⚡ **Promo Khusus:**
-Daftar sekarang dan dapatkan 7 hari trial GRATIS!
-
-💬 **Butuh bantuan?** Chat admin @Billfarr
-
-ℹ️ **Catatan Penting:** 
-Pastikan menyertakan **User ID** (`{user_id}`) dalam pesan ke admin untuk mempercepat proses aktivasi premium.
-        """
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def referral_command(self, update: Update, context: CallbackContext):
-        """Handle /referral command"""
-        user_id = update.message.from_user.id
-
-        # Get user's referral code from database
-        user_data = self.db.get_user(user_id)
-        if not user_data:
-            await update.message.reply_text("❌ User tidak ditemukan. Gunakan /start terlebih dahulu.")
-            return
-
-        referral_code = user_data.get('referral_code', f'USER{user_id}')
-
-        # Create correct referral link to CryptoMentor AI Bot
-        referral_link = f"https://t.me/CryptoMentorAI_Bot?start=ref_{referral_code}"
-
-        # Get referral statistics
-        referral_count = self.db.get_referral_count(user_id)
-        referral_credits = referral_count * 10  # 10 credits per referral
-
-        message = f"""
-🎁 **Program Referral CryptoMentor AI**
-
-👤 **Referral Anda:**
-• Kode referral: `{referral_code}`
-• Total referral: {referral_count} orang
-• Credit dari referral: {referral_credits}
-
-🔗 **Link Referral:**
-`{referral_link}`
-
-💰 **Sistem Bonus:**
-• 🎯 Anda: 10 credit per referral berhasil
-• 🎁 Teman: 10 credit dasar + 5 credit bonus referral (total 15)
-• 📈 Bonus maksimal: 100 credit per bulan
-
-📝 **Cara Kerja:**
-1. Bagikan link referral Anda
-2. Teman klik link dan /start bot
-3. Bonus credit otomatis masuk ke akun
-4. Cek hasil dengan /credits
-
-💡 **Tips:**
-• Bagikan di grup crypto/trading
-• Jelaskan fitur premium bot
-• Ajak untuk coba analisis gratis
-
-Mulai ajak teman dan dapatkan bonus credit!
-        """
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def admin_command(self, update: Update, context: CallbackContext):
-        """Admin panel command"""
-        user_id = update.message.from_user.id
-
-        # Strict admin check - only respond to admin, ignore others completely
-        if user_id != self.admin_id:
-            # Don't send any response to non-admin users
-            return
-
-        keyboard = [
-            [InlineKeyboardButton("👑 Buat User Premium", callback_data='make_premium')],
-            [InlineKeyboardButton("💰 Berikan Credits", callback_data='grant_credits')],
-            [InlineKeyboardButton("📢 Broadcast Message", callback_data='broadcast_help')],
-            [InlineKeyboardButton("📊 Statistik Bot", callback_data='bot_stats')],
-            [InlineKeyboardButton("📝 Log Aktivitas", callback_data='activity_log')],
-            [InlineKeyboardButton("🔍 API Health Report", callback_data='api_health')],
-            [InlineKeyboardButton("🔄 Restart Bot", callback_data='restart_bot')]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "🛠 **Panel Admin CryptoMentor**\n\n"
-            "Pilih opsi yang tersedia:",
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-    async def grant_premium_command(self, update: Update, context: CallbackContext):
-        """Handle /grant_premium command"""
-        user_id = update.message.from_user.id
-
-        if user_id != self.admin_id:
-            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
-            return
-
-        if not context.args:
-            await update.message.reply_text("❌ Format: `/grant_premium <user_id> [days]`\nContoh: \n• `/grant_premium 123456789` (30 hari)\n• `/grant_premium 123456789 60` (60 hari)\n• `/grant_premium 123456789 permanent` (permanent)")
-            return
-
-        try:
-            target_user_id = int(context.args[0])
-            days = 30  # default 30 days
-
-            # Check if days parameter is provided
-            if len(context.args) > 1:
-                if context.args[1].lower() in ['permanent', 'forever', '0']:
-                    days = None  # Permanent premium
-                else:
-                    days = int(context.args[1])
-
-            # Check if user exists
-            user_data = self.db.get_user(target_user_id)
-            if not user_data:
-                await update.message.reply_text(f"❌ User dengan ID {target_user_id} tidak ditemukan di database!")
-                return
-
-            # Grant premium access
-            success = self.db.grant_premium(target_user_id, days)
-
-            if success:
-                username = user_data.get('username', 'Unknown')
-                first_name = user_data.get('first_name', 'Unknown')
-
-                duration_text = "Permanent (No Expiry)" if days is None else f"{days} days"
-
-                message = f"""
-✅ **Premium Access Granted!**
-
-👤 **User Info:**
-• ID: {target_user_id}
-• Name: {first_name}
-• Username: @{username}
-
-⭐ **Premium Details:**
-• Duration: {duration_text}
-• Status: Active
-• Unlimited access to all features
-
-User sekarang memiliki akses premium unlimited!
-                """
-                await update.message.reply_text(message, parse_mode='Markdown')
-
-                # Log the action
-                self.db.log_user_activity(target_user_id, "premium_granted", f"Premium granted by admin for {days} days")
-            else:
-                await update.message.reply_text(f"❌ Gagal memberikan premium access ke user {target_user_id}")
-
-        except ValueError:
-            await update.message.reply_text("❌ User ID dan days harus berupa angka!\nContoh: `/grant_premium 123456789 30`")        
-    async def revoke_premium_command(self, update: Update, context: CallbackContext):
-        """Handle /revoke_premium command"""
-        user_id = update.message.from_user.id
-
-        if user_id != self.admin_id:
-            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
-            return
-
-        if not context.args:
-            await update.message.reply_text("❌ Format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
-            return
-
-        try:
-            target_user_id = int(context.args[0])
-
-            # Check if user exists and is premium
-            user_data = self.db.get_user(target_user_id)
-            if not user_data:
-                await update.message.reply_text(f"❌ User dengan ID {target_user_id} tidak ditemukan di database!")
-                return
-
-            is_premium = self.db.is_user_premium(target_user_id)
-            if not is_premium:
-                await update.message.reply_text(f"❌ User {target_user_id} sudah bukan premium user!")
-                return
-
-            # Revoke premium access
-            success = self.db.revoke_premium(target_user_id)
-
-            if success:
-                username = user_data.get('username', 'Unknown')
-                first_name = user_data.get('first_name', 'Unknown')
-
-                message = f"""✅ **Premium Access Revoked!**
-
-👤 **User Info:**
-• ID: {target_user_id}
-• Name: {first_name}
-• Username: @{username}
-
-📊 **Status Changed:**
-• From: Premium (Unlimited)
-• To: Free User
-
-User sekarang menjadi free user!"""
-
-                await update.message.reply_text(message, parse_mode='Markdown')
-
-                # Log the action
-                self.db.log_user_activity(target_user_id, "premium_revoked", "Premium revoked by admin")
-            else:
-                await update.message.reply_text(f"❌ Gagal mencabut premium access dari user {target_user_id}")
-
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!\nContoh: `/revoke_premium 123456789`")
-
-    async def grant_credits_command(self, update: Update, context: CallbackContext):
-        """Handle /grant_credits command"""
-        user_id = update.message.from_user.id
-
-        if user_id != self.admin_id:
-            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ Format: `/grant_credits <user_id> <amount>`\nContoh: `/grant_credits 123456789 50`")
-            return
-
-        try:
-            target_user_id = int(context.args[0])
-            credit_amount = int(context.args[1])
-
-            # Check if user exists
-            user_data = self.db.get_user(target_user_id)
-            if not user_data:
-                await update.message.reply_text(f"❌ User dengan ID {target_user_id} tidak ditemukan di database!")
-                return
-
-            # Add credits
-            self.db.add_credits(target_user_id, credit_amount)
-            new_credits = self.db.get_user_credits(target_user_id)
-
-            username = user_data.get('username', 'Unknown')
-            first_name = user_data.get('first_name', 'Unknown')
-
-            message = f"""
-✅ **Credits Granted Successfully!**
-
-👤 **User Info:**
-• ID: {target_user_id}
-• Name: {first_name}
-• Username: @{username}
-
-💰 **Credit Update:**
-• Credits Added: +{credit_amount}
-• New Balance: {new_credits}
-
-Credits berhasil ditambahkan!
-            """
-            await update.message.reply_text(message, parse_mode='Markdown')
-
-            # Log the action
-            self.db.log_user_activity(target_user_id, "credits_granted", f"Granted {credit_amount} credits by admin")
-
-        except ValueError:
-            await update.message.reply_text("❌ User ID dan credit amount harus berupa angka!\nContoh: `/grant_credits 123456789 50`")
-
-    async def language_command(self, update: Update, context: CallbackContext):
-        """Handle /language command"""
-        keyboard = [
-            [InlineKeyboardButton("🇮🇩 Bahasa Indonesia", callback_data='lang_id')],
-            [InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "🌐 **Pilih Bahasa / Choose Language:**",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    async def fix_all_credits_command(self, update: Update, context: CallbackContext):
-        """Handle /fix_all_credits command"""
-        user_id = update.message.from_user.id
-
-        if user_id != self.admin_id:
-            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
-            return
-
-        # Fix credits for all users
-        success = self.db.fix_all_user_credits()
-
-        if success:
-            await update.message.reply_text("✅ Credits berhasil diperbaiki untuk semua user!")
-        else:
-            await update.message.reply_text("❌ Gagal memperbaiki credits!")
-
-    async def broadcast_command(self, update: Update, context: CallbackContext):
-        """Handle /broadcast command"""
-        user_id = update.message.from_user.id
-
-        if user_id != self.admin_id:
-            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
-            return
-
-        # Check if another broadcast is in progress
-        if self.broadcast_in_progress:
-            await update.message.reply_text("❌ Broadcast sedang berlangsung! Tunggu sampai selesai.")
-            return
-
-        if not context.args:
-            await update.message.reply_text(
-                "❌ Format: `/broadcast <message>`\n\n"
-                "📝 **Contoh:**\n"
-                "```\n/broadcast 🚀 Update Fitur Baru!\n\n"
+🚀\n/broadcast 🚀 Update Fitur Baru!\n\n"
                 "✅ Analisis real-time telah ditingkatkan\n"
                 "📊 Dashboard baru tersedia\n\n"
                 "Terima kasih telah menggunakan CryptoMentor AI!```\n\n"
@@ -1128,7 +790,7 @@ Credits berhasil ditambahkan!
 
 **Pesan yang akan dikirim:**
 ```
-{escaped_message}```
+{escaped_message}``
 
 **Warning:** Pesan ini akan dikirim ke SEMUA user bot\\!
 
@@ -1999,7 +1661,7 @@ Gunakan:
             symbol = parts[2]
             timeframe = parts[3]
             await self._handle_futures_timeframe_analysis(query, symbol, timeframe)
-            
+
         # Handle futures menu callback (return to timeframe selection)
         elif data.startswith('futures_menu_'):
             symbol = data.split('_')[-1]
@@ -2242,11 +1904,11 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
             if len(analysis) > 4000:
                 chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
                 await query.edit_message_text(chunks[0], parse_mode='Markdown')
-                
+
                 # Send additional chunks
                 for chunk in chunks[1:]:
                     await query.message.reply_text(chunk, parse_mode='Markdown')
-                    
+
                 # Add keyboard to last message
                 await query.message.reply_text("📈 **Analisis Tambahan:**", reply_markup=reply_markup)
             else:
@@ -2274,5 +1936,94 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
     async def _handle_funding_history(self, query, symbol):
         """Handle funding rate history callback"""
         await query.edit_message_text(f"💰 Histori funding rate untuk {symbol} akan segera hadir!")
+
+    async def admin_command(self, update: Update, context: CallbackContext):
+        """Admin panel command"""
+        user_id = update.message.from_user.id
+
+        # Strict admin check - only respond to admin, ignore others completely
+        if user_id != self.admin_id:
+            # Don't send any response to non-admin users
+            return
+
+        keyboard = [
+            [InlineKeyboardButton("👑 Buat User Premium", callback_data='make_premium')],
+            [InlineKeyboardButton("💰 Berikan Credits", callback_data='grant_credits')],
+            [InlineKeyboardButton("📢 Broadcast Message", callback_data='broadcast_help')],
+            [InlineKeyboardButton("📊 Statistik Bot", callback_data='bot_stats')],
+            [InlineKeyboardButton("📝 Log Aktivitas", callback_data='activity_log')],
+            [InlineKeyboardButton("🔍 API Health Report", callback_data='api_health')],
+            [InlineKeyboardButton("🔄 Restart Bot", callback_data='restart_bot')]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🛠 **Panel Admin CryptoMentor**\n\n"
+            "Pilih opsi yang tersedia:",
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    async def admin_stats(self, update: Update, context: CallbackContext):
+        """Admin command to view bot statistics"""
+        user_id = update.effective_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            # Get comprehensive statistics
+            stats = self.db.get_bot_statistics()
+
+            # Check API health
+            api_status = self.crypto_api.check_api_status()
+            api_health = "✅ All Connected" if api_status.get('overall_health', False) else "⚠️ Partial"
+
+            # Additional database checks
+            try:
+                self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+                invalid_users = self.db.cursor.fetchone()[0]
+
+                self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
+                negative_credits = self.db.cursor.fetchone()[0]
+            except:
+                invalid_users = 0
+                negative_credits = 0
+
+            message = f"""📊 **CryptoMentor AI - Bot Statistics**
+
+👥 **Users:**
+• Total Users: {stats['total_users']}
+• Premium Users: {stats['premium_users']}
+• Active Today: {stats['active_today']}
+
+💰 **Credits:**
+• Total Credits: {stats['total_credits']:,}
+• Average Credits/User: {stats['avg_credits']:.1f}
+• Commands Today: {stats['commands_today']}
+
+📈 **Activity:**
+• Total Analyses: {stats['analyses_count']}
+• API Status: {api_health}
+• Bot Uptime: {datetime.now().strftime('%H:%M:%S')}
+
+🔧 **Database Health:**
+• Invalid Users: {invalid_users}
+• Negative Credits: {negative_credits}
+• DB Status: {"🟢 Healthy" if invalid_users == 0 and negative_credits == 0 else "🟡 Needs Attention"}
+
+**Admin Commands:**
+• `/grant_premium <user_id>` - Grant premium
+• `/revoke_premium <user_id>` - Revoke premium  
+• `/broadcast <message>` - Send to all users
+
+System Status: 🟢 Operational"""
+
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error fetching stats: {str(e)}")
+            print(f"Admin stats error: {e}")
 
 # News command will be integrated in main bot class
