@@ -46,7 +46,7 @@ class CryptoAPI:
             response = requests.get(
                 f"{self.binance_spot_url}/ticker/24hr",
                 params={'symbol': symbol},
-                timeout=10
+                timeout=15
             )
             response.raise_for_status()
             data = response.json()
@@ -560,6 +560,8 @@ class CryptoAPI:
             if 'error' not in binance_data and binance_data.get('price', 0) > 0:
                 price_sources['binance'] = binance_data
                 print(f"✅ Real-time Binance data for {symbol}: ${binance_data.get('price', 0):,.2f}")
+                # Return immediately if Binance works to ensure real-time
+                return self._combine_price_data(symbol, price_sources)
         except Exception as e:
             print(f"⚠️ Binance API error for {symbol}: {e}")
             pass
@@ -888,16 +890,32 @@ class CryptoAPI:
 
     def _fallback_price(self, symbol, error_msg):
         """Fallback price data when Binance fails"""
+        # Try CoinGecko as backup before using mock data
+        try:
+            coingecko_data = self.get_coingecko_price(symbol)
+            if 'error' not in coingecko_data and coingecko_data.get('price', 0) > 0:
+                print(f"✅ Using CoinGecko fallback for {symbol}")
+                return {
+                    'symbol': symbol.upper() + 'USDT' if not symbol.upper().endswith('USDT') else symbol.upper(),
+                    'price': coingecko_data.get('price', 0),
+                    'change_24h': coingecko_data.get('change_24h', 0),
+                    'volume_24h': coingecko_data.get('volume_24h', 0),
+                    'source': 'coingecko_fallback',
+                    'error_reason': f"Binance failed: {error_msg}"
+                }
+        except Exception as e:
+            print(f"⚠️ CoinGecko fallback also failed: {e}")
+
+        # Only use mock data as last resort
         import random
-        # Mock realistic crypto prices for common symbols
         mock_prices = {
-            'BTCUSDT': random.uniform(40000, 70000),
-            'ETHUSDT': random.uniform(2000, 4000),
-            'BNBUSDT': random.uniform(300, 600),
-            'ADAUSDT': random.uniform(0.3, 0.8),
-            'SOLUSDT': random.uniform(80, 200),
-            'XRPUSDT': random.uniform(0.4, 0.8),
-            'DOGEUSDT': random.uniform(0.06, 0.15)
+            'BTCUSDT': random.uniform(65000, 75000),
+            'ETHUSDT': random.uniform(3000, 4000),
+            'BNBUSDT': random.uniform(500, 700),
+            'ADAUSDT': random.uniform(0.4, 0.6),
+            'SOLUSDT': random.uniform(150, 250),
+            'XRPUSDT': random.uniform(0.5, 0.7),
+            'DOGEUSDT': random.uniform(0.08, 0.12)
         }
 
         normalized_symbol = symbol.upper() + 'USDT' if not symbol.upper().endswith('USDT') else symbol.upper()
@@ -906,12 +924,13 @@ class CryptoAPI:
         return {
             'symbol': normalized_symbol,
             'price': base_price,
-            'change_24h': random.uniform(-10, 10),
-            'high_24h': base_price * random.uniform(1.01, 1.15),
-            'low_24h': base_price * random.uniform(0.85, 0.99),
-            'volume_24h': random.uniform(1000000, 100000000),
+            'change_24h': random.uniform(-5, 5),
+            'high_24h': base_price * random.uniform(1.01, 1.05),
+            'low_24h': base_price * random.uniform(0.95, 0.99),
+            'volume_24h': random.uniform(10000000, 100000000),
             'source': 'fallback_simulation',
-            'error_reason': error_msg
+            'error_reason': error_msg,
+            'warning': 'SIMULATION DATA - Check API connection'
         }
 
     def _fallback_futures_data(self, symbol):

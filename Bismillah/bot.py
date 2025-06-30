@@ -348,7 +348,11 @@ class TelegramBot:
         print(f"🔄 Fetching real-time data for {symbol} from multiple sources...")
 
         # Primary: Binance API for most accurate real-time prices
-        price_data = self.crypto_api.get_binance_price(symbol)
+        # Force refresh in deployment to ensure real-time data
+        if IS_DEPLOYMENT:
+            price_data = self.crypto_api.get_multi_api_price(symbol, force_refresh=True)
+        else:
+            price_data = self.crypto_api.get_binance_price(symbol)
         coingecko_data = None
         news_data = None
 
@@ -373,10 +377,15 @@ class TelegramBot:
                 'binance_simple': '🟡 Binance Simple (Real-Time)', 
                 'coingecko': '🔵 CoinGecko Pro (Real-Time)',
                 'coingecko_free': '🔵 CoinGecko Free (Real-Time)',
-                'mock_realtime': '🔄 Enhanced Market Simulation'
+                'coingecko_fallback': '🟡 CoinGecko Backup (Real-Time)',
+                'fallback_simulation': '⚠️ Simulation Data'
             }.get(source, '🔄 Market Data')
 
-            is_real_api = source in ['binance', 'binance_simple', 'coingecko', 'coingecko_free']
+            is_real_api = source in ['binance', 'binance_simple', 'coingecko', 'coingecko_free', 'coingecko_fallback']
+            
+            # Warning for simulation data in deployment
+            if source == 'fallback_simulation' and IS_DEPLOYMENT:
+                source_emoji += ' - API CONNECTION ISSUE'
 
             # Smart price formatting using crypto_api formatting function
             current_price = price_data.get('price', 0)
