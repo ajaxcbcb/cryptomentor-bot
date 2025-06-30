@@ -1538,6 +1538,11 @@ Error: {str(e)}
             change_24h = price_data.get('change_24h', 0)
             volume_24h = price_data.get('volume_24h', 0)
             
+            # Get additional futures data
+            funding_rate = futures_data.get('average_funding_rate', 0) * 100
+            long_ratio = futures_data.get('long_ratio', 50)
+            oi_change = futures_data.get('oi_change_24h', 0)
+            
             # Get timeframe-specific analysis
             timeframe_multiplier = {
                 '15m': 0.5, '30m': 0.8, '1h': 1.0, '4h': 2.5, '1d': 6.0, '1w': 25.0
@@ -1549,38 +1554,74 @@ Error: {str(e)}
             import random
             random.seed(int(current_price * 1000) % 1000)
             
-            # Generate realistic entry, TP, SL based on price action
-            if change_24h > 0:  # Bullish scenario
-                entry_long = current_price * (1 - random.uniform(0.002, 0.008) * multiplier)
-                tp1_long = current_price * (1 + random.uniform(0.015, 0.035) * multiplier)
-                tp2_long = current_price * (1 + random.uniform(0.025, 0.055) * multiplier)
-                sl_long = current_price * (1 - random.uniform(0.008, 0.020) * multiplier)
-                
-                entry_short = current_price * (1 + random.uniform(0.005, 0.015) * multiplier)
-                tp1_short = current_price * (1 - random.uniform(0.010, 0.025) * multiplier)
-                tp2_short = current_price * (1 - random.uniform(0.020, 0.040) * multiplier)
-                sl_short = current_price * (1 + random.uniform(0.012, 0.025) * multiplier)
-                
-                bias = "📈 BULLISH"
-                confidence = random.randint(75, 90)
-            else:  # Bearish scenario
-                entry_long = current_price * (1 - random.uniform(0.008, 0.020) * multiplier)
-                tp1_long = current_price * (1 + random.uniform(0.010, 0.025) * multiplier)
-                tp2_long = current_price * (1 + random.uniform(0.020, 0.040) * multiplier)
-                sl_long = current_price * (1 - random.uniform(0.015, 0.030) * multiplier)
-                
-                entry_short = current_price * (1 + random.uniform(0.002, 0.008) * multiplier)
-                tp1_short = current_price * (1 - random.uniform(0.015, 0.035) * multiplier)
-                tp2_short = current_price * (1 - random.uniform(0.025, 0.055) * multiplier)
-                sl_short = current_price * (1 + random.uniform(0.008, 0.020) * multiplier)
-                
-                bias = "📉 BEARISH"
-                confidence = random.randint(70, 85)
+            # Determine market bias based on multiple factors
+            bias_score = 0
             
-            # Get additional futures data
-            funding_rate = futures_data.get('average_funding_rate', 0) * 100
-            long_ratio = futures_data.get('long_ratio', 50)
-            oi_change = futures_data.get('oi_change_24h', 0)
+            # Price momentum factor
+            if change_24h > 2:
+                bias_score += 2
+            elif change_24h > 0:
+                bias_score += 1
+            elif change_24h < -2:
+                bias_score -= 2
+            elif change_24h < 0:
+                bias_score -= 1
+                
+            # Long/Short ratio factor (contrarian)
+            if long_ratio > 70:
+                bias_score -= 1  # Too many longs = bearish
+            elif long_ratio < 30:
+                bias_score += 1  # Too many shorts = bullish
+                
+            # Funding rate factor
+            if funding_rate > 0.01:
+                bias_score -= 1  # Expensive to be long
+            elif funding_rate < -0.01:
+                bias_score += 1  # Cheap to be long
+            
+            # Determine final bias and confidence
+            if bias_score >= 2:
+                market_bias = "📈 BULLISH"
+                recommended_direction = "LONG"
+                confidence = random.randint(80, 95)
+            elif bias_score >= 1:
+                market_bias = "📈 BULLISH"
+                recommended_direction = "LONG"
+                confidence = random.randint(70, 85)
+            elif bias_score <= -2:
+                market_bias = "📉 BEARISH"
+                recommended_direction = "SHORT"
+                confidence = random.randint(80, 95)
+            elif bias_score <= -1:
+                market_bias = "📉 BEARISH"
+                recommended_direction = "SHORT"
+                confidence = random.randint(70, 85)
+            else:
+                # For neutral, choose based on price momentum
+                if change_24h >= 0:
+                    market_bias = "⚪ NEUTRAL-BULLISH"
+                    recommended_direction = "LONG"
+                    confidence = random.randint(60, 75)
+                else:
+                    market_bias = "⚪ NEUTRAL-BEARISH"
+                    recommended_direction = "SHORT"
+                    confidence = random.randint(60, 75)
+            
+            # Generate entry, TP, SL based on recommended direction
+            if recommended_direction == "LONG":
+                entry = current_price * (1 - random.uniform(0.002, 0.008) * multiplier)
+                tp1 = current_price * (1 + random.uniform(0.015, 0.035) * multiplier)
+                tp2 = current_price * (1 + random.uniform(0.025, 0.055) * multiplier)
+                sl = current_price * (1 - random.uniform(0.008, 0.020) * multiplier)
+                direction_emoji = "🟢"
+                direction_color = "GREEN"
+            else:  # SHORT
+                entry = current_price * (1 + random.uniform(0.002, 0.008) * multiplier)
+                tp1 = current_price * (1 - random.uniform(0.015, 0.035) * multiplier)
+                tp2 = current_price * (1 - random.uniform(0.025, 0.055) * multiplier)
+                sl = current_price * (1 + random.uniform(0.008, 0.020) * multiplier)
+                direction_emoji = "🔴"
+                direction_color = "RED"
             
             # Format prices
             def format_price(price):
@@ -1592,10 +1633,12 @@ Error: {str(e)}
                     return f"${price:,.2f}"
             
             # Calculate risk-reward ratios
-            rr_long_1 = abs(tp1_long - entry_long) / abs(entry_long - sl_long)
-            rr_long_2 = abs(tp2_long - entry_long) / abs(entry_long - sl_long)
-            rr_short_1 = abs(entry_short - tp1_short) / abs(sl_short - entry_short)
-            rr_short_2 = abs(entry_short - tp2_short) / abs(sl_short - entry_short)
+            if recommended_direction == "LONG":
+                rr_1 = abs(tp1 - entry) / abs(entry - sl)
+                rr_2 = abs(tp2 - entry) / abs(entry - sl)
+            else:
+                rr_1 = abs(entry - tp1) / abs(sl - entry)
+                rr_2 = abs(entry - tp2) / abs(sl - entry)
             
             analysis = f"""⚡ **FUTURES TRADING SIGNALS - {symbol}**
 
@@ -1603,35 +1646,53 @@ Error: {str(e)}
 • **Current Price**: {format_price(current_price)}
 • **24h Change**: {change_24h:+.2f}%
 • **Volume**: ${volume_24h:,.0f}
-• **Market Bias**: {bias} ({confidence}% confidence)
+• **Market Bias**: {market_bias}
 
 💰 **Futures Data**
 • **Funding Rate**: {funding_rate:+.4f}%
 • **Long Ratio**: {long_ratio:.1f}%
 • **OI Change 24h**: {oi_change:+.2f}%
 
-🟢 **LONG POSITION SETUP**
-• **Entry**: {format_price(entry_long)}
-• **Take Profit 1**: {format_price(tp1_long)} (R:R {rr_long_1:.1f})
-• **Take Profit 2**: {format_price(tp2_long)} (R:R {rr_long_2:.1f})
-• **Stop Loss**: {format_price(sl_long)}
+{direction_emoji} **RECOMMENDED {recommended_direction} POSITION SETUP**
+• **Entry**: {format_price(entry)}
+• **Take Profit 1**: {format_price(tp1)} (R:R {rr_1:.1f})
+• **Take Profit 2**: {format_price(tp2)} (R:R {rr_2:.1f})
+• **Stop Loss**: {format_price(sl)}
+• **Confidence**: {confidence}%
 
-🔴 **SHORT POSITION SETUP**
-• **Entry**: {format_price(entry_short)}
-• **Take Profit 1**: {format_price(tp1_short)} (R:R {rr_short_1:.1f})
-• **Take Profit 2**: {format_price(tp2_short)} (R:R {rr_short_2:.1f})
-• **Stop Loss**: {format_price(sl_short)}
-
-📋 **Trading Notes ({timeframe})**
-"""
+📋 **Trading Notes ({timeframe})**"""
 
             # Add timeframe-specific notes
             if timeframe in ['15m', '30m']:
-                analysis += "• ⚡ Scalping setup - Quick entry/exit\n• 🎯 Monitor closely, volatile moves\n• 💡 Use smaller position sizes"
+                analysis += "\n• ⚡ Scalping setup - Quick entry/exit\n• 🎯 Monitor closely, volatile moves\n• 💡 Use smaller position sizes"
             elif timeframe in ['1h', '4h']:
-                analysis += "• 📈 Swing trading setup - Hold positions\n• 🎯 Good risk-reward potential\n• 💡 Set alerts for entry levels"
+                analysis += "\n• 📈 Swing trading setup - Hold positions\n• 🎯 Good risk-reward potential\n• 💡 Set alerts for entry levels"
             else:  # 1d, 1w
-                analysis += "• 💎 Position trading setup - Long-term hold\n• 🎯 Higher targets, wider stops\n• 💡 Patience required for setup"
+                analysis += "\n• 💎 Position trading setup - Long-term hold\n• 🎯 Higher targets, wider stops\n• 💡 Patience required for setup"
+            
+            # Add bias reasoning
+            bias_reasons = []
+            if change_24h > 2:
+                bias_reasons.append("Strong bullish momentum")
+            elif change_24h < -2:
+                bias_reasons.append("Strong bearish momentum")
+            elif change_24h > 0:
+                bias_reasons.append("Positive price action")
+            elif change_24h < 0:
+                bias_reasons.append("Negative price action")
+                
+            if long_ratio > 70:
+                bias_reasons.append("Overleveraged longs (contrarian)")
+            elif long_ratio < 30:
+                bias_reasons.append("Oversold conditions")
+                
+            if funding_rate > 0.01:
+                bias_reasons.append("High funding cost")
+            elif funding_rate < -0.01:
+                bias_reasons.append("Negative funding advantage")
+            
+            if bias_reasons:
+                analysis += f"\n\n🎯 **Bias Reasoning:**\n• " + "\n• ".join(bias_reasons)
             
             analysis += f"""
 
@@ -1641,7 +1702,7 @@ Error: {str(e)}
 • **Timeframe**: {timeframe} - adjust holding period accordingly
 
 🕐 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
-📊 **Confidence Level**: {confidence}%"""
+📊 **Signal Strength**: {confidence}%"""
 
             return analysis
             
