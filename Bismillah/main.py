@@ -28,8 +28,10 @@ def main():
         'REPL_DEPLOYMENT') == '1'
     if is_deployment:
         print("📡 Running in Replit Deployment mode (Always On)")
+        print("🚀 Real-time API mode: ENABLED (Force refresh for live data)")
     else:
         print("🔧 Running in development mode")
+        print("🔄 API mode: Standard (Cached when appropriate)")
 
     # Kill any existing bot instances first
     try:
