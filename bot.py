@@ -84,14 +84,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("referral", self.referral_command))
             self.application.add_handler(CommandHandler("language", self.language_command))
             self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
-            self.application.add_handler(CommandHandler("binance_data", self.binance_data_command))
-            self.application.add_handler(CommandHandler("candles", self.candles_command))
-            self.application.add_handler(CommandHandler("funding", self.funding_command))
-            self.application.add_handler(CommandHandler("oi", self.open_interest_command))
-            self.application.add_handler(CommandHandler("mark_price", self.mark_price_command))
-            self.application.add_handler(CommandHandler("server_time", self.server_time_command))
-            self.application.add_handler(CommandHandler("liquidations", self.liquidations_command))
-            self.application.add_handler(CommandHandler("long_short", self.long_short_command))
+            
 
             # Admin commands
             self.application.add_handler(CommandHandler("admin", self.admin_command))
@@ -292,22 +285,12 @@ Type a command to start your trading journey! 📈"""
 
 📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time
-• `/candles <symbol> [interval] [limit]` - Data candlestick
 • `/market` - Overview pasar komprehensif
 
 📈 **Analisis Trading:**
 • `/analyze <symbol>` - Analisis mendalam (20 credit)
-• `/futures <symbol>` - Analisis futures 1 coin (20 credit)
+• `/futures <symbol>` - Analisis futures dengan timeframe (20 credit)
 • `/futures_signals` - Sinyal futures lengkap (30 credit)
-
-⚡ **Data Binance Futures:**
-• `/binance_data <symbol>` - Data comprehensive (25 credit)
-• `/funding <symbol>` - Funding rate
-• `/oi <symbol>` - Open interest
-• `/mark_price <symbol>` - Mark price & premium
-• `/liquidations <symbol>` - Data liquidation terbaru
-• `/long_short <symbol>` - Long/short ratio
-• `/server_time` - Waktu server Binance
 
 💼 **Portfolio & Credit:**
 • `/portfolio` - Lihat portfolio
@@ -325,7 +308,7 @@ Type a command to start your trading journey! 📈"""
 - Fitur premium = unlimited access
 - Gunakan referral untuk bonus credit
 
-🔥 **New**: Semua data futures menggunakan Binance API real-time!"""
+🔥 **New**: Analisis futures dengan entry point, TP, dan SL!"""
         try:
             await update.message.reply_text(help_text, parse_mode='Markdown')
         except Exception as e:
@@ -1344,558 +1327,7 @@ Gunakan:
 
         await update.message.reply_text(response, parse_mode='Markdown')
 
-    async def binance_data_command(self, update: Update, context: CallbackContext):
-        """Handle /binance_data command - comprehensive Binance API data"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/binance_data <symbol>`\nContoh: `/binance_data btc`", parse_mode='Markdown')
-            return
-
-        user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
-        is_admin = user_id == self.admin_id
-
-        # Check credits for non-premium, non-admin users
-        if not is_premium and not is_admin and credits < 25:
-            await update.message.reply_text("❌ Credit tidak cukup! Data comprehensive Binance membutuhkan 25 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-
-        # Show loading message
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data comprehensive Binance untuk {symbol}...")
-
-        try:
-            # Get comprehensive Binance data
-            comp_data = self.crypto_api.get_comprehensive_futures_data(symbol)
-
-            if comp_data.get('error'):
-                await loading_msg.edit_text(f"❌ Gagal mengambil data untuk {symbol}: {comp_data.get('error')}")
-                return
-
-            success_calls = comp_data.get('successful_api_calls', 0)
-            total_calls = comp_data.get('total_api_calls', 0)
-            data_quality = comp_data.get('data_quality', 'unknown')
-
-            # Format comprehensive message
-            message = f"""📊 **Data Comprehensive Binance - {symbol}**
-
-🔗 **API Status**: {success_calls}/{total_calls} endpoints ({'✅' if success_calls >= 5 else '🟡' if success_calls >= 4 else '🔴'})
-📈 **Data Quality**: {data_quality.upper()}
-
-"""
-
-            # Price Data
-            price_data = comp_data.get('price_data', {})
-            if price_data and 'error' not in price_data:
-                current_price = price_data.get('price', 0)
-                price_format = self.crypto_api._format_price_display(current_price)
-                change_24h = price_data.get('change_24h', 0)
-                change_emoji = "📈" if change_24h >= 0 else "📉"
-
-                message += f"""💰 **Futures Price Data** 🟢
-• **Current Price**: {price_format}
-• **24h Change**: {change_emoji} {change_24h:+.2f}%
-• **24h High**: {self.crypto_api._format_price_display(price_data.get('high_24h', 0))}
-• **24h Low**: {self.crypto_api._format_price_display(price_data.get('low_24h', 0))}
-• **Volume**: {price_data.get('volume_24h', 0):,.0f}
-
-"""
-
-            # Mark Price & Funding
-            mark_data = comp_data.get('mark_price_data', {})
-            if mark_data and 'error' not in mark_data:
-                mark_price = mark_data.get('mark_price', 0)
-                index_price = mark_data.get('index_price', 0)
-                funding_rate = mark_data.get('last_funding_rate', 0)
-                funding_pct = funding_rate * 100
-
-                message += f"""⚡ **Mark Price & Funding** 🟢
-• **Mark Price**: {self.crypto_api._format_price_display(mark_price)}
-• **Index Price**: {self.crypto_api._format_price_display(index_price)}
-• **Funding Rate**: {funding_pct:+.4f}%
-• **Next Funding**: {mark_data.get('next_funding_time_iso', '')[:16].replace('T', ' ')}
-
-"""
-
-            # Long/Short Ratio
-            ls_data = comp_data.get('long_short_ratio_data', {})
-            if ls_data and 'error' not in ls_data:
-                long_ratio = ls_data.get('long_ratio', 0)
-                short_ratio = ls_data.get('short_ratio', 0)
-
-                message += f"""📊 **Long/Short Ratio** 🟢
-• **Long Ratio**: {long_ratio:.1f}%
-• **Short Ratio**: {short_ratio:.1f}%
-• **L/S Ratio**: {ls_data.get('long_short_ratio', 0):.2f}
-• **Sentiment**: {'Bullish' if long_ratio > 60 else 'Bearish' if long_ratio < 40 else 'Neutral'}
-
-"""
-
-            # Open Interest
-            oi_data = comp_data.get('open_interest_data', {})
-            if oi_data and 'error' not in oi_data:
-                oi_value = oi_data.get('open_interest', 0)
-                if oi_value > 1000000000:
-                    oi_format = f"{oi_value/1000000000:.2f}B"
-                elif oi_value > 1000000:
-                    oi_format = f"{oi_value/1000000:.2f}M"
-                else:
-                    oi_format = f"{oi_value:,.0f}"
-
-                message += f"""📈 **Open Interest** 🟢
-• **Total OI**: {oi_format}
-• **Timestamp**: {oi_data.get('time_iso', '')[:16].replace('T', ' ')}
-
-"""
-
-            # Liquidation Data
-            liq_data = comp_data.get('liquidation_data', {})
-            if liq_data and 'error' not in liq_data:
-                total_liq = liq_data.get('total_liquidation', 0)
-                long_liq = liq_data.get('long_liquidation', 0)
-                short_liq = liq_data.get('short_liquidation', 0)
-
-                message += f"""🔥 **Liquidations (Recent)** 🟢
-• **Total**: ${total_liq:,.0f}
-• **Long Liq**: ${long_liq:,.0f}
-• **Short Liq**: ${short_liq:,.0f}
-• **Orders**: {liq_data.get('total_orders', 0)}
-
-"""
-
-            message += f"🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}\n"
-            message += f"🔄 **Source**: Binance Futures API (Real-time)"
-
-            # Deduct credit only for non-premium, non-admin users
-            if not is_premium and not is_admin:
-                self.db.deduct_credit(user_id, 25)
-                remaining_credits = self.db.get_user_credits(user_id)
-                message += f"\n\n💳 Credit tersisa: {remaining_credits} (Data comprehensive: -25 credit)"
-            elif is_premium:
-                message += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                message += f"\n\n👑 **Admin Access** - Unlimited"
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-            print(f"Error in binance_data command: {e}")
-
-    async def candles_command(self, update: Update, context: CallbackContext):
-        """Handle /candles command - candlestick data"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/candles <symbol> [interval] [limit]`\nContoh: `/candles btc 1h 12`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        interval = context.args[1] if len(context.args) > 1 else '1h'
-        limit = int(context.args[2]) if len(context.args) > 2 and context.args[2].isdigit() else 12
-
-        # Validate interval
-        valid_intervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
-        if interval not in valid_intervals:
-            await update.message.reply_text(f"❌ Interval tidak valid! Gunakan: {', '.join(valid_intervals)}")
-            return
-
-        # Limit the limit
-        if limit > 50:
-            limit = 50
-
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data candlestick {symbol} ({interval})...")
-
-        try:
-            candles_data = self.crypto_api.get_binance_candlestick(symbol, interval, limit)
-
-            if not candles_data or 'error' in candles_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data candlestick untuk {symbol}")
-                return
-
-            candlesticks = candles_data.get('candlesticks', [])
-            source = candles_data.get('source', 'unknown')
-            source_emoji = "🟢" if source == 'binance' else "🔄"
-
-            if not candlesticks:
-                await loading_msg.edit_text(f"❌ Tidak ada data candlestick untuk {symbol}")
-                return
-
-            message = f"""📈 **Candlestick Data - {symbol}** {source_emoji}
-
-**Interval**: {interval} | **Count**: {len(candlesticks)}
-
-**Recent Candles:**
-"""
-
-            # Show last 6 candles
-            recent_candles = candlesticks[-6:]
-            for i, candle in enumerate(recent_candles):
-                time_str = candle.get('close_time_iso', '')[:16].replace('T', ' ')
-                open_p = self.crypto_api._format_price_display(candle.get('open', 0))
-                close_p = self.crypto_api._format_price_display(candle.get('close', 0))
-                high_p = self.crypto_api._format_price_display(candle.get('high', 0))
-                low_p = self.crypto_api._format_price_display(candle.get('low', 0))
-                volume = candle.get('volume', 0)
-
-                change = ((candle.get('close', 0) - candle.get('open', 0)) / candle.get('open', 1)) * 100
-                change_emoji = "🟢" if change >= 0 else "🔴"
-
-                message += f"\n**{time_str}** {change_emoji}\n"
-                message += f"O:{open_p} H:{high_p} L:{low_p} C:{close_p}\n"
-                message += f"Vol: {volume:,.0f} | {change:+.2f}%\n"
-
-            message += f"\n🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"
-            message += f"\n🔄 **Source**: {source.title()}"
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def funding_command(self, update: Update, context: CallbackContext):
-        """Handle /funding command - funding rate data"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/funding <symbol>`\nContoh: `/funding btc`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data funding rate {symbol}...")
-
-        try:
-            funding_data = self.crypto_api.get_binance_funding_rate(symbol)
-
-            if not funding_data or 'error' in funding_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data funding rate untuk {symbol}")
-                return
-
-            source = funding_data.get('source', 'unknown')
-            source_emoji = "🟢" if source == 'binance_futures' else "🔄"
-
-            mark_price = funding_data.get('mark_price', 0)
-            index_price = funding_data.get('index_price', 0)
-            funding_rate = funding_data.get('last_funding_rate', 0)
-            funding_pct = funding_rate * 100
-            next_funding = funding_data.get('next_funding_time_iso', '')
-
-            # Determine funding rate status
-            if funding_rate > 0.01:
-                funding_status = "🔴 Sangat Tinggi (Long membayar Short)"
-            elif funding_rate > 0.005:
-                funding_status = "🟡 Tinggi (Long membayar Short)"
-            elif funding_rate > 0:
-                funding_status = "🟢 Positif (Long membayar Short)"
-            elif funding_rate > -0.005:
-                funding_status = "🟢 Negatif (Short membayar Long)"
-            else:
-                funding_status = "🔴 Sangat Negatif (Short membayar Long)"
-
-            message = f"""⚡ **Funding Rate - {symbol}** {source_emoji}
-
-💰 **Mark Price**: {self.crypto_api._format_price_display(mark_price)}
-📊 **Index Price**: {self.crypto_api._format_price_display(index_price)}
-
-**Funding Rate**: {funding_pct:+.4f}%
-{funding_status}
-
-**Next Funding**: {next_funding[:16].replace('T', ' ') if next_funding else 'N/A'}
-
-**Interpretasi:**
-• Funding Rate positif = Long traders bayar Short
-• Funding Rate negatif = Short traders bayar Long
-• Rate tinggi = Market bullish/long heavy
-• Rate rendah/negatif = Market bearish/short heavy
-
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Source**: {source.replace('_', ' ').title()}"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def open_interest_command(self, update: Update, context: CallbackContext):
-        """Handle /oi command - open interest data"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/oi <symbol>`\nContoh: `/oi btc`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data open interest {symbol}...")
-
-        try:
-            oi_data = self.crypto_api.get_binance_open_interest(symbol)
-
-            if not oi_data or 'error' in oi_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data open interest untuk {symbol}")
-                return
-
-            source = oi_data.get('source', 'unknown')
-            source_emoji = "🟢" if source == 'binance_futures' else "🔄"
-
-            oi_value = oi_data.get('open_interest', 0)
-            time_iso = oi_data.get('time_iso', '')
-
-            # Format OI value
-            if oi_value > 1000000000:
-                oi_format = f"{oi_value/1000000000:.2f}B"
-            elif oi_value > 1000000:
-                oi_format = f"{oi_value/1000000:.2f}M"
-            elif oi_value > 1000:
-                oi_format = f"{oi_value/1000:.1f}K"
-            else:
-                oi_format = f"{oi_value:,.0f}"
-
-            # OI analysis
-            if oi_value > 100000000:  # 100M+
-                oi_status = "🔴 Sangat Tinggi - High Leverage Risk"
-            elif oi_value > 50000000:   # 50M+
-                oi_status = "🟡 Tinggi - Moderate Risk"
-            elif oi_value > 10000000:   # 10M+
-                oi_status = "🟢 Normal - Healthy Activity"
-            else:
-                oi_status = "🔵 Rendah - Low Activity"
-
-            message = f"""📊 **Open Interest - {symbol}** {source_emoji}
-
-**Open Interest**: {oi_format} ({oi_value:,.0f})
-{oi_status}
-
-**Timestamp**: {time_iso[:16].replace('T', ' ') if time_iso else 'N/A'}
-
-**Analisis Open Interest:**
-• OI tinggi = Banyak posisi terbuka, volatilitas potensial
-• OI rendah = Sedikit leverage, pergerakan lebih stabil
-• OI naik + harga naik = Bullish confirmation
-• OI naik + harga turun = Bearish confirmation
-• OI turun = Profit taking atau position closing
-
-💡 **Trading Insight:**
-• High OI = Waspadai sudden liquidation
-• Rising OI = Strong trend confirmation
-• Falling OI = Trend may be weakening
-
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Source**: {source.replace('_', ' ').title()}"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def mark_price_command(self, update: Update, context: CallbackContext):
-        """Handle /mark_price command - mark price and premium index"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/mark_price <symbol>`\nContoh: `/mark_price btc`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data mark price {symbol}...")
-
-        try:
-            mark_data = self.crypto_api.get_binance_mark_price(symbol)
-
-            if not mark_data or 'error' in mark_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data mark price untuk {symbol}")
-                return
-
-            mark_price = mark_data.get('mark_price', 0)
-            index_price = mark_data.get('index_price', 0)
-            funding_rate = mark_data.get('last_funding_rate', 0)
-            funding_pct = funding_rate * 100
-            next_funding = mark_data.get('next_funding_time_iso', '')
-
-            # Calculate premium
-            premium = ((mark_price - index_price) / index_price * 100) if index_price > 0 else 0
-
-            message = f"""⚡ **Mark Price & Premium Index - {symbol}** 🟢
-
-💰 **Mark Price**: {self.crypto_api._format_price_display(mark_price)}
-📊 **Index Price**: {self.crypto_api._format_price_display(index_price)}
-📈 **Premium**: {premium:+.4f}%
-
-**Funding Rate**: {funding_pct:+.4f}%
-**Next Funding**: {next_funding[:16].replace('T', ' ') if next_funding else 'N/A'}
-
-**Interpretasi:**
-• Mark Price = Harga kontrak futures
-• Index Price = Harga spot rata-rata
-• Premium > 0 = Futures lebih mahal (Bullish)
-• Premium < 0 = Futures lebih murah (Bearish)
-
-**Funding Rate:**
-• Positif = Long traders bayar Short
-• Negatif = Short traders bayar Long
-• Rate tinggi = Sentiment bullish kuat
-
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Source**: Binance Futures API"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def server_time_command(self, update: Update, context: CallbackContext):
-        """Handle /server_time command - Binance server time"""
-        loading_msg = await update.message.reply_text("⏳ Mengambil waktu server Binance...")
-
-        try:
-            time_data = self.crypto_api.get_binance_server_time()
-
-            if not time_data or 'error' in time_data:
-                await loading_msg.edit_text("❌ Gagal mengambil waktu server Binance")
-                return
-
-            server_time = time_data.get('server_time_readable', '')
-            server_time_iso = time_data.get('server_time_iso', '')
-
-            # Get local time for comparison
-            local_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')
-
-            message = f"""🕐 **Binance Server Time** 🟢
-
-**Server Time (UTC)**: {server_time}
-**Server Time (ISO)**: {server_time_iso}
-**Local Time (WIB)**: {local_time}
-
-**Network Status**: ✅ Connected
-**API Latency**: <100ms (Real-time)
-
-💡 **Info:**
-• Server time digunakan untuk timestamp trading
-• Penting untuk order execution accuracy
-• Binance menggunakan UTC timezone
-
-🔄 **Source**: Binance Spot API"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def liquidations_command(self, update: Update, context: CallbackContext):
-        """Handle /liquidations command - recent liquidation orders"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/liquidations <symbol>`\nContoh: `/liquidations btc`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data liquidation {symbol}...")
-
-        try:
-            liq_data = self.crypto_api.get_binance_liquidation_orders(symbol)
-
-            if not liq_data or 'error' in liq_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data liquidation untuk {symbol}")
-                return
-
-            total_liq = liq_data.get('total_liquidation', 0)
-            long_liq = liq_data.get('long_liquidation', 0)
-            short_liq = liq_data.get('short_liquidation', 0)
-            total_orders = liq_data.get('total_orders', 0)
-            recent_orders = liq_data.get('liquidation_orders', [])
-
-            message = f"""🔥 **Liquidations - {symbol}** 🟢
-
-📊 **Summary (Recent Orders):**
-• **Total Liquidation**: ${total_liq:,.0f}
-• **Long Liquidations**: ${long_liq:,.0f} ({(long_liq/total_liq*100) if total_liq > 0 else 0:.1f}%)
-• **Short Liquidations**: ${short_liq:,.0f} ({(short_liq/total_liq*100) if total_liq > 0 else 0:.1f}%)
-• **Total Orders**: {total_orders}
-
-**Recent Liquidations:**
-"""
-
-            # Show last 5 liquidations
-            for i, order in enumerate(recent_orders[-5:]):
-                side_emoji = "🔴" if order['side'] == 'SELL' else "🟢"
-                time_str = order.get('time_iso', '')[:16].replace('T', ' ')
-                message += f"{side_emoji} {order['side']} ${order['value']:,.0f} @ {order['time_str']}\n"
-
-            message += f"""
-**Analisis:**
-• Long dominance = {(long_liq/total_liq*100) if total_liq > 0 else 0:.1f}% liquidation
-• {'Longs getting rekt' if long_liq > short_liq else 'Shorts getting rekt' if short_liq > long_liq else 'Balanced liquidation'}
-• Market stress level: {'High' if total_orders > 50 else 'Medium' if total_orders > 20 else 'Low'}
-
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Source**: Binance Futures API"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
-
-    async def long_short_command(self, update: Update, context: CallbackContext):
-        """Handle /long_short command - long/short ratio analysis"""
-        if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/long_short <symbol>`\nContoh: `/long_short btc`", parse_mode='Markdown')
-            return
-
-        symbol = context.args[0].upper()
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data long/short ratio {symbol}...")
-
-        try:
-            ls_data = self.crypto_api.get_binance_long_short_ratio(symbol)
-
-            if not ls_data or 'error' in ls_data:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data long/short ratio untuk {symbol}")
-                return
-
-            long_ratio = ls_data.get('long_ratio', 0)
-            short_ratio = ls_data.get('short_ratio', 0)
-            ls_ratio = ls_data.get('long_short_ratio', 0)
-            long_account = ls_data.get('long_account', 0)
-            short_account = ls_data.get('short_account', 0)
-
-            # Determine sentiment
-            if long_ratio > 70:
-                sentiment = "🔴 Extremely Bullish (Overleveraged)"
-                risk_level = "High Risk - Potential Long Squeeze"
-            elif long_ratio > 60:
-                sentiment = "🟡 Bullish"
-                risk_level = "Medium Risk"
-            elif long_ratio < 30:
-                sentiment = "🔴 Extremely Bearish (Oversold)"
-                risk_level = "High Risk - Potential Short Squeeze"
-            elif long_ratio < 40:
-                sentiment = "🟡 Bearish"
-                risk_level = "Medium Risk"
-            else:
-                sentiment = "🟢 Neutral/Balanced"
-                risk_level = "Low Risk"
-
-            message = f"""📊 **Long/Short Ratio - {symbol}** 🟢
-
-**Position Ratio:**
-• **Long Ratio**: {long_ratio:.1f}%
-• **Short Ratio**: {short_ratio:.1f}%
-• **L/S Ratio**: {ls_ratio:.2f}
-
-**Account Distribution:**
-• **Long Accounts**: {long_account:.1f}%
-• **Short Accounts**: {short_account:.1f}%
-
-**Market Sentiment**: {sentiment}
-**Risk Level**: {risk_level}
-
-**Analisis:**
-• Ratio tinggi (>60%) = Bullish bias, watch for long squeeze
-• Ratio rendah (<40%) = Bearish bias, watch for short squeeze
-• Ratio seimbang (40-60%) = Healthy market structure
-
-**Trading Insight:**
-• Extreme ratios often signal reversals
-• Use as contrarian indicator
-• Combine with price action for confirmation
-
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Source**: Binance Futures API (Top Traders)"""
-
-            await loading_msg.edit_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
+    
 
     async def handle_callback_query(self, update: Update, context: CallbackContext):
         """Handle callback queries from inline keyboards"""
@@ -2014,26 +1446,7 @@ Gunakan:
                 parse_mode='Markdown'
             )
 
-        # Handle additional futures analysis callbacks
-        elif data.startswith('deep_technical_'):
-            symbol = data.split('_')[-1]
-            await self._handle_deep_technical_analysis(query, symbol)
-
-        elif data.startswith('binance_data_'):
-            symbol = data.split('_')[-1]
-            await self._handle_binance_data_callback(query, symbol)
-
-        elif data.startswith('liquidation_'):
-            symbol = data.split('_')[-1]
-            await self._handle_liquidation_analysis(query, symbol)
-
-        elif data.startswith('long_short_'):
-            symbol = data.split('_')[-1]
-            await self._handle_long_short_analysis(query, symbol)
-
-        elif data.startswith('funding_history_'):
-            symbol = data.split('_')[-1]
-            await self._handle_funding_history(query, symbol)
+        
 
     async def handle_message(self, update: Update, context: CallbackContext):
         """Handle regular text messages (not commands)"""
@@ -2210,8 +1623,8 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
         await query.edit_message_text(f"⏳ Menganalisis {symbol} pada timeframe {timeframe}...")
 
         try:
-            # Get comprehensive timeframe analysis
-            analysis = self.ai.get_advanced_technical_analysis(symbol, timeframe, self.crypto_api)
+            # Get comprehensive timeframe analysis with trading signals
+            analysis = self.ai.get_futures_trading_signals(symbol, timeframe, self.crypto_api)
 
             # Deduct credits for non-premium users
             if not is_premium and not is_admin:
@@ -2223,12 +1636,8 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
             elif is_admin:
                 analysis += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Add additional analysis options
+            # Add menu options
             keyboard = [
-                [InlineKeyboardButton("📊 Data Comprehensive", callback_data=f'binance_data_{symbol}'),
-                 InlineKeyboardButton("🔥 Liquidations", callback_data=f'liquidation_{symbol}')],
-                [InlineKeyboardButton("📈 Long/Short Ratio", callback_data=f'long_short_{symbol}'),
-                 InlineKeyboardButton("💰 Funding History", callback_data=f'funding_history_{symbol}')],
                 [InlineKeyboardButton("🔄 Ganti Timeframe", callback_data=f'futures_menu_{symbol}')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2239,36 +1648,19 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
                 await query.edit_message_text(chunks[0], parse_mode='Markdown')
 
                 # Send additional chunks
-                for chunk in chunks[1:]:
+                for chunk in chunks[1:-1]:
                     await query.message.reply_text(chunk, parse_mode='Markdown')
-
-                # Add keyboard to last message
-                await query.message.reply_text("📈 **Analisis Tambahan:**", reply_markup=reply_markup)
+                
+                # Last chunk with keyboard
+                await query.message.reply_text(chunks[-1], reply_markup=reply_markup, parse_mode='Markdown')
             else:
                 await query.edit_message_text(analysis, reply_markup=reply_markup, parse_mode='Markdown')
 
         except Exception as e:
             await query.edit_message_text(f"❌ Terjadi kesalahan: {str(e)[:100]}")
+            print(f"Futures timeframe analysis error: {e}")
 
-    async def _handle_deep_technical_analysis(self, query, symbol):
-        """Handle deep technical analysis callback"""
-        await query.edit_message_text(f"📚 Analisis teknikal mendalam untuk {symbol} akan segera hadir!")
-
-    async def _handle_binance_data_callback(self, query, symbol):
-        """Handle Binance data callback"""
-        await query.edit_message_text(f"📊 Data Binance untuk {symbol} akan segera hadir!")
-
-    async def _handle_liquidation_analysis(self, query, symbol):
-        """Handle liquidation analysis callback"""
-        await query.edit_message_text(f"🔥 Analisis likuidasi untuk {symbol} akan segera hadir!")
-
-    async def _handle_long_short_analysis(self, query, symbol):
-        """Handle long/short ratio analysis callback"""
-        await query.edit_message_text(f"🐂 Analisis long/short ratio untuk {symbol} akan segera hadir!")
-
-    async def _handle_funding_history(self, query, symbol):
-        """Handle funding rate history callback"""
-        await query.edit_message_text(f"💰 Histori funding rate untuk {symbol} akan segera hadir!")
+    
 
     async def admin_command(self, update: Update, context: CallbackContext):
         """Admin panel command"""
