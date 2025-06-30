@@ -181,7 +181,7 @@ def check_api_health():
             print(f"  🔥 Total Liquidations: ${total_liq:,.0f}")
             
         else:
-            print(f"  ❌ Binance comprehensive data error")Avg: {avg_funding:.4f}%)")
+            print(f"  ❌ Binance comprehensive data error")
             
     except Exception as e:
         print(f"  ❌ Futures analysis error: {str(e)[:40]}...")

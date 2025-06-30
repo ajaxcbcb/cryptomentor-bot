@@ -38,7 +38,7 @@ def main():
         try:
             bot = TelegramBot()
             print("🤖 Bot initialized successfully, starting...")
-
+            
             # Use asyncio.run for better event loop management
             asyncio.run(bot.run_bot())
             break  # If successful, exit the retry loop
@@ -50,27 +50,27 @@ def main():
         except Exception as e:
             retry_count += 1
             error_msg = str(e)
-
+            
             # Enhanced conflict resolution
             if "terminated by other getUpdates request" in error_msg or "Conflict" in error_msg:
                 print("❌ CONFLICT: Another bot instance detected!")
                 print("🔄 Initiating intelligent cleanup...")
-
+                
                 # Advanced process cleanup
                 try:
                     import psutil
                     import signal
                     import time
-
+                    
                     current_pid = os.getpid()
                     killed_processes = 0
-
+                    
                     # Find and terminate conflicting processes
                     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                         try:
                             if proc.pid == current_pid:
                                 continue
-
+                                
                             cmdline = ' '.join(proc.info['cmdline'] or [])
                             if any(keyword in cmdline for keyword in ['main.py', 'TelegramBot', 'bot.py']):
                                 print(f"🛑 Terminating process {proc.pid}: {proc.info['name']}")
@@ -83,7 +83,7 @@ def main():
                                     killed_processes += 1
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             continue
-
+                    
                     if killed_processes > 0:
                         print(f"✅ Cleaned up {killed_processes} conflicting processes")
                         time.sleep(8)  # Extended wait for proper cleanup
@@ -92,7 +92,7 @@ def main():
                         import subprocess
                         subprocess.run(["pkill", "-f", "python.*main.py"], check=False)
                         time.sleep(5)
-
+                        
                 except ImportError:
                     print("⚠️ Advanced cleanup unavailable, using basic method")
                     import subprocess
@@ -103,7 +103,7 @@ def main():
                     print(f"⚠️ Cleanup error: {cleanup_error}")
                     import time
                     time.sleep(3)
-
+                
                 # Force exit to allow deployment system to restart cleanly
                 if is_deployment:
                     print("🔄 Exiting for clean restart...")
@@ -111,7 +111,7 @@ def main():
                 else:
                     print("💡 Stop all other instances and restart")
                     break
-
+            
             # Handle NoneType await expression error
             if "object NoneType can't be used in 'await' expression" in error_msg:
                 print("❌ Bot initialization error - restarting...")
@@ -121,7 +121,7 @@ def main():
                     continue
                 else:
                     sys.exit(1)
-
+            
             print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
             logger.error(f"Bot crashed: {e}")
 
