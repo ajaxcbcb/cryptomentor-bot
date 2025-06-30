@@ -1010,3 +1010,198 @@ Error occurred while analyzing futures data.
 Error: {str(e)}
 
 📊 Please try again or use `/futures_signals` for multi-coin analysis."""
+
+    def get_advanced_technical_analysis(self, symbol, timeframe, crypto_api):
+        """Get advanced technical analysis for specific timeframe using Binance API"""
+        try:
+            # Get timeframe analysis data
+            timeframe_data = crypto_api.get_timeframe_analysis(symbol, timeframe)
+
+            if 'error' in timeframe_data:
+                return f"❌ **Error mengambil data {symbol} timeframe {timeframe}**\n\n{timeframe_data.get('error')}"
+
+            # Extract analysis components
+            price_data = timeframe_data.get('price_data', {})
+            trend_analysis = timeframe_data.get('trend_analysis', {})
+            support_resistance = timeframe_data.get('support_resistance', {})
+            volatility = timeframe_data.get('volatility', {})
+            candlesticks = timeframe_data.get('candlesticks', [])
+            funding_data = timeframe_data.get('funding_data', {})
+            ls_data = timeframe_data.get('long_short_data', {})
+
+            current_price = price_data.get('price', 0)
+
+            # Determine trend strength and direction
+            trend_direction = trend_analysis.get('direction', 'neutral')
+            trend_strength = trend_analysis.get('strength', 'weak')
+            sma_5 = trend_analysis.get('sma_5', 0)
+            sma_10 = trend_analysis.get('sma_10', 0)
+            sma_20 = trend_analysis.get('sma_20', 0)
+
+            # Support/Resistance analysis
+            support_level = support_resistance.get('support', 0)
+            resistance_level = support_resistance.get('resistance', 0)
+            dist_to_support = support_resistance.get('distance_to_support', 0)
+            dist_to_resistance = support_resistance.get('distance_to_resistance', 0)
+
+            # Volatility analysis
+            volatility_level = volatility.get('volatility', 'low')
+            atr = volatility.get('atr', 0)
+            price_range = volatility.get('price_range', 0)
+
+            # Long/Short sentiment
+            long_ratio = ls_data.get('long_ratio', 50)
+            short_ratio = ls_data.get('short_ratio', 50)
+
+            # Generate signals based on technical analysis
+            signals = self._generate_technical_signals(
+                trend_analysis, support_resistance, volatility, 
+                current_price, long_ratio, timeframe
+            )
+
+            # Format comprehensive analysis
+            message = f"""📈 **Analisis Teknikal Advance {symbol} - {timeframe.upper()}**
+
+💰 **Data Harga:**
+• Current Price: {crypto_api._format_price_display(current_price)}
+• 24h Change: {price_data.get('change_24h', 0):+.2f}%
+• Volume: {price_data.get('volume_24h', 0):,.0f}
+
+📊 **Analisis Trend ({timeframe}):**
+• Trend Direction: {trend_direction.upper()} ({trend_strength})
+• SMA 5: {crypto_api._format_price_display(sma_5)}
+• SMA 10: {crypto_api._format_price_display(sma_10)}
+• SMA 20: {crypto_api._format_price_display(sma_20)}
+• Price Change: {trend_analysis.get('price_change_pct', 0):+.2f}%
+
+🎯 **Support & Resistance:**
+• Support: {crypto_api._format_price_display(support_level)} ({dist_to_support:+.2f}%)
+• Resistance: {crypto_api._format_price_display(resistance_level)} ({dist_to_resistance:+.2f}%)
+• {"🟢 Near Support" if dist_to_support < 3 else "🔴 Near Resistance" if dist_to_resistance < 3 else "⚪ Dalam Range"}
+
+⚡ **Volatility Analysis:**
+• Level: {volatility_level.upper()}
+• ATR: {atr:.4f}
+• Price Range: {price_range:.2f}%
+• Risk: {"🔴 High" if volatility_level == "very_high" else "🟡 Medium" if volatility_level in ["high", "moderate"] else "🟢 Low"}
+
+📈 **Market Sentiment:**
+• Long Ratio: {long_ratio:.1f}%
+• Short Ratio: {short_ratio:.1f}%
+• Sentiment: {"🔴 Extremely Bullish" if long_ratio > 75 else "🟢 Bullish" if long_ratio > 60 else "🔴 Bearish" if long_ratio < 40 else "🟡 Neutral"}
+
+🎯 **Trading Signals:**
+{signals}
+
+📊 **Candlestick Pattern:**
+{self._analyze_candlestick_patterns(candlesticks[-5:] if len(candlesticks) >= 5 else candlesticks)}
+
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Source**: Binance API Advanced Analysis"""
+
+            return message
+
+        except Exception as e:
+            return f"""❌ **Error dalam Analisis Teknikal {symbol}**
+
+Terjadi kesalahan saat menganalisis data timeframe {timeframe}.
+Error: {str(e)}
+
+⚠️ **Catatan:**
+Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
+
+    def _generate_technical_signals(self, trend_analysis, support_resistance, volatility, current_price, long_ratio, timeframe):
+        """Generate trading signals based on technical analysis"""
+        signals = []
+
+        trend_direction = trend_analysis.get('direction', 'neutral')
+        trend_strength = trend_analysis.get('strength', 'weak')
+        dist_to_support = support_resistance.get('distance_to_support', 0)
+        dist_to_resistance = support_resistance.get('distance_to_resistance', 0)
+        volatility_level = volatility.get('volatility', 'low')
+
+        # Trend signals
+        if trend_direction == 'bullish' and trend_strength == 'strong':
+            signals.append("🟢 **STRONG BUY** - Trend bullish kuat")
+        elif trend_direction == 'bullish':
+            signals.append("🟢 **BUY** - Trend bullish")
+        elif trend_direction == 'bearish' and trend_strength == 'strong':
+            signals.append("🔴 **STRONG SELL** - Trend bearish kuat")
+        elif trend_direction == 'bearish':
+            signals.append("🔴 **SELL** - Trend bearish")
+        else:
+            signals.append("⚪ **HOLD** - Trend sideways")
+
+        # Support/Resistance signals
+        if dist_to_support <= 2:
+            signals.append("🎯 **Support Zone** - Potential bounce area")
+        elif dist_to_resistance <= 2:
+            signals.append("⚠️ **Resistance Zone** - Potential reversal area")
+
+        # Sentiment signals
+        if long_ratio > 75:
+            signals.append("⚠️ **Overleveraged** - High long squeeze risk")
+        elif long_ratio < 25:
+            signals.append("⚠️ **Oversold** - High short squeeze risk")
+
+        # Volatility warnings
+        if volatility_level in ['high', 'very_high']:
+            signals.append("🚨 **High Volatility** - Use smaller position size")
+
+        # Timeframe specific advice
+        if timeframe in ['15m', '30m']:
+            signals.append("⚡ **Scalping** - Quick entry/exit recommended")
+        elif timeframe in ['1h', '4h']:
+            signals.append("📈 **Swing Trade** - Medium-term position")
+        elif timeframe in ['1d', '1w']:
+            signals.append("💎 **Position Trade** - Long-term hold")
+
+        return '\n'.join([f"• {signal}" for signal in signals])
+
+    def _analyze_candlestick_patterns(self, candlesticks):
+        """Analyze recent candlestick patterns"""
+        if not candlesticks or len(candlesticks) < 2:
+            return "• Insufficient data untuk pattern analysis"
+
+        patterns = []
+
+        # Analyze last few candles
+        for i, candle in enumerate(candlesticks[-3:]):
+            open_price = candle.get('open', 0)
+            close_price = candle.get('close', 0)
+            high_price = candle.get('high', 0)
+            low_price = candle.get('low', 0)
+
+            body_size = abs(close_price - open_price)
+            total_range = high_price - low_price
+            body_ratio = (body_size / total_range) if total_range > 0 else 0
+
+            if body_ratio > 0.7:
+                if close_price > open_price:
+                    patterns.append("🟢 Strong Bullish Candle")
+                else:
+                    patterns.append("🔴 Strong Bearish Candle")
+            elif body_ratio < 0.3:
+                patterns.append("⭐ Doji/Spinning Top - Indecision")
+
+        # Check for patterns in last 2-3 candles
+        if len(candlesticks) >= 3:
+            recent = candlesticks[-3:]
+
+            # Hammer/Doji patterns
+            last_candle = recent[-1]
+            last_open = last_candle.get('open', 0)
+            last_close = last_candle.get('close', 0)
+            last_high = last_candle.get('high', 0)
+            last_low = last_candle.get('low', 0)
+
+            body = abs(last_close - last_open)
+            upper_shadow = last_high - max(last_open, last_close)
+            lower_shadow = min(last_open, last_close) - last_low
+
+            if lower_shadow > body * 2 and upper_shadow < body:
+                patterns.append("🔨 Hammer Pattern - Potential reversal")
+            elif upper_shadow > body * 2 and lower_shadow < body:
+                patterns.append("🔻 Shooting Star - Potential reversal")
+
+        return '\n'.join([f"• {pattern}" for pattern in patterns]) if patterns else "• Normal candlestick patterns"

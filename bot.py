@@ -646,7 +646,7 @@ Contoh: `/add_coin btc 0.5`
             traceback.print_exc()
 
     async def futures_command(self, update: Update, context: CallbackContext):
-        """Handle /futures command with futures_signals format for a single coin"""
+        """Handle /futures command with timeframe selection"""
         if not context.args:
             await update.message.reply_text("❌ Gunakan format: `/futures <symbol>`\nContoh: `/futures btc`", parse_mode='Markdown')
             return
@@ -663,67 +663,24 @@ Contoh: `/add_coin btc 0.5`
 
         symbol = context.args[0].upper()
 
-        # Show loading message
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis futures {symbol} real-time...")
+        # Show timeframe selection with inline keyboard
+        keyboard = [
+            [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_tf_{symbol}_15m'),
+             InlineKeyboardButton("🔥 30m", callback_data=f'futures_tf_{symbol}_30m')],
+            [InlineKeyboardButton("📈 1h", callback_data=f'futures_tf_{symbol}_1h'),
+             InlineKeyboardButton("🚀 4h", callback_data=f'futures_tf_{symbol}_4h')],
+            [InlineKeyboardButton("💎 1d", callback_data=f'futures_tf_{symbol}_1d'),
+             InlineKeyboardButton("🌟 1w", callback_data=f'futures_tf_{symbol}_1w')]
+        ]
 
-        try:
-            # Verify API connection first
-            if not self.crypto_api:
-                await loading_msg.edit_text("❌ API tidak tersedia. Silakan coba lagi nanti.")
-                return
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-            print(f"🔄 Generating single futures signal for {symbol}, user {user_id}")
-
-            # Generate signals using the same format as futures_signals but for single coin
-            signals = self.ai.generate_single_futures_signal(symbol, 'id', self.crypto_api)
-
-            if not signals or len(signals.strip()) < 50:
-                await loading_msg.edit_text(f"❌ Gagal mengambil data futures untuk {symbol}. Silakan coba lagi dalam beberapa menit.")
-                return
-
-            # Deduct credit only for non-premium, non-admin users (20 credits for futures analysis)
-            if not is_premium and not is_admin:
-                self.db.deduct_credit(user_id, 20)
-                remaining_credits = self.db.get_user_credits(user_id)
-                signals += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis futures: -20 credit)"
-            elif is_premium:
-                signals += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                signals += f"\n\n👑 **Admin Access** - Unlimited"
-
-            print(f"✅ Single futures signal generated successfully for {symbol}, user {user_id}")
-
-            # Split long messages if needed
-            if len(signals) > 4000:
-                # Split into chunks
-                chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
-
-                for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
-            else:
-                # Edit the loading message with the signals
-                await loading_msg.edit_text(signals, parse_mode='Markdown')
-
-        except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan saat menganalisis futures {symbol}: {str(e)[:100]}"
-            await loading_msg.edit_text(error_msg)
-            print(f"Error in futures command: {e}")
-            import traceback
-            traceback.print_exc()
-
-            # Add inline keyboard for deeper analysis
-            keyboard = [
-                [InlineKeyboardButton("📚 Deep Technical Analysis", callback_data=f'deep_technical_{symbol}')],
-                [InlineKeyboardButton("📊 Binance Data", callback_data=f'binance_data_{symbol}')],
-                [InlineKeyboardButton("🔥 Liquidation Data", callback_data=f'liquidation_{symbol}')],
-                [InlineKeyboardButton("🐂 Long/Short Ratio", callback_data=f'long_short_{symbol}')],
-                [InlineKeyboardButton("💰 Funding Rate History", callback_data=f'funding_history_{symbol}')]
-            ]
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text("Pilih pendalaman analisis:", reply_markup=reply_markup)
+        await update.message.reply_text(
+            f"📊 **Analisis Futures {symbol}**\n\n"
+            "Pilih timeframe untuk analisis teknikal advance:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
     async def credits_command(self, update: Update, context: CallbackContext):
         """Handle /credits command"""
@@ -2036,7 +1993,33 @@ Gunakan:
             await query.edit_message_text("🔄 Bot restart initiated... Please wait.")
             # Note: Actual restart would need to be implemented based on deployment environment
 
-        # Handle futures analysis callbacks
+        # Handle futures timeframe analysis callbacks
+        elif data.startswith('futures_tf_'):
+            parts = data.split('_')
+            symbol = parts[2]
+            timeframe = parts[3]
+            await self._handle_futures_timeframe_analysis(query, symbol, timeframe)
+            
+        # Handle futures menu callback (return to timeframe selection)
+        elif data.startswith('futures_menu_'):
+            symbol = data.split('_')[-1]
+            keyboard = [
+                [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_tf_{symbol}_15m'),
+                 InlineKeyboardButton("🔥 30m", callback_data=f'futures_tf_{symbol}_30m')],
+                [InlineKeyboardButton("📈 1h", callback_data=f'futures_tf_{symbol}_1h'),
+                 InlineKeyboardButton("🚀 4h", callback_data=f'futures_tf_{symbol}_4h')],
+                [InlineKeyboardButton("💎 1d", callback_data=f'futures_tf_{symbol}_1d'),
+                 InlineKeyboardButton("🌟 1w", callback_data=f'futures_tf_{symbol}_1w')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"📊 **Analisis Futures {symbol}**\n\n"
+                "Pilih timeframe untuk analisis teknikal advance:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
+        # Handle additional futures analysis callbacks
         elif data.startswith('deep_technical_'):
             symbol = data.split('_')[-1]
             await self._handle_deep_technical_analysis(query, symbol)
@@ -2215,6 +2198,62 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
             response = self.ai.get_ai_response(update.message.text, language)
 
         await update.message.reply_text(response, parse_mode='Markdown')
+
+    async def _handle_futures_timeframe_analysis(self, query, symbol, timeframe):
+        """Handle futures timeframe analysis callback"""
+        user_id = query.from_user.id
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
+        is_admin = user_id == self.admin_id
+
+        # Check credits again for non-premium users
+        if not is_premium and not is_admin and credits < 20:
+            await query.edit_message_text("❌ Credit tidak cukup untuk analisis futures!")
+            return
+
+        # Show loading message
+        await query.edit_message_text(f"⏳ Menganalisis {symbol} pada timeframe {timeframe}...")
+
+        try:
+            # Get comprehensive timeframe analysis
+            analysis = self.ai.get_advanced_technical_analysis(symbol, timeframe, self.crypto_api)
+
+            # Deduct credits for non-premium users
+            if not is_premium and not is_admin:
+                self.db.deduct_credit(user_id, 20)
+                remaining_credits = self.db.get_user_credits(user_id)
+                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis futures: -20 credit)"
+            elif is_premium:
+                analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
+            elif is_admin:
+                analysis += f"\n\n👑 **Admin Access** - Unlimited"
+
+            # Add additional analysis options
+            keyboard = [
+                [InlineKeyboardButton("📊 Data Comprehensive", callback_data=f'binance_data_{symbol}'),
+                 InlineKeyboardButton("🔥 Liquidations", callback_data=f'liquidation_{symbol}')],
+                [InlineKeyboardButton("📈 Long/Short Ratio", callback_data=f'long_short_{symbol}'),
+                 InlineKeyboardButton("💰 Funding History", callback_data=f'funding_history_{symbol}')],
+                [InlineKeyboardButton("🔄 Ganti Timeframe", callback_data=f'futures_menu_{symbol}')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Split long messages if needed
+            if len(analysis) > 4000:
+                chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
+                await query.edit_message_text(chunks[0], parse_mode='Markdown')
+                
+                # Send additional chunks
+                for chunk in chunks[1:]:
+                    await query.message.reply_text(chunk, parse_mode='Markdown')
+                    
+                # Add keyboard to last message
+                await query.message.reply_text("📈 **Analisis Tambahan:**", reply_markup=reply_markup)
+            else:
+                await query.edit_message_text(analysis, reply_markup=reply_markup, parse_mode='Markdown')
+
+        except Exception as e:
+            await query.edit_message_text(f"❌ Terjadi kesalahan: {str(e)[:100]}")
 
     async def _handle_deep_technical_analysis(self, query, symbol):
         """Handle deep technical analysis callback"""
