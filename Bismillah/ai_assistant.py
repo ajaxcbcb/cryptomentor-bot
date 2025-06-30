@@ -682,8 +682,7 @@ Ask me anything about crypto! 🚀"""
             mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
             btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
             eth_dominance = global_data.get('market_cap_percentage', {}).get('eth', 0)
-            active_cryptos = global_data.get('```python
-active_cryptocurrencies', 0)
+            active_cryptos = global_data.get('active_cryptocurrencies', 0)
 
             message += f"""
 - **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
