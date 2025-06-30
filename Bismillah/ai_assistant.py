@@ -587,11 +587,20 @@ Ask me anything about crypto! 🚀"""
         """Format comprehensive market overview in Indonesian using multiple APIs"""
         from datetime import datetime
 
-        message = f"""🌍 **OVERVIEW PASAR CRYPTO KOMPREHENSIF**
+        def escape_markdown(text):
+            """Escape special Markdown characters"""
+            if not text:
+                return ""
+            # Escape problematic characters for Telegram Markdown
+            escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+            for char in escape_chars:
+                if char in str(text):
+                    text = str(text).replace(char, f'\\{char}')
+            return text
 
-🔍 **Analisis Multi-API:** CoinGecko + Binance + CryptoNews
-
-📊 **1. Data Global (CoinGecko):**"""
+        message = "🌍 **OVERVIEW PASAR CRYPTO KOMPREHENSIF**\n\n"
+        message += "🔍 **Analisis Multi\\-API:** CoinGecko \\+ Binance \\+ CryptoNews\n\n"
+        message += "📊 **1\\. Data Global \\(CoinGecko\\):**"
 
         # Global market data
         if global_data and 'error' not in global_data:
@@ -602,21 +611,21 @@ Ask me anything about crypto! 🚀"""
             active_cryptos = global_data.get('active_cryptocurrencies', 0)
 
             message += f"""
-- **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
-- **BTC Dominance**: {btc_dominance:.1f}%
-- **ETH Dominance**: {eth_dominance:.1f}%
-- **Active Cryptocurrencies**: {active_cryptos:,}"""
+\\- **Total Market Cap**: ${total_mcap:,.0f} \\({mcap_change:+.2f}%\\)
+\\- **BTC Dominance**: {btc_dominance:.1f}%
+\\- **ETH Dominance**: {eth_dominance:.1f}%
+\\- **Active Cryptocurrencies**: {active_cryptos:,}"""
 
-        # Market health analysis
-        message += f"""
-
-🏥 **2. Kesehatan Pasar:** {market_health['status']}
-{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
+        # Market health analysis - escape special characters
+        health_status = escape_markdown(market_health.get('status', 'Unknown'))
+        message += f"\n\n🏥 **2\\. Kesehatan Pasar:** {health_status}\n"
+        
+        for factor in market_health.get('factors', [])[:3]:  # Limit to 3 factors
+            clean_factor = escape_markdown(factor)
+            message += f"• {clean_factor}\n"
 
         # Top movers from multi-API data
-        message += f"""
-
-📈 **3. Top Movers (Multi-API):**"""
+        message += "\n📈 **3\\. Top Movers \\(Multi\\-API\\):**"
 
         if prices_data:
             sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
@@ -624,45 +633,65 @@ Ask me anything about crypto! 🚀"""
             gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
             losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
 
-            message += f"\n**Gainers:**"
+            message += "\n**Gainers:**"
             for symbol, data in gainers:
-                sources = ', '.join(data.get('sources_used', ['binance']))
-                message += f"\n• {symbol}: +{data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+                sources_list = data.get('sources_used', ['binance'])
+                sources = escape_markdown(', '.join(sources_list))
+                message += f"\n• {symbol}: \\+{data.get('change_24h', 0):.1f}% \\(${data.get('price', 0):,.2f}\\) \\- {sources}"
 
-            message += f"\n\n**Losers:**"
+            message += "\n\n**Losers:**"
             for symbol, data in losers:
-                sources = ', '.join(data.get('sources_used', ['binance']))
-                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+                sources_list = data.get('sources_used', ['binance'])
+                sources = escape_markdown(', '.join(sources_list))
+                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% \\(${data.get('price', 0):,.2f}\\) \\- {sources}"
 
         # Futures sentiment
         message += f"""
 
-⚡ **4. Futures Sentiment (Binance):**
-- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+⚡ **4\\. Futures Sentiment \\(Binance\\):**
+\\- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+        
         if btc_funding:
-            message += f" (Funding: {btc_funding.get('last_funding_rate', 0):.4f}%)"
+            funding_rate = btc_funding.get('last_funding_rate', 0)
+            message += f" \\(Funding: {funding_rate:.4f}%\\)"
 
         message += f"""
-- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+\\- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+        
         if eth_funding:
-            message += f" (Funding: {eth_funding.get('last_funding_rate', 0):.4f}%)"
+            eth_funding_rate = eth_funding.get('last_funding_rate', 0)
+            message += f" \\(Funding: {eth_funding_rate:.4f}%\\)"
 
         # News sentiment
         if news_data and len(news_data) > 0:
             latest_news = news_data[0]
+            news_title = escape_markdown(latest_news.get('title', 'N/A')[:50])
+            news_source = escape_markdown(latest_news.get('source', 'CryptoNews'))
+            
             message += f"""
 
-📰 **5. Sentiment Berita:**
-- **Latest**: {latest_news.get('title', 'N/A')[:60]}...
-- **Source**: {latest_news.get('source', 'CryptoNews')}
-- **Impact**: Positive pada sentiment pasar"""
+📰 **5\\. Sentiment Berita:**
+\\- **Latest**: {news_title}\\.\\.\\.
+\\- **Source**: {news_source}
+\\- **Impact**: Positive pada sentiment pasar"""
+
+        # Final summary
+        current_time = datetime.now().strftime('%H:%M:%S')
+        health_status_clean = escape_markdown(market_health.get('status', 'Unknown'))
+        
+        if market_health.get('score', 5) >= 6:
+            trading_bias = "Bullish bias"
+        elif market_health.get('score', 5) <= 4:
+            trading_bias = "Bearish bias"
+        else:
+            trading_bias = "Neutral stance"
 
         message += f"""
 
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-📡 **Sources**: CoinGecko Global + Binance Real-time + CryptoNews Sentiment
+🕐 **Update**: {current_time} WIB
+📡 **Sources**: CoinGecko Global \\+ Binance Real\\-time \\+ CryptoNews Sentiment
 
-💡 **Trading Outlook**: {market_health['status']} - {"Bullish bias" if market_health['score'] >= 6 else "Bearish bias" if market_health['score'] <= 4 else "Neutral stance"}"""
+💡 **Trading Outlook**: {health_status_clean} \\- {trading_bias}"""
 
         return message
 
@@ -670,11 +699,20 @@ Ask me anything about crypto! 🚀"""
         """Format comprehensive market overview in English using multiple APIs"""
         from datetime import datetime
 
-        message = f"""🌍 **COMPREHENSIVE CRYPTO MARKET OVERVIEW**
+        def escape_markdown(text):
+            """Escape special Markdown characters"""
+            if not text:
+                return ""
+            # Escape problematic characters for Telegram Markdown
+            escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+            for char in escape_chars:
+                if char in str(text):
+                    text = str(text).replace(char, f'\\{char}')
+            return text
 
-🔍 **Multi-API Analysis:** CoinGecko + Binance + CryptoNews
-
-📊 **1. Global Data (CoinGecko):**"""
+        message = "🌍 **COMPREHENSIVE CRYPTO MARKET OVERVIEW**\n\n"
+        message += "🔍 **Multi\\-API Analysis:** CoinGecko \\+ Binance \\+ CryptoNews\n\n"
+        message += "📊 **1\\. Global Data \\(CoinGecko\\):**"
 
         # Global market data
         if global_data and 'error' not in global_data:
@@ -685,21 +723,21 @@ Ask me anything about crypto! 🚀"""
             active_cryptos = global_data.get('active_cryptocurrencies', 0)
 
             message += f"""
-- **Total Market Cap**: ${total_mcap:,.0f} ({mcap_change:+.2f}%)
-- **BTC Dominance**: {btc_dominance:.1f}%
-- **ETH Dominance**: {eth_dominance:.1f}%
-- **Active Cryptocurrencies**: {active_cryptos:,}"""
+\\- **Total Market Cap**: ${total_mcap:,.0f} \\({mcap_change:+.2f}%\\)
+\\- **BTC Dominance**: {btc_dominance:.1f}%
+\\- **ETH Dominance**: {eth_dominance:.1f}%
+\\- **Active Cryptocurrencies**: {active_cryptos:,}"""
 
-        # Market health analysis
-        message += f"""
-
-🏥 **2. Market Health:** {market_health['status']}
-{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
+        # Market health analysis - escape special characters
+        health_status = escape_markdown(market_health.get('status', 'Unknown'))
+        message += f"\n\n🏥 **2\\. Market Health:** {health_status}\n"
+        
+        for factor in market_health.get('factors', [])[:3]:  # Limit to 3 factors
+            clean_factor = escape_markdown(factor)
+            message += f"• {clean_factor}\n"
 
         # Top movers from multi-API data
-        message += f"""
-
-📈 **3. Top Movers (Multi-API):**"""
+        message += "\n📈 **3\\. Top Movers \\(Multi\\-API\\):**"
 
         if prices_data:
             sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
@@ -707,45 +745,65 @@ Ask me anything about crypto! 🚀"""
             gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
             losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
 
-            message += f"\n**Gainers:**"
+            message += "\n**Gainers:**"
             for symbol, data in gainers:
-                sources = ', '.join(data.get('sources_used', ['binance']))
-                message += f"\n• {symbol}: +{data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+                sources_list = data.get('sources_used', ['binance'])
+                sources = escape_markdown(', '.join(sources_list))
+                message += f"\n• {symbol}: \\+{data.get('change_24h', 0):.1f}% \\(${data.get('price', 0):,.2f}\\) \\- {sources}"
 
-            message += f"\n\n**Losers:**"
+            message += "\n\n**Losers:**"
             for symbol, data in losers:
-                sources = ', '.join(data.get('sources_used', ['binance']))
-                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% (${data.get('price', 0):,.2f}) - {sources}"
+                sources_list = data.get('sources_used', ['binance'])
+                sources = escape_markdown(', '.join(sources_list))
+                message += f"\n• {symbol}: {data.get('change_24h', 0):.1f}% \\(${data.get('price', 0):,.2f}\\) \\- {sources}"
 
         # Futures sentiment
         message += f"""
 
-⚡ **4. Futures Sentiment (Binance):**
-- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+⚡ **4\\. Futures Sentiment \\(Binance\\):**
+\\- **BTC L/S Ratio**: {futures_btc.get('long_ratio', 50):.1f}% / {futures_btc.get('short_ratio', 50):.1f}%"""
+        
         if btc_funding:
-            message += f" (Funding: {btc_funding.get('last_funding_rate', 0):.4f}%)"
+            funding_rate = btc_funding.get('last_funding_rate', 0)
+            message += f" \\(Funding: {funding_rate:.4f}%\\)"
 
         message += f"""
-- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+\\- **ETH L/S Ratio**: {futures_eth.get('long_ratio', 50):.1f}% / {futures_eth.get('short_ratio', 50):.1f}%"""
+        
         if eth_funding:
-            message += f" (Funding: {eth_funding.get('last_funding_rate', 0):.4f}%)"
+            eth_funding_rate = eth_funding.get('last_funding_rate', 0)
+            message += f" \\(Funding: {eth_funding_rate:.4f}%\\)"
 
         # News sentiment
         if news_data and len(news_data) > 0:
             latest_news = news_data[0]
+            news_title = escape_markdown(latest_news.get('title', 'N/A')[:50])
+            news_source = escape_markdown(latest_news.get('source', 'CryptoNews'))
+            
             message += f"""
 
-📰 **5. News Sentiment:**
-- **Latest**: {latest_news.get('title', 'N/A')[:60]}...
-- **Source**: {latest_news.get('source', 'CryptoNews')}
-- **Impact**: Positive market sentiment"""
+📰 **5\\. News Sentiment:**
+\\- **Latest**: {news_title}\\.\\.\\.
+\\- **Source**: {news_source}
+\\- **Impact**: Positive market sentiment"""
+
+        # Final summary
+        current_time = datetime.now().strftime('%H:%M:%S')
+        health_status_clean = escape_markdown(market_health.get('status', 'Unknown'))
+        
+        if market_health.get('score', 5) >= 6:
+            trading_bias = "Bullish bias"
+        elif market_health.get('score', 5) <= 4:
+            trading_bias = "Bearish bias"
+        else:
+            trading_bias = "Neutral stance"
 
         message += f"""
 
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
-📡 **Sources**: CoinGecko Global + Binance Real-time + CryptoNews Sentiment
+🕐 **Update**: {current_time} UTC
+📡 **Sources**: CoinGecko Global \\+ Binance Real\\-time \\+ CryptoNews Sentiment
 
-💡 **Trading Outlook**: {market_health['status']} - {"Bullish bias" if market_health['score'] >= 6 else "Bearish bias" if market_health['score'] <= 4 else "Neutral stance"}"""
+💡 **Trading Outlook**: {health_status_clean} \\- {trading_bias}"""
 
         return message
 
