@@ -554,12 +554,20 @@ class CryptoAPI:
         """Get price from multiple APIs and combine the best data"""
         price_sources = {}
 
+        # Enhanced logging for deployment mode
+        mode = "DEPLOYMENT REAL-TIME" if force_refresh else "STANDARD"
+        print(f"🔄 {mode} MODE: Fetching price data for {symbol}")
+
         # 1. Try Binance first (fastest and most accurate for real-time)
         try:
             binance_data = self.get_binance_price(symbol)
             if 'error' not in binance_data and binance_data.get('price', 0) > 0:
                 price_sources['binance'] = binance_data
-                print(f"✅ Real-time Binance data for {symbol}: ${binance_data.get('price', 0):,.2f}")
+                price_str = f"${binance_data.get('price', 0):,.2f}"
+                if force_refresh:
+                    print(f"🚀 DEPLOYMENT: Real-time Binance data for {symbol}: {price_str}")
+                else:
+                    print(f"✅ Standard Binance data for {symbol}: {price_str}")
                 # Return immediately if Binance works to ensure real-time
                 return self._combine_price_data(symbol, price_sources)
         except Exception as e:
