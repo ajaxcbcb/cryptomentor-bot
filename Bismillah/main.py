@@ -31,48 +31,50 @@ def main():
     else:
         print("🔧 Running in development mode")
 
-    # Enhanced cleanup for deployment environment
+    # Kill any existing bot instances first
     try:
-        import subprocess
+        import psutil
+        import signal
         import time
         
-        print("🔍 Checking for existing bot instances...")
-        
-        # Kill any existing Python processes running bot files
-        cleanup_commands = [
-            ["pkill", "-f", "main.py"],
-            ["pkill", "-f", "bot.py"],
-            ["pkill", "-f", "telegram"],
-            ["pkill", "-9", "-f", "python.*main.py"]
-        ]
-        
+        current_pid = os.getpid()
         killed_count = 0
-        for cmd in cleanup_commands:
+        
+        print("🔍 Checking for existing bot instances...")
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    killed_count += 1
-            except:
+                if proc.pid == current_pid:
+                    continue
+                    
+                cmdline = ' '.join(proc.info['cmdline'] or [])
+                if any(keyword in cmdline.lower() for keyword in ['main.py', 'bot.py', 'telegram']):
+                    print(f"🛑 Terminating existing process: {proc.pid}")
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                        killed_count += 1
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                        killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         
         if killed_count > 0:
-            print(f"✅ Cleaned up {killed_count} process groups")
-            time.sleep(8)  # Extended wait for deployment
+            print(f"✅ Cleaned up {killed_count} existing instances")
+            time.sleep(5)  # Wait for cleanup
         else:
             print("✅ No conflicting instances found")
             
-        # Additional deployment-specific cleanup
-        if is_deployment:
-            try:
-                subprocess.run(["killall", "-9", "python3"], check=False, timeout=3)
-                time.sleep(5)
-            except:
-                pass
-            
+    except ImportError:
+        print("⚠️ psutil not available, using basic cleanup")
+        try:
+            import subprocess
+            subprocess.run(["pkill", "-f", "main.py"], check=False)
+            time.sleep(3)
+        except:
+            pass
     except Exception as e:
         print(f"⚠️ Cleanup warning: {e}")
-        import time
-        time.sleep(3)
 
     max_retries = 3
     retry_count = 0
