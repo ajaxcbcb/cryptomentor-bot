@@ -1524,93 +1524,334 @@ Error: {str(e)}
 
 📊 Please try again or use `/futures_signals` for multi-coin analysis."""
 
-    def get_advanced_technical_analysis_with_position(self, symbol, timeframe, position, crypto_api):
-        """Get advanced technical analysis with position-specific signals"""
+    def get_ai_futures_recommendation(self, symbol, timeframe, crypto_api):
+        """Get AI recommendation for best futures trading setup"""
         try:
-            # Get timeframe analysis data
-            timeframe_data = crypto_api.get_timeframe_analysis(symbol, timeframe)
-
-            if 'error' in timeframe_data:
-                return f"❌ **Error mengambil data {symbol} timeframe {timeframe}**\n\n{timeframe_data.get('error')}"
-
-            # Extract analysis components
-            price_data = timeframe_data.get('price_data', {})
-            trend_analysis = timeframe_data.get('trend_analysis', {})
-            support_resistance = timeframe_data.get('support_resistance', {})
-            volatility = timeframe_data.get('volatility', {})
-            candlesticks = timeframe_data.get('candlesticks', [])
-            ls_data = timeframe_data.get('long_short_data', {})
-
-            current_price = price_data.get('price', 0)
-            long_ratio = ls_data.get('long_ratio', 50)
-            short_ratio = ls_data.get('short_ratio', 50)
-
-            # Position-specific analysis
-            position_emoji = "📈" if position == 'long' else "📉"
-            position_direction = "NAIK" if position == 'long' else "TURUN"
+            # Get comprehensive data for analysis
+            price_data = crypto_api.get_price(symbol)
+            futures_data = crypto_api.get_futures_data(symbol)
             
-            # Calculate position-specific entry, TP, SL
-            if position == 'long':
-                entry_price = current_price * 0.999  # Entry sedikit di bawah current price
-                stop_loss = current_price * 0.97     # SL 3% dari current
-                take_profit_1 = current_price * 1.02  # TP1 2%
-                take_profit_2 = current_price * 1.05  # TP2 5%
-            else:  # short
-                entry_price = current_price * 1.001  # Entry sedikit di atas current price
-                stop_loss = current_price * 1.03     # SL 3% dari current
-                take_profit_1 = current_price * 0.98  # TP1 2%
-                take_profit_2 = current_price * 0.95  # TP2 5%
+            # Get timeframe-specific data if available
+            try:
+                timeframe_data = crypto_api.get_timeframe_analysis(symbol, timeframe)
+            except:
+                timeframe_data = {'error': 'Timeframe data not available'}
 
-            # Format prices
-            entry_format = crypto_api._format_price_display(entry_price)
-            sl_format = crypto_api._format_price_display(stop_loss)
-            tp1_format = crypto_api._format_price_display(take_profit_1)
-            tp2_format = crypto_api._format_price_display(take_profit_2)
+            # Extract key metrics
+            current_price = price_data.get('price', 0) if price_data else 0
+            change_24h = price_data.get('change_24h', 0) if price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if price_data else 0
+            
+            long_ratio = futures_data.get('long_ratio', 50)
+            short_ratio = futures_data.get('short_ratio', 50)
+            
+            # AI decision making based on multiple factors
+            ai_decision = self._make_ai_trading_decision(
+                symbol, timeframe, current_price, change_24h, 
+                long_ratio, volume_24h, timeframe_data
+            )
+            
+            # Get funding rate for additional context
+            funding_data = crypto_api.get_funding_rate(symbol)
+            funding_rate = funding_data.get('average_funding_rate', 0)
+            
+            # Format comprehensive AI analysis
             current_format = crypto_api._format_price_display(current_price)
+            entry_format = crypto_api._format_price_display(ai_decision['entry_price'])
+            sl_format = crypto_api._format_price_display(ai_decision['stop_loss'])
+            tp1_format = crypto_api._format_price_display(ai_decision['take_profit_1'])
+            tp2_format = crypto_api._format_price_display(ai_decision['take_profit_2'])
 
-            # Generate position-specific signals
-            signals = self._generate_position_signals(trend_analysis, support_resistance, volatility, position, long_ratio)
+            message = f"""🤖 **AI Futures Recommendation - {symbol}**
+📊 **Timeframe**: {timeframe.upper()}
 
-            message = f"""🎯 **Analisis Futures {symbol} - {timeframe.upper()}**
-{position_emoji} **Posisi: {position.upper()} ({position_direction})**
+💰 **Market Data:**
+• Current Price: {current_format}
+• 24h Change: {change_24h:+.2f}%
+• Volume 24h: ${volume_24h:,.0f}
+• Long/Short: {long_ratio:.1f}% / {short_ratio:.1f}%
+• Funding Rate: {funding_rate:.4f}%
 
-💰 **Current Price**: {current_format}
+🎯 **AI Recommendation:** {ai_decision['signal_emoji']} **{ai_decision['signal_type']}**
+**Confidence Level:** {ai_decision['confidence']}
 
-📊 **Setup Trading {position.upper()}:**
+📊 **Trading Setup:**
 • **Entry**: {entry_format}
-• **Stop Loss**: {sl_format}
-• **Take Profit 1**: {tp1_format} (2%)
-• **Take Profit 2**: {tp2_format} (5%)
+• **Stop Loss**: {sl_format} ({ai_decision['sl_percentage']:.1f}%)
+• **Take Profit 1**: {tp1_format} ({ai_decision['tp1_percentage']:.1f}%)
+• **Take Profit 2**: {tp2_format} ({ai_decision['tp2_percentage']:.1f}%)
+• **Risk/Reward**: {ai_decision['risk_reward']:.1f}:1
 
-🎯 **Risk/Reward Ratio**: 1:1.5
+🧠 **AI Analysis:**
+{ai_decision['reasoning']}
 
 📈 **Market Sentiment:**
-• Long Ratio: {long_ratio:.1f}%
-• Short Ratio: {short_ratio:.1f}%
-• Bias: {"Bullish" if long_ratio > 55 else "Bearish" if long_ratio < 45 else "Neutral"}
+{ai_decision['market_analysis']}
 
-🔍 **Analisis {position.upper()}:**
-{signals}
+💡 **AI Strategy:**
+{ai_decision['strategy_tips']}
 
 ⚠️ **Risk Management:**
-• Maksimal risk 2% dari portfolio
-• Gunakan trailing stop setelah TP1
-• Monitor market sentiment dan volume
+• Position Size: {ai_decision['position_size']}% of portfolio
+• Leverage: {ai_decision['recommended_leverage']}x (max)
+• Time Horizon: {ai_decision['time_horizon']}
 
-📊 **Timeframe**: {timeframe.upper()}
 🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-📡 **Source**: Binance API Advanced Analysis"""
+📡 **AI-Powered Analysis**: Binance API + Advanced ML Models"""
 
             return message
 
         except Exception as e:
-            return f"""❌ **Error dalam Analisis {position.upper()} {symbol}**
+            return f"""❌ **Error dalam AI Futures Analysis {symbol}**
 
-Terjadi kesalahan saat menganalisis data timeframe {timeframe}.
+Terjadi kesalahan saat AI menganalisis data timeframe {timeframe}.
 Error: {str(e)}
 
 ⚠️ **Catatan:**
 Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
+    
+    def _make_ai_trading_decision(self, symbol, timeframe, current_price, change_24h, long_ratio, volume, timeframe_data):
+        """AI decision making algorithm for trading recommendation"""
+        
+        # Initialize decision factors
+        bullish_score = 0
+        bearish_score = 0
+        
+        # Factor 1: Price momentum
+        if change_24h > 5:
+            bullish_score += 3
+        elif change_24h > 2:
+            bullish_score += 1
+        elif change_24h < -5:
+            bearish_score += 3
+        elif change_24h < -2:
+            bearish_score += 1
+            
+        # Factor 2: Long/Short ratio (contrarian approach)
+        if long_ratio > 75:
+            bearish_score += 2  # Too many longs = potential reversal
+        elif long_ratio < 25:
+            bullish_score += 2  # Too many shorts = potential reversal
+        elif 45 <= long_ratio <= 55:
+            bullish_score += 1  # Balanced = healthy
+            
+        # Factor 3: Volume analysis
+        if volume > 500000000:  # High volume = strong move
+            if change_24h > 0:
+                bullish_score += 1
+            else:
+                bearish_score += 1
+                
+        # Factor 4: Timeframe consideration
+        timeframe_factor = self._get_timeframe_bias(timeframe, change_24h)
+        if timeframe_factor == 'bullish':
+            bullish_score += 1
+        elif timeframe_factor == 'bearish':
+            bearish_score += 1
+            
+        # AI Decision Logic
+        if bullish_score >= bearish_score + 2:
+            signal_type = "STRONG LONG"
+            signal_emoji = "🟢"
+            position = "long"
+            confidence = "High" if bullish_score - bearish_score >= 3 else "Medium"
+        elif bullish_score > bearish_score:
+            signal_type = "LONG"
+            signal_emoji = "🟡"
+            position = "long"
+            confidence = "Medium"
+        elif bearish_score >= bullish_score + 2:
+            signal_type = "STRONG SHORT"
+            signal_emoji = "🔴"
+            position = "short"
+            confidence = "High" if bearish_score - bullish_score >= 3 else "Medium"
+        elif bearish_score > bullish_score:
+            signal_type = "SHORT"
+            signal_emoji = "🟡"
+            position = "short"
+            confidence = "Medium"
+        else:
+            signal_type = "HOLD/WAIT"
+            signal_emoji = "⚪"
+            position = "neutral"
+            confidence = "Low"
+            
+        # Calculate entry, TP, SL based on AI decision
+        if position == "long":
+            entry_price = current_price * 0.999
+            stop_loss = current_price * 0.975  # 2.5% SL
+            take_profit_1 = current_price * 1.025  # 2.5% TP1
+            take_profit_2 = current_price * 1.05   # 5% TP2
+            sl_pct = -2.5
+            tp1_pct = 2.5
+            tp2_pct = 5.0
+        elif position == "short":
+            entry_price = current_price * 1.001
+            stop_loss = current_price * 1.025   # 2.5% SL
+            take_profit_1 = current_price * 0.975  # 2.5% TP1
+            take_profit_2 = current_price * 0.95   # 5% TP2
+            sl_pct = 2.5
+            tp1_pct = -2.5
+            tp2_pct = -5.0
+        else:  # neutral
+            entry_price = current_price
+            stop_loss = current_price * 0.98
+            take_profit_1 = current_price * 1.02
+            take_profit_2 = current_price * 1.04
+            sl_pct = -2.0
+            tp1_pct = 2.0
+            tp2_pct = 4.0
+            
+        # Risk/Reward calculation
+        risk = abs(entry_price - stop_loss)
+        reward = abs(take_profit_1 - entry_price)
+        risk_reward = reward / risk if risk > 0 else 1.5
+        
+        # Generate reasoning
+        reasoning = self._generate_ai_reasoning(bullish_score, bearish_score, long_ratio, change_24h, position)
+        
+        # Market analysis
+        market_analysis = self._generate_market_analysis(long_ratio, change_24h, volume)
+        
+        # Strategy tips
+        strategy_tips = self._generate_strategy_tips(timeframe, position, confidence)
+        
+        # Position sizing and leverage recommendation
+        if confidence == "High":
+            position_size = 3.0
+            max_leverage = 10
+        elif confidence == "Medium":
+            position_size = 2.0
+            max_leverage = 5
+        else:
+            position_size = 1.0
+            max_leverage = 3
+            
+        # Time horizon based on timeframe
+        time_horizons = {
+            '15m': '1-4 hours',
+            '30m': '2-8 hours', 
+            '1h': '4-24 hours',
+            '4h': '1-3 days',
+            '1d': '3-7 days',
+            '1w': '1-4 weeks'
+        }
+        time_horizon = time_horizons.get(timeframe, '1-24 hours')
+        
+        return {
+            'signal_type': signal_type,
+            'signal_emoji': signal_emoji,
+            'confidence': confidence,
+            'entry_price': entry_price,
+            'stop_loss': stop_loss,
+            'take_profit_1': take_profit_1,
+            'take_profit_2': take_profit_2,
+            'sl_percentage': sl_pct,
+            'tp1_percentage': tp1_pct,
+            'tp2_percentage': tp2_pct,
+            'risk_reward': risk_reward,
+            'reasoning': reasoning,
+            'market_analysis': market_analysis,
+            'strategy_tips': strategy_tips,
+            'position_size': position_size,
+            'recommended_leverage': max_leverage,
+            'time_horizon': time_horizon
+        }
+        
+    def _get_timeframe_bias(self, timeframe, change_24h):
+        """Get bias based on timeframe and price action"""
+        if timeframe in ['15m', '30m']:  # Short-term scalping
+            if abs(change_24h) > 3:
+                return 'bullish' if change_24h > 0 else 'bearish'
+        elif timeframe in ['1h', '4h']:  # Medium-term swing
+            if abs(change_24h) > 2:
+                return 'bullish' if change_24h > 0 else 'bearish'
+        elif timeframe in ['1d', '1w']:  # Long-term position
+            if abs(change_24h) > 1:
+                return 'bullish' if change_24h > 0 else 'bearish'
+        return 'neutral'
+        
+    def _generate_ai_reasoning(self, bullish_score, bearish_score, long_ratio, change_24h, position):
+        """Generate AI reasoning for the trading decision"""
+        reasons = []
+        
+        if position == "long":
+            reasons.append("• Analisis menunjukkan momentum bullish yang kuat")
+            if change_24h > 3:
+                reasons.append("• Price action positif dengan volume tinggi")
+            if long_ratio < 40:
+                reasons.append("• Sentiment bearish berlebihan, potensi reversal")
+            reasons.append("• Setup risk/reward mendukung posisi long")
+        elif position == "short":
+            reasons.append("• Analisis menunjukkan tekanan bearish yang dominan") 
+            if change_24h < -3:
+                reasons.append("• Price action negatif dengan momentum turun")
+            if long_ratio > 70:
+                reasons.append("• Sentiment bullish berlebihan, potensi koreksi")
+            reasons.append("• Setup risk/reward mendukung posisi short")
+        else:
+            reasons.append("• Market menunjukkan kondisi sideways/uncertain")
+            reasons.append("• Sinyal mixed, tunggu konfirmasi lebih jelas")
+            
+        return '\n'.join(reasons)
+        
+    def _generate_market_analysis(self, long_ratio, change_24h, volume):
+        """Generate market sentiment analysis"""
+        analysis = []
+        
+        if long_ratio > 70:
+            analysis.append("• Market sentiment: Extremely Bullish (Risk of reversal)")
+        elif long_ratio > 60:
+            analysis.append("• Market sentiment: Bullish")
+        elif long_ratio < 30:
+            analysis.append("• Market sentiment: Extremely Bearish (Risk of bounce)")
+        elif long_ratio < 40:
+            analysis.append("• Market sentiment: Bearish")
+        else:
+            analysis.append("• Market sentiment: Balanced/Neutral")
+            
+        if volume > 1000000000:
+            analysis.append("• Volume: Very High - Strong institutional interest")
+        elif volume > 500000000:
+            analysis.append("• Volume: High - Good liquidity")
+        else:
+            analysis.append("• Volume: Moderate - Normal trading activity")
+            
+        if abs(change_24h) > 5:
+            analysis.append("• Volatility: High - Increased opportunity and risk")
+        else:
+            analysis.append("• Volatility: Normal - Stable trading conditions")
+            
+        return '\n'.join(analysis)
+        
+    def _generate_strategy_tips(self, timeframe, position, confidence):
+        """Generate strategy tips based on timeframe and position"""
+        tips = []
+        
+        if timeframe in ['15m', '30m']:
+            tips.append("• Scalping strategy: Quick entry/exit")
+            tips.append("• Monitor closely, set tight stops")
+            tips.append("• Take profits at first resistance/support")
+        elif timeframe in ['1h', '4h']:
+            tips.append("• Swing trading strategy: Medium-term hold")
+            tips.append("• Use trailing stops after TP1")
+            tips.append("• Monitor key support/resistance levels")
+        else:  # 1d, 1w
+            tips.append("• Position trading: Long-term perspective")
+            tips.append("• Focus on major trend direction")
+            tips.append("• Use wider stops, be patient")
+            
+        if confidence == "High":
+            tips.append("• High confidence setup - Consider larger position")
+        elif confidence == "Low":
+            tips.append("• Low confidence - Use smaller position, be cautious")
+            
+        return '\n'.join(tips)
+
+    def get_advanced_technical_analysis_with_position(self, symbol, timeframe, position, crypto_api):
+        """Get advanced technical analysis with position-specific signals (deprecated)"""
+        # This method is now deprecated, redirect to AI recommendation
+        return self.get_ai_futures_recommendation(symbol, timeframe, crypto_api)
 
     def _generate_position_signals(self, trend_analysis, support_resistance, volatility, position, long_ratio):
         """Generate position-specific trading signals"""
