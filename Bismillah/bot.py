@@ -92,14 +92,6 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("referral", self.referral_command))
             self.application.add_handler(CommandHandler("language", self.language_command))
             self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
-            self.application.add_handler(CommandHandler("binance_data", self.binance_data_command))
-            self.application.add_handler(CommandHandler("candles", self.candles_command))
-            self.application.add_handler(CommandHandler("funding", self.funding_command))
-            self.application.add_handler(CommandHandler("oi", self.open_interest_command))
-            self.application.add_handler(CommandHandler("mark_price", self.mark_price_command))
-            self.application.add_handler(CommandHandler("server_time", self.server_time_command))
-            self.application.add_handler(CommandHandler("liquidations", self.liquidations_command))
-            self.application.add_handler(CommandHandler("long_short", self.long_short_command))
 
             # Admin commands
             self.application.add_handler(CommandHandler("admin", self.admin_command))
@@ -300,22 +292,12 @@ Type a command to start your trading journey! 📈"""
 
 📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time
-• `/candles <symbol> [interval] [limit]` - Data candlestick
 • `/market` - Overview pasar komprehensif
 
 📈 **Analisis Trading:**
 • `/analyze <symbol>` - Analisis mendalam (20 credit)
 • `/futures <symbol>` - Analisis futures 1 coin (20 credit)
 • `/futures_signals` - Sinyal futures lengkap (30 credit)
-
-⚡ **Data Binance Futures:**
-• `/binance_data <symbol>` - Data comprehensive (25 credit)
-• `/funding <symbol>` - Funding rate
-• `/oi <symbol>` - Open interest
-• `/mark_price <symbol>` - Mark price & premium
-• `/liquidations <symbol>` - Data liquidation terbaru
-• `/long_short <symbol>` - Long/short ratio
-• `/server_time` - Waktu server Binance
 
 💼 **Portfolio & Credit:**
 • `/portfolio` - Lihat portfolio
@@ -333,7 +315,7 @@ Type a command to start your trading journey! 📈"""
 - Fitur premium = unlimited access
 - Gunakan referral untuk bonus credit
 
-🔥 **New**: Semua data futures menggunakan Binance API real-time!"""
+🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def price_command(self, update: Update, context: CallbackContext):
@@ -740,30 +722,52 @@ Gunakan credit dengan bijak!
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "Tidak ada username"
         first_name = update.message.from_user.first_name or ""
+        
+        # Check current status
+        is_premium = self.db.is_user_premium(user_id)
+        current_credits = self.db.get_user_credits(user_id)
+        
+        if is_premium:
+            message = f"""⭐ **Status Premium Aktif**
 
-        message = f"""⭐ **Upgrade ke Premium**
+👤 **{first_name}**, Anda sudah menjadi member Premium!
+
+🚀 **Keuntungan yang Anda nikmati:**
+• ♾️ Unlimited analisis dan sinyal
+• 🎯 Akses prioritas ke semua fitur
+• 📊 Data real-time tanpa batas
+• 🛡️ Support premium
+
+✨ **Terima kasih telah menjadi Premium Member!**
+Nikmati semua fitur tanpa batasan credit."""
+        else:
+            message = f"""⭐ **Upgrade ke Premium**
 
 👤 **Informasi Anda:**
 • **User ID:** `{user_id}` 
 • **Username:** @{username}
 • **Nama:** {first_name}
+• **Current Credits:** {current_credits}
 
 🚀 **Keuntungan Premium:**
-• Unlimited analisis dan sinyal
-• Akses prioritas ke fitur baru
-• Support 24/7
-• No credit limitations
+• ♾️ Unlimited analisis dan sinyal futures
+• 📊 Akses prioritas ke fitur baru
+• 🎯 No credit limitations
+• 🛡️ Priority support
 
-💰 **Harga:**
-• 1 Bulan: $9.99
-• 3 Bulan: $24.99 (Save 17%)
-• 1 Tahun: $79.99 (Save 33%)
+💰 **Paket Berlangganan:**
+• 🥉 **1 Bulan**: $9.99
+• 🥈 **3 Bulan**: $24.99 (Save 17%)
+• 🥇 **1 Tahun**: $79.99 (Save 33%)
 
-📞 **Untuk berlangganan, hubungi admin:**
-• Telegram: @admin_username
-• Email: support@cryptomentor.ai
+📞 **Cara Berlangganan:**
+Hubungi admin dengan menyertakan User ID Anda:
+• **User ID:** `{user_id}`
+• **Telegram Admin:** Contact via bot admin
+• **Email:** premium@cryptomentor.ai
 
-Kirimkan User ID Anda untuk proses upgrade!"""
+🎁 **Promo Terbatas!** 
+Dapatkan 1 minggu gratis untuk member baru!"""
         
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -1969,7 +1973,15 @@ Gunakan:
             parts = data.split('_')
             symbol = parts[2]
             timeframe = parts[3]
-            await self._handle_futures_timeframe_analysis(query, symbol, timeframe)
+            await self._handle_timeframe_position_selection(query, symbol, timeframe)
+            
+        # Handle position selection callbacks
+        elif data.startswith('position_'):
+            parts = data.split('_')
+            symbol = parts[1]
+            timeframe = parts[2]
+            position = parts[3]  # 'long' or 'short'
+            await self._handle_futures_timeframe_analysis(query, symbol, timeframe, position)
 
         # Handle futures menu callback (return to timeframe selection)
         elif data.startswith('futures_menu_'):
@@ -2170,8 +2182,23 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
 
         await update.message.reply_text(response, parse_mode='Markdown')
 
-    async def _handle_futures_timeframe_analysis(self, query, symbol, timeframe):
-        """Handle futures timeframe analysis callback"""
+    async def _handle_timeframe_position_selection(self, query, symbol, timeframe):
+        """Handle timeframe selection and show position selection"""
+        keyboard = [
+            [InlineKeyboardButton("📈 LONG Entry", callback_data=f'position_{symbol}_{timeframe}_long')],
+            [InlineKeyboardButton("📉 SHORT Entry", callback_data=f'position_{symbol}_{timeframe}_short')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"📊 **Analisis Futures {symbol} - {timeframe.upper()}**\n\n"
+            "Pilih posisi entry yang ingin dianalisis:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    async def _handle_futures_timeframe_analysis(self, query, symbol, timeframe, position='long'):
+        """Handle futures timeframe analysis callback with position"""
         user_id = query.from_user.id
         credits = self.db.get_user_credits(user_id)
         is_premium = self.db.is_user_premium(user_id)
@@ -2183,11 +2210,12 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
             return
 
         # Show loading message
-        await query.edit_message_text(f"⏳ Menganalisis {symbol} pada timeframe {timeframe}...")
+        position_emoji = "📈" if position == 'long' else "📉"
+        await query.edit_message_text(f"⏳ Menganalisis {symbol} {position_emoji} {position.upper()} pada {timeframe}...")
 
         try:
-            # Get comprehensive timeframe analysis
-            analysis = self.ai.get_advanced_technical_analysis(symbol, timeframe, self.crypto_api)
+            # Get comprehensive timeframe analysis with position
+            analysis = self.ai.get_advanced_technical_analysis_with_position(symbol, timeframe, position, self.crypto_api)
 
             # Deduct credits for non-premium users
             if not is_premium and not is_admin:
@@ -2199,13 +2227,10 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
             elif is_admin:
                 analysis += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Add additional analysis options
+            # Add navigation keyboard
             keyboard = [
-                [InlineKeyboardButton("📊 Data Comprehensive", callback_data=f'binance_data_{symbol}'),
-                 InlineKeyboardButton("🔥 Liquidations", callback_data=f'liquidation_{symbol}')],
-                [InlineKeyboardButton("📈 Long/Short Ratio", callback_data=f'long_short_{symbol}'),
-                 InlineKeyboardButton("💰 Funding History", callback_data=f'funding_history_{symbol}')],
-                [InlineKeyboardButton("🔄 Ganti Timeframe", callback_data=f'futures_menu_{symbol}')]
+                [InlineKeyboardButton("🔄 Ganti Position", callback_data=f'futures_tf_{symbol}_{timeframe}'),
+                 InlineKeyboardButton("📊 Ganti Timeframe", callback_data=f'futures_menu_{symbol}')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -2219,7 +2244,7 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
                     await query.message.reply_text(chunk, parse_mode='Markdown')
 
                 # Add keyboard to last message
-                await query.message.reply_text("📈 **Analisis Tambahan:**", reply_markup=reply_markup)
+                await query.message.reply_text("📈 **Navigasi:**", reply_markup=reply_markup)
             else:
                 await query.edit_message_text(analysis, reply_markup=reply_markup, parse_mode='Markdown')
 

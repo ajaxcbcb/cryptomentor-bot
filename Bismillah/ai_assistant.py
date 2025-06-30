@@ -1524,6 +1524,138 @@ Error: {str(e)}
 
 📊 Please try again or use `/futures_signals` for multi-coin analysis."""
 
+    def get_advanced_technical_analysis_with_position(self, symbol, timeframe, position, crypto_api):
+        """Get advanced technical analysis with position-specific signals"""
+        try:
+            # Get timeframe analysis data
+            timeframe_data = crypto_api.get_timeframe_analysis(symbol, timeframe)
+
+            if 'error' in timeframe_data:
+                return f"❌ **Error mengambil data {symbol} timeframe {timeframe}**\n\n{timeframe_data.get('error')}"
+
+            # Extract analysis components
+            price_data = timeframe_data.get('price_data', {})
+            trend_analysis = timeframe_data.get('trend_analysis', {})
+            support_resistance = timeframe_data.get('support_resistance', {})
+            volatility = timeframe_data.get('volatility', {})
+            candlesticks = timeframe_data.get('candlesticks', [])
+            ls_data = timeframe_data.get('long_short_data', {})
+
+            current_price = price_data.get('price', 0)
+            long_ratio = ls_data.get('long_ratio', 50)
+            short_ratio = ls_data.get('short_ratio', 50)
+
+            # Position-specific analysis
+            position_emoji = "📈" if position == 'long' else "📉"
+            position_direction = "NAIK" if position == 'long' else "TURUN"
+            
+            # Calculate position-specific entry, TP, SL
+            if position == 'long':
+                entry_price = current_price * 0.999  # Entry sedikit di bawah current price
+                stop_loss = current_price * 0.97     # SL 3% dari current
+                take_profit_1 = current_price * 1.02  # TP1 2%
+                take_profit_2 = current_price * 1.05  # TP2 5%
+            else:  # short
+                entry_price = current_price * 1.001  # Entry sedikit di atas current price
+                stop_loss = current_price * 1.03     # SL 3% dari current
+                take_profit_1 = current_price * 0.98  # TP1 2%
+                take_profit_2 = current_price * 0.95  # TP2 5%
+
+            # Format prices
+            entry_format = crypto_api._format_price_display(entry_price)
+            sl_format = crypto_api._format_price_display(stop_loss)
+            tp1_format = crypto_api._format_price_display(take_profit_1)
+            tp2_format = crypto_api._format_price_display(take_profit_2)
+            current_format = crypto_api._format_price_display(current_price)
+
+            # Generate position-specific signals
+            signals = self._generate_position_signals(trend_analysis, support_resistance, volatility, position, long_ratio)
+
+            message = f"""🎯 **Analisis Futures {symbol} - {timeframe.upper()}**
+{position_emoji} **Posisi: {position.upper()} ({position_direction})**
+
+💰 **Current Price**: {current_format}
+
+📊 **Setup Trading {position.upper()}:**
+• **Entry**: {entry_format}
+• **Stop Loss**: {sl_format}
+• **Take Profit 1**: {tp1_format} (2%)
+• **Take Profit 2**: {tp2_format} (5%)
+
+🎯 **Risk/Reward Ratio**: 1:1.5
+
+📈 **Market Sentiment:**
+• Long Ratio: {long_ratio:.1f}%
+• Short Ratio: {short_ratio:.1f}%
+• Bias: {"Bullish" if long_ratio > 55 else "Bearish" if long_ratio < 45 else "Neutral"}
+
+🔍 **Analisis {position.upper()}:**
+{signals}
+
+⚠️ **Risk Management:**
+• Maksimal risk 2% dari portfolio
+• Gunakan trailing stop setelah TP1
+• Monitor market sentiment dan volume
+
+📊 **Timeframe**: {timeframe.upper()}
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Source**: Binance API Advanced Analysis"""
+
+            return message
+
+        except Exception as e:
+            return f"""❌ **Error dalam Analisis {position.upper()} {symbol}**
+
+Terjadi kesalahan saat menganalisis data timeframe {timeframe}.
+Error: {str(e)}
+
+⚠️ **Catatan:**
+Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
+
+    def _generate_position_signals(self, trend_analysis, support_resistance, volatility, position, long_ratio):
+        """Generate position-specific trading signals"""
+        signals = []
+        
+        trend_direction = trend_analysis.get('direction', 'neutral')
+        trend_strength = trend_analysis.get('strength', 'weak')
+        
+        if position == 'long':
+            if trend_direction == 'bullish' and trend_strength in ['strong', 'very_strong']:
+                signals.append("✅ Trend mendukung posisi LONG")
+            elif trend_direction == 'bearish':
+                signals.append("⚠️ Trend berlawanan dengan posisi LONG - Hati-hati")
+            else:
+                signals.append("🟡 Trend sideways - Gunakan range trading")
+                
+            if long_ratio > 65:
+                signals.append("🔴 Market overleveraged LONG - Risk tinggi liquidation")
+            elif long_ratio < 45:
+                signals.append("✅ Sentiment bearish bisa reversal untuk LONG")
+            else:
+                signals.append("🟢 Sentiment seimbang untuk entry LONG")
+                
+        else:  # short
+            if trend_direction == 'bearish' and trend_strength in ['strong', 'very_strong']:
+                signals.append("✅ Trend mendukung posisi SHORT")
+            elif trend_direction == 'bullish':
+                signals.append("⚠️ Trend berlawanan dengan posisi SHORT - Hati-hati")
+            else:
+                signals.append("🟡 Trend sideways - Gunakan range trading")
+                
+            if long_ratio < 35:
+                signals.append("🔴 Market overleveraged SHORT - Risk tinggi squeeze")
+            elif long_ratio > 55:
+                signals.append("✅ Sentiment bullish bisa reversal untuk SHORT")
+            else:
+                signals.append("🟢 Sentiment seimbang untuk entry SHORT")
+
+        # Add volatility warning
+        volatility_level = volatility.get('level', 'moderate')
+        if volatility_level in ['high', 'very_high']:
+            signals.append("⚡ Volatilitas tinggi - Gunakan position size kecil")
+        
+        return "\n".join([f"• {signal}" for signal in signals])
+
     def get_advanced_technical_analysis(self, symbol, timeframe, crypto_api):
         """Get advanced technical analysis for specific timeframe using Binance API"""
         try:
