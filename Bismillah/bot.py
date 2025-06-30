@@ -952,27 +952,6 @@ Bagikan link Anda dan mulai earning!"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
-            else:
-                message = f"""❌ **Gagal memberikan premium!**
-
-🔍 **Troubleshooting:**
-• Pastikan User ID benar: {target_user_id}
-• User harus sudah menggunakan `/start` di bot
-• Cek koneksi database
-
-⚠️ Coba lagi atau hubungi developer."""
-
-        except Exception as e:
-            message = f"""❌ **Error sistem saat memberikan premium!**
-
-**Error**: {str(e)}
-**User ID**: {target_user_id}
-
-🔧 Silakan coba lagi atau restart bot."""
-            print(f"Error in grant_premium_command: {e}")
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
     async def revoke_premium_command(self, update: Update, context: CallbackContext):
         """Handle /revoke_premium command"""
         user_id = update.message.from_user.id
