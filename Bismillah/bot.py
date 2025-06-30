@@ -652,12 +652,12 @@ Contoh: `/add_coin btc 0.5`
 
         # Show timeframe selection with inline keyboard
         keyboard = [
-            [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_tf_{symbol}_15m'),
-             InlineKeyboardButton("🔥 30m", callback_data=f'futures_tf_{symbol}_30m')],
-            [InlineKeyboardButton("📈 1h", callback_data=f'futures_tf_{symbol}_1h'),
-             InlineKeyboardButton("🚀 4h", callback_data=f'futures_tf_{symbol}_4h')],
-            [InlineKeyboardButton("💎 1d", callback_data=f'futures_tf_{symbol}_1d'),
-             InlineKeyboardButton("🌟 1w", callback_data=f'futures_tf_{symbol}_1w')]
+            [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_analysis_{symbol}_15m'),
+             InlineKeyboardButton("🔥 30m", callback_data=f'futures_analysis_{symbol}_30m')],
+            [InlineKeyboardButton("📈 1h", callback_data=f'futures_analysis_{symbol}_1h'),
+             InlineKeyboardButton("🚀 4h", callback_data=f'futures_analysis_{symbol}_4h')],
+            [InlineKeyboardButton("💎 1d", callback_data=f'futures_analysis_{symbol}_1d'),
+             InlineKeyboardButton("🌟 1w", callback_data=f'futures_analysis_{symbol}_1w')]
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1983,31 +1983,23 @@ Gunakan:
             await query.edit_message_text("🔄 Bot restart initiated... Please wait.")
             # Note: Actual restart would need to be implemented based on deployment environment
 
-        # Handle futures timeframe analysis callbacks
-        elif data.startswith('futures_tf_'):
+        # Handle futures analysis callbacks (direct AI analysis)
+        elif data.startswith('futures_analysis_'):
             parts = data.split('_')
             symbol = parts[2]
             timeframe = parts[3]
-            await self._handle_timeframe_position_selection(query, symbol, timeframe)
-            
-        # Handle position selection callbacks
-        elif data.startswith('position_'):
-            parts = data.split('_')
-            symbol = parts[1]
-            timeframe = parts[2]
-            position = parts[3]  # 'long' or 'short'
-            await self._handle_futures_timeframe_analysis(query, symbol, timeframe, position)
+            await self._handle_direct_futures_analysis(query, symbol, timeframe)
 
         # Handle futures menu callback (return to timeframe selection)
         elif data.startswith('futures_menu_'):
             symbol = data.split('_')[-1]
             keyboard = [
-                [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_tf_{symbol}_15m'),
-                 InlineKeyboardButton("🔥 30m", callback_data=f'futures_tf_{symbol}_30m')],
-                [InlineKeyboardButton("📈 1h", callback_data=f'futures_tf_{symbol}_1h'),
-                 InlineKeyboardButton("🚀 4h", callback_data=f'futures_tf_{symbol}_4h')],
-                [InlineKeyboardButton("💎 1d", callback_data=f'futures_tf_{symbol}_1d'),
-                 InlineKeyboardButton("🌟 1w", callback_data=f'futures_tf_{symbol}_1w')]
+                [InlineKeyboardButton("⚡ 15m", callback_data=f'futures_analysis_{symbol}_15m'),
+                 InlineKeyboardButton("🔥 30m", callback_data=f'futures_analysis_{symbol}_30m')],
+                [InlineKeyboardButton("📈 1h", callback_data=f'futures_analysis_{symbol}_1h'),
+                 InlineKeyboardButton("🚀 4h", callback_data=f'futures_analysis_{symbol}_4h')],
+                [InlineKeyboardButton("💎 1d", callback_data=f'futures_analysis_{symbol}_1d'),
+                 InlineKeyboardButton("🌟 1w", callback_data=f'futures_analysis_{symbol}_1w')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
@@ -2197,20 +2189,57 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
 
         await update.message.reply_text(response, parse_mode='Markdown')
 
-    async def _handle_timeframe_position_selection(self, query, symbol, timeframe):
-        """Handle timeframe selection and show position selection"""
-        keyboard = [
-            [InlineKeyboardButton("📈 LONG Entry", callback_data=f'position_{symbol}_{timeframe}_long')],
-            [InlineKeyboardButton("📉 SHORT Entry", callback_data=f'position_{symbol}_{timeframe}_short')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            f"📊 **Analisis Futures {symbol} - {timeframe.upper()}**\n\n"
-            "Pilih posisi entry yang ingin dianalisis:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+    async def _handle_direct_futures_analysis(self, query, symbol, timeframe):
+        """Handle direct AI futures analysis without position selection"""
+        user_id = query.from_user.id
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
+        is_admin = user_id == self.admin_id
+
+        # Check credits again for non-premium users
+        if not is_premium and not is_admin and credits < 20:
+            await query.edit_message_text("❌ Credit tidak cukup untuk analisis futures!")
+            return
+
+        # Show loading message
+        await query.edit_message_text(f"⏳ AI sedang menganalisis {symbol} pada timeframe {timeframe}...")
+
+        try:
+            # Get AI recommendation for best trading setup
+            analysis = self.ai.get_ai_futures_recommendation(symbol, timeframe, self.crypto_api)
+
+            # Deduct credits for non-premium users
+            if not is_premium and not is_admin:
+                self.db.deduct_credit(user_id, 20)
+                remaining_credits = self.db.get_user_credits(user_id)
+                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis futures: -20 credit)"
+            elif is_premium:
+                analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
+            elif is_admin:
+                analysis += f"\n\n👑 **Admin Access** - Unlimited"
+
+            # Add navigation keyboard
+            keyboard = [
+                [InlineKeyboardButton("🔄 Ganti Timeframe", callback_data=f'futures_menu_{symbol}')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Split long messages if needed
+            if len(analysis) > 4000:
+                chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
+                await query.edit_message_text(chunks[0], parse_mode='Markdown')
+
+                # Send additional chunks
+                for chunk in chunks[1:]:
+                    await query.message.reply_text(chunk, parse_mode='Markdown')
+
+                # Add keyboard to last message
+                await query.message.reply_text("📈 **Navigasi:**", reply_markup=reply_markup)
+            else:
+                await query.edit_message_text(analysis, reply_markup=reply_markup, parse_mode='Markdown')
+
+        except Exception as e:
+            await query.edit_message_text(f"❌ Terjadi kesalahan: {str(e)[:100]}")
 
     async def _handle_futures_timeframe_analysis(self, query, symbol, timeframe, position='long'):
         """Handle futures timeframe analysis callback with position"""
