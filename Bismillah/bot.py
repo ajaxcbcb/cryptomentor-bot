@@ -8,14 +8,23 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Check deployment environment (Replit environments) - enhanced detection
-IS_DEPLOYMENT = (
-    os.getenv('REPLIT_DEPLOYMENT') == '1' or 
-    os.getenv('REPL_DEPLOYMENT') == '1' or
-    os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
-    os.path.exists('/tmp/repl_deployment_flag') or
-    'deployment' in os.getcwd().lower()
-)
+# Enhanced deployment detection with verification
+deployment_env_checks = {
+    'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
+    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
+    'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
+    'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
+    'replit_slug': bool(os.getenv('REPL_SLUG')),
+    'replit_owner': bool(os.getenv('REPL_OWNER'))
+}
+
+IS_DEPLOYMENT = any(deployment_env_checks.values())
+
+# Log deployment detection for debugging
+print(f"🔍 Bot Deployment Detection:")
+for check, result in deployment_env_checks.items():
+    print(f"  {'✅' if result else '❌'} {check}: {result}")
+print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
 # Setup logging
 logging.basicConfig(
