@@ -102,6 +102,8 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
             self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+            self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
+            self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
             self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
             self.application.add_handler(CommandHandler("restart", self.restart_command))
 
@@ -1402,6 +1404,116 @@ Gunakan:
         # Clear broadcast
         self.pending_broadcast = None
         await update.message.reply_text("✅ Broadcast dibatalkan!")
+
+    async def broadcast_welcome_command(self, update: Update, context: CallbackContext):
+        """Handle /broadcast_welcome command - Send welcome back message to all users"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
+            return
+
+        welcome_message = """🎉 **Selamat datang kembali di CryptoMentor AI!**
+
+🔄 **Bot telah diperbarui dengan fitur-fitur terbaru:**
+• 📊 Data real-time yang lebih akurat
+• 🚀 Analisis AI yang ditingkatkan
+• ⚡ Performa yang lebih cepat
+
+💡 **Untuk melanjutkan penggunaan:**
+Silakan gunakan `/start` untuk mengaktifkan kembali akses Anda.
+
+💾 **Jangan khawatir!** 
+Semua data Anda (credits, premium, portfolio) tetap aman dan tidak hilang.
+
+🎯 **Fitur unggulan:**
+• `/price <symbol>` - Harga real-time
+• `/analyze <symbol>` - Analisis mendalam
+• `/market` - Overview pasar
+• `/futures_signals` - Sinyal futures
+
+Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
+
+        # Store the welcome broadcast message
+        self.pending_broadcast = {
+            'message': welcome_message,
+            'admin_id': user_id,
+            'timestamp': datetime.now()
+        }
+
+        await update.message.reply_text(
+            "📢 **Welcome Back Broadcast Ready!**\n\n"
+            "Pesan welcome back telah disiapkan untuk semua user.\n\n"
+            "Gunakan `/confirm_broadcast` untuk mengirim ke semua user\n"
+            "atau `/cancel_broadcast` untuk membatalkan.",
+            parse_mode='Markdown'
+        )
+
+    async def recovery_stats_command(self, update: Update, context: CallbackContext):
+        """Handle /recovery_stats command - Show user recovery statistics"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
+            return
+
+        try:
+            # Get total users
+            self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+            total_users = self.db.cursor.fetchone()[0]
+
+            # Get users who need restart
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM users 
+                WHERE restart_required = 1 AND telegram_id IS NOT NULL
+            """)
+            users_need_restart = self.db.cursor.fetchone()[0]
+
+            # Get users who have reactivated today
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action = 'user_reactivated' 
+                AND timestamp >= datetime('now', '-1 day')
+            """)
+            reactivated_today = self.db.cursor.fetchone()[0]
+
+            # Get users who have returned today
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action = 'user_returned' 
+                AND timestamp >= datetime('now', '-1 day')
+            """)
+            returned_today = self.db.cursor.fetchone()[0]
+
+            # Calculate recovery rate
+            users_recovered = total_users - users_need_restart
+            recovery_rate = (users_recovered / total_users * 100) if total_users > 0 else 0
+
+            message = f"""📊 **User Recovery Statistics**
+
+👥 **Overall Stats:**
+• **Total Users**: {total_users}
+• **Users Recovered**: {users_recovered}
+• **Still Need /start**: {users_need_restart}
+• **Recovery Rate**: {recovery_rate:.1f}%
+
+📈 **Today's Activity:**
+• **Reactivated Today**: {reactivated_today} users
+• **Returned Today**: {returned_today} users
+• **Total Engagement**: {reactivated_today + returned_today} users
+
+💡 **Recovery Actions:**
+• Use `/broadcast_welcome` to send welcome back message
+• Monitor reactivation through user logs
+• Users who `/start` will be tracked as reactivated
+
+**Last Updated**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+            await update.message.reply_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting recovery stats: {str(e)}")
+            print(f"Recovery stats error: {e}")
 
     async def handle_ask_ai(self, update: Update, context: CallbackContext):
         """Handle /ask_ai command"""
