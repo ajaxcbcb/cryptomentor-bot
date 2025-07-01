@@ -1,4 +1,5 @@
-entrypoint = "main.py"
+
+entrypoint = "Bismillah/main.py"
 modules = ["python-3.11"]
 
 [nix]
@@ -11,13 +12,12 @@ language = "python3"
 requiredFiles = [".replit", "replit.nix"]
 
 [deployment]
-run = ["sh", "-c", "python main.py"]
+run = ["sh", "-c", "cd Bismillah && python main.py"]
 deploymentTarget = "gce"
 ignorePorts = true
-# buildCommand = "pip install -r requirements.txt --no-cache-dir"  # Auto-installed from requirements.txt
 
 [env]
-PYTHONPATH = "."
+PYTHONPATH = "./Bismillah:."
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
@@ -31,8 +31,6 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python main.py"
-
+args = "cd Bismillah && python main.py"
 run = "python3 main.py"
 language = "python3"
-
