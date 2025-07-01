@@ -673,6 +673,53 @@ class Database:
             print(f"DB Error (set_user_language): {e}")
             return False
 
+    def mark_all_users_for_restart(self):
+        """Mark all users to require /start again (for admin restart)"""
+        try:
+            # Add restart_required column if it doesn't exist
+            try:
+                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
+            except:
+                pass  # Column already exists
+
+            # Mark all users as requiring restart
+            self.cursor.execute("""
+                UPDATE users SET restart_required = 1 
+                WHERE telegram_id IS NOT NULL AND telegram_id != 0
+            """)
+            
+            restart_count = self.cursor.rowcount
+            self.conn.commit()
+            print(f"✅ Marked {restart_count} users for restart")
+            return restart_count
+        except Exception as e:
+            print(f"DB Error (mark_all_users_for_restart): {e}")
+            return 0
+
+    def user_needs_restart(self, telegram_id):
+        """Check if user needs to /start again after admin restart"""
+        try:
+            self.cursor.execute("""
+                SELECT restart_required FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            return row[0] == 1 if row else False
+        except Exception as e:
+            print(f"DB Error (user_needs_restart): {e}")
+            return False
+
+    def clear_restart_flag(self, telegram_id):
+        """Clear restart flag when user uses /start"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET restart_required = 0 WHERE telegram_id = ?
+            """, (telegram_id,))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (clear_restart_flag): {e}")
+            return False
+
     def close(self):
         """Close database connection"""
         self.conn.close()
