@@ -598,24 +598,6 @@ class Database:
             return users
         except Exception as e:
             print(f"Error getting all users: {e}")
-            return []()
-
-            users = []
-            for row in rows:
-                if row[0] and str(row[0]).isdigit():  # Validate telegram_id
-                    users.append({
-                        'user_id': int(row[0]),
-                        'first_name': row[1] or 'Unknown',
-                        'username': row[2] or 'No username',
-                        'is_premium': row[3] or 0,
-                        'created_at': row[4]
-                    })
-
-            print(f"📊 Retrieved {len(users)} valid users for broadcast")
-            return users
-
-        except Exception as e:
-            print(f"DB Error (get_all_users): {e}")
             return []
 
     def add_credits(self, telegram_id, amount):

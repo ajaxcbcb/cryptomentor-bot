@@ -103,6 +103,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
             self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
             self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
+            self.application.add_handler(CommandHandler("restart", self.restart_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -221,9 +222,16 @@ class TelegramBot:
                     print(f"❌ Failed to create user: {user.id}")
 
             else:
-                print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
-                # Log user return
-                self.db.log_user_activity(user.id, "user_returned", "User started bot again")
+                # Check if user needs restart after admin restart
+                if self.db.user_needs_restart(user.id):
+                    # Clear restart flag and log reactivation
+                    self.db.clear_restart_flag(user.id)
+                    self.db.log_user_activity(user.id, "user_reactivated", f"User restarted after admin restart: {user.first_name}")
+                    print(f"🔄 User reactivated after restart: {user.id} ({user.first_name})")
+                else:
+                    print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
+                    # Log user return
+                    self.db.log_user_activity(user.id, "user_returned", "User started bot again")
 
         except Exception as e:
             print(f"❌ Error in start command: {e}")
@@ -334,6 +342,10 @@ class TelegramBot:
 
     async def price_command(self, update: Update, context: CallbackContext):
         """Handle /price command with enhanced real-time data"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         if not context.args:
             await update.message.reply_text("❌ Gunakan format: `/price <symbol>`\nContoh: `/price btc`", parse_mode='Markdown')
             return
@@ -461,6 +473,10 @@ class TelegramBot:
 
     async def analyze_command(self, update: Update, context: CallbackContext):
         """Handle /analyze command - comprehensive analysis with news integration"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         if not context.args:
             await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='Markdown')
             return
@@ -560,6 +576,10 @@ Contoh: `/add_coin btc 0.5`
 
     async def market_command(self, update: Update, context: CallbackContext):
         """Handle /market command with enhanced error handling"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         user_id = update.message.from_user.id
         credits = self.db.get_user_credits(user_id)
         is_premium = self.db.is_user_premium(user_id)
@@ -2041,8 +2061,58 @@ Gunakan:
             await query.edit_message_text(health_message, parse_mode='Markdown')
 
         elif data == 'restart_bot' and user_id == self.admin_id:
-            await query.edit_message_text("🔄 Bot restart initiated... Please wait.")
-            # Note: Actual restart would need to be implemented based on deployment environment
+            keyboard = [
+                [InlineKeyboardButton("✅ Confirm Restart All Users", callback_data='confirm_restart_users')],
+                [InlineKeyboardButton("❌ Cancel", callback_data='admin_panel')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "🔄 **Restart All Users**\n\n"
+                "⚠️ **This will reset ALL users' start status**\n\n"
+                "**What happens:**\n"
+                "• All users must use `/start` again\n"
+                "• Other commands blocked until restart\n"
+                "• **NO DATA LOSS** (credits, premium preserved)\n"
+                "• Perfect for engagement tracking\n\n"
+                "**Confirm to proceed:**",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
+        elif data == 'confirm_restart_users' and user_id == self.admin_id:
+            try:
+                restart_count = self.db.mark_all_users_for_restart()
+                await query.edit_message_text(
+                    f"✅ **Restart Completed!**\n\n"
+                    f"📊 **{restart_count} users** marked for restart\n"
+                    f"🔄 All users must use `/start` to continue\n"
+                    f"💾 All data preserved safely\n\n"
+                    f"**Completed**: {datetime.now().strftime('%H:%M:%S WIB')}",
+                    parse_mode='Markdown'
+                )
+                self.db.log_user_activity(user_id, "admin_restart_all", f"Restarted {restart_count} users via panel")
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error during restart: {str(e)}")
+
+        elif data == 'admin_panel' and user_id == self.admin_id:
+            # Return to main admin panel
+            keyboard = [
+                [InlineKeyboardButton("👑 Buat User Premium", callback_data='make_premium')],
+                [InlineKeyboardButton("💰 Berikan Credits", callback_data='grant_credits')],
+                [InlineKeyboardButton("📢 Broadcast Message", callback_data='broadcast_help')],
+                [InlineKeyboardButton("📊 Statistik Bot", callback_data='bot_stats')],
+                [InlineKeyboardButton("📝 Log Aktivitas", callback_data='activity_log')],
+                [InlineKeyboardButton("🔍 API Health Report", callback_data='api_health')],
+                [InlineKeyboardButton("🔄 Restart All Users", callback_data='restart_bot')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🛠 **Panel Admin CryptoMentor**\n\n"
+                "Pilih opsi yang tersedia:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
         # Handle futures analysis callbacks (direct AI analysis)
         elif data.startswith('futures_analysis_'):
@@ -2091,8 +2161,35 @@ Gunakan:
             symbol = data.split('_')[-1]
             await self._handle_funding_history(query, symbol)
 
+    async def _check_user_restart_required(self, update: Update) -> bool:
+        """Check if user needs to restart before using commands"""
+        user_id = update.effective_user.id
+        
+        # Skip check for admin
+        if user_id == self.admin_id:
+            return False
+            
+        # Skip check for start command (handled separately)
+        if update.message and update.message.text and update.message.text.startswith('/start'):
+            return False
+            
+        # Check if user needs restart
+        if self.db.user_needs_restart(user_id):
+            await update.message.reply_text(
+                "🔄 **Bot telah direstart oleh admin**\n\n"
+                "Silakan gunakan `/start` untuk melanjutkan penggunaan bot.\n\n"
+                "💡 Data Anda (credits, premium, portfolio) tetap aman!",
+                parse_mode='Markdown'
+            )
+            return True
+        return False
+
     async def handle_message(self, update: Update, context: CallbackContext):
         """Handle regular text messages (not commands)"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         user_id = update.message.from_user.id
         text = update.message.text.lower()
 
@@ -2493,5 +2590,73 @@ System Status: 🟢 Operational"""
 • `/admin` - Admin panel"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def restart_command(self, update: Update, context: CallbackContext):
+        """Handle /restart command - Reset all users to require /start again"""
+        user_id = update.message.from_user.id
+
+        # Only admin can use restart command
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        # Check if confirmation is provided
+        if context.args and context.args[0].lower() == 'confirm':
+            try:
+                # Mark all users for restart
+                restart_count = self.db.mark_all_users_for_restart()
+                
+                success_message = f"""✅ **Bot Restart Executed Successfully!**
+
+📊 **Results:**
+• **Users marked for restart**: {restart_count}
+• **Status**: All users must use `/start` again
+• **Data preserved**: Credits, premium, portfolio intact
+
+🔄 **What happens next:**
+1. All users will be asked to use `/start` command
+2. Other commands blocked until they restart
+3. Users who `/start` will be logged as "user_reactivated"
+4. Perfect for tracking active vs inactive users
+
+💡 **Benefits:**
+• Fresh engagement tracking
+• Clean statistics reset
+• No data loss for users
+
+**Restart completed at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}"""
+
+                await update.message.reply_text(success_message, parse_mode='Markdown')
+                
+                # Log admin action
+                self.db.log_user_activity(user_id, "admin_restart_all", f"Marked {restart_count} users for restart")
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ **Error during restart**: {str(e)}", parse_mode='Markdown')
+        else:
+            # Show confirmation message
+            confirmation_message = f"""🔄 **Bot Restart Confirmation**
+
+⚠️ **WARNING**: This will reset ALL users' start status!
+
+**What will happen:**
+• All {self.db.get_bot_statistics().get('total_users', 0)} users must use `/start` again
+• **NO DATA LOSS**: Credits, premium, portfolio preserved
+• Commands blocked until users restart with `/start`
+• Perfect for engagement tracking
+
+**Benefits:**
+• Track active vs inactive users
+• Fresh statistics
+• Clean user re-engagement
+• Identify truly active community
+
+**Type to confirm:**
+`/restart confirm`
+
+**To cancel:**
+Just ignore this message"""
+
+            await update.message.reply_text(confirmation_message, parse_mode='Markdown')
 
 # News command will be integrated in main bot class
