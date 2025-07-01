@@ -554,12 +554,14 @@ class CryptoAPI:
         """Get price from multiple APIs and combine the best data"""
         price_sources = {}
 
-        # Check if we're in deployment environment
+        # Enhanced deployment environment check
         is_deployment = (
             os.getenv('REPLIT_DEPLOYMENT') == '1' or 
             os.getenv('REPL_DEPLOYMENT') == '1' or
             os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
-            os.path.exists('/tmp/repl_deployment_flag')
+            os.path.exists('/tmp/repl_deployment_flag') or
+            bool(os.getenv('REPL_SLUG')) or
+            bool(os.getenv('REPLIT_DB_URL'))
         )
         
         # Auto-enable force_refresh in deployment
