@@ -658,11 +658,14 @@ class Database:
     def mark_all_users_for_restart(self):
         """Mark all users to require /start again (for admin restart)"""
         try:
+            # Check if restart_required column exists
+            self.cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in self.cursor.fetchall()]
+            
             # Add restart_required column if it doesn't exist
-            try:
+            if 'restart_required' not in columns:
                 self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
-            except:
-                pass  # Column already exists
+                print("✅ Added restart_required column to users table")
 
             # Mark all users as requiring restart
             self.cursor.execute("""
@@ -681,6 +684,16 @@ class Database:
     def user_needs_restart(self, telegram_id):
         """Check if user needs to /start again after admin restart"""
         try:
+            # Check if restart_required column exists first
+            self.cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in self.cursor.fetchall()]
+            
+            if 'restart_required' not in columns:
+                # Column doesn't exist, add it
+                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
+                self.conn.commit()
+                return False  # New column, user doesn't need restart
+            
             self.cursor.execute("""
                 SELECT restart_required FROM users WHERE telegram_id = ?
             """, (telegram_id,))
