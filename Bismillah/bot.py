@@ -1224,7 +1224,7 @@ Gunakan:
 
 ⏰ **Timeout:** Konfirmasi akan expired dalam 10 menit."""
 
-        await update.message.reply_text(confirmation_message, parse_mode='MarkdownV2')
+        await update.message.reply_text(confirmation_message, parse_mode='Markdown')
 
     async def confirm_broadcast_command(self, update: Update, context: CallbackContext):
         """Handle /confirm_broadcast command"""
