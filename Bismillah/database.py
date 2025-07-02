@@ -574,11 +574,24 @@ class Database:
         """Get recent user activity"""
         try:
             self.cursor.execute("""
-                SELECT user_id, action, details, timestamp 
+                SELECT telegram_id, action, details, timestamp 
                 FROM user_activity 
                 ORDER BY timestamp DESC 
                 LIMIT ?
             """, (limit,))
+            
+            activities = []
+            for row in self.cursor.fetchall():
+                activities.append({
+                    'user_id': row[0],
+                    'action': row[1],
+                    'details': row[2],
+                    'timestamp': row[3]
+                })
+            return activities
+        except Exception as e:
+            print(f"DB Error (get_recent_activity): {e}")
+            return []))
 
             activities = []
             for row in self.cursor.fetchall():

@@ -46,6 +46,466 @@ class AIAssistant:
 
 🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
+    def get_ai_response(self, question, language='id'):
+        """Generate AI response for general questions"""
+        question_lower = question.lower()
+        
+        # Crypto-related responses
+        if any(word in question_lower for word in ['bitcoin', 'btc', 'crypto', 'trading']):
+            if language == 'id':
+                return """🤖 **CryptoMentor AI**
+
+💡 **Untuk analisis crypto:**
+• `/price btc` - Harga Bitcoin real-time
+• `/analyze btc` - Analisis mendalam Bitcoin
+• `/futures btc` - Analisis futures Bitcoin
+• `/market` - Overview pasar crypto
+
+📈 **Tips Trading:**
+• Selalu gunakan stop loss
+• Diversifikasi portfolio
+• DYOR (Do Your Own Research)
+• Jangan FOMO!
+
+🚀 Gunakan command di atas untuk analisis yang lebih detail!"""
+            else:
+                return """🤖 **CryptoMentor AI**
+
+💡 **For crypto analysis:**
+• `/price btc` - Real-time Bitcoin price
+• `/analyze btc` - In-depth Bitcoin analysis
+• `/futures btc` - Bitcoin futures analysis
+• `/market` - Crypto market overview
+
+📈 **Trading Tips:**
+• Always use stop loss
+• Diversify your portfolio
+• DYOR (Do Your Own Research)
+• Don't FOMO!
+
+🚀 Use the commands above for detailed analysis!"""
+        
+        # General responses
+        if language == 'id':
+            return f"""🤖 **CryptoMentor AI**
+
+Terima kasih atas pertanyaan Anda! Saya adalah AI assistant yang fokus pada analisis crypto dan trading.
+
+💡 **Yang bisa saya bantu:**
+• Analisis harga crypto real-time
+• Sinyal trading futures
+• Overview pasar crypto
+• Tips dan edukasi trading
+
+📊 **Command populer:**
+• `/price <symbol>` - Cek harga
+• `/analyze <symbol>` - Analisis mendalam
+• `/market` - Kondisi pasar
+• `/help` - Panduan lengkap
+
+Silakan gunakan command di atas untuk pertanyaan spesifik tentang crypto!"""
+        else:
+            return f"""🤖 **CryptoMentor AI**
+
+Thank you for your question! I'm an AI assistant focused on crypto analysis and trading.
+
+💡 **What I can help with:**
+• Real-time crypto price analysis
+• Futures trading signals
+• Crypto market overview
+• Trading tips and education
+
+📊 **Popular commands:**
+• `/price <symbol>` - Check price
+• `/analyze <symbol>` - In-depth analysis
+• `/market` - Market conditions
+• `/help` - Complete guide
+
+Please use the commands above for specific crypto questions!"""
+
+    def get_comprehensive_analysis(self, symbol, futures_data, price_data, language, crypto_api):
+        """Generate comprehensive analysis with real data"""
+        try:
+            # Get real-time data
+            current_price = price_data.get('price', 0) if price_data else 0
+            change_24h = price_data.get('change_24h', 0) if price_data else 0
+            
+            # Format price display
+            if current_price < 1:
+                price_display = f"${current_price:.6f}"
+            elif current_price < 100:
+                price_display = f"${current_price:.4f}"
+            else:
+                price_display = f"${current_price:,.2f}"
+            
+            # Technical analysis
+            if change_24h > 5:
+                trend = "🚀 **BULLISH KUAT**"
+                sentiment = "Momentum naik sangat kuat"
+            elif change_24h > 2:
+                trend = "📈 **BULLISH**"
+                sentiment = "Trend positif"
+            elif change_24h > -2:
+                trend = "🔄 **SIDEWAYS**"
+                sentiment = "Konsolidasi"
+            elif change_24h > -5:
+                trend = "📉 **BEARISH**"
+                sentiment = "Tekanan jual"
+            else:
+                trend = "💥 **BEARISH KUAT**"
+                sentiment = "Koreksi signifikan"
+            
+            analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol}**
+
+💰 **Harga Saat Ini**: {price_display}
+📈 **Perubahan 24j**: {change_24h:+.2f}%
+🎯 **Trend**: {trend}
+
+🔍 **Analisis Teknikal:**
+• **Sentiment**: {sentiment}
+• **Support**: {price_display} x 0.95 = ${current_price * 0.95:.2f}
+• **Resistance**: {price_display} x 1.05 = ${current_price * 1.05:.2f}
+
+📊 **Rekomendasi Trading:**
+"""
+            
+            if change_24h > 2:
+                analysis += """• **Entry**: Buy on dip ke support
+• **Target**: Resistance level
+• **Stop Loss**: 3-5% di bawah entry
+• **Risk/Reward**: 1:2"""
+            elif change_24h < -2:
+                analysis += """• **Strategy**: Wait for reversal signal
+• **Watch**: Support level hold
+• **Entry**: Confirmation bullish pattern
+• **Caution**: Downtrend masih aktif"""
+            else:
+                analysis += """• **Strategy**: Range trading
+• **Buy**: Near support
+• **Sell**: Near resistance  
+• **Stop**: Breakout levels"""
+            
+            analysis += f"""
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔄 **Data**: Real-time dari Binance/CoinGecko"""
+            
+            return analysis
+            
+        except Exception as e:
+            return f"❌ Error generating analysis: {str(e)}"
+
+    def get_market_sentiment(self, language, crypto_api):
+        """Generate market sentiment analysis"""
+        try:
+            # Get top coins data
+            top_coins = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']
+            market_data = []
+            
+            for coin in top_coins:
+                try:
+                    data = crypto_api.get_price(coin)
+                    if data and 'error' not in data:
+                        market_data.append({
+                            'symbol': coin,
+                            'change_24h': data.get('change_24h', 0)
+                        })
+                except:
+                    continue
+            
+            # Calculate market sentiment
+            if market_data:
+                avg_change = sum(coin['change_24h'] for coin in market_data) / len(market_data)
+                positive_coins = len([coin for coin in market_data if coin['change_24h'] > 0])
+                total_coins = len(market_data)
+                
+                if avg_change > 3:
+                    sentiment = "🚀 **BULLISH EKSTREM**"
+                elif avg_change > 1:
+                    sentiment = "📈 **BULLISH**"
+                elif avg_change > -1:
+                    sentiment = "🔄 **MIXED/SIDEWAYS**"
+                elif avg_change > -3:
+                    sentiment = "📉 **BEARISH**"
+                else:
+                    sentiment = "💥 **BEARISH EKSTREM**"
+                
+                analysis = f"""🌍 **OVERVIEW PASAR CRYPTO**
+
+📊 **Sentiment Pasar**: {sentiment}
+📈 **Rata-rata Perubahan**: {avg_change:+.2f}%
+✅ **Coins Positif**: {positive_coins}/{total_coins}
+
+🔥 **Top Movers:**
+"""
+                
+                # Sort by performance
+                market_data.sort(key=lambda x: x['change_24h'], reverse=True)
+                
+                for coin in market_data[:3]:
+                    emoji = "🚀" if coin['change_24h'] > 0 else "📉"
+                    analysis += f"• {emoji} **{coin['symbol']}**: {coin['change_24h']:+.2f}%\n"
+                
+                analysis += f"""
+🎯 **Analisis Pasar:**
+"""
+                
+                if avg_change > 1:
+                    analysis += """• **Kondisi**: Bullish momentum
+• **Strategy**: Buy the dip
+• **Focus**: Growth altcoins
+• **Risk**: Medium"""
+                elif avg_change < -1:
+                    analysis += """• **Kondisi**: Bearish pressure
+• **Strategy**: Wait & see
+• **Focus**: Major caps only
+• **Risk**: High"""
+                else:
+                    analysis += """• **Kondisi**: Range bound
+• **Strategy**: Swing trading
+• **Focus**: Technical levels
+• **Risk**: Medium"""
+                
+                analysis += f"""
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔄 **Data**: Real-time market analysis"""
+                
+                return analysis
+            else:
+                return "❌ Tidak dapat mengambil data pasar saat ini"
+                
+        except Exception as e:
+            return f"❌ Error analyzing market: {str(e)}"
+
+    def generate_futures_signals(self, language, crypto_api):
+        """Generate futures trading signals"""
+        try:
+            signals_coins = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
+            signals = f"""⚡ **SINYAL FUTURES CRYPTO**
+
+🎯 **Analisis Real-time dari {len(signals_coins)} Top Coins**
+
+"""
+            
+            for coin in signals_coins:
+                try:
+                    data = crypto_api.get_price(coin)
+                    if data and 'error' not in data:
+                        change = data.get('change_24h', 0)
+                        price = data.get('price', 0)
+                        
+                        if change > 3:
+                            signal = "🚀 **LONG** (Strong Buy)"
+                            confidence = "90%"
+                        elif change > 1:
+                            signal = "📈 **LONG** (Buy)"
+                            confidence = "75%"
+                        elif change < -3:
+                            signal = "📉 **SHORT** (Strong Sell)"
+                            confidence = "90%"
+                        elif change < -1:
+                            signal = "📉 **SHORT** (Sell)"
+                            confidence = "75%"
+                        else:
+                            signal = "🔄 **HOLD** (Wait)"
+                            confidence = "60%"
+                        
+                        price_format = f"${price:,.2f}" if price > 100 else f"${price:.4f}"
+                        
+                        signals += f"""**{coin}** {price_format} ({change:+.2f}%)
+{signal} | Confidence: {confidence}
+
+"""
+                except:
+                    continue
+            
+            signals += f"""🎯 **Trading Guidelines:**
+• **Long**: Entry saat pullback ke support
+• **Short**: Entry saat reject di resistance  
+• **Risk Management**: Maksimal 2% per trade
+• **Timeframe**: 1-4 jam untuk scalping
+
+⚠️ **Disclaimer**: Sinyal ini untuk referensi, DYOR!
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+            
+            return signals
+            
+        except Exception as e:
+            return f"❌ Error generating signals: {str(e)}"
+
+    def get_ai_futures_recommendation(self, symbol, timeframe, crypto_api):
+        """Get AI recommendation for futures trading"""
+        try:
+            # Get price data
+            price_data = crypto_api.get_price(symbol)
+            if not price_data or 'error' in price_data:
+                return f"❌ Tidak dapat mengambil data untuk {symbol}"
+            
+            current_price = price_data.get('price', 0)
+            change_24h = price_data.get('change_24h', 0)
+            volume = price_data.get('volume_24h', 0)
+            
+            # Price formatting
+            if current_price < 1:
+                price_display = f"${current_price:.6f}"
+            elif current_price < 100:
+                price_display = f"${current_price:.4f}"
+            else:
+                price_display = f"${current_price:,.2f}"
+            
+            # AI Analysis based on data
+            if change_24h > 5:
+                recommendation = "🚀 **STRONG LONG**"
+                reasoning = "Momentum bullish sangat kuat"
+                entry_strategy = "Buy on minor pullback"
+                risk_level = "Medium-High"
+            elif change_24h > 2:
+                recommendation = "📈 **LONG**"
+                reasoning = "Trend bullish confirmed"
+                entry_strategy = "Buy on dip to support"
+                risk_level = "Medium"
+            elif change_24h < -5:
+                recommendation = "📉 **STRONG SHORT**"
+                reasoning = "Bearish momentum dominan"
+                entry_strategy = "Short on bounce to resistance"
+                risk_level = "Medium-High"
+            elif change_24h < -2:
+                recommendation = "📉 **SHORT**"
+                reasoning = "Tekanan jual aktif"
+                entry_strategy = "Short on resistance test"
+                risk_level = "Medium"
+            else:
+                recommendation = "🔄 **HOLD/WAIT**"
+                reasoning = "Range bound, tidak ada bias jelas"
+                entry_strategy = "Wait for breakout confirmation"
+                risk_level = "Low"
+            
+            # Calculate levels
+            support_level = current_price * 0.97
+            resistance_level = current_price * 1.03
+            stop_loss = current_price * 0.95 if change_24h > 0 else current_price * 1.05
+            take_profit = current_price * 1.06 if change_24h > 0 else current_price * 0.94
+            
+            analysis = f"""📊 **AI FUTURES ANALYSIS - {symbol}**
+
+💰 **Current Price**: {price_display}
+📈 **24h Change**: {change_24h:+.2f}%
+⏰ **Timeframe**: {timeframe.upper()}
+
+🎯 **AI Recommendation**: {recommendation}
+🧠 **Reasoning**: {reasoning}
+
+📊 **Technical Levels:**
+• **Support**: {support_level:.4f}
+• **Resistance**: {resistance_level:.4f}
+• **Entry Strategy**: {entry_strategy}
+
+⚡ **Trading Setup:**
+• **Stop Loss**: {stop_loss:.4f}
+• **Take Profit**: {take_profit:.4f}
+• **Risk Level**: {risk_level}
+• **Position Size**: 1-2% of capital
+
+🔍 **Market Context:**
+"""
+            
+            if volume > 1000000000:
+                analysis += "• **Volume**: Tinggi - Sinyal kuat\n"
+            elif volume > 100000000:
+                analysis += "• **Volume**: Normal - Konfirmasi baik\n"
+            else:
+                analysis += "• **Volume**: Rendah - Hati-hati false signal\n"
+            
+            # Timeframe specific advice
+            if timeframe in ['15m', '30m']:
+                analysis += """• **Scalping Setup**: Quick in/out
+• **Risk**: Tinggi, profit kecil tapi cepat
+• **Monitor**: Price action real-time"""
+            elif timeframe in ['1h', '4h']:
+                analysis += """• **Swing Setup**: Hold beberapa jam
+• **Risk**: Medium, profit moderate
+• **Monitor**: Support/resistance breaks"""
+            else:
+                analysis += """• **Position Setup**: Hold beberapa hari
+• **Risk**: Medium-low, profit besar
+• **Monitor**: Daily trend changes"""
+            
+            analysis += f"""
+
+⚠️ **Risk Management:**
+• Maksimal 2% capital per trade
+• SELALU gunakan stop loss
+• Profit taking bertahap
+• Monitor news dan sentiment
+
+⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}
+🤖 **AI Confidence**: 75-85%"""
+            
+            return analysis
+            
+        except Exception as e:
+            return f"❌ Error in AI analysis: {str(e)}"
+
+    def generate_single_futures_signal(self, symbol, language, crypto_api):
+        """Generate signal for single cryptocurrency"""
+        try:
+            data = crypto_api.get_price(symbol)
+            if not data or 'error' in data:
+                return f"❌ Tidak dapat mengambil data untuk {symbol}"
+            
+            change = data.get('change_24h', 0)
+            price = data.get('price', 0)
+            volume = data.get('volume_24h', 0)
+            
+            # Signal generation
+            if change > 4:
+                signal = "🚀 **STRONG LONG**"
+                confidence = "85-90%"
+                action = "Entry agresif on pullback"
+            elif change > 1.5:
+                signal = "📈 **LONG**"
+                confidence = "70-80%"
+                action = "Entry on support test"
+            elif change < -4:
+                signal = "📉 **STRONG SHORT**"
+                confidence = "85-90%"
+                action = "Entry agresif on bounce"
+            elif change < -1.5:
+                signal = "📉 **SHORT**"
+                confidence = "70-80%"
+                action = "Entry on resistance"
+            else:
+                signal = "🔄 **NEUTRAL**"
+                confidence = "50-60%"
+                action = "Wait for clear direction"
+            
+            price_format = f"${price:,.2f}" if price > 100 else f"${price:.4f}"
+            
+            analysis = f"""⚡ **FUTURES SIGNAL - {symbol}**
+
+💰 **Price**: {price_format}
+📊 **24h Change**: {change:+.2f}%
+🎯 **Signal**: {signal}
+📈 **Confidence**: {confidence}
+
+🎯 **Action Plan**: {action}
+
+📊 **Levels**:
+• Entry: {price * 0.995:.4f} - {price * 1.005:.4f}
+• Stop Loss: {price * 0.97:.4f} (Long) / {price * 1.03:.4f} (Short)
+• Take Profit: {price * 1.05:.4f} (Long) / {price * 0.95:.4f} (Short)
+
+⚠️ **Risk**: Gunakan maksimal 2% capital
+⏰ **Valid**: Next 1-4 hours
+
+🔄 Update: {datetime.now().strftime('%H:%M:%S WIB')}"""
+            
+            return analysis
+            
+        except Exception as e:
+            return f"❌ Error generating signal: {str(e)}" menggunakan data real-time dari multiple API!**"""
+
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
         text_lower = text.lower()

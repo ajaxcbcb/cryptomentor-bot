@@ -38,6 +38,29 @@ def check_current_users():
             premium_badge = "⭐" if is_premium else "🆓"
             print(f"  {premium_badge} {first_name} (@{username or 'no_username'}) - {credits} credits - {created_at}")
         
+        # Check for users with issues
+        print("\n🔍 Checking for database issues...")
+        
+        # Users with negative credits
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
+        negative_credits = db.cursor.fetchone()[0]
+        print(f"❌ Users with negative credits: {negative_credits}")
+        
+        # Users with NULL telegram_id
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL")
+        null_ids = db.cursor.fetchone()[0]
+        print(f"⚠️ Users with NULL telegram_id: {null_ids}")
+        
+        print("\n✅ Database check completed!")
+        
+    except Exception as e:
+        print(f"❌ Error checking users: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    check_current_users()
+        
         # Check for data issues
         print("\n🔍 Data Quality Check:")
         
