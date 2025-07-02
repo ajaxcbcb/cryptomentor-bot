@@ -316,18 +316,6 @@ class Database:
             return True
         except Exception as e:
             print(f"DB Error (revoke_premium_access): {e}")
-            return False))
-
-            # Update subscription status
-            self.cursor.execute("""
-                UPDATE subscriptions SET status = 'revoked' 
-                WHERE telegram_id = ? AND status = 'active'
-            """, (telegram_id,))
-
-            self.conn.commit()
-            return True
-        except Exception as e:
-            print(f"DB Error (revoke_premium_access): {e}")
             return False
 
     def get_user_portfolio(self, telegram_id):
@@ -493,7 +481,7 @@ class Database:
             return row[0] if row else 0
         except Exception as e:
             print(f"DB Error (get_user_by_referral_code): {e}")
-            return
+            return 0
 
     def update_user_language(self, telegram_id, language):
         """Update user language preference"""
@@ -591,19 +579,6 @@ class Database:
             return activities
         except Exception as e:
             print(f"DB Error (get_recent_activity): {e}")
-            return []))
-
-            activities = []
-            for row in self.cursor.fetchall():
-                activities.append({
-                    'user_id': row[0],
-                    'action': row[1],
-                    'details': row[2],
-                    'timestamp': row[3]
-                })
-            return activities
-        except Exception as e:
-            print(f"Error getting recent activity: {e}")
             return []
 
     def get_all_users(self):
