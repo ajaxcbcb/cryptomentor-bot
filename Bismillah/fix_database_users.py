@@ -17,6 +17,51 @@ except ImportError as e:
 
 def fix_database_users():
     """Fix common database user issues"""
+    print("🔧 Starting database user fixes...")
+    
+    try:
+        db = Database()
+        
+        # Fix 1: Update NULL telegram_ids
+        print("🔍 Checking for NULL telegram_ids...")
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL")
+        null_count = db.cursor.fetchone()[0]
+        
+        if null_count > 0:
+            print(f"⚠️ Found {null_count} users with NULL telegram_id")
+            # Delete users with NULL telegram_id as they're invalid
+            db.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL")
+            db.conn.commit()
+            print(f"✅ Removed {null_count} invalid users")
+        
+        # Fix 2: Fix negative credits
+        print("🔍 Checking for negative credits...")
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
+        negative_count = db.cursor.fetchone()[0]
+        
+        if negative_count > 0:
+            print(f"⚠️ Found {negative_count} users with negative credits")
+            db.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
+            db.conn.commit()
+            print(f"✅ Fixed {negative_count} users with negative credits")
+        
+        # Fix 3: Ensure all users have proper is_premium status
+        print("🔍 Checking premium status...")
+        db.cursor.execute("UPDATE users SET is_premium = 0 WHERE is_premium IS NULL")
+        db.conn.commit()
+        
+        print("✅ Database fixes completed successfully!")
+        
+    except Exception as e:
+        print(f"❌ Error fixing database: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    fix_database_users()1)
+
+def fix_database_users():
+    """Fix common database user issues"""
     print("🔧 CryptoMentor AI - Database User Fix")
     print("=" * 50)
     
