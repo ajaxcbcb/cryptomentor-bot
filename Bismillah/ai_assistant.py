@@ -513,7 +513,7 @@ Please use the commands above for specific crypto questions!"""
         if language == 'id':
             # Crypto basics and education
             if any(keyword in text_lower for keyword in ['apa itu bitcoin', 'bitcoin itu apa', 'penjelasan bitcoin']):
-                return """🪙 **Apa itu Bitcoin?**
+                return """💰 **Apa itu Bitcoin?**
 
 Bitcoin (BTC) adalah cryptocurrency pertama dan terbesar di dunia, diciptakan oleh Satoshi Nakamoto pada 2009.
 
