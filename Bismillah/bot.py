@@ -8,11 +8,23 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Check deployment environment (Replit environments) - simplified for consistency
-IS_DEPLOYMENT = (
-    os.getenv('REPLIT_DEPLOYMENT') == '1' or 
-    os.getenv('REPL_DEPLOYMENT') == '1'
-)
+# Enhanced deployment detection with verification
+deployment_env_checks = {
+    'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
+    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
+    'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
+    'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
+    'replit_slug': bool(os.getenv('REPL_SLUG')),
+    'replit_owner': bool(os.getenv('REPL_OWNER'))
+}
+
+IS_DEPLOYMENT = any(deployment_env_checks.values())
+
+# Log deployment detection for debugging
+print(f"🔍 Bot Deployment Detection:")
+for check, result in deployment_env_checks.items():
+    print(f"  {'✅' if result else '❌'} {check}: {result}")
+print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
 # Setup logging
 logging.basicConfig(
@@ -102,7 +114,11 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
             self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+            self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
+            self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
             self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
+            self.application.add_handler(CommandHandler("restart", self.restart_command))
+            self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -221,9 +237,16 @@ class TelegramBot:
                     print(f"❌ Failed to create user: {user.id}")
 
             else:
-                print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
-                # Log user return
-                self.db.log_user_activity(user.id, "user_returned", "User started bot again")
+                # Check if user needs restart after admin restart
+                if self.db.user_needs_restart(user.id):
+                    # Clear restart flag and log reactivation
+                    self.db.clear_restart_flag(user.id)
+                    self.db.log_user_activity(user.id, "user_reactivated", f"User restarted after admin restart: {user.first_name}")
+                    print(f"🔄 User reactivated after restart: {user.id} ({user.first_name})")
+                else:
+                    print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
+                    # Log user return
+                    self.db.log_user_activity(user.id, "user_returned", "User started bot again")
 
         except Exception as e:
             print(f"❌ Error in start command: {e}")
@@ -334,6 +357,10 @@ class TelegramBot:
 
     async def price_command(self, update: Update, context: CallbackContext):
         """Handle /price command with enhanced real-time data"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         if not context.args:
             await update.message.reply_text("❌ Gunakan format: `/price <symbol>`\nContoh: `/price btc`", parse_mode='Markdown')
             return
@@ -461,6 +488,10 @@ class TelegramBot:
 
     async def analyze_command(self, update: Update, context: CallbackContext):
         """Handle /analyze command - comprehensive analysis with news integration"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         if not context.args:
             await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='Markdown')
             return
@@ -559,7 +590,11 @@ Contoh: `/add_coin btc 0.5`
         await update.message.reply_text(message)
 
     async def market_command(self, update: Update, context: CallbackContext):
-        """Handle /market command"""
+        """Handle /market command with enhanced error handling"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         user_id = update.message.from_user.id
         credits = self.db.get_user_credits(user_id)
         is_premium = self.db.is_user_premium(user_id)
@@ -570,12 +605,33 @@ Contoh: `/add_coin btc 0.5`
             await update.message.reply_text("❌ Credit tidak cukup! Overview pasar membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
 
-        # Show loading message for comprehensive analysis
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time...")
+        # Show enhanced loading message
+        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari multiple API...")
 
         try:
+            print(f"🔄 Market command initiated by user {user_id}")
+            
+            # Verify API availability first
+            if not self.crypto_api:
+                await loading_msg.edit_text("❌ API tidak tersedia. Silakan coba lagi dalam beberapa menit.", parse_mode='Markdown')
+                return
+
             # Get comprehensive market overview with real-time data
+            print("📊 Calling AI market sentiment analysis...")
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
+            
+            if not market_data or len(market_data.strip()) < 50:
+                # Fallback if data is too short
+                market_data = """🌍 **OVERVIEW PASAR CRYPTO**
+
+⚠️ **Data sementara tidak lengkap**
+
+💡 **Alternatif yang bisa dicoba:**
+• `/price btc` - Cek harga Bitcoin
+• `/price eth` - Cek harga Ethereum  
+• `/analyze btc` - Analisis mendalam Bitcoin
+
+🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
             # Deduct credit only for non-premium, non-admin users (20 credits for market overview)
             if not is_premium and not is_admin:
@@ -587,12 +643,26 @@ Contoh: `/add_coin btc 0.5`
             elif is_admin:
                 market_data += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Edit loading message with the comprehensive overview
-            await loading_msg.edit_text(market_data, parse_mode='Markdown')
+            print(f"✅ Market analysis completed, sending response ({len(market_data)} chars)")
+
+            # Handle long messages
+            if len(market_data) > 4000:
+                # Split into chunks
+                chunks = [market_data[i:i+4000] for i in range(0, len(market_data), 4000)]
+                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                
+                for chunk in chunks[1:]:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+            else:
+                # Edit loading message with the comprehensive overview
+                await loading_msg.edit_text(market_data, parse_mode='Markdown')
 
         except Exception as e:
-            await loading_msg.edit_text(f"❌ Terjadi kesalahan saat menganalisis pasar: {str(e)}")
-            print(f"Error in market command: {e}")
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc`\n• `/analyze ethereum`\n• `/futures_signals`"
+            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            print(f"❌ Error in market command: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def futures_signals_command(self, update: Update, context: CallbackContext):
         """Handle /futures_signals command with real-time data"""
@@ -907,15 +977,19 @@ Bagikan link Anda dan mulai earning!"""
             if success:
                 # Get user info for confirmation
                 user_info = self.db.get_user(target_user_id)
-                username = user_info.get('username', 'No username')
-                first_name = user_info.get('first_name', 'Unknown')
+                username = user_info.get('username') or 'no_username'
+                first_name = user_info.get('first_name') or 'Unknown'
+
+                # Escape special characters to prevent markdown parsing errors
+                safe_username = username.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                safe_first_name = first_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
 
                 message = f"""✅ **Premium berhasil diberikan!**
 
 👤 **User Info:**
-• **ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
+• **ID**: `{target_user_id}`
+• **Name**: {safe_first_name}
+• **Username**: @{safe_username}
 
 ⭐ **Premium Status:**
 • **Type**: {premium_type}
@@ -935,7 +1009,7 @@ Bagikan link Anda dan mulai earning!"""
                 message = f"""❌ **Gagal memberikan premium!**
 
 🔍 **Troubleshooting:**
-• Pastikan User ID benar: {target_user_id}
+• Pastikan User ID benar: `{target_user_id}`
 • User harus sudah menggunakan `/start` di bot
 • Cek koneksi database
 
@@ -944,13 +1018,24 @@ Bagikan link Anda dan mulai earning!"""
         except Exception as e:
             message = f"""❌ **Error sistem saat memberikan premium!**
 
-**Error**: {str(e)}
-**User ID**: {target_user_id}
+**Error**: `{str(e)[:100]}`
+**User ID**: `{target_user_id}`
 
 🔧 Silakan coba lagi atau restart bot."""
             print(f"Error in grant_premium_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        # Send message with error handling
+        try:
+            await update.message.reply_text(message, parse_mode='Markdown')
+        except Exception as send_error:
+            print(f"Failed to send grant_premium message with Markdown: {send_error}")
+            # Fallback to plain text if Markdown fails
+            try:
+                plain_message = message.replace('**', '').replace('`', '').replace('*', '').replace('_', '')
+                await update.message.reply_text(plain_message)
+            except Exception as plain_error:
+                print(f"Failed to send plain text message: {plain_error}")
+                await update.message.reply_text("✅ Premium berhasil diberikan! (Message formatting error)"))
 
     async def revoke_premium_command(self, update: Update, context: CallbackContext):
         """Handle /revoke_premium command"""
@@ -1154,7 +1239,7 @@ Gunakan:
 
 ⏰ **Timeout:** Konfirmasi akan expired dalam 10 menit."""
 
-        await update.message.reply_text(confirmation_message, parse_mode='MarkdownV2')
+        await update.message.reply_text(confirmation_message, parse_mode='Markdown')
 
     async def confirm_broadcast_command(self, update: Update, context: CallbackContext):
         """Handle /confirm_broadcast command"""
@@ -1347,6 +1432,116 @@ Gunakan:
         # Clear broadcast
         self.pending_broadcast = None
         await update.message.reply_text("✅ Broadcast dibatalkan!")
+
+    async def broadcast_welcome_command(self, update: Update, context: CallbackContext):
+        """Handle /broadcast_welcome command - Send welcome back message to all users"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
+            return
+
+        welcome_message = """🎉 **Selamat datang kembali di CryptoMentor AI!**
+
+🔄 **Bot telah diperbarui dengan fitur-fitur terbaru:**
+• 📊 Data real-time yang lebih akurat
+• 🚀 Analisis AI yang ditingkatkan
+• ⚡ Performa yang lebih cepat
+
+💡 **Untuk melanjutkan penggunaan:**
+Silakan gunakan `/start` untuk mengaktifkan kembali akses Anda.
+
+💾 **Jangan khawatir!** 
+Semua data Anda (credits, premium, portfolio) tetap aman dan tidak hilang.
+
+🎯 **Fitur unggulan:**
+• `/price <symbol>` - Harga real-time
+• `/analyze <symbol>` - Analisis mendalam
+• `/market` - Overview pasar
+• `/futures_signals` - Sinyal futures
+
+Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
+
+        # Store the welcome broadcast message
+        self.pending_broadcast = {
+            'message': welcome_message,
+            'admin_id': user_id,
+            'timestamp': datetime.now()
+        }
+
+        await update.message.reply_text(
+            "📢 **Welcome Back Broadcast Ready!**\n\n"
+            "Pesan welcome back telah disiapkan untuk semua user.\n\n"
+            "Gunakan `/confirm_broadcast` untuk mengirim ke semua user\n"
+            "atau `/cancel_broadcast` untuk membatalkan.",
+            parse_mode='Markdown'
+        )
+
+    async def recovery_stats_command(self, update: Update, context: CallbackContext):
+        """Handle /recovery_stats command - Show user recovery statistics"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Perintah ini hanya untuk admin!")
+            return
+
+        try:
+            # Get total users
+            self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+            total_users = self.db.cursor.fetchone()[0]
+
+            # Get users who need restart
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM users 
+                WHERE restart_required = 1 AND telegram_id IS NOT NULL
+            """)
+            users_need_restart = self.db.cursor.fetchone()[0]
+
+            # Get users who have reactivated today
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action = 'user_reactivated' 
+                AND timestamp >= datetime('now', '-1 day')
+            """)
+            reactivated_today = self.db.cursor.fetchone()[0]
+
+            # Get users who have returned today
+            self.db.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action = 'user_returned' 
+                AND timestamp >= datetime('now', '-1 day')
+            """)
+            returned_today = self.db.cursor.fetchone()[0]
+
+            # Calculate recovery rate
+            users_recovered = total_users - users_need_restart
+            recovery_rate = (users_recovered / total_users * 100) if total_users > 0 else 0
+
+            message = f"""📊 **User Recovery Statistics**
+
+👥 **Overall Stats:**
+• **Total Users**: {total_users}
+• **Users Recovered**: {users_recovered}
+• **Still Need /start**: {users_need_restart}
+• **Recovery Rate**: {recovery_rate:.1f}%
+
+📈 **Today's Activity:**
+• **Reactivated Today**: {reactivated_today} users
+• **Returned Today**: {returned_today} users
+• **Total Engagement**: {reactivated_today + returned_today} users
+
+💡 **Recovery Actions:**
+• Use `/broadcast_welcome` to send welcome back message
+• Monitor reactivation through user logs
+• Users who `/start` will be tracked as reactivated
+
+**Last Updated**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+            await update.message.reply_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting recovery stats: {str(e)}")
+            print(f"Recovery stats error: {e}")
 
     async def handle_ask_ai(self, update: Update, context: CallbackContext):
         """Handle /ask_ai command"""
@@ -2006,8 +2201,133 @@ Gunakan:
             await query.edit_message_text(health_message, parse_mode='Markdown')
 
         elif data == 'restart_bot' and user_id == self.admin_id:
-            await query.edit_message_text("🔄 Bot restart initiated... Please wait.")
-            # Note: Actual restart would need to be implemented based on deployment environment
+            keyboard = [
+                [InlineKeyboardButton("✅ Confirm Restart All Users", callback_data='confirm_restart_users')],
+                [InlineKeyboardButton("❌ Cancel", callback_data='admin_panel')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "🔄 **Restart All Users**\n\n"
+                "⚠️ **This will reset ALL users' start status**\n\n"
+                "**What happens:**\n"
+                "• All users must use `/start` again\n"
+                "• Other commands blocked until restart\n"
+                "• **NO DATA LOSS** (credits, premium preserved)\n"
+                "• Perfect for engagement tracking\n\n"
+                "**Confirm to proceed:**",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
+        elif data == 'refresh_credits_panel' and user_id == self.admin_id:
+            keyboard = [
+                [InlineKeyboardButton("✅ Confirm Credit Refresh", callback_data='confirm_credit_refresh')],
+                [InlineKeyboardButton("❌ Cancel", callback_data='admin_panel')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Get current statistics
+            try:
+                self.db.cursor.execute("""
+                    SELECT COUNT(*) FROM users 
+                    WHERE (is_premium = 0 OR is_premium IS NULL) 
+                    AND telegram_id IS NOT NULL
+                """)
+                free_users_count = self.db.cursor.fetchone()[0]
+                
+                await query.edit_message_text(
+                    f"💰 **Weekly Credit Refresh**\n\n"
+                    f"**Current free users**: {free_users_count}\n\n"
+                    "**What happens:**\n"
+                    "• All free users get 100 credits\n"
+                    "• Previous credits reset to 100\n"
+                    "• Premium users not affected\n"
+                    "• Activity logged for tracking\n\n"
+                    "**Confirm to proceed:**",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error getting user count: {str(e)}")
+
+        elif data == 'confirm_credit_refresh' and user_id == self.admin_id:
+            await query.edit_message_text("🔄 Processing credit refresh...")
+            
+            try:
+                import subprocess
+                import sys
+                
+                result = subprocess.run([
+                    sys.executable, 
+                    'weekly_credit_refresh.py'
+                ], 
+                cwd='Bismillah',
+                capture_output=True, 
+                text=True, 
+                timeout=300
+                )
+                
+                if result.returncode == 0:
+                    output_lines = result.stdout.strip().split('\n')
+                    users_updated = 0
+                    credits_given = 0
+                    
+                    for line in output_lines:
+                        if "Users updated:" in line:
+                            users_updated = int(line.split(":")[1].split("/")[0].strip())
+                        elif "Total credits distributed:" in line:
+                            credits_given = int(line.split(":")[1].strip().replace(",", ""))
+                    
+                    await query.edit_message_text(
+                        f"✅ **Credit Refresh Completed!**\n\n"
+                        f"📊 **Updated**: {users_updated} free users\n"
+                        f"💰 **Credits given**: {credits_given:,} total\n"
+                        f"🕐 **Time**: {datetime.now().strftime('%H:%M:%S WIB')}",
+                        parse_mode='Markdown'
+                    )
+                    
+                    self.db.log_user_activity(user_id, "admin_panel_credit_refresh", f"Refreshed credits for {users_updated} users via panel")
+                else:
+                    await query.edit_message_text(f"❌ Credit refresh failed: {result.stderr or result.stdout}")
+                    
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error during refresh: {str(e)}")
+
+        elif data == 'confirm_restart_users' and user_id == self.admin_id:
+            try:
+                restart_count = self.db.mark_all_users_for_restart()
+                await query.edit_message_text(
+                    f"✅ **Restart Completed!**\n\n"
+                    f"📊 **{restart_count} users** marked for restart\n"
+                    f"🔄 All users must use `/start` to continue\n"
+                    f"💾 All data preserved safely\n\n"
+                    f"**Completed**: {datetime.now().strftime('%H:%M:%S WIB')}",
+                    parse_mode='Markdown'
+                )
+                self.db.log_user_activity(user_id, "admin_restart_all", f"Restarted {restart_count} users via panel")
+            except Exception as e:
+                await query.edit_message_text(f"❌ Error during restart: {str(e)}")
+
+        elif data == 'admin_panel' and user_id == self.admin_id:
+            # Return to main admin panel
+            keyboard = [
+                [InlineKeyboardButton("👑 Buat User Premium", callback_data='make_premium')],
+                [InlineKeyboardButton("💰 Berikan Credits", callback_data='grant_credits')],
+                [InlineKeyboardButton("🎁 Refresh Credits Mingguan", callback_data='refresh_credits_panel')],
+                [InlineKeyboardButton("📢 Broadcast Message", callback_data='broadcast_help')],
+                [InlineKeyboardButton("📊 Statistik Bot", callback_data='bot_stats')],
+                [InlineKeyboardButton("📝 Log Aktivitas", callback_data='activity_log')],
+                [InlineKeyboardButton("🔍 API Health Report", callback_data='api_health')],
+                [InlineKeyboardButton("🔄 Restart All Users", callback_data='restart_bot')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🛠 **Panel Admin CryptoMentor**\n\n"
+                "Pilih opsi yang tersedia:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
         # Handle futures analysis callbacks (direct AI analysis)
         elif data.startswith('futures_analysis_'):
@@ -2056,8 +2376,35 @@ Gunakan:
             symbol = data.split('_')[-1]
             await self._handle_funding_history(query, symbol)
 
+    async def _check_user_restart_required(self, update: Update) -> bool:
+        """Check if user needs to restart before using commands"""
+        user_id = update.effective_user.id
+        
+        # Skip check for admin
+        if user_id == self.admin_id:
+            return False
+            
+        # Skip check for start command (handled separately)
+        if update.message and update.message.text and update.message.text.startswith('/start'):
+            return False
+            
+        # Check if user needs restart
+        if self.db.user_needs_restart(user_id):
+            await update.message.reply_text(
+                "🔄 **Bot telah direstart oleh admin**\n\n"
+                "Silakan gunakan `/start` untuk melanjutkan penggunaan bot.\n\n"
+                "💡 Data Anda (credits, premium, portfolio) tetap aman!",
+                parse_mode='Markdown'
+            )
+            return True
+        return False
+
     async def handle_message(self, update: Update, context: CallbackContext):
         """Handle regular text messages (not commands)"""
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+            
         user_id = update.message.from_user.id
         text = update.message.text.lower()
 
@@ -2353,6 +2700,7 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
         keyboard = [
             [InlineKeyboardButton("👑 Buat User Premium", callback_data='make_premium')],
             [InlineKeyboardButton("💰 Berikan Credits", callback_data='grant_credits')],
+            [InlineKeyboardButton("🎁 Refresh Credits Mingguan", callback_data='refresh_credits_panel')],
             [InlineKeyboardButton("📢 Broadcast Message", callback_data='broadcast_help')],
             [InlineKeyboardButton("📊 Statistik Bot", callback_data='bot_stats')],
             [InlineKeyboardButton("📝 Log Aktivitas", callback_data='activity_log')],
@@ -2458,5 +2806,220 @@ System Status: 🟢 Operational"""
 • `/admin` - Admin panel"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def restart_command(self, update: Update, context: CallbackContext):
+        """Handle /restart command - Reset all users to require /start again"""
+        user_id = update.message.from_user.id
+
+        # Only admin can use restart command
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        # Check if confirmation is provided
+        if context.args and context.args[0].lower() == 'confirm':
+            try:
+                # Mark all users for restart
+                restart_count = self.db.mark_all_users_for_restart()
+                
+                success_message = f"""✅ **Bot Restart Executed Successfully!**
+
+📊 **Results:**
+• **Users marked for restart**: {restart_count}
+• **Status**: All users must use `/start` again
+• **Data preserved**: Credits, premium, portfolio intact
+
+🔄 **What happens next:**
+1. All users will be asked to use `/start` command
+2. Other commands blocked until they restart
+3. Users who `/start` will be logged as "user_reactivated"
+4. Perfect for tracking active vs inactive users
+
+💡 **Benefits:**
+• Fresh engagement tracking
+• Clean statistics reset
+• No data loss for users
+
+**Restart completed at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}"""
+
+                await update.message.reply_text(success_message, parse_mode='Markdown')
+                
+                # Log admin action
+                self.db.log_user_activity(user_id, "admin_restart_all", f"Marked {restart_count} users for restart")
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ **Error during restart**: {str(e)}", parse_mode='Markdown')
+        else:
+            # Show confirmation message
+            confirmation_message = f"""🔄 **Bot Restart Confirmation**
+
+⚠️ **WARNING**: This will reset ALL users' start status!
+
+**What will happen:**
+• All {self.db.get_bot_statistics().get('total_users', 0)} users must use `/start` again
+• **NO DATA LOSS**: Credits, premium, portfolio preserved
+• Commands blocked until users restart with `/start`
+• Perfect for engagement tracking
+
+**Benefits:**
+• Track active vs inactive users
+• Fresh statistics
+• Clean user re-engagement
+• Identify truly active community
+
+**Type to confirm:**
+`/restart confirm`
+
+**To cancel:**
+Just ignore this message"""
+
+            await update.message.reply_text(confirmation_message, parse_mode='Markdown')
+
+    async def refresh_credits_command(self, update: Update, context: CallbackContext):
+        """Handle /refresh_credits command - Refresh credits for all free users"""
+        user_id = update.message.from_user.id
+
+        # Only admin can use this command
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        # Check if confirmation is provided
+        if context.args and context.args[0].lower() == 'confirm':
+            loading_msg = await update.message.reply_text("🔄 Refreshing credits for all free users...")
+            
+            try:
+                # Direct database approach instead of subprocess
+                print(f"🔄 Starting manual credit refresh by admin {user_id}")
+                
+                # Get all non-premium users
+                self.db.cursor.execute("""
+                    SELECT telegram_id, first_name, username, credits, is_premium
+                    FROM users 
+                    WHERE (is_premium = 0 OR is_premium IS NULL) 
+                    AND telegram_id IS NOT NULL 
+                    AND telegram_id != 0
+                """)
+                
+                free_users = self.db.cursor.fetchall()
+                total_free_users = len(free_users)
+                
+                if total_free_users == 0:
+                    await loading_msg.edit_text("ℹ️ **No free users found in database**")
+                    return
+                
+                # Update credits for all free users
+                updated_count = 0
+                total_credits_given = 0
+                
+                for user in free_users:
+                    telegram_id, first_name, username, current_credits, is_premium = user
+                    
+                    # Set credits to 100 for free users
+                    new_credits = 100
+                    
+                    try:
+                        self.db.cursor.execute("""
+                            UPDATE users SET credits = ? WHERE telegram_id = ?
+                        """, (new_credits, telegram_id))
+                        
+                        # Log the credit refresh
+                        self.db.cursor.execute("""
+                            INSERT INTO user_activity (telegram_id, action, details)
+                            VALUES (?, ?, ?)
+                        """, (telegram_id, "manual_credit_refresh", f"Credits refreshed to {new_credits} (was {current_credits}) by admin"))
+                        
+                        updated_count += 1
+                        total_credits_given += new_credits
+                        
+                        print(f"✅ {first_name} (@{username or 'no_username'}): {current_credits} → {new_credits} credits")
+                        
+                    except Exception as e:
+                        print(f"❌ Error updating user {telegram_id}: {e}")
+                        continue
+                
+                # Commit all changes
+                self.db.conn.commit()
+                
+                print(f"✅ Manual credit refresh completed: {updated_count}/{total_free_users} users")
+                
+                success_message = f"""✅ **Credit Refresh Completed Successfully!**
+
+📊 **Results:**
+• **Free users updated**: {updated_count}/{total_free_users}
+• **Credits per user**: 100
+• **Total credits distributed**: {total_credits_given:,}
+
+💰 **What happened:**
+• All non-premium users now have 100 credits
+• Previous credits were reset to 100
+• Activity logged for tracking
+
+🎯 **Benefits:**
+• Fair access to bot features
+• Encourages continued usage
+• Level playing field for all free users
+
+**Refresh completed at**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}"""
+
+                await loading_msg.edit_text(success_message, parse_mode='Markdown')
+                
+                # Log admin action
+                self.db.log_user_activity(user_id, "admin_manual_credit_refresh", f"Manually refreshed credits for {updated_count} free users")
+                    
+            except Exception as e:
+                error_message = f"❌ **Error during credit refresh**: {str(e)}"
+                print(f"❌ Credit refresh error: {e}")
+                import traceback
+                traceback.print_exc()
+                await loading_msg.edit_text(error_message)
+        else:
+            # Show confirmation message with current statistics
+            try:
+                # Get current free user count
+                self.db.cursor.execute("""
+                    SELECT COUNT(*) FROM users 
+                    WHERE (is_premium = 0 OR is_premium IS NULL) 
+                    AND telegram_id IS NOT NULL
+                """)
+                free_users_count = self.db.cursor.fetchone()[0]
+                
+                # Get users with low credits
+                self.db.cursor.execute("""
+                    SELECT COUNT(*) FROM users 
+                    WHERE (is_premium = 0 OR is_premium IS NULL) 
+                    AND telegram_id IS NOT NULL
+                    AND credits < 50
+                """)
+                low_credit_users = self.db.cursor.fetchone()[0]
+                
+                confirmation_message = f"""💰 **Weekly Credit Refresh Confirmation**
+
+📊 **Current Status:**
+• **Free users**: {free_users_count}
+• **Users with <50 credits**: {low_credit_users}
+• **Premium users**: Excluded (unlimited access)
+
+🎁 **What will happen:**
+• ALL free users will get **100 credits**
+• Previous credit amounts will be reset
+• Activity will be logged for each user
+• Premium users are not affected
+
+💡 **Benefits:**
+• Equal opportunity for all free users
+• Encourages continued bot usage
+• Fair access to premium features
+
+**Type to confirm:**
+`/refresh_credits confirm`
+
+**To cancel:**
+Just ignore this message"""
+
+                await update.message.reply_text(confirmation_message, parse_mode='Markdown')
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
 
 # News command will be integrated in main bot class

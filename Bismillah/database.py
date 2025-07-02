@@ -152,8 +152,8 @@ class Database:
             import string
             referral_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
-            # Base credits: 10 for all users
-            base_credits = 10
+            # Base credits: 100 for all users
+            base_credits = 100
 
             # Bonus credits: +5 if referred
             bonus_credits = 5 if referred_by else 0
@@ -598,24 +598,6 @@ class Database:
             return users
         except Exception as e:
             print(f"Error getting all users: {e}")
-            return []()
-
-            users = []
-            for row in rows:
-                if row[0] and str(row[0]).isdigit():  # Validate telegram_id
-                    users.append({
-                        'user_id': int(row[0]),
-                        'first_name': row[1] or 'Unknown',
-                        'username': row[2] or 'No username',
-                        'is_premium': row[3] or 0,
-                        'created_at': row[4]
-                    })
-
-            print(f"📊 Retrieved {len(users)} valid users for broadcast")
-            return users
-
-        except Exception as e:
-            print(f"DB Error (get_all_users): {e}")
             return []
 
     def add_credits(self, telegram_id, amount):
@@ -671,6 +653,66 @@ class Database:
             return self.cursor.rowcount > 0
         except Exception as e:
             print(f"DB Error (set_user_language): {e}")
+            return False
+
+    def mark_all_users_for_restart(self):
+        """Mark all users to require /start again (for admin restart)"""
+        try:
+            # Check if restart_required column exists
+            self.cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in self.cursor.fetchall()]
+            
+            # Add restart_required column if it doesn't exist
+            if 'restart_required' not in columns:
+                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
+                print("✅ Added restart_required column to users table")
+
+            # Mark all users as requiring restart
+            self.cursor.execute("""
+                UPDATE users SET restart_required = 1 
+                WHERE telegram_id IS NOT NULL AND telegram_id != 0
+            """)
+            
+            restart_count = self.cursor.rowcount
+            self.conn.commit()
+            print(f"✅ Marked {restart_count} users for restart")
+            return restart_count
+        except Exception as e:
+            print(f"DB Error (mark_all_users_for_restart): {e}")
+            return 0
+
+    def user_needs_restart(self, telegram_id):
+        """Check if user needs to /start again after admin restart"""
+        try:
+            # Check if restart_required column exists first
+            self.cursor.execute("PRAGMA table_info(users)")
+            columns = [column[1] for column in self.cursor.fetchall()]
+            
+            if 'restart_required' not in columns:
+                # Column doesn't exist, add it
+                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
+                self.conn.commit()
+                return False  # New column, user doesn't need restart
+            
+            self.cursor.execute("""
+                SELECT restart_required FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            return row[0] == 1 if row else False
+        except Exception as e:
+            print(f"DB Error (user_needs_restart): {e}")
+            return False
+
+    def clear_restart_flag(self, telegram_id):
+        """Clear restart flag when user uses /start"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET restart_required = 0 WHERE telegram_id = ?
+            """, (telegram_id,))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (clear_restart_flag): {e}")
             return False
 
     def close(self):

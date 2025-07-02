@@ -1,16 +1,35 @@
+
+entrypoint = "Bismillah/main.py"
+modules = ["python-3.11"]
+
+[nix]
+channel = "stable-24_05"
+
+[unitTest]
+language = "python3"
+
+[gitHubImport]
+requiredFiles = [".replit", "replit.nix"]
+
 [deployment]
-run = ["sh", "-c", "cd Bismillah && python3 main.py"]
-deploymentTarget = "gce"
-ignorePorts = true
+run = ["sh", "-c", "cd Bismillah && python weekly_credit_refresh.py"]
+deploymentTarget = "scheduled"
+
+[env]
+PYTHONPATH = "./Bismillah:."
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
 
 [workflows]
-runButton = "Run Bot"
+runButton = "Start Bot"
 
 [[workflows.workflow]]
-name = "Run Bot"
+name = "Start Bot"
 author = 43938181
 mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd Bismillah && python3 main.py"
+args = "cd Bismillah && python main.py"
+run = "python3 main.py"
+language = "python3"

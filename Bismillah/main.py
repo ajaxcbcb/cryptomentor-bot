@@ -3,6 +3,7 @@ import nest_asyncio
 import logging
 import os
 import sys
+from datetime import datetime
 from dotenv import load_dotenv
 from bot import TelegramBot
 
@@ -23,13 +24,39 @@ def main():
     """Main function to run the bot"""
     print("🚀 Starting CryptoMentor AI Bot...")
 
-    # Check if running in deployment
-    is_deployment = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv(
-        'REPL_DEPLOYMENT') == '1'
+    # Enhanced deployment detection with verification
+    deployment_checks = {
+        'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
+        'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1',
+        'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
+        'deployment_flag_file': os.path.exists('/tmp/repl_deployment_flag'),
+        'cwd_contains_deployment': 'deployment' in os.getcwd().lower(),
+        'replit_slug': bool(os.getenv('REPL_SLUG')),
+        'replit_owner': bool(os.getenv('REPL_OWNER'))
+    }
+    
+    is_deployment = any(deployment_checks.values())
+    
+    print(f"🔍 Deployment Detection Results:")
+    for check, result in deployment_checks.items():
+        status = "✅" if result else "❌"
+        print(f"  {status} {check}: {result}")
+    
+    print(f"📊 Overall Deployment Status: {'✅ DEPLOYMENT MODE' if is_deployment else '❌ DEVELOPMENT MODE'}")
+    
     if is_deployment:
         print("📡 Running in Replit Deployment mode (Always On)")
+        print("🚀 Real-time API mode: ENABLED (Force refresh for live data)")
+        # Force create deployment flag for consistency
+        try:
+            with open('/tmp/repl_deployment_flag', 'w') as f:
+                f.write(f"deployment_verified_{datetime.now().isoformat()}")
+            print("✅ Deployment flag verified/created")
+        except Exception as e:
+            print(f"⚠️ Could not create deployment flag: {e}")
     else:
         print("🔧 Running in development mode")
+        print("🔄 API mode: Standard (Cached when appropriate)")
 
     # Kill any existing bot instances first
     try:
