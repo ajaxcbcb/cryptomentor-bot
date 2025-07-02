@@ -977,19 +977,15 @@ Bagikan link Anda dan mulai earning!"""
             if success:
                 # Get user info for confirmation
                 user_info = self.db.get_user(target_user_id)
-                username = user_info.get('username') or 'no_username'
-                first_name = user_info.get('first_name') or 'Unknown'
-
-                # Escape special characters to prevent markdown parsing errors
-                safe_username = username.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
-                safe_first_name = first_name.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                username = user_info.get('username', 'No username')
+                first_name = user_info.get('first_name', 'Unknown')
 
                 message = f"""✅ **Premium berhasil diberikan!**
 
 👤 **User Info:**
-• **ID**: `{target_user_id}`
-• **Name**: {safe_first_name}
-• **Username**: @{safe_username}
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
 
 ⭐ **Premium Status:**
 • **Type**: {premium_type}
@@ -1009,7 +1005,7 @@ Bagikan link Anda dan mulai earning!"""
                 message = f"""❌ **Gagal memberikan premium!**
 
 🔍 **Troubleshooting:**
-• Pastikan User ID benar: `{target_user_id}`
+• Pastikan User ID benar: {target_user_id}
 • User harus sudah menggunakan `/start` di bot
 • Cek koneksi database
 
@@ -1018,24 +1014,13 @@ Bagikan link Anda dan mulai earning!"""
         except Exception as e:
             message = f"""❌ **Error sistem saat memberikan premium!**
 
-**Error**: `{str(e)[:100]}`
-**User ID**: `{target_user_id}`
+**Error**: {str(e)}
+**User ID**: {target_user_id}
 
 🔧 Silakan coba lagi atau restart bot."""
             print(f"Error in grant_premium_command: {e}")
 
-        # Send message with error handling
-        try:
-            await update.message.reply_text(message, parse_mode='Markdown')
-        except Exception as send_error:
-            print(f"Failed to send grant_premium message with Markdown: {send_error}")
-            # Fallback to plain text if Markdown fails
-            try:
-                plain_message = message.replace('**', '').replace('`', '').replace('*', '').replace('_', '')
-                await update.message.reply_text(plain_message)
-            except Exception as plain_error:
-                print(f"Failed to send plain text message: {plain_error}")
-                await update.message.reply_text("✅ Premium berhasil diberikan! (Message formatting error)"))
+        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def revoke_premium_command(self, update: Update, context: CallbackContext):
         """Handle /revoke_premium command"""
