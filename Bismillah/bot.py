@@ -857,28 +857,20 @@ Contoh: `/add_coin btc 0.5`
         symbol = context.args[0].upper()
 
         # Show timeframe selection with inline keyboard
-        keyboard = [[
-            InlineKeyboardButton(
-                "⚡ 15m", callback_data=f'futures_analysis_{symbol}_15m'),
-            InlineKeyboardButton(
-                "🔥 30m", callback_data=f'futures_analysis_{symbol}_30m')
-        ],
-                    [
-                        InlineKeyboardButton(
-                            "📈 1h",
-                            callback_data=f'futures_analysis_{symbol}_1h'),
-                        InlineKeyboardButton(
-                            "🚀 4h",
-                            callback_data=f'futures_analysis_{symbol}_4h')
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "💎 1d",
-                            callback_data=f'futures_analysis_{symbol}_1d'),
-                        InlineKeyboardButton(
-                            "🌟 1w",
-                            callback_data=f'futures_analysis_{symbol}_1w')
-                    ]]
+        keyboard = [
+            [
+                InlineKeyboardButton("⚡ 15m", callback_data=f'futures_analysis_{symbol}_15m'),
+                InlineKeyboardButton("🔥 30m", callback_data=f'futures_analysis_{symbol}_30m')
+            ],
+            [
+                InlineKeyboardButton("📈 1h", callback_data=f'futures_analysis_{symbol}_1h'),
+                InlineKeyboardButton("🚀 4h", callback_data=f'futures_analysis_{symbol}_4h')
+            ],
+            [
+                InlineKeyboardButton("💎 1d", callback_data=f'futures_analysis_{symbol}_1d'),
+                InlineKeyboardButton("🌟 1w", callback_data=f'futures_analysis_{symbol}_1w')
+            ]
+        ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
