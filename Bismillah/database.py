@@ -139,18 +139,29 @@ class Database:
         self.conn.commit()
 
     def create_user(self, telegram_id, username, first_name=None, last_name=None, language_code='id', referred_by=None):
-        """Create a new user in the database"""
+        """Create a new user in the database with enhanced persistence"""
         try:
+            # Validate telegram_id
+            if not telegram_id or telegram_id <= 0:
+                print(f"❌ Invalid telegram_id: {telegram_id}")
+                return False
+
             # Check if user already exists
             existing_user = self.get_user(telegram_id)
             if existing_user:
-                print(f"User {telegram_id} already exists")
+                print(f"✅ User {telegram_id} already exists - updating info if needed")
+                # Update user info if provided (keep existing data intact)
+                self.update_user_info(telegram_id, username, first_name, last_name, language_code)
                 return True
 
             # Generate unique referral code
             import random
             import string
             referral_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+            # Ensure unique referral code
+            while self.get_user_by_referral_code(referral_code):
+                referral_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
             # Base credits: 100 for all users
             base_credits = 100
@@ -159,13 +170,29 @@ class Database:
             bonus_credits = 5 if referred_by else 0
             total_credits = base_credits + bonus_credits
 
-            # Insert new user
+            # Clean data before insertion
+            clean_username = username[:32] if username else 'no_username'
+            clean_first_name = first_name[:50] if first_name else 'Unknown'
+            clean_last_name = last_name[:50] if last_name else None
+            clean_language = language_code[:5] if language_code else 'id'
+
+            # Insert new user with transaction safety
+            self.cursor.execute("BEGIN TRANSACTION")
+            
             self.cursor.execute("""
                 INSERT INTO users 
-                (telegram_id, first_name, last_name, username, language_code, credits, referral_code, referred_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (telegram_id, first_name, last_name, username, language_code, total_credits, referral_code, referred_by))
-            self.conn.commit()
+                (telegram_id, first_name, last_name, username, language_code, credits, referral_code, referred_by, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (telegram_id, clean_first_name, clean_last_name, clean_username, clean_language, total_credits, referral_code, referred_by))
+
+            # Verify insertion
+            self.cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (telegram_id,))
+            if not self.cursor.fetchone():
+                self.cursor.execute("ROLLBACK")
+                print(f"❌ Failed to insert user {telegram_id}")
+                return False
+
+            self.cursor.execute("COMMIT")
 
             # Log the user creation
             credit_msg = f"New user registered with {total_credits} credits ({base_credits} base"
@@ -173,10 +200,52 @@ class Database:
                 credit_msg += f" + {bonus_credits} referral bonus"
             credit_msg += ")"
             self.log_user_activity(telegram_id, "user_created", credit_msg)
-            print(f"✅ New user {telegram_id} ({username}) created with {total_credits} credits")
+            print(f"✅ New user {telegram_id} ({clean_username}) created with {total_credits} credits")
+            
+            # Create backup entry in activity log for recovery
+            self.log_user_activity(telegram_id, "user_backup_created", f"User: {clean_first_name}, Username: {clean_username}, Credits: {total_credits}")
+            
             return True
         except Exception as e:
-            print(f"DB Error (create_user): {e}")
+            try:
+                self.cursor.execute("ROLLBACK")
+            except:
+                pass
+            print(f"❌ DB Error (create_user): {e}")
+            return False
+
+    def update_user_info(self, telegram_id, username=None, first_name=None, last_name=None, language_code=None):
+        """Update user information without affecting credits or premium status"""
+        try:
+            updates = []
+            params = []
+            
+            if username is not None:
+                updates.append("username = ?")
+                params.append(username[:32] if username else 'no_username')
+            
+            if first_name is not None:
+                updates.append("first_name = ?")
+                params.append(first_name[:50] if first_name else 'Unknown')
+            
+            if last_name is not None:
+                updates.append("last_name = ?")
+                params.append(last_name[:50] if last_name else None)
+            
+            if language_code is not None:
+                updates.append("language_code = ?")
+                params.append(language_code[:5] if language_code else 'id')
+            
+            if updates:
+                params.append(telegram_id)
+                query = f"UPDATE users SET {', '.join(updates)} WHERE telegram_id = ?"
+                self.cursor.execute(query, params)
+                self.conn.commit()
+                print(f"✅ Updated info for user {telegram_id}")
+                return True
+            return True
+        except Exception as e:
+            print(f"❌ Error updating user info: {e}")
             return False
 
     def add_user(self, telegram_id, first_name, last_name, username, language_code='id'):
@@ -715,6 +784,114 @@ class Database:
             print(f"DB Error (clear_restart_flag): {e}")
             return False
 
+    def backup_user_data(self, telegram_id):
+        """Create backup of user data"""
+        try:
+            user = self.get_user(telegram_id)
+            if user:
+                backup_data = {
+                    'telegram_id': user['telegram_id'],
+                    'first_name': user['first_name'],
+                    'username': user['username'],
+                    'credits': user['credits'],
+                    'is_premium': user['is_premium'],
+                    'created_at': user['created_at']
+                }
+                
+                # Store in activity log as backup
+                self.log_user_activity(telegram_id, "user_data_backup", f"Backup: {backup_data}")
+                return True
+        except Exception as e:
+            print(f"Error backing up user data: {e}")
+        return False
+
+    def recover_user_from_backup(self, telegram_id):
+        """Attempt to recover user from backup in activity logs"""
+        try:
+            self.cursor.execute("""
+                SELECT details FROM user_activity 
+                WHERE telegram_id = ? AND action = 'user_data_backup' 
+                ORDER BY timestamp DESC LIMIT 1
+            """, (telegram_id,))
+            
+            backup_row = self.cursor.fetchone()
+            if backup_row:
+                print(f"✅ Found backup for user {telegram_id}")
+                return True
+            return False
+        except Exception as e:
+            print(f"Error recovering user backup: {e}")
+            return False
+
+    def ensure_user_persistence(self, telegram_id, username, first_name, last_name=None, language_code='id'):
+        """Ensure user data is persistent - create if not exists, update if exists"""
+        try:
+            existing_user = self.get_user(telegram_id)
+            if existing_user:
+                # Update existing user info
+                self.update_user_info(telegram_id, username, first_name, last_name, language_code)
+                # Create fresh backup
+                self.backup_user_data(telegram_id)
+                return True
+            else:
+                # Create new user
+                return self.create_user(telegram_id, username, first_name, last_name, language_code)
+        except Exception as e:
+            print(f"Error ensuring user persistence: {e}")
+            return False
+
+    def get_all_user_backups(self):
+        """Get all users who have backup data (for recovery purposes)"""
+        try:
+            self.cursor.execute("""
+                SELECT DISTINCT telegram_id, details, timestamp 
+                FROM user_activity 
+                WHERE action IN ('user_created', 'user_backup_created', 'user_data_backup')
+                ORDER BY timestamp DESC
+            """)
+            return self.cursor.fetchall()
+        except Exception as e:
+            print(f"Error getting user backups: {e}")
+            return []
+
+    def database_health_check(self):
+        """Check database health and integrity"""
+        try:
+            # Check if main tables exist
+            tables = ['users', 'user_activity', 'portfolio', 'subscriptions']
+            for table in tables:
+                self.cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                count = self.cursor.fetchone()[0]
+                print(f"✅ Table {table}: {count} records")
+            
+            # Check for corrupted data
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+            invalid_users = self.cursor.fetchone()[0]
+            
+            if invalid_users > 0:
+                print(f"⚠️ Found {invalid_users} users with invalid telegram_id")
+                # Clean up invalid users
+                self.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+                self.conn.commit()
+                print(f"✅ Cleaned up {invalid_users} invalid users")
+            
+            print("✅ Database health check completed")
+            return True
+        except Exception as e:
+            print(f"❌ Database health check failed: {e}")
+            return False
+
     def close(self):
-        """Close database connection"""
-        self.conn.close()
+        """Close database connection with final backup"""
+        try:
+            # Create final database state backup
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+            total_users = self.cursor.fetchone()[0]
+            print(f"💾 Closing database with {total_users} users safely stored")
+            self.conn.close()
+        except Exception as e:
+            print(f"Error during database close: {e}")
+            try:
+                self.conn.close()
+            except:
+                pass

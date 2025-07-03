@@ -212,31 +212,37 @@ class TelegramBot:
                 logger.error(f"Error during bot shutdown: {e}")
 
     async def start_command(self, update: Update, context: CallbackContext):
-        """Handle /start command"""
+        """Handle /start command with enhanced user persistence"""
         user = update.effective_user
 
         try:
-            # Check if user exists
+            # Validate user data
+            if not user or not user.id:
+                await update.message.reply_text("❌ Terjadi kesalahan dalam mengidentifikasi user. Silakan coba lagi.")
+                return
+
+            print(f"🔍 Processing /start for user {user.id} ({user.first_name})")
+
+            # Ensure user persistence (create if new, update if existing)
+            success = self.db.ensure_user_persistence(
+                telegram_id=user.id,
+                username=user.username or 'no_username',
+                first_name=user.first_name or 'Unknown',
+                last_name=user.last_name,
+                language_code=user.language_code or 'id'
+            )
+
+            if not success:
+                print(f"❌ Failed to ensure user persistence: {user.id}")
+                # Try to recover from backup
+                recovery_attempted = self.db.recover_user_from_backup(user.id)
+                if recovery_attempted:
+                    print(f"🔄 Attempted recovery for user {user.id}")
+
+            # Get user data (should exist now)
             existing_user = self.db.get_user(user.id)
 
-            if not existing_user:
-                # Create new user with proper error handling
-                success = self.db.create_user(
-                    telegram_id=user.id,
-                    username=user.username or 'no_username',
-                    first_name=user.first_name or 'Unknown',
-                    last_name=user.last_name,
-                    language_code=user.language_code or 'id'
-                )
-
-                if success:
-                    print(f"✅ New user created: {user.id} ({user.first_name})")
-                    # Log user registration
-                    self.db.log_user_activity(user.id, "user_registered", f"New user: {user.first_name}")
-                else:
-                    print(f"❌ Failed to create user: {user.id}")
-
-            else:
+            if existing_user:
                 # Check if user needs restart after admin restart
                 if self.db.user_needs_restart(user.id):
                     # Clear restart flag and log reactivation
@@ -244,13 +250,50 @@ class TelegramBot:
                     self.db.log_user_activity(user.id, "user_reactivated", f"User restarted after admin restart: {user.first_name}")
                     print(f"🔄 User reactivated after restart: {user.id} ({user.first_name})")
                 else:
-                    print(f"👤 Existing user: {user.id} ({existing_user.get('first_name')})")
-                    # Log user return
-                    self.db.log_user_activity(user.id, "user_returned", "User started bot again")
+                    # Check if this is a new session vs returning user
+                    last_activity = self.db.cursor.execute("""
+                        SELECT timestamp FROM user_activity 
+                        WHERE telegram_id = ? AND action = 'user_returned' 
+                        ORDER BY timestamp DESC LIMIT 1
+                    """, (user.id,))
+                    last_return = last_activity.fetchone()
+                    
+                    if not last_return:
+                        # First time returning since creation
+                        self.db.log_user_activity(user.id, "user_first_return", f"User returned for first time: {user.first_name}")
+                        print(f"👋 First return: {user.id} ({user.first_name})")
+                    else:
+                        # Regular return
+                        self.db.log_user_activity(user.id, "user_returned", "User started bot again")
+                        print(f"👤 Returning user: {user.id} ({existing_user.get('first_name')})")
+
+                # Create backup of current user state
+                self.db.backup_user_data(user.id)
+
+            else:
+                # Final attempt to create user if all else failed
+                final_attempt = self.db.create_user(
+                    telegram_id=user.id,
+                    username=user.username or 'no_username',
+                    first_name=user.first_name or 'Unknown',
+                    last_name=user.last_name,
+                    language_code=user.language_code or 'id'
+                )
+                
+                if final_attempt:
+                    print(f"✅ Final attempt successful for user: {user.id}")
+                    self.db.log_user_activity(user.id, "user_created_final_attempt", f"User created on final attempt: {user.first_name}")
+                else:
+                    print(f"❌ All attempts failed for user: {user.id}")
+                    # Still continue to show welcome message
 
         except Exception as e:
             print(f"❌ Error in start command: {e}")
-            # Continue anyway to not break user experience
+            # Log the error but continue to show welcome message
+            try:
+                self.db.log_user_activity(user.id if user else 0, "start_command_error", f"Error: {str(e)}")
+            except:
+                pass
 
         # Welcome message
         language = user.language_code or 'id'
