@@ -930,8 +930,9 @@ Nikmati semua fitur tanpa batasan credit."""
 • 🎯 Support prioritas
 • 🔔 Notifikasi breakout otomatis
 
-💰 **Harga Premium:**
-• Rp 320.000 (per bulan)
+💰 **Paket Langganan:**
+• **1 Bulan** - Rp 320.000
+• **2 Bulan** - Rp 600.000 🔥 **PROMO!** (Hemat 40k)
 
 💳 **Metode Pembayaran:**
 
@@ -945,18 +946,23 @@ Nikmati semua fitur tanpa batasan credit."""
 • No. HP: 087779274400
 
 📋 **Cara Upgrade:**
-1. Transfer Rp 320.000
+1. Transfer sesuai paket yang dipilih:
+   - 1 Bulan: Rp 320.000
+   - 2 Bulan: Rp 600.000 (PROMO)
 2. Kirim bukti pembayaran ke admin @Billfarr
 3. Sertakan informasi ini:
    • User ID: `{user_id}`
    • Username: @{username}
    • Nama: {first_name}
+   • Paket: (1 bulan / 2 bulan)
 4. Tunggu konfirmasi aktivasi (maks 24 jam)
 
 💬 **Butuh bantuan?** Chat admin @Billfarr
 
+🎯 **Rekomendasi:** Paket 2 bulan lebih hemat dan cocok untuk trading jangka menengah!
+
 ℹ️ **Catatan Penting:**
-Pastikan menyertakan User ID (`{user_id}`) dalam pesan ke admin untuk mempercepat proses aktivasi premium."""
+Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih dalam pesan ke admin untuk mempercepat proses aktivasi premium."""
         
         await update.message.reply_text(message, parse_mode='Markdown')
 
