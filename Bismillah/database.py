@@ -25,6 +25,8 @@ class Database:
                     subscription_end TEXT,
                     referred_by INTEGER,
                     referral_code TEXT,
+                    premium_referral_code TEXT,
+                    premium_earnings INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -54,6 +56,12 @@ class Database:
 
             if 'referral_code' not in columns:
                 self.cursor.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
+
+            if 'premium_referral_code' not in columns:
+                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_referral_code TEXT")
+
+            if 'premium_earnings' not in columns:
+                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_earnings INTEGER DEFAULT 0")
 
         except Exception as e:
             print(f"Error updating users table schema: {e}")
@@ -126,6 +134,23 @@ class Database:
                 )
             """)
 
+            # Create premium referrals table
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS premium_referrals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    referrer_id INTEGER,
+                    referred_id INTEGER,
+                    subscription_type TEXT,
+                    subscription_amount INTEGER,
+                    earnings INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    paid_at TIMESTAMP,
+                    FOREIGN KEY (referrer_id) REFERENCES users (telegram_id),
+                    FOREIGN KEY (referred_id) REFERENCES users (telegram_id)
+                )
+            """)
+
             # Check if telegram_id column exists in user_activity
             self.cursor.execute("PRAGMA table_info(user_activity)")
             activity_columns = [column[1] for column in self.cursor.fetchall()]
@@ -154,14 +179,19 @@ class Database:
                 self.update_user_info(telegram_id, username, first_name, last_name, language_code)
                 return True
 
-            # Generate unique referral code
+            # Generate unique referral codes
             import random
             import string
-            referral_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-
-            # Ensure unique referral code
+            
+            # Generate free referral code
+            referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
             while self.get_user_by_referral_code(referral_code):
-                referral_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+                referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+
+            # Generate premium referral code
+            premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+            while self.get_user_by_premium_referral_code(premium_referral_code):
+                premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
 
             # Base credits: 100 for all users
             base_credits = 100
@@ -181,9 +211,9 @@ class Database:
             
             self.cursor.execute("""
                 INSERT INTO users 
-                (telegram_id, first_name, last_name, username, language_code, credits, referral_code, referred_by, created_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            """, (telegram_id, clean_first_name, clean_last_name, clean_username, clean_language, total_credits, referral_code, referred_by))
+                (telegram_id, first_name, last_name, username, language_code, credits, referral_code, premium_referral_code, referred_by, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (telegram_id, clean_first_name, clean_last_name, clean_username, clean_language, total_credits, referral_code, premium_referral_code, referred_by))
 
             # Verify insertion
             self.cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (telegram_id,))
@@ -895,3 +925,107 @@ class Database:
                 self.conn.close()
             except:
                 pass
+    def get_user_by_premium_referral_code(self, premium_referral_code):
+        """Get user ID by premium referral code"""
+        try:
+            self.cursor.execute("""
+                SELECT telegram_id FROM users WHERE premium_referral_code = ?
+            """, (premium_referral_code,))
+            row = self.cursor.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            print(f"DB Error (get_user_by_premium_referral_code): {e}")
+            return None
+
+    def create_premium_referral(self, referrer_id, referred_id, subscription_type, subscription_amount):
+        """Create premium referral entry"""
+        try:
+            # Calculate earnings (10k rupiah for each premium subscription)
+            earnings = 10000  # 10k rupiah
+            
+            self.cursor.execute("""
+                INSERT INTO premium_referrals 
+                (referrer_id, referred_id, subscription_type, subscription_amount, earnings, status)
+                VALUES (?, ?, ?, ?, ?, 'confirmed')
+            """, (referrer_id, referred_id, subscription_type, subscription_amount, earnings))
+            
+            # Update referrer's premium earnings
+            self.cursor.execute("""
+                UPDATE users SET premium_earnings = premium_earnings + ? WHERE telegram_id = ?
+            """, (earnings, referrer_id))
+            
+            self.conn.commit()
+            
+            # Log the premium referral
+            self.log_user_activity(referrer_id, "premium_referral_reward", 
+                                 f"Earned Rp{earnings:,} from premium referral {referred_id}")
+            self.log_user_activity(referred_id, "premium_subscription_via_referral", 
+                                 f"Subscribed via premium referral from {referrer_id}")
+            
+            print(f"✅ Premium referral created: {referrer_id} -> {referred_id}, earnings: Rp{earnings:,}")
+            return True
+        except Exception as e:
+            print(f"DB Error (create_premium_referral): {e}")
+            return False
+
+    def get_premium_earnings(self, telegram_id):
+        """Get user's total premium referral earnings"""
+        try:
+            self.cursor.execute("""
+                SELECT premium_earnings FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            print(f"DB Error (get_premium_earnings): {e}")
+            return 0
+
+    def get_premium_referral_stats(self, telegram_id):
+        """Get user's premium referral statistics"""
+        try:
+            # Get total referrals made
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM premium_referrals WHERE referrer_id = ?
+            """, (telegram_id,))
+            total_referrals = self.cursor.fetchone()[0]
+            
+            # Get total earnings
+            earnings = self.get_premium_earnings(telegram_id)
+            
+            # Get recent referrals
+            self.cursor.execute("""
+                SELECT pr.referred_id, u.first_name, pr.subscription_type, pr.earnings, pr.created_at
+                FROM premium_referrals pr
+                JOIN users u ON pr.referred_id = u.telegram_id
+                WHERE pr.referrer_id = ?
+                ORDER BY pr.created_at DESC
+                LIMIT 5
+            """, (telegram_id,))
+            recent_referrals = self.cursor.fetchall()
+            
+            return {
+                'total_referrals': total_referrals,
+                'total_earnings': earnings,
+                'recent_referrals': recent_referrals
+            }
+        except Exception as e:
+            print(f"DB Error (get_premium_referral_stats): {e}")
+            return {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
+
+    def get_user_referral_codes(self, telegram_id):
+        """Get both free and premium referral codes for user"""
+        try:
+            self.cursor.execute("""
+                SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'free_referral_code': row[0],
+                    'premium_referral_code': row[1]
+                }
+            return None
+        except Exception as e:
+            print(f"DB Error (get_user_referral_codes): {e}")
+            return None
+
