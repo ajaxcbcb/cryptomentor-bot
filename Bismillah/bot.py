@@ -119,6 +119,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
             self.application.add_handler(CommandHandler("restart", self.restart_command))
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
+            self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -225,13 +226,39 @@ class TelegramBot:
 
             # Check for referral parameter
             referred_by = None
+            referral_type = 'free'  # default
             if context.args and len(context.args) > 0:
                 arg = context.args[0]
                 if arg.startswith('ref_'):
                     try:
                         referred_by = int(arg[4:])  # Extract user ID from ref_USERID
-                        print(f"🎁 User {user.id} was referred by {referred_by}")
+                        print(f"🎁 User {user.id} was referred by {referred_by} (free referral)")
                     except ValueError:
+                        print(f"❌ Invalid referral code: {arg}")
+                elif arg.startswith('pref_'):
+                    # Premium referral
+                    try:
+                        referred_by = int(arg[5:])  # Extract user ID from pref_USERID
+                        referral_type = 'premium'
+                        print(f"💎 User {user.id} was referred by {referred_by} (premium referral)")
+                    except ValueError:
+                        print(f"❌ Invalid premium referral code: {arg}")
+                elif len(arg) == 8 and (arg.startswith('F') or arg.startswith('P')):
+                    # New referral code format
+                    if arg.startswith('F'):
+                        # Free referral code
+                        referred_by = self.db.get_user_by_referral_code(arg)
+                        referral_type = 'free'
+                        if referred_by:
+                            print(f"🎁 User {user.id} was referred by {referred_by} (free code: {arg})")
+                    elif arg.startswith('P'):
+                        # Premium referral code
+                        referred_by = self.db.get_user_by_premium_referral_code(arg)
+                        referral_type = 'premium'
+                        if referred_by:
+                            print(f"💎 User {user.id} was referred by {referred_by} (premium code: {arg})")
+                    
+                    if not referred_by:
                         print(f"❌ Invalid referral code: {arg}")
 
             # Check if user already exists
@@ -251,10 +278,15 @@ class TelegramBot:
                 # Give referral bonus to referrer if applicable
                 if referred_by and success:
                     try:
-                        # Add 10 credits to referrer
-                        self.db.add_credits(referred_by, 10)
-                        self.db.log_user_activity(referred_by, "referral_bonus", f"Got 10 credits for referring user {user.id}")
-                        print(f"✅ Gave 10 credits to referrer {referred_by}")
+                        if referral_type == 'free':
+                            # Standard free referral bonus - 10 credits
+                            self.db.add_credits(referred_by, 10)
+                            self.db.log_user_activity(referred_by, "referral_bonus", f"Got 10 credits for referring user {user.id}")
+                            print(f"✅ Gave 10 credits to free referrer {referred_by}")
+                        else:
+                            # Premium referral - they get reward when referred user subscribes premium
+                            self.db.log_user_activity(referred_by, "premium_referral_pending", f"User {user.id} joined via premium referral, waiting for subscription")
+                            print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
                     except Exception as e:
                         print(f"❌ Error giving referral bonus: {e}")
             else:
@@ -422,13 +454,15 @@ class TelegramBot:
 
 🎯 **Lainnya:**
 • `/ask_ai <pertanyaan>` - Tanya AI crypto
-• `/referral` - Program referral
+• `/referral` - Program referral (Credit + Uang)
+• `/premium_earnings` - Dashboard earnings (Premium only)
 • `/language` - Ubah bahasa
 
 💡 **Tips:**
 - Ketik nama crypto langsung untuk harga cepat
 - Fitur premium = unlimited access
-- Gunakan referral untuk bonus credit
+- Referral FREE = bonus credit
+- Referral PREMIUM = uang asli (Rp 10k/referral)
 
 🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -967,9 +1001,10 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih dalam pesan ke
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def referral_command(self, update: Update, context: CallbackContext):
-        """Handle /referral command"""
+        """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
+        is_premium = self.db.is_user_premium(user_id)
 
         # Get bot username dynamically
         try:
@@ -979,41 +1014,95 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih dalam pesan ke
             print(f"Error getting bot info: {e}")
             bot_username = "CryptoMentorAI_bot"  # Fallback username
 
-        # Get referral statistics
+        # Get referral codes
+        referral_codes = self.db.get_user_referral_codes(user_id)
+        if not referral_codes:
+            await update.message.reply_text("❌ Error getting referral codes. Please contact support.")
+            return
+
+        free_code = referral_codes['free_referral_code']
+        premium_code = referral_codes['premium_referral_code']
+
+        # Get free referral statistics
         try:
             self.db.cursor.execute("""
                 SELECT COUNT(*) FROM users WHERE referred_by = ?
             """, (user_id,))
-            total_referrals = self.db.cursor.fetchone()[0]
-            
-            # Calculate credits earned from referrals (10 credits per referral)
-            credits_earned = total_referrals * 10
+            total_free_referrals = self.db.cursor.fetchone()[0]
+            credits_earned = total_free_referrals * 10
         except Exception as e:
-            print(f"Error getting referral stats: {e}")
-            total_referrals = 0
+            print(f"Error getting free referral stats: {e}")
+            total_free_referrals = 0
             credits_earned = 0
 
-        message = f"""🎁 **Program Referral**
+        # Get premium referral statistics
+        premium_stats = self.db.get_premium_referral_stats(user_id)
 
-👤 **Link Referral Anda:**
-`https://t.me/{bot_username}?start=ref_{user_id}`
+        message = f"""🎁 **Program Referral CryptoMentor**
 
-💰 **Keuntungan:**
-• Dapatkan 10 credit untuk setiap referral berhasil
-• Teman Anda juga mendapat bonus 5 credit
-• Unlimited referrals!
+🔗 **Link Referral FREE (Credit Bonus):**
+`https://t.me/{bot_username}?start={free_code}`
 
-📊 **Status Referral:**
-• Total Referrals: {total_referrals}
+💰 **Keuntungan FREE:**
+• Anda dapat 10 credit per referral
+• Teman dapat bonus 5 credit
+• Instant reward!
+
+📊 **Status FREE Referral:**
+• Total Referrals: {total_free_referrals}
 • Credit Earned: {credits_earned}
 
-🔗 **Cara Menggunakan:**
-1. Bagikan link di atas ke teman-teman
-2. Mereka harus klik link dan /start
-3. Anda otomatis dapat 10 credit per referral
-4. Mereka juga dapat bonus 5 credit
+"""
 
-Bagikan link Anda dan mulai earning!"""
+        if is_premium:
+            message += f"""💎 **Link Referral PREMIUM (Uang Asli):**
+`https://t.me/{bot_username}?start={premium_code}`
+
+💵 **Keuntungan PREMIUM:**
+• Anda dapat **Rp 10.000** per user yang subscribe premium
+• Reward uang asli, bukan credit!
+• Withdraw ke rekening/e-wallet
+
+📊 **Status PREMIUM Referral:**
+• Total Premium Referrals: {premium_stats['total_referrals']}
+• Total Earnings: **Rp {premium_stats['total_earnings']:,}**
+
+"""
+
+            # Show recent premium referrals
+            if premium_stats['recent_referrals']:
+                message += "📈 **Recent Premium Referrals:**\n"
+                for ref in premium_stats['recent_referrals'][:3]:
+                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
+                    subscription_type = ref[2]
+                    earnings = ref[3]
+                    date = ref[4][:10]  # Just date part
+                    message += f"• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})\n"
+                message += "\n"
+        else:
+            message += f"""💎 **Ingin Earning Uang Asli?**
+
+Upgrade ke Premium untuk akses:
+• Link referral premium (Rp 10k/referral)
+• Withdraw ke rekening/e-wallet
+• Unlimited premium features
+
+Gunakan `/subscribe` untuk upgrade!
+
+"""
+
+        message += f"""🔗 **Cara Menggunakan:**
+
+**FREE Referral:**
+1. Bagikan link FREE ke teman
+2. Mereka /start → Anda dapat 10 credit
+
+**PREMIUM Referral** {'(Tersedia)' if is_premium else '(Premium Only)'}:
+1. Bagikan link PREMIUM ke calon customer
+2. Mereka subscribe premium → Anda dapat Rp 10.000
+3. Withdraw earnings ke rekening Anda
+
+💡 **Tips:** Gunakan link FREE untuk sharing biasa, link PREMIUM untuk monetisasi!"""
         
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -1092,6 +1181,44 @@ Bagikan link Anda dan mulai earning!"""
                 username = user_info.get('username', 'No username')
                 first_name = user_info.get('first_name', 'Unknown')
 
+                # Check if this user was referred by premium referral
+                premium_referral_reward = ""
+                try:
+                    self.db.cursor.execute("""
+                        SELECT telegram_id, details FROM user_activity 
+                        WHERE telegram_id = ? AND action = 'premium_referral_pending'
+                        ORDER BY timestamp DESC LIMIT 1
+                    """, (target_user_id,))
+                    
+                    pending_referral = self.db.cursor.fetchone()
+                    if pending_referral:
+                        # Extract referrer ID from details
+                        details = pending_referral[1]
+                        if "joined via premium referral" in details:
+                            # Find referrer from the logged activity
+                            self.db.cursor.execute("""
+                                SELECT referred_by FROM users WHERE telegram_id = ?
+                            """, (target_user_id,))
+                            referred_by_result = self.db.cursor.fetchone()
+                            
+                            if referred_by_result and referred_by_result[0]:
+                                referrer_id = referred_by_result[0]
+                                
+                                # Check if referrer is premium (only premium users can earn money)
+                                if self.db.is_user_premium(referrer_id):
+                                    # Create premium referral reward
+                                    subscription_amount = 320000 if days == 30 else 600000 if days == 60 else 0
+                                    success_reward = self.db.create_premium_referral(
+                                        referrer_id, target_user_id, premium_type, subscription_amount
+                                    )
+                                    
+                                    if success_reward:
+                                        referrer_info = self.db.get_user(referrer_id)
+                                        referrer_name = referrer_info.get('first_name', 'Unknown') if referrer_info else 'Unknown'
+                                        premium_referral_reward = f"\n\n💰 **Premium Referral Reward:**\n• Referrer: {referrer_name} (ID: {referrer_id})\n• Earned: Rp 10.000\n• Total subscription: Rp {subscription_amount:,}"
+                except Exception as e:
+                    print(f"Error processing premium referral reward: {e}")
+
                 message = f"""✅ **Premium berhasil diberikan!**
 
 👤 **User Info:**
@@ -1104,7 +1231,7 @@ Bagikan link Anda dan mulai earning!"""
 • **Previous**: {"Premium" if is_currently_premium else "Free"}
 • **Current Credits**: {current_credits}
 
-🎉 User sekarang memiliki akses unlimited ke semua fitur premium!"""
+🎉 User sekarang memiliki akses unlimited ke semua fitur premium!{premium_referral_reward}"""
 
                 # Log admin action
                 self.db.log_user_activity(
@@ -3120,3 +3247,68 @@ Just ignore this message"""
                 await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
 
 # News command will be integrated in main bot class
+    async def premium_earnings_command(self, update: Update, context: CallbackContext):
+        """Handle /premium_earnings command"""
+        user_id = update.message.from_user.id
+        is_premium = self.db.is_user_premium(user_id)
+        
+        if not is_premium:
+            await update.message.reply_text(
+                "❌ **Premium Only Feature**\n\n"
+                "Fitur ini hanya tersedia untuk member Premium.\n\n"
+                "💎 **Upgrade ke Premium untuk:**\n"
+                "• Earning Rp 10k per referral premium\n"
+                "• Withdraw ke rekening/e-wallet\n"
+                "• Unlimited bot access\n\n"
+                "Gunakan `/subscribe` untuk upgrade!",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Get premium earnings statistics
+        premium_stats = self.db.get_premium_referral_stats(user_id)
+        total_earnings = premium_stats['total_earnings']
+        total_referrals = premium_stats['total_referrals']
+        recent_referrals = premium_stats['recent_referrals']
+        
+        message = f"""💰 **Premium Earnings Dashboard**
+
+💵 **Total Earnings:** Rp {total_earnings:,}
+👥 **Total Premium Referrals:** {total_referrals}
+📈 **Average per Referral:** Rp {(total_earnings // total_referrals) if total_referrals > 0 else 0:,}
+
+"""
+
+        if recent_referrals:
+            message += "📊 **Recent Premium Referrals:**\n"
+            for ref in recent_referrals:
+                referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
+                subscription_type = ref[2]
+                earnings = ref[3]
+                date = ref[4][:10]
+                message += f"• {referred_name} - {subscription_type} - Rp {earnings:,} ({date})\n"
+            message += "\n"
+        else:
+            message += "📊 **No premium referrals yet**\n\n"
+        
+        message += f"""💡 **How to Earn More:**
+1. Share your premium referral link
+2. When someone subscribes via your link → Rp 10k
+3. More subscriptions = More earnings!
+
+🔗 **Get Your Premium Link:** `/referral`
+
+💳 **Withdraw Information:**
+• Minimum withdrawal: Rp 50.000
+• Payment methods: Bank transfer, e-wallet
+• Processing time: 1-3 business days
+• Contact admin @Billfarr for withdrawal
+
+📈 **Earning Tips:**
+• Share in crypto communities
+• Post on social media
+• Target serious traders
+• Explain premium benefits"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
