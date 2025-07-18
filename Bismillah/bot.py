@@ -232,6 +232,7 @@ class TelegramBot:
                 if arg.startswith('ref_'):
                     try:
                         referred_by = int(arg[4:])  # Extract user ID from ref_USERID
+                        referral_type = 'free'
                         print(f"🎁 User {user.id} was referred by {referred_by} (free referral)")
                     except ValueError:
                         print(f"❌ Invalid referral code: {arg}")
@@ -283,10 +284,17 @@ class TelegramBot:
                             self.db.add_credits(referred_by, 10)
                             self.db.log_user_activity(referred_by, "referral_bonus", f"Got 10 credits for referring user {user.id}")
                             print(f"✅ Gave 10 credits to free referrer {referred_by}")
-                        else:
+                        elif referral_type == 'premium':
                             # Premium referral - they get reward when referred user subscribes premium
-                            self.db.log_user_activity(referred_by, "premium_referral_pending", f"User {user.id} joined via premium referral, waiting for subscription")
-                            print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
+                            # Only premium users can earn money from premium referrals
+                            if self.db.is_user_premium(referred_by):
+                                self.db.log_user_activity(referred_by, "premium_referral_pending", f"User {user.id} joined via premium referral, waiting for subscription")
+                                print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
+                            else:
+                                # Non-premium users get credit bonus instead
+                                self.db.add_credits(referred_by, 10)
+                                self.db.log_user_activity(referred_by, "referral_bonus", f"Got 10 credits for referring user {user.id} (not premium member)")
+                                print(f"✅ Gave 10 credits to non-premium referrer {referred_by}")
                     except Exception as e:
                         print(f"❌ Error giving referral bonus: {e}")
             else:
@@ -1210,38 +1218,40 @@ Gunakan `/subscribe` untuk upgrade!
                 # Check if this user was referred by premium referral
                 premium_referral_reward = ""
                 try:
+                    # Find if user was referred through premium referral
                     self.db.cursor.execute("""
-                        SELECT telegram_id, details FROM user_activity 
-                        WHERE telegram_id = ? AND action = 'premium_referral_pending'
-                        ORDER BY timestamp DESC LIMIT 1
+                        SELECT referred_by FROM users WHERE telegram_id = ?
                     """, (target_user_id,))
+                    referred_by_result = self.db.cursor.fetchone()
                     
-                    pending_referral = self.db.cursor.fetchone()
-                    if pending_referral:
-                        # Extract referrer ID from details
-                        details = pending_referral[1]
-                        if "joined via premium referral" in details:
-                            # Find referrer from the logged activity
-                            self.db.cursor.execute("""
-                                SELECT referred_by FROM users WHERE telegram_id = ?
-                            """, (target_user_id,))
-                            referred_by_result = self.db.cursor.fetchone()
+                    if referred_by_result and referred_by_result[0]:
+                        referrer_id = referred_by_result[0]
+                        
+                        # Check if there's a pending premium referral
+                        self.db.cursor.execute("""
+                            SELECT details FROM user_activity 
+                            WHERE telegram_id = ? AND action = 'premium_referral_pending'
+                            AND details LIKE ?
+                            ORDER BY timestamp DESC LIMIT 1
+                        """, (referrer_id, f"User {target_user_id} joined via premium referral%"))
+                        
+                        pending_referral = self.db.cursor.fetchone()
+                        
+                        if pending_referral and self.db.is_user_premium(referrer_id):
+                            # Create premium referral reward
+                            subscription_amount = 320000 if days == 30 else 600000 if days == 60 else 320000  # Default to 1 month
+                            success_reward = self.db.create_premium_referral(
+                                referrer_id, target_user_id, premium_type, subscription_amount
+                            )
                             
-                            if referred_by_result and referred_by_result[0]:
-                                referrer_id = referred_by_result[0]
+                            if success_reward:
+                                referrer_info = self.db.get_user(referrer_id)
+                                referrer_name = referrer_info.get('first_name', 'Unknown') if referrer_info else 'Unknown'
+                                premium_referral_reward = f"\n\n💰 **Premium Referral Reward:**\n• Referrer: {referrer_name} (ID: {referrer_id})\n• Earned: Rp 10.000\n• Total subscription: Rp {subscription_amount:,}"
                                 
-                                # Check if referrer is premium (only premium users can earn money)
-                                if self.db.is_user_premium(referrer_id):
-                                    # Create premium referral reward
-                                    subscription_amount = 320000 if days == 30 else 600000 if days == 60 else 0
-                                    success_reward = self.db.create_premium_referral(
-                                        referrer_id, target_user_id, premium_type, subscription_amount
-                                    )
-                                    
-                                    if success_reward:
-                                        referrer_info = self.db.get_user(referrer_id)
-                                        referrer_name = referrer_info.get('first_name', 'Unknown') if referrer_info else 'Unknown'
-                                        premium_referral_reward = f"\n\n💰 **Premium Referral Reward:**\n• Referrer: {referrer_name} (ID: {referrer_id})\n• Earned: Rp 10.000\n• Total subscription: Rp {subscription_amount:,}"
+                                # Update pending referral to completed
+                                self.db.log_user_activity(referrer_id, "premium_referral_completed", 
+                                                         f"Received Rp 10.000 for user {target_user_id} premium subscription")
                 except Exception as e:
                     print(f"Error processing premium referral reward: {e}")
 

@@ -62,6 +62,9 @@ class Database:
 
             if 'premium_earnings' not in columns:
                 self.cursor.execute("ALTER TABLE users ADD COLUMN premium_earnings INTEGER DEFAULT 0")
+                
+            if 'premium_referral_code' not in columns:
+                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_referral_code TEXT")
 
         except Exception as e:
             print(f"Error updating users table schema: {e}")
@@ -1020,12 +1023,46 @@ class Database:
             """, (telegram_id,))
             row = self.cursor.fetchone()
             if row:
+                free_code = row[0]
+                premium_code = row[1]
+                
+                # Generate codes if they don't exist
+                if not free_code:
+                    free_code = self._generate_referral_code('F')
+                    self.cursor.execute("""
+                        UPDATE users SET referral_code = ? WHERE telegram_id = ?
+                    """, (free_code, telegram_id))
+                    
+                if not premium_code:
+                    premium_code = self._generate_referral_code('P')
+                    self.cursor.execute("""
+                        UPDATE users SET premium_referral_code = ? WHERE telegram_id = ?
+                    """, (premium_code, telegram_id))
+                    
+                self.conn.commit()
+                
                 return {
-                    'free_referral_code': row[0],
-                    'premium_referral_code': row[1]
+                    'free_referral_code': free_code,
+                    'premium_referral_code': premium_code
                 }
             return None
         except Exception as e:
             print(f"DB Error (get_user_referral_codes): {e}")
             return None
+
+    def _generate_referral_code(self, prefix):
+        """Generate unique referral code with prefix"""
+        import random
+        import string
+        
+        while True:
+            code = prefix + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+            
+            # Check if code already exists
+            if prefix == 'F':
+                if not self.get_user_by_referral_code(code):
+                    return code
+            else:  # prefix == 'P'
+                if not self.get_user_by_premium_referral_code(code):
+                    return code
 
