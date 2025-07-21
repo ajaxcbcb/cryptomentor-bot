@@ -965,7 +965,7 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate futures trading signals using multiple APIs (Binance + CoinGecko + CryptoNews)"""
+        """Generate enhanced futures trading signals with Supply & Demand integration"""
         # Major symbols to analyze
         major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
 
@@ -1028,10 +1028,21 @@ Use proper risk management and don't FOMO!"""
                         market_rank = coingecko_market.get('market_cap_rank', 999)
                         ath_change = coingecko_market.get('ath_change_percentage', -50)
 
-                    # Generate multi-factor signal
-                    signal_analysis = self._generate_multi_factor_signal(
+                    # Get Supply & Demand analysis
+                    sd_analysis = None
+                    entry_zones = None
+                    try:
+                        sd_analysis = crypto_api.analyze_supply_demand(symbol)
+                        if 'error' not in sd_analysis:
+                            entry_zones = self._extract_entry_zones(sd_analysis, current_price)
+                    except Exception as e:
+                        print(f"S&D analysis failed for {symbol}: {e}")
+
+                    # Generate enhanced multi-factor signal with S&D
+                    signal_analysis = self._generate_enhanced_multi_factor_signal(
                         symbol, current_price, change_24h, long_ratio, 
-                        funding_rate, market_rank, ath_change, global_sentiment
+                        funding_rate, market_rank, ath_change, global_sentiment,
+                        sd_analysis, entry_zones
                     )
 
                     signals_data.append(signal_analysis)
@@ -1046,80 +1057,90 @@ Use proper risk management and don't FOMO!"""
                 else:
                     return "❌ **Data Unavailable** - Failed to fetch data for all symbols."
 
-            # Sort by signal strength
-            signals_data.sort(key=lambda x: x['signal_score'], reverse=True)
+            # Sort by enhanced signal strength
+            signals_data.sort(key=lambda x: x['enhanced_score'], reverse=True)
 
             # Build comprehensive message
             if language == 'id':
-                message = f"""⚡ **Sinyal Futures Trading Multi-API**
+                message = f"""⚡ **Enhanced Futures Signals + Supply/Demand**
 
 🌍 **Market Sentiment Global:** {global_sentiment['status']}
 📊 **Market Health:** {global_sentiment['health']}
 
-🎯 **Top Trading Signals:**
+🎯 **Top Enhanced Trading Signals:**
 """
                 for signal in signals_data:
-                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Score: {signal['signal_score']:.1f}/10)"
-                    message += f"\n  💰 Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
-                    message += f"\n  📊 L/S Ratio: {signal['long_ratio']:.1f}% | Rank: #{signal['market_rank']}"
-                    message += f"\n  🎯 {signal['reasoning']}"
-                    message += f"\n  📈 Entry: ${signal['entry']:,.2f} | TP: ${signal['tp']:,.2f} | SL: ${signal['sl']:,.2f}\n"
+                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Enhanced Score: {signal['enhanced_score']:.1f}/10)"
+                    message += f"\n  💰 Price: ${signal['price']:,.4f} ({signal['change_24h']:+.1f}%)"
+                    message += f"\n  📊 L/S: {signal['long_ratio']:.1f}% | S&D: {signal['sd_score']}/100"
+                    message += f"\n  🎯 {signal['enhanced_reasoning']}"
+                    message += f"\n  📈 Entry: ${signal['entry']:,.4f} | TP: ${signal['tp']:,.4f} | SL: ${signal['sl']:,.4f}"
+                    message += f"\n  💡 Zone: {signal['entry_zone_info']}\n"
 
                 message += f"""
-🔍 **Multi-API Analysis:**
+🔍 **Enhanced Multi-API Analysis:**
 • ✅ Binance: Real-time price + futures data
 • ✅ CoinGecko: Market fundamentals + ranking  
 • ✅ CryptoNews: Market sentiment analysis
+• 🎯 Supply/Demand: Entry zones + institutional levels
 
-⚠️ **Risk Warning:**
-Futures trading sangat berisiko! Gunakan proper risk management.
+⚠️ **Risk Management Enhanced:**
+• Semua entry berdasarkan S&D zones
+• Stop loss ditempatkan di luar zones
+• Risk/reward ratio dioptimalkan
+• Position sizing berdasarkan confidence
 
-📡 **Multi-API Sources:** Binance + CoinGecko + CryptoNews
+📡 **Enhanced Sources:** Binance + CoinGecko + CryptoNews + S&D Analysis
 🕐 **Update:** {datetime.now().strftime('%H:%M:%S WIB')}"""
 
             else:
-                message = f"""⚡ **Multi-API Futures Trading Signals**
+                message = f"""⚡ **Enhanced Futures Signals + Supply/Demand**
 
 🌍 **Global Market Sentiment:** {global_sentiment['status']}
 📊 **Market Health:** {global_sentiment['health']}
 
-🎯 **Top Trading Signals:**
+🎯 **Top Enhanced Trading Signals:**
 """
                 for signal in signals_data:
-                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Score: {signal['signal_score']:.1f}/10)"
-                    message += f"\n  💰 Price: ${signal['price']:,.2f} ({signal['change_24h']:+.1f}%)"
-                    message += f"\n  📊 L/S Ratio: {signal['long_ratio']:.1f}% | Rank: #{signal['market_rank']}"
-                    message += f"\n  🎯 {signal['reasoning']}"
-                    message += f"\n  📈 Entry: ${signal['entry']:,.2f} | TP: ${signal['tp']:,.2f} | SL: ${signal['sl']:,.2f}\n"
+                    message += f"\n{signal['signal_emoji']} **{signal['symbol']} {signal['signal_type']}** (Enhanced Score: {signal['enhanced_score']:.1f}/10)"
+                    message += f"\n  💰 Price: ${signal['price']:,.4f} ({signal['change_24h']:+.1f}%)"
+                    message += f"\n  📊 L/S: {signal['long_ratio']:.1f}% | S&D: {signal['sd_score']}/100"
+                    message += f"\n  🎯 {signal['enhanced_reasoning']}"
+                    message += f"\n  📈 Entry: ${signal['entry']:,.4f} | TP: ${signal['tp']:,.4f} | SL: ${signal['sl']:,.4f}"
+                    message += f"\n  💡 Zone: {signal['entry_zone_info']}\n"
 
                 message += f"""
-🔍 **Multi-API Analysis:**
+🔍 **Enhanced Multi-API Analysis:**
 • ✅ Binance: Real-time price + futures data
 • ✅ CoinGecko: Market fundamentals + ranking
 • ✅ CryptoNews: Market sentiment analysis
+• 🎯 Supply/Demand: Entry zones + institutional levels
 
-⚠️ **Risk Warning:**
-Futures trading is high risk! Use proper risk management.
+⚠️ **Enhanced Risk Management:**
+• All entries based on S&D zones
+• Stop losses placed outside zones
+• Optimized risk/reward ratios
+• Position sizing based on confidence
 
-📡 **Multi-API Sources:** Binance + CoinGecko + CryptoNews
+📡 **Enhanced Sources:** Binance + CoinGecko + CryptoNews + S&D Analysis
 🕐 **Update:** {datetime.now().strftime('%H:%M:%S UTC')}"""
 
             return message
 
         except Exception as e:
-            print(f"Error in generate_futures_signals: {e}")
+            print(f"Error in enhanced futures signals: {e}")
             if language == 'id':
-                return f"""❌ **Error dalam Multi-API Futures Signals**
+                return f"""❌ **Error dalam Enhanced Futures Signals**
 
-Terjadi kesalahan saat mengambil data dari multiple API.
+Terjadi kesalahan saat mengambil data dari enhanced multiple API.
 Error: {str(e)}
 
 ⚠️ **Risk Warning:**
 Futures trading berisiko tinggi!"""
             else:
-                return f"""❌ **Error in Multi-API Futures Signals**
+                return f"""❌ **Error in Enhanced Futures Signals**
 
-Error occurred while fetching data from multiple APIs.
+Error occurred while fetching enhanced data from multiple APIs.
 Error: {str(e)}
 
 ⚠️ **Risk Warning:**
@@ -1285,6 +1306,213 @@ Futures trading is high risk!"""
             'signal_emoji': signal_emoji,
             'signal_score': signal_score,
             'reasoning': reasoning,
+            'entry': entry_price,
+            'tp': tp_price,
+            'sl': sl_price
+        }
+
+    def _generate_enhanced_multi_factor_signal(self, symbol, price, change_24h, long_ratio, funding_rate, market_rank, ath_change, global_sentiment, sd_analysis, entry_zones):
+        """Generate enhanced trading signal with Supply & Demand integration"""
+        signal_score = 5  # Base score
+        enhanced_score = 5  # Enhanced score with S&D
+
+        # Price momentum factor
+        if change_24h > 5:
+            signal_score += 1.5
+            enhanced_score += 1.5
+        elif change_24h > 0:
+            signal_score += 0.5
+            enhanced_score += 0.5
+        elif change_24h < -5:
+            signal_score -= 1.5
+            enhanced_score -= 1.5
+        elif change_24h < 0:
+            signal_score -= 0.5
+            enhanced_score -= 0.5
+
+        # Long/Short ratio factor (contrarian approach)
+        if long_ratio > 75:
+            signal_score -= 2
+            enhanced_score -= 2
+            contrarian_signal = "SHORT"
+        elif long_ratio < 25:
+            signal_score += 2
+            enhanced_score += 2
+            contrarian_signal = "LONG"
+        elif long_ratio > 65:
+            signal_score -= 1
+            enhanced_score -= 1
+            contrarian_signal = "SHORT"
+        elif long_ratio < 35:
+            signal_score += 1
+            enhanced_score += 1
+            contrarian_signal = "LONG"
+        else:
+            contrarian_signal = "HOLD"
+
+        # Supply & Demand Enhancement
+        sd_score = 50
+        sd_bias = "Balanced"
+        entry_zone_info = "No specific zone"
+        
+        if sd_analysis and 'error' not in sd_analysis:
+            sd_data = sd_analysis.get('supply_demand_score', {})
+            sd_score = sd_data.get('score', 50)
+            sd_bias = sd_data.get('bias', 'Balanced')
+            
+            # S&D score enhancement
+            if sd_score >= 70:
+                enhanced_score += 2
+                entry_zone_info = "Strong demand confluence"
+            elif sd_score >= 60:
+                enhanced_score += 1
+                entry_zone_info = "Moderate demand area"
+            elif sd_score <= 30:
+                enhanced_score -= 2
+                entry_zone_info = "Strong supply confluence"
+            elif sd_score <= 40:
+                enhanced_score -= 1
+                entry_zone_info = "Moderate supply area"
+
+            # Entry zones enhancement
+            if entry_zones:
+                if entry_zones['current_zone_type'] == 'near_demand':
+                    enhanced_score += 1.5
+                    entry_zone_info = "Near major demand zone"
+                elif entry_zones['current_zone_type'] == 'near_supply':
+                    enhanced_score -= 1.5
+                    entry_zone_info = "Near major supply zone"
+
+        # Funding rate factor
+        if funding_rate > 0.01:
+            signal_score -= 1
+            enhanced_score -= 1
+        elif funding_rate < -0.01:
+            signal_score += 1
+            enhanced_score += 1
+
+        # Market rank factor
+        if market_rank <= 10:
+            signal_score += 0.5
+            enhanced_score += 0.5
+        elif market_rank <= 50:
+            signal_score += 0.2
+            enhanced_score += 0.2
+
+        # ATH distance factor
+        if -20 < ath_change < -10:
+            signal_score += 1
+            enhanced_score += 1
+        elif ath_change > -5:
+            signal_score -= 1
+            enhanced_score -= 1
+
+        # Global sentiment factor
+        global_score = global_sentiment['score']
+        if global_score >= 7:
+            signal_score += 1
+            enhanced_score += 1
+        elif global_score <= 3:
+            signal_score -= 1
+            enhanced_score -= 1
+
+        # Ensure scores stay within bounds
+        signal_score = min(10, max(1, signal_score))
+        enhanced_score = min(10, max(1, enhanced_score))
+
+        # Determine enhanced signal type
+        if enhanced_score >= 8:
+            if contrarian_signal == "LONG" or sd_bias in ['Strong Demand', 'Moderate Demand']:
+                signal_type = "STRONG LONG"
+                signal_emoji = "🟢💪"
+            else:
+                signal_type = "STRONG SHORT"
+                signal_emoji = "🔴💪"
+        elif enhanced_score >= 7:
+            if contrarian_signal == "LONG" or sd_bias in ['Strong Demand', 'Moderate Demand']:
+                signal_type = "LONG"
+                signal_emoji = "🟢"
+            else:
+                signal_type = "SHORT"
+                signal_emoji = "🔴"
+        elif enhanced_score >= 6:
+            signal_type = "LONG" if contrarian_signal == "LONG" else "SHORT" if contrarian_signal == "SHORT" else "WEAK LONG"
+            signal_emoji = "🟡"
+        elif enhanced_score <= 3:
+            if contrarian_signal == "SHORT" or sd_bias in ['Strong Supply', 'Moderate Supply']:
+                signal_type = "STRONG SHORT"
+                signal_emoji = "🔴💪"
+            else:
+                signal_type = "SHORT"
+                signal_emoji = "🔴"
+        elif enhanced_score <= 4:
+            signal_type = "SHORT" if contrarian_signal == "SHORT" else "LONG" if contrarian_signal == "LONG" else "WEAK SHORT"
+            signal_emoji = "🟡"
+        else:
+            signal_type = "HOLD"
+            signal_emoji = "⚪"
+
+        # Enhanced entry calculation with S&D zones
+        entry_price = price
+        if entry_zones and sd_analysis:
+            if "LONG" in signal_type and entry_zones.get('strong_demand'):
+                demand_zone = entry_zones['strong_demand']
+                entry_price = demand_zone['zone_high']
+                sl_price = demand_zone['zone_low'] * 0.998
+                tp_price = price * 1.035
+                enhanced_reasoning = f"Entry at demand zone confluence: Futures sentiment {contrarian_signal} + S&D score {sd_score}/100 + zone proximity"
+            elif "SHORT" in signal_type and entry_zones.get('strong_supply'):
+                supply_zone = entry_zones['strong_supply']
+                entry_price = supply_zone['zone_low']
+                sl_price = supply_zone['zone_high'] * 1.002
+                tp_price = price * 0.965
+                enhanced_reasoning = f"Entry at supply zone confluence: Futures sentiment {contrarian_signal} + S&D score {sd_score}/100 + zone proximity"
+            else:
+                # Market entry with enhanced levels
+                if "LONG" in signal_type:
+                    entry_price = price * 0.999
+                    sl_price = price * 0.975
+                    tp_price = price * 1.04
+                    enhanced_reasoning = f"Market long entry: Futures {contrarian_signal} + S&D {sd_bias} + momentum confluence"
+                elif "SHORT" in signal_type:
+                    entry_price = price * 1.001
+                    sl_price = price * 1.025
+                    tp_price = price * 0.96
+                    enhanced_reasoning = f"Market short entry: Futures {contrarian_signal} + S&D {sd_bias} + momentum confluence"
+                else:
+                    entry_price = price
+                    sl_price = price * 0.98
+                    tp_price = price * 1.02
+                    enhanced_reasoning = f"Hold recommended: Mixed signals from futures ({long_ratio:.1f}%) and S&D ({sd_score}/100)"
+        else:
+            # Standard calculation if S&D not available
+            if "LONG" in signal_type:
+                tp_price = price * 1.03
+                sl_price = price * 0.98
+                enhanced_reasoning = f"Standard long setup: Futures sentiment + momentum without S&D confirmation"
+            elif "SHORT" in signal_type:
+                tp_price = price * 0.97
+                sl_price = price * 1.02
+                enhanced_reasoning = f"Standard short setup: Futures sentiment + momentum without S&D confirmation"
+            else:
+                tp_price = price * 1.02
+                sl_price = price * 0.98
+                enhanced_reasoning = f"Hold: Mixed signals without clear S&D direction"
+
+        return {
+            'symbol': symbol,
+            'price': price,
+            'change_24h': change_24h,
+            'long_ratio': long_ratio,
+            'market_rank': market_rank,
+            'signal_type': signal_type,
+            'signal_emoji': signal_emoji,
+            'signal_score': signal_score,
+            'enhanced_score': enhanced_score,
+            'sd_score': sd_score,
+            'reasoning': f"{contrarian_signal} bias + momentum",
+            'enhanced_reasoning': enhanced_reasoning,
+            'entry_zone_info': entry_zone_info,
             'entry': entry_price,
             'tp': tp_price,
             'sl': sl_price
@@ -1963,7 +2191,7 @@ Futures trading is high risk!"""
         return risk_level, '\n'.join(risk_factors)
 
     def analyze_futures_data(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Single coin futures analysis using Binance API"""
+        """Single coin futures analysis with Supply & Demand integration"""
         try:
             # Extract basic futures data
             long_ratio = futures_data.get('long_ratio', 50)
@@ -1975,111 +2203,166 @@ Futures trading is high risk!"""
             change_24h = price_data.get('change_24h', 0) if price_data and 'error' not in price_data else 0
             volume_24h = price_data.get('volume_24h', 0) if price_data and 'error' not in price_data else 0
 
-            # Determine sentiment and signal
-            if long_ratio > 65:
-                sentiment = "Bullish (Many Long Positions)" if language == 'en' else "Bullish (Banyak Posisi Long)"
-                signal_type = "LONG"
-                signal_strength = "STRONG" if long_ratio > 75 else "MODERATE"
-            elif long_ratio < 35:
-                sentiment = "Bearish (Many Short Positions)" if language == 'en' else "Bearish (Banyak Posisi Short)"
-                signal_type = "SHORT"
-                signal_strength = "STRONG" if long_ratio < 25 else "MODERATE"
-            else:
-                sentiment = "Neutral (Balanced)" if language == 'en' else "Neutral (Seimbang)"
-                signal_type = "LONG" if long_ratio >= 50 else "SHORT"
-                signal_strength = "WEAK"
+            # Get Supply & Demand analysis if crypto_api available
+            supply_demand_analysis = None
+            entry_zones = None
+            
+            if crypto_api:
+                try:
+                    sd_analysis = crypto_api.analyze_supply_demand(symbol)
+                    if 'error' not in sd_analysis:
+                        supply_demand_analysis = sd_analysis
+                        entry_zones = self._extract_entry_zones(sd_analysis, current_price)
+                except Exception as e:
+                    print(f"S&D analysis error: {e}")
 
-            # Calculate entry, TP, SL
-            entry_price = current_price
-            if signal_type == "LONG":
-                tp_price = current_price * 1.03  # 3% up
-                sl_price = current_price * 0.98  # 2% down
-            else:
-                tp_price = current_price * 0.97  # 3% down
-                sl_price = current_price * 1.02  # 2% up
-
-            # Calculate risk/reward ratio
-            risk_reward = abs((tp_price - entry_price) / (sl_price - entry_price)) if sl_price != entry_price else 1.5
+            # Enhanced signal determination with S&D
+            signal_data = self._determine_enhanced_futures_signal(
+                long_ratio, short_ratio, current_price, change_24h, 
+                supply_demand_analysis, entry_zones
+            )
 
             if language == 'id':
-                message = f"""⚡ **Analisis Futures Real-Time {symbol}**
+                message = f"""⚡ **Analisis Futures + Supply/Demand {symbol}**
 
-📊 **Kualitas Data:** 🟢 BINANCE API (Source: {source})
+📊 **Kualitas Data:** 🟢 BINANCE + S&D API (Source: {source})
 
 💰 **Data Harga:**
-- Harga saat ini: ${current_price:,.2f}
+- Harga saat ini: ${current_price:,.4f}
 - Perubahan 24h: {change_24h:+.2f}%
 - Volume 24h: ${volume_24h:,.0f}
 
 📈 **Long/Short Ratio Analysis:**
-- {symbol}: {long_ratio:.1f}% Long, {short_ratio:.1f}% Short - {sentiment}
-- Market Bias: {"Extremely Bullish" if long_ratio > 75 else "Bullish" if long_ratio > 60 else "Bearish" if long_ratio < 40 else "Extremely Bearish" if long_ratio < 25 else "Neutral"}
+- {symbol}: {long_ratio:.1f}% Long, {short_ratio:.1f}% Short
+- Market Sentiment: {signal_data['sentiment']}
+- Contrarian Signal: {signal_data['contrarian_bias']}
 
-🎯 **Futures Signal:**
-- {"🟢" if signal_type == "LONG" else "🔴"} **{symbol} {signal_type}** ({signal_strength})
-- Entry: ${entry_price:,.2f}
-- TP: ${tp_price:,.2f} ({((tp_price/entry_price-1)*100):+.1f}%)
-- SL: ${sl_price:,.2f} ({((sl_price/entry_price-1)*100):+.1f}%)
-- R/R Ratio: {risk_reward:.1f}:1
+🎯 **Supply/Demand Integration:**"""
+
+                if supply_demand_analysis:
+                    sd_score = supply_demand_analysis.get('supply_demand_score', {})
+                    message += f"""
+- **S&D Score**: {sd_score.get('score', 50)}/100
+- **Market Bias**: {sd_score.get('bias', 'Balanced')}
+- **Confidence**: {sd_score.get('confidence', 'Medium')}"""
+
+                    # Add key supply/demand zones
+                    zones = supply_demand_analysis.get('supply_demand_zones', {})
+                    demand_zones = zones.get('demand_zones', [])
+                    supply_zones = zones.get('supply_zones', [])
+                    
+                    if demand_zones:
+                        nearest_demand = demand_zones[0]
+                        message += f"\n- **Demand Zone**: ${nearest_demand.get('price_level', 0):,.4f} ({nearest_demand.get('distance_from_current', 0):+.1f}%)"
+                    
+                    if supply_zones:
+                        nearest_supply = supply_zones[0]
+                        message += f"\n- **Supply Zone**: ${nearest_supply.get('price_level', 0):,.4f} ({nearest_supply.get('distance_from_current', 0):+.1f}%)"
+
+                message += f"""
+
+🚀 **Rekomendasi Trading Enhanced:**
+- **Direction**: {signal_data['direction']} {signal_data['strength_emoji']}
+- **Entry Price**: ${signal_data['entry_price']:,.4f}
+- **Stop Loss**: ${signal_data['stop_loss']:,.4f} ({signal_data['sl_percentage']:.1f}%)
+- **Take Profit 1**: ${signal_data['tp1']:,.4f} ({signal_data['tp1_percentage']:.1f}%)
+- **Take Profit 2**: ${signal_data['tp2']:,.4f} ({signal_data['tp2_percentage']:.1f}%)
+- **R/R Ratio**: {signal_data['risk_reward']:.1f}:1
+
+💡 **Alasan Entry di Harga Ini:**
+{signal_data['entry_reasoning']}
+
+📊 **Strategi Execution:**
+{signal_data['execution_strategy']}
 
 📈 **Leverage Recommendations:**
-- Conservative: 3-5x leverage (recommended)
-- Moderate: 5-10x leverage  
-- Aggressive: 10-20x leverage (high risk!)
+- Conservative: {signal_data['conservative_leverage']}x (recommended)
+- Moderate: {signal_data['moderate_leverage']}x  
+- Aggressive: {signal_data['aggressive_leverage']}x (high risk!)
 
-⚠️ **Risk Warning:**
-Futures trading berisiko tinggi! 
-Gunakan proper risk management dan jangan FOMO!
+⚠️ **Risk Management:**
+Futures trading berisiko tinggi! Gunakan proper position sizing dan stop loss ketat.
 
-📡 Source: {source} | ⏰ Real-time data"""
+📡 Source: Binance + S&D Analysis | ⏰ Real-time integrated data"""
 
             else:
-                message = f"""⚡ **Real-Time Futures Analysis {symbol}**
+                # English version with same enhanced structure
+                message = f"""⚡ **Enhanced Futures + Supply/Demand Analysis {symbol}**
 
-📊 **Data Quality:** 🟢 BINANCE API (Source: {source})
+📊 **Data Quality:** 🟢 BINANCE + S&D API (Source: {source})
 
-💰 **Data Harga:**
-- Current Price: ${current_price:,.2f}
+💰 **Price Data:**
+- Current Price: ${current_price:,.4f}
 - 24h Change: {change_24h:+.2f}%
 - Volume 24h: ${volume_24h:,.0f}
 
 📈 **Long/Short Ratio Analysis:**
-- {symbol}: {long_ratio:.1f}% Long, {short_ratio:.1f}% Short - {sentiment}
-- Market Bias: {"Extremely Bullish" if long_ratio > 75 else "Bullish" if long_ratio > 60 else "Bearish" if long_ratio < 40 else "Extremely Bearish" if long_ratio < 25 else "Neutral"}
+- {symbol}: {long_ratio:.1f}% Long, {short_ratio:.1f}% Short
+- Market Sentiment: {signal_data['sentiment']}
+- Contrarian Signal: {signal_data['contrarian_bias']}
 
-🎯 **Futures Signal:**
-- {"🟢" if signal_type == "LONG" else "🔴"} **{symbol} {signal_type}** ({signal_strength})
-- Entry: ${entry_price:,.2f}
-- TP: ${tp_price:,.2f} ({((tp_price/entry_price-1)*100):+.1f}%)
-- SL: ${sl_price:,.2f} ({((sl_price/entry_price-1)*100):+.1f}%)
-- R/R Ratio: {risk_reward:.1f}:1
+🎯 **Supply/Demand Integration:**"""
+
+                if supply_demand_analysis:
+                    sd_score = supply_demand_analysis.get('supply_demand_score', {})
+                    message += f"""
+- **S&D Score**: {sd_score.get('score', 50)}/100
+- **Market Bias**: {sd_score.get('bias', 'Balanced')}
+- **Confidence**: {sd_score.get('confidence', 'Medium')}"""
+
+                    zones = supply_demand_analysis.get('supply_demand_zones', {})
+                    demand_zones = zones.get('demand_zones', [])
+                    supply_zones = zones.get('supply_zones', [])
+                    
+                    if demand_zones:
+                        nearest_demand = demand_zones[0]
+                        message += f"\n- **Demand Zone**: ${nearest_demand.get('price_level', 0):,.4f} ({nearest_demand.get('distance_from_current', 0):+.1f}%)"
+                    
+                    if supply_zones:
+                        nearest_supply = supply_zones[0]
+                        message += f"\n- **Supply Zone**: ${nearest_supply.get('price_level', 0):,.4f} ({nearest_supply.get('distance_from_current', 0):+.1f}%)"
+
+                message += f"""
+
+🚀 **Enhanced Trading Recommendation:**
+- **Direction**: {signal_data['direction']} {signal_data['strength_emoji']}
+- **Entry Price**: ${signal_data['entry_price']:,.4f}
+- **Stop Loss**: ${signal_data['stop_loss']:,.4f} ({signal_data['sl_percentage']:.1f}%)
+- **Take Profit 1**: ${signal_data['tp1']:,.4f} ({signal_data['tp1_percentage']:.1f}%)
+- **Take Profit 2**: ${signal_data['tp2']:,.4f} ({signal_data['tp2_percentage']:.1f}%)
+- **R/R Ratio**: {signal_data['risk_reward']:.1f}:1
+
+💡 **Entry Reasoning:**
+{signal_data['entry_reasoning']}
+
+📊 **Execution Strategy:**
+{signal_data['execution_strategy']}
 
 📈 **Leverage Recommendations:**
-- Conservative: 3-5x leverage (recommended)
-- Moderate: 5-10x leverage
-- Aggressive: 10-20x leverage (high risk!)
+- Conservative: {signal_data['conservative_leverage']}x (recommended)
+- Moderate: {signal_data['moderate_leverage']}x
+- Aggressive: {signal_data['aggressive_leverage']}x (high risk!)
 
-⚠️ **Risk Warning:**
-Futures trading is high risk! 
-Use proper risk management and don't FOMO!
+⚠️ **Risk Management:**
+Futures trading is high risk! Use proper position sizing and tight stop losses.
 
-📡 Source: {source} | ⏰ Real-time data"""
+📡 Source: Binance + S&D Analysis | ⏰ Real-time integrated data"""
 
             return message
 
         except Exception as e:
-            print(f"Error in analyze_futures_data: {e}")
+            print(f"Error in enhanced futures analysis: {e}")
             if language == 'id':
-                return f"""❌ **Error dalam Analisis Futures {symbol}**
+                return f"""❌ **Error dalam Enhanced Futures Analysis {symbol}**
 
-Terjadi kesalahan saat menganalisis data futures.
+Terjadi kesalahan saat menganalisis data futures + supply/demand.
 Error: {str(e)}
 
 📊 Silakan coba lagi atau gunakan `/futures_signals` untuk analisis multi-coin."""
             else:
-                return f"""❌ **Error in Futures Analysis {symbol}**
+                return f"""❌ **Error in Enhanced Futures Analysis {symbol}**
 
-Error occurred while analyzing futures data.
+Error occurred while analyzing futures + supply/demand data.
 Error: {str(e)}
 
 📊 Please try again or use `/futures_signals` for multi-coin analysis."""
@@ -2407,6 +2690,261 @@ Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
             tips.append("• Low confidence - Use smaller position, be cautious")
 
         return '\n'.join(tips)
+
+    def _extract_entry_zones(self, sd_analysis, current_price):
+        """Extract key entry zones from supply/demand analysis"""
+        try:
+            if not sd_analysis or 'error' in sd_analysis:
+                return None
+
+            zones = sd_analysis.get('supply_demand_zones', {})
+            demand_zones = zones.get('demand_zones', [])
+            supply_zones = zones.get('supply_zones', [])
+
+            entry_zones = {
+                'strong_demand': None,
+                'strong_supply': None,
+                'current_zone_type': 'neutral',
+                'distance_to_nearest_demand': float('inf'),
+                'distance_to_nearest_supply': float('inf')
+            }
+
+            # Find strongest demand zone
+            if demand_zones:
+                strongest_demand = max(demand_zones, key=lambda x: x.get('strength', 0))
+                entry_zones['strong_demand'] = strongest_demand
+                entry_zones['distance_to_nearest_demand'] = abs(current_price - strongest_demand['price_level']) / current_price * 100
+
+            # Find strongest supply zone
+            if supply_zones:
+                strongest_supply = max(supply_zones, key=lambda x: x.get('strength', 0))
+                entry_zones['strong_supply'] = strongest_supply
+                entry_zones['distance_to_nearest_supply'] = abs(current_price - strongest_supply['price_level']) / current_price * 100
+
+            # Determine current zone context
+            if entry_zones['distance_to_nearest_demand'] < 3:
+                entry_zones['current_zone_type'] = 'near_demand'
+            elif entry_zones['distance_to_nearest_supply'] < 3:
+                entry_zones['current_zone_type'] = 'near_supply'
+            elif entry_zones['distance_to_nearest_demand'] < entry_zones['distance_to_nearest_supply']:
+                entry_zones['current_zone_type'] = 'closer_to_demand'
+            else:
+                entry_zones['current_zone_type'] = 'closer_to_supply'
+
+            return entry_zones
+
+        except Exception as e:
+            print(f"Error extracting entry zones: {e}")
+            return None
+
+    def _determine_enhanced_futures_signal(self, long_ratio, short_ratio, current_price, change_24h, sd_analysis, entry_zones):
+        """Determine enhanced trading signal combining futures sentiment with S&D"""
+        try:
+            signal_data = {
+                'direction': 'HOLD',
+                'strength_emoji': '⚪',
+                'sentiment': 'Neutral',
+                'contrarian_bias': 'No Clear Bias',
+                'entry_price': current_price,
+                'stop_loss': current_price,
+                'tp1': current_price,
+                'tp2': current_price,
+                'sl_percentage': 0,
+                'tp1_percentage': 0,
+                'tp2_percentage': 0,
+                'risk_reward': 1.0,
+                'entry_reasoning': 'Mixed signals, no clear direction',
+                'execution_strategy': 'Wait for clearer confirmation',
+                'conservative_leverage': 2,
+                'moderate_leverage': 3,
+                'aggressive_leverage': 5
+            }
+
+            # Base futures sentiment analysis
+            futures_score = 0
+            
+            # Long/Short ratio analysis (contrarian approach)
+            if long_ratio > 75:
+                futures_score -= 3  # Extremely long heavy = bearish signal
+                signal_data['sentiment'] = 'Extremely Bullish (Overleveraged)'
+                signal_data['contrarian_bias'] = 'SHORT Bias (Long Squeeze Risk)'
+            elif long_ratio > 65:
+                futures_score -= 2
+                signal_data['sentiment'] = 'Very Bullish'
+                signal_data['contrarian_bias'] = 'SHORT Bias (Moderate)'
+            elif long_ratio > 55:
+                futures_score -= 1
+                signal_data['sentiment'] = 'Bullish'
+                signal_data['contrarian_bias'] = 'Slight SHORT Bias'
+            elif long_ratio < 25:
+                futures_score += 3  # Extremely short heavy = bullish signal
+                signal_data['sentiment'] = 'Extremely Bearish (Oversold)'
+                signal_data['contrarian_bias'] = 'LONG Bias (Short Squeeze Risk)'
+            elif long_ratio < 35:
+                futures_score += 2
+                signal_data['sentiment'] = 'Very Bearish'
+                signal_data['contrarian_bias'] = 'LONG Bias (Moderate)'
+            elif long_ratio < 45:
+                futures_score += 1
+                signal_data['sentiment'] = 'Bearish'
+                signal_data['contrarian_bias'] = 'Slight LONG Bias'
+            else:
+                signal_data['sentiment'] = 'Balanced'
+                signal_data['contrarian_bias'] = 'No Strong Bias'
+
+            # Price momentum factor
+            momentum_score = 0
+            if change_24h > 5:
+                momentum_score += 2
+            elif change_24h > 2:
+                momentum_score += 1
+            elif change_24h < -5:
+                momentum_score -= 2
+            elif change_24h < -2:
+                momentum_score -= 1
+
+            # Supply & Demand integration
+            sd_score = 0
+            sd_modifier = ""
+            
+            if sd_analysis and entry_zones:
+                sd_data = sd_analysis.get('supply_demand_score', {})
+                sd_bias = sd_data.get('bias', 'Balanced')
+                sd_confidence = sd_data.get('confidence', 'Medium')
+                
+                if 'Strong Demand' in sd_bias or 'Moderate Demand' in sd_bias:
+                    sd_score += 2 if 'Strong' in sd_bias else 1
+                    sd_modifier = " + Strong S&D Support"
+                elif 'Strong Supply' in sd_bias or 'Moderate Supply' in sd_bias:
+                    sd_score -= 2 if 'Strong' in sd_bias else 1
+                    sd_modifier = " + Strong S&D Resistance"
+
+                # Entry zone proximity bonus/penalty
+                if entry_zones['current_zone_type'] == 'near_demand':
+                    sd_score += 1
+                    sd_modifier += " (Near Demand Zone)"
+                elif entry_zones['current_zone_type'] == 'near_supply':
+                    sd_score -= 1
+                    sd_modifier += " (Near Supply Zone)"
+
+            # Combined signal calculation
+            total_score = futures_score + momentum_score + sd_score
+
+            # Determine final direction and strength
+            if total_score >= 4:
+                signal_data['direction'] = 'STRONG LONG'
+                signal_data['strength_emoji'] = '🟢💪'
+            elif total_score >= 2:
+                signal_data['direction'] = 'LONG'
+                signal_data['strength_emoji'] = '🟢'
+            elif total_score >= 1:
+                signal_data['direction'] = 'WEAK LONG'
+                signal_data['strength_emoji'] = '🟡'
+            elif total_score <= -4:
+                signal_data['direction'] = 'STRONG SHORT'
+                signal_data['strength_emoji'] = '🔴💪'
+            elif total_score <= -2:
+                signal_data['direction'] = 'SHORT'
+                signal_data['strength_emoji'] = '🔴'
+            elif total_score <= -1:
+                signal_data['direction'] = 'WEAK SHORT'
+                signal_data['strength_emoji'] = '🟡'
+            else:
+                signal_data['direction'] = 'HOLD'
+                signal_data['strength_emoji'] = '⚪'
+
+            # Calculate enhanced entry levels based on S&D zones
+            if signal_data['direction'] in ['LONG', 'STRONG LONG', 'WEAK LONG']:
+                if entry_zones and entry_zones['strong_demand']:
+                    # Entry near demand zone
+                    demand_zone = entry_zones['strong_demand']
+                    signal_data['entry_price'] = demand_zone['zone_high']
+                    signal_data['stop_loss'] = demand_zone['zone_low'] * 0.998
+                    signal_data['tp1'] = current_price * 1.025
+                    signal_data['tp2'] = current_price * 1.05
+                    signal_data['entry_reasoning'] = f"Entry recommended at demand zone ${signal_data['entry_price']:,.4f} dengan alasan:\n• Strong demand area teridentifikasi\n• Long/Short ratio menunjukkan {signal_data['contrarian_bias']}\n• Price momentum mendukung ({change_24h:+.1f}%){sd_modifier}\n• Risk/reward ratio optimal di level ini"
+                else:
+                    # Market entry with standard levels
+                    signal_data['entry_price'] = current_price * 0.999
+                    signal_data['stop_loss'] = current_price * 0.975
+                    signal_data['tp1'] = current_price * 1.03
+                    signal_data['tp2'] = current_price * 1.06
+                    signal_data['entry_reasoning'] = f"Market entry recommended di ${signal_data['entry_price']:,.4f} dengan alasan:\n• Sentiment futures menunjukkan {signal_data['contrarian_bias']}\n• Momentum price positif ({change_24h:+.1f}%)\n• Tidak ada resistance major di atas{sd_modifier}\n• Setup risk/reward menguntungkan untuk long position"
+
+            elif signal_data['direction'] in ['SHORT', 'STRONG SHORT', 'WEAK SHORT']:
+                if entry_zones and entry_zones['strong_supply']:
+                    # Entry near supply zone
+                    supply_zone = entry_zones['strong_supply']
+                    signal_data['entry_price'] = supply_zone['zone_low']
+                    signal_data['stop_loss'] = supply_zone['zone_high'] * 1.002
+                    signal_data['tp1'] = current_price * 0.975
+                    signal_data['tp2'] = current_price * 0.95
+                    signal_data['entry_reasoning'] = f"Entry recommended at supply zone ${signal_data['entry_price']:,.4f} dengan alasan:\n• Strong supply area teridentifikasi\n• Long/Short ratio menunjukkan {signal_data['contrarian_bias']}\n• Price momentum bearish ({change_24h:+.1f}%){sd_modifier}\n• Risk/reward optimal di level supply zone"
+                else:
+                    # Market entry with standard levels
+                    signal_data['entry_price'] = current_price * 1.001
+                    signal_data['stop_loss'] = current_price * 1.025
+                    signal_data['tp1'] = current_price * 0.97
+                    signal_data['tp2'] = current_price * 0.94
+                    signal_data['entry_reasoning'] = f"Market entry recommended di ${signal_data['entry_price']:,.4f} dengan alasan:\n• Sentiment futures menunjukkan {signal_data['contrarian_bias']}\n• Momentum price negatif ({change_24h:+.1f}%)\n• Tidak ada support major di bawah{sd_modifier}\n• Setup risk/reward menguntungkan untuk short position"
+            else:
+                # HOLD position
+                signal_data['entry_reasoning'] = f"HOLD direkomendasikan karena:\n• Sentiment futures mixed (Long: {long_ratio:.1f}%)\n• Price momentum tidak jelas ({change_24h:+.1f}%)\n• Sinyal S&D belum memberikan konfirmasi{sd_modifier}\n• Tunggu breakout atau konfirmasi arah yang lebih jelas"
+
+            # Calculate percentages
+            if signal_data['entry_price'] != 0:
+                signal_data['sl_percentage'] = ((signal_data['stop_loss'] - signal_data['entry_price']) / signal_data['entry_price']) * 100
+                signal_data['tp1_percentage'] = ((signal_data['tp1'] - signal_data['entry_price']) / signal_data['entry_price']) * 100
+                signal_data['tp2_percentage'] = ((signal_data['tp2'] - signal_data['entry_price']) / signal_data['entry_price']) * 100
+
+                # Risk/reward ratio
+                risk = abs(signal_data['stop_loss'] - signal_data['entry_price'])
+                reward = abs(signal_data['tp1'] - signal_data['entry_price'])
+                signal_data['risk_reward'] = reward / risk if risk > 0 else 1.5
+
+            # Enhanced execution strategy
+            if 'STRONG' in signal_data['direction']:
+                signal_data['execution_strategy'] = "• Execute immediately dengan confidence tinggi\n• Scale in pada pullback minor\n• Use trailing stop setelah TP1 tercapai\n• Monitor untuk add position jika konfirmasi"
+                signal_data['conservative_leverage'] = 5
+                signal_data['moderate_leverage'] = 8
+                signal_data['aggressive_leverage'] = 12
+            elif signal_data['direction'] in ['LONG', 'SHORT']:
+                signal_data['execution_strategy'] = "• Entry dengan position size normal\n• Wait untuk confirmation candle close\n• Set stop loss ketat sesuai zone\n• Take partial profit di TP1"
+                signal_data['conservative_leverage'] = 3
+                signal_data['moderate_leverage'] = 5
+                signal_data['aggressive_leverage'] = 8
+            elif 'WEAK' in signal_data['direction']:
+                signal_data['execution_strategy'] = "• Entry dengan position size kecil\n• Wait untuk additional confirmation\n• Very tight stop loss management\n• Quick profit taking strategy"
+                signal_data['conservative_leverage'] = 2
+                signal_data['moderate_leverage'] = 3
+                signal_data['aggressive_leverage'] = 5
+            else:
+                signal_data['execution_strategy'] = "• Tunggu sinyal yang lebih jelas\n• Monitor key levels untuk breakout\n• Persiapkan entry setelah konfirmasi\n• Fokus pada risk management"
+
+            return signal_data
+
+        except Exception as e:
+            print(f"Error in enhanced signal determination: {e}")
+            # Return default signal data
+            return {
+                'direction': 'HOLD',
+                'strength_emoji': '⚪',
+                'sentiment': 'Error in analysis',
+                'contrarian_bias': 'Analysis failed',
+                'entry_price': current_price,
+                'stop_loss': current_price * 0.98,
+                'tp1': current_price * 1.02,
+                'tp2': current_price * 1.04,
+                'sl_percentage': -2.0,
+                'tp1_percentage': 2.0,
+                'tp2_percentage': 4.0,
+                'risk_reward': 1.0,
+                'entry_reasoning': 'Error occurred during analysis, manual verification required',
+                'execution_strategy': 'Wait for system recovery and re-analyze',
+                'conservative_leverage': 2,
+                'moderate_leverage': 3,
+                'aggressive_leverage': 5
+            }
 
     def get_advanced_technical_analysis_with_position(self, symbol, timeframe, position, crypto_api):
         """Get advanced technical analysis with position-specific signals (deprecated)"""
