@@ -1281,19 +1281,19 @@ Futures trading is high risk!"""
             signal_type = "HOLD"
             signal_emoji = "⚪"
 
-        # Calculate entry, TP, SL
+        # Calculate entry, TP, SL with 1:2 risk/reward ratio
         entry_price = price
         if "LONG" in signal_type:
-            tp_price = price * 1.03  # 3% profit target
-            sl_price = price * 0.98  # 2% stop loss
+            sl_price = price * 0.985   # 1.5% stop loss (tighter)
+            tp_price = price * 1.03    # 3% profit target (1:2 RR)
             reasoning = f"Bullish momentum + good fundamentals"
         elif "SHORT" in signal_type:
-            tp_price = price * 0.97  # 3% profit target
-            sl_price = price * 1.02  # 2% stop loss
+            sl_price = price * 1.015   # 1.5% stop loss (tighter)
+            tp_price = price * 0.97    # 3% profit target (1:2 RR)
             reasoning = f"Bearish sentiment + overleverage risk"
         else:
-            tp_price = price * 1.02
-            sl_price = price * 0.98
+            sl_price = price * 0.985   # Conservative SL
+            tp_price = price * 1.03    # Conservative TP
             reasoning = f"Mixed signals, wait for clarity"
 
         return {
@@ -2860,15 +2860,15 @@ Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
                     demand_zone = entry_zones['strong_demand']
                     signal_data['entry_price'] = demand_zone['zone_high']
                     signal_data['stop_loss'] = demand_zone['zone_low'] * 0.998
-                    signal_data['tp1'] = current_price * 1.025
-                    signal_data['tp2'] = current_price * 1.05
+                    signal_data['tp1'] = signal_data['entry_price'] * 1.03   # 3% TP1 (1:2 RR)
+                    signal_data['tp2'] = signal_data['entry_price'] * 1.045  # 4.5% TP2 (1:3 RR)
                     signal_data['entry_reasoning'] = f"Entry recommended at demand zone ${signal_data['entry_price']:,.4f} dengan alasan:\n• Strong demand area teridentifikasi\n• Long/Short ratio menunjukkan {signal_data['contrarian_bias']}\n• Price momentum mendukung ({change_24h:+.1f}%){sd_modifier}\n• Risk/reward ratio optimal di level ini"
                 else:
                     # Market entry with standard levels
                     signal_data['entry_price'] = current_price * 0.999
-                    signal_data['stop_loss'] = current_price * 0.975
-                    signal_data['tp1'] = current_price * 1.03
-                    signal_data['tp2'] = current_price * 1.06
+                    signal_data['stop_loss'] = current_price * 0.985  # 1.5% SL
+                    signal_data['tp1'] = current_price * 1.03         # 3% TP1 (1:2 RR)
+                    signal_data['tp2'] = current_price * 1.045        # 4.5% TP2 (1:3 RR)
                     signal_data['entry_reasoning'] = f"Market entry recommended di ${signal_data['entry_price']:,.4f} dengan alasan:\n• Sentiment futures menunjukkan {signal_data['contrarian_bias']}\n• Momentum price positif ({change_24h:+.1f}%)\n• Tidak ada resistance major di atas{sd_modifier}\n• Setup risk/reward menguntungkan untuk long position"
 
             elif signal_data['direction'] in ['SHORT', 'STRONG SHORT', 'WEAK SHORT']:
@@ -2877,15 +2877,15 @@ Silakan coba lagi dalam beberapa menit atau pilih timeframe lain."""
                     supply_zone = entry_zones['strong_supply']
                     signal_data['entry_price'] = supply_zone['zone_low']
                     signal_data['stop_loss'] = supply_zone['zone_high'] * 1.002
-                    signal_data['tp1'] = current_price * 0.975
-                    signal_data['tp2'] = current_price * 0.95
+                    signal_data['tp1'] = signal_data['entry_price'] * 0.97   # 3% TP1 (1:2 RR)
+                    signal_data['tp2'] = signal_data['entry_price'] * 0.955  # 4.5% TP2 (1:3 RR)
                     signal_data['entry_reasoning'] = f"Entry recommended at supply zone ${signal_data['entry_price']:,.4f} dengan alasan:\n• Strong supply area teridentifikasi\n• Long/Short ratio menunjukkan {signal_data['contrarian_bias']}\n• Price momentum bearish ({change_24h:+.1f}%){sd_modifier}\n• Risk/reward optimal di level supply zone"
                 else:
                     # Market entry with standard levels
                     signal_data['entry_price'] = current_price * 1.001
-                    signal_data['stop_loss'] = current_price * 1.025
-                    signal_data['tp1'] = current_price * 0.97
-                    signal_data['tp2'] = current_price * 0.94
+                    signal_data['stop_loss'] = current_price * 1.015  # 1.5% SL
+                    signal_data['tp1'] = current_price * 0.97         # 3% TP1 (1:2 RR)
+                    signal_data['tp2'] = current_price * 0.955        # 4.5% TP2 (1:3 RR)
                     signal_data['entry_reasoning'] = f"Market entry recommended di ${signal_data['entry_price']:,.4f} dengan alasan:\n• Sentiment futures menunjukkan {signal_data['contrarian_bias']}\n• Momentum price negatif ({change_24h:+.1f}%)\n• Tidak ada support major di bawah{sd_modifier}\n• Setup risk/reward menguntungkan untuk short position"
             else:
                 # HOLD position
