@@ -40,6 +40,7 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
+from signal_monitor import get_signal_monitor
 
 class TelegramBot:
     def __init__(self):
@@ -58,6 +59,9 @@ class TelegramBot:
         self.db = Database()
         self.crypto_api = CryptoAPI()
         self.ai = AIAssistant()
+
+        # Initialize signal monitor
+        self.signal_monitor = get_signal_monitor(self.token)
 
         # Initialize broadcast system
         self.pending_broadcast = None
@@ -121,6 +125,8 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("signal_status", self.signal_status_command))
+            self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -136,6 +142,11 @@ class TelegramBot:
 
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
+            
+            # Start signal monitor for admin and lifetime users
+            asyncio.create_task(self.signal_monitor.start_monitoring())
+            print("🔔 Signal Monitor started for admin & lifetime users")
+            
             await self.application.run_polling(
                 drop_pending_updates=True,  # Drop old updates on start
                 pool_timeout=60,           # Longer pool timeout for deployment
@@ -498,6 +509,11 @@ class TelegramBot:
 - `/analyze eth` untuk analisis fundamental + technical
 - Premium = unlimited access semua fitur
 - Referral FREE = bonus credit, PREMIUM = uang asli
+
+🔔 **Auto Signal (Admin & Lifetime)**:
+- Notifikasi otomatis untuk coin berpotensi tinggi
+- Berdasarkan analisis Supply & Demand real-time
+- Monitoring 24/7 untuk 10 major cryptocurrencies
 
 🚀 **Semua analisis menggunakan data real-time dari Binance & CoinGecko API!**"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -2486,6 +2502,74 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
 
 📊 **CoinGecko API:** {'✅ Online' if api_status.get('coingecko', False) else '❌ Offline'}
 🔮 **Coinglass API:** {'✅ Online' if api_status.get('coinglass', False) else '❌ Offline'}
+
+    async def signal_status_command(self, update: Update, context: CallbackContext):
+        """Check signal monitor status (Admin only)"""
+        user_id = update.message.from_user.id
+        
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Command ini hanya untuk admin!")
+            return
+        
+        try:
+            eligible_users = self.signal_monitor.get_eligible_users()
+            
+            # Get recent signals
+            recent_signals = []
+            for symbol, last_time in self.signal_monitor.last_signals.items():
+                time_ago = datetime.now() - last_time
+                minutes_ago = int(time_ago.total_seconds() / 60)
+                recent_signals.append(f"• {symbol}: {minutes_ago} menit yang lalu")
+            
+            status_message = f"""🔔 **STATUS SIGNAL MONITOR**
+
+👥 **Eligible Users**: {len(eligible_users)} users
+• Admin: {'✅' if self.admin_id in eligible_users else '❌'}
+• Lifetime Users: {len(eligible_users) - (1 if self.admin_id in eligible_users else 0)}
+
+📊 **Monitored Symbols**: {len(self.signal_monitor.monitored_symbols)}
+{', '.join(self.signal_monitor.monitored_symbols)}
+
+⚡ **Signal Threshold**: {self.signal_monitor.signal_threshold}/10
+🕐 **Cooldown**: {self.signal_monitor.signal_cooldown/60:.0f} menit
+
+📈 **Recent Signals** ({len(recent_signals)}):
+{chr(10).join(recent_signals) if recent_signals else '• Belum ada sinyal hari ini'}
+
+🔄 **Status**: {'🟢 AKTIF' if hasattr(self.signal_monitor, '_running') else '🟡 STARTING'}"""
+
+            await update.message.reply_text(status_message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error checking signal status: {str(e)}")
+
+    async def toggle_signals_command(self, update: Update, context: CallbackContext):
+        """Toggle signal notifications for user"""
+        user_id = update.message.from_user.id
+        
+        # Check if user is eligible (admin or lifetime)
+        if user_id != self.admin_id and not self.db.is_user_premium(user_id):
+            await update.message.reply_text("❌ Fitur ini hanya untuk admin dan user lifetime premium!")
+            return
+        
+        # For now, just show status (can be extended to toggle)
+        is_eligible = user_id in self.signal_monitor.get_eligible_users()
+        
+        message = f"""🔔 **SIGNAL NOTIFICATIONS**
+
+👤 **User**: {update.message.from_user.first_name}
+📊 **Status**: {'🟢 AKTIF' if is_eligible else '🔴 TIDAK AKTIF'}
+
+💡 **Info**:
+• Signal otomatis dikirim untuk coin dengan skor S&D ≥ {self.signal_monitor.signal_threshold}
+• Cooldown {self.signal_monitor.signal_cooldown/60:.0f} menit per symbol
+• Monitoring 24/7 untuk {len(self.signal_monitor.monitored_symbols)} symbols
+
+🎯 **Symbols Monitored**:
+{', '.join(self.signal_monitor.monitored_symbols)}"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
 📰 **News API:** {'✅ Online' if api_status.get('news', False) else '❌ Offline'}
 
 🔄 **Last Check:** {datetime.now().strftime('%H:%M:%S')}
