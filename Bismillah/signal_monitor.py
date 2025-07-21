@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from database import Database
 from crypto_api import CryptoAPI
@@ -16,20 +17,74 @@ class SignalMonitor:
         self.ai = AIAssistant()
         self.admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
         
-        # Symbols to monitor
-        self.monitored_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'AVAX', 'LINK', 'MATIC', 'DOGE']
+        # Get all available symbols from Binance
+        self.monitored_symbols = self._get_all_tradeable_symbols()
+        
+        # Fallback symbols if API fails
+        self.fallback_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'AVAX', 'LINK', 'MATIC', 'DOGE',
+                                'DOT', 'UNI', 'ATOM', 'FIL', 'LTC', 'BCH', 'XLM', 'VET', 'THETA', 'TRX',
+                                'EOS', 'AAVE', 'COMP', 'MKR', 'SNX', 'YFI', 'SUSHI', 'BAT', 'ZRX', 'CRV',
+                                'KNC', 'REN', 'LRC', 'OMG', 'ANT', 'REP', 'STORJ', 'GRT', '1INCH', 'ALPHA']
         
         # Signal thresholds
         self.signal_threshold = 7.5  # Score >= 7.5 considered strong signal
         self.last_signals = {}  # Track last signals to avoid spam
         self.signal_cooldown = 3600  # 1 hour cooldown per symbol
         
+    def _get_all_tradeable_symbols(self):
+        """Get all tradeable USDT pairs from Binance"""
+        try:
+            import requests
+            
+            # Get all Binance futures symbols
+            response = requests.get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                symbols = []
+                
+                for symbol_info in data.get('symbols', []):
+                    symbol = symbol_info.get('symbol', '')
+                    status = symbol_info.get('status', '')
+                    
+                    # Only include active USDT perpetual contracts
+                    if (symbol.endswith('USDT') and 
+                        status == 'TRADING' and
+                        symbol_info.get('contractType') == 'PERPETUAL'):
+                        
+                        # Extract base symbol (remove USDT)
+                        base_symbol = symbol.replace('USDT', '')
+                        
+                        # Filter out very small/inactive coins by checking volume
+                        # This will be done in the scanning process
+                        symbols.append(base_symbol)
+                
+                print(f"📡 Found {len(symbols)} tradeable symbols from Binance")
+                return symbols[:200]  # Limit to first 200 to avoid overwhelming
+            else:
+                print("⚠️ Failed to fetch symbols, using fallback list")
+                return self.fallback_symbols
+                
+        except Exception as e:
+            print(f"❌ Error fetching symbols: {e}, using fallback list")
+            return self.fallback_symbols
+
     async def start_monitoring(self):
         """Start the signal monitoring system"""
-        print("🔄 Starting Signal Monitor for Admin & Lifetime Users...")
+        print(f"🔄 Starting Enhanced Signal Monitor for {len(self.monitored_symbols)} symbols...")
+        print(f"👥 Monitoring for Admin & Lifetime Users...")
+        
+        # Refresh symbols list every hour
+        last_symbol_refresh = 0
         
         while True:
             try:
+                # Refresh symbols list every hour
+                current_time = time.time()
+                if current_time - last_symbol_refresh > 3600:  # 1 hour
+                    print("🔄 Refreshing symbols list...")
+                    self.monitored_symbols = self._get_all_tradeable_symbols()
+                    last_symbol_refresh = current_time
+                
                 await self.scan_for_signals()
                 await asyncio.sleep(300)  # Check every 5 minutes
             except Exception as e:
@@ -37,33 +92,69 @@ class SignalMonitor:
                 await asyncio.sleep(60)  # Wait 1 minute on error
     
     async def scan_for_signals(self):
-        """Scan all monitored symbols for trading signals"""
+        """Scan all monitored symbols for trading signals with volume filtering"""
         print(f"🔍 Scanning {len(self.monitored_symbols)} symbols for signals...")
         
-        for symbol in self.monitored_symbols:
-            try:
-                # Check if we recently sent signal for this symbol
-                if self.is_on_cooldown(symbol):
+        signals_found = 0
+        symbols_processed = 0
+        
+        # Process symbols in batches to avoid overwhelming the system
+        batch_size = 20
+        
+        for i in range(0, len(self.monitored_symbols), batch_size):
+            batch = self.monitored_symbols[i:i+batch_size]
+            
+            for symbol in batch:
+                try:
+                    symbols_processed += 1
+                    
+                    # Check if we recently sent signal for this symbol
+                    if self.is_on_cooldown(symbol):
+                        continue
+                    
+                    # Quick volume filter - only analyze coins with decent volume
+                    price_data = self.crypto_api.get_binance_price(symbol)
+                    if 'error' in price_data:
+                        continue
+                    
+                    volume_24h = price_data.get('volume_24h', 0)
+                    price = price_data.get('price', 0)
+                    change_24h = abs(price_data.get('change_24h', 0))
+                    
+                    # Skip coins with very low volume or extremely volatile moves (likely errors)
+                    if (volume_24h < 1000000 or  # Less than 1M volume
+                        price <= 0 or
+                        change_24h > 50):  # More than 50% change (likely error)
+                        continue
+                    
+                    # Analyze supply & demand for qualifying symbols
+                    sd_analysis = self.crypto_api.analyze_supply_demand(symbol)
+                    
+                    if 'error' in sd_analysis:
+                        continue
+                    
+                    # Check if signal meets threshold
+                    sd_score = sd_analysis.get('supply_demand_score', {})
+                    overall_score = sd_score.get('score', 0)
+                    
+                    # More sophisticated scoring that includes volume and market cap consideration
+                    volume_score_multiplier = min(volume_24h / 10000000, 2.0)  # Max 2x multiplier
+                    adjusted_score = overall_score * volume_score_multiplier
+                    
+                    if adjusted_score >= self.signal_threshold:
+                        await self.send_signal_notification(symbol, sd_analysis, volume_24h, price)
+                        self.last_signals[symbol] = datetime.now()
+                        signals_found += 1
+                        print(f"✅ Signal sent for {symbol} (Score: {overall_score:.1f}, Adj: {adjusted_score:.1f}, Vol: ${volume_24h:,.0f})")
+                
+                except Exception as e:
+                    print(f"⚠️ Error analyzing {symbol}: {e}")
                     continue
-                
-                # Analyze supply & demand
-                sd_analysis = self.crypto_api.analyze_supply_demand(symbol)
-                
-                if 'error' in sd_analysis:
-                    continue
-                
-                # Check if signal meets threshold
-                sd_score = sd_analysis.get('supply_demand_score', {})
-                overall_score = sd_score.get('overall_score', 0)
-                
-                if overall_score >= self.signal_threshold:
-                    await self.send_signal_notification(symbol, sd_analysis)
-                    self.last_signals[symbol] = datetime.now()
-                    print(f"✅ Signal sent for {symbol} (Score: {overall_score:.1f})")
-                
-            except Exception as e:
-                print(f"⚠️ Error analyzing {symbol}: {e}")
-                continue
+            
+            # Small delay between batches to prevent rate limiting
+            await asyncio.sleep(1)
+        
+        print(f"📊 Scan complete: {symbols_processed} processed, {signals_found} signals found")
     
     def is_on_cooldown(self, symbol):
         """Check if symbol is on cooldown"""
@@ -73,16 +164,17 @@ class SignalMonitor:
         time_diff = datetime.now() - self.last_signals[symbol]
         return time_diff.total_seconds() < self.signal_cooldown
     
-    async def send_signal_notification(self, symbol, sd_analysis):
+    async def send_signal_notification(self, symbol, sd_analysis, volume_24h=0, current_price=0):
         """Send signal notification to admin and lifetime users"""
         try:
             # Get eligible users (admin + lifetime premium)
             eligible_users = self.get_eligible_users()
             
-            # Generate signal message
-            signal_message = self.format_signal_message(symbol, sd_analysis)
+            # Generate enhanced signal message
+            signal_message = self.format_signal_message(symbol, sd_analysis, volume_24h, current_price)
             
             # Send to eligible users
+            sent_count = 0
             for user_id in eligible_users:
                 try:
                     await self.bot.send_message(
@@ -90,11 +182,12 @@ class SignalMonitor:
                         text=signal_message,
                         parse_mode='Markdown'
                     )
+                    sent_count += 1
                     await asyncio.sleep(0.1)  # Rate limiting
                 except Exception as e:
                     print(f"⚠️ Failed to send signal to {user_id}: {e}")
             
-            print(f"📤 Signal notification sent to {len(eligible_users)} users")
+            print(f"📤 Enhanced signal notification sent to {sent_count}/{len(eligible_users)} users")
             
         except Exception as e:
             print(f"❌ Error sending signal notification: {e}")
@@ -127,58 +220,80 @@ class SignalMonitor:
             print(f"❌ Error getting eligible users: {e}")
             return []
     
-    def format_signal_message(self, symbol, sd_analysis):
-        """Format signal message for notification"""
+    def format_signal_message(self, symbol, sd_analysis, volume_24h=0, current_price=0):
+        """Format enhanced signal message for notification"""
         try:
-            current_price = sd_analysis.get('current_price', 0)
+            price = sd_analysis.get('current_price', current_price)
             sd_score = sd_analysis.get('supply_demand_score', {})
             entry_rec = sd_analysis.get('entry_recommendation', {})
             
-            overall_score = sd_score.get('overall_score', 0)
-            signal_strength = sd_score.get('signal_strength', 'Unknown')
+            overall_score = sd_score.get('score', 0)
+            signal_strength = sd_score.get('confidence', 'Medium')
+            bias = sd_score.get('bias', 'Balanced')
             
-            entry_price = entry_rec.get('entry_price', 0)
-            entry_reason = entry_rec.get('reason', 'No specific reason')
-            stop_loss = entry_rec.get('stop_loss', 0)
-            target_1 = entry_rec.get('targets', [0])[0] if entry_rec.get('targets') else 0
+            # Get entry recommendation
+            primary_rec = entry_rec.get('primary_recommendation', {})
+            entry_price = primary_rec.get('entry_price', price)
+            stop_loss = primary_rec.get('stop_loss', price * 0.98)
+            take_profit = primary_rec.get('take_profit', price * 1.02)
+            direction = primary_rec.get('direction', 'HOLD')
             
-            # Determine signal emoji
-            if overall_score >= 9:
+            # Determine signal emoji and strength
+            if overall_score >= 80:
                 signal_emoji = "🚀"
                 strength_text = "SANGAT KUAT"
-            elif overall_score >= 8:
+            elif overall_score >= 70:
                 signal_emoji = "🔥"
                 strength_text = "KUAT"
-            else:
+            elif overall_score >= 60:
                 signal_emoji = "⚡"
                 strength_text = "BAGUS"
+            else:
+                signal_emoji = "🔔"
+                strength_text = "MODERATE"
             
-            message = f"""{signal_emoji} **SINYAL OTOMATIS - {symbol}**
+            # Format volume display
+            if volume_24h >= 1000000000:  # 1B+
+                volume_display = f"${volume_24h/1000000000:.1f}B"
+            elif volume_24h >= 1000000:  # 1M+
+                volume_display = f"${volume_24h/1000000:.1f}M"
+            else:
+                volume_display = f"${volume_24h:,.0f}"
+            
+            # Market cap estimation (rough)
+            market_tier = "🟢 Large Cap" if volume_24h > 100000000 else "🟡 Mid Cap" if volume_24h > 10000000 else "🔴 Small Cap"
+            
+            message = f"""{signal_emoji} **SINYAL AUTO - {symbol}** ({market_tier})
 
-💰 **Harga Saat Ini**: ${current_price:,.2f}
-📊 **Skor S&D**: {overall_score:.1f}/10 ({strength_text})
+💰 **Market Data:**
+• Harga: ${price:,.4f}
+• Volume 24h: {volume_display}
+• S&D Score: {overall_score:.0f}/100 ({strength_text})
+• Bias: {bias}
 
-🎯 **Rekomendasi Entry:**
-• **Entry Price**: ${entry_price:,.2f}
-• **Stop Loss**: ${stop_loss:,.2f}
-• **Target 1**: ${target_1:,.2f}
+🎯 **Trading Setup:**
+• **Direction**: {direction}
+• **Entry**: ${entry_price:,.4f}
+• **Stop Loss**: ${stop_loss:,.4f}
+• **Take Profit**: ${take_profit:,.4f}
 
-💡 **Alasan Entry:**
-{entry_reason}
+💡 **AI Reasoning:**
+{primary_rec.get('logic', 'Supply/demand analysis menunjukkan peluang trading yang baik')}
 
-⏰ **Waktu**: {datetime.now().strftime('%H:%M:%S WIB')}
-🤖 **Auto Signal**: Supply & Demand Analysis
+⏰ **Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+🤖 **Auto Scanner**: Enhanced All-Coins Monitor
 
-⚠️ **Risk Management**:
-- Gunakan position sizing yang tepat
-- Patuhi stop loss yang diberikan
-- DYOR sebelum trading"""
+⚠️ **Risk Warning:**
+- Position size maksimal 2% dari portfolio
+- Selalu gunakan stop loss
+- Coin kecil = volatilitas tinggi
+- DYOR sebelum entry!"""
 
             return message
             
         except Exception as e:
-            print(f"❌ Error formatting signal message: {e}")
-            return f"🚨 Signal Alert: {symbol} shows strong potential. Check manually for details."
+            print(f"❌ Error formatting enhanced signal message: {e}")
+            return f"🚨 Enhanced Signal Alert: {symbol} menunjukkan potensi kuat dari analisis supply/demand otomatis. Volume 24h: ${volume_24h:,.0f}. Check manual untuk detail lengkap."
 
 # Singleton instance
 signal_monitor = None

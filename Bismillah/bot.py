@@ -2527,7 +2527,17 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
 • Admin: {'✅' if self.admin_id in eligible_users else '❌'}
 • Lifetime Users: {len(eligible_users) - (1 if self.admin_id in eligible_users else 0)}
 
-📊 **Monitored Symbols**: {len(self.signal_monitor.monitored_symbols)}
+📊 **Monitored Symbols**: {len(self.signal_monitor.monitored_symbols)} coins
+• Signal Threshold: {self.signal_monitor.signal_threshold}/10
+• Cooldown Period: {self.signal_monitor.signal_cooldown/60:.0f} minutes
+
+📈 **Recent Signals:**
+{chr(10).join(recent_signals) if recent_signals else '• No recent signals'}
+
+🔄 **System Status**: {'✅ Active' if hasattr(self.signal_monitor, 'monitored_symbols') else '❌ Inactive'}
+💡 **Coverage**: All tradeable USDT pairs on Binance
+
+⚠️ **Note**: System now monitors ALL coins with minimum volume filter"""ed_symbols)}
 {', '.join(self.signal_monitor.monitored_symbols)}
 
 ⚡ **Signal Threshold**: {self.signal_monitor.signal_threshold}/10
