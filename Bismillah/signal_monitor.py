@@ -327,26 +327,8 @@ class AutoSignalMonitor:
     def _get_eligible_users(self):
         """Get users eligible for auto signals (admin + premium lifetime)"""
         try:
-            eligible_users = []
-            
-            # Add admin
-            if self.admin_id > 0:
-                eligible_users.append(self.admin_id)
-            
-            # Get premium lifetime users
-            self.db.cursor.execute("""
-                SELECT telegram_id FROM users 
-                WHERE is_premium = 1 
-                AND (subscription_end IS NULL OR subscription_end = '')
-                AND telegram_id IS NOT NULL 
-                AND telegram_id != 0
-            """)
-            
-            premium_users = self.db.cursor.fetchall()
-            for user in premium_users:
-                user_id = user[0]
-                if user_id != self.admin_id:  # Avoid duplicate admin
-                    eligible_users.append(user_id)
+            # Use database method for getting eligible users
+            eligible_users = self.db.get_auto_signal_eligible_users()
             
             print(f"👥 Found {len(eligible_users)} eligible users for auto signals")
             return eligible_users
