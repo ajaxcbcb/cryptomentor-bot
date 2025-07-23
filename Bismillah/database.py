@@ -954,6 +954,90 @@ class Database:
             print(f"❌ Database health check failed: {e}")
             return False
 
+    def is_user_admin(self, telegram_id):
+        """Check if user is admin"""
+        try:
+            admin_id = int(self.get_admin_id())
+            return telegram_id == admin_id
+        except Exception as e:
+            print(f"Error checking admin status: {e}")
+            return False
+
+    def is_user_lifetime_premium(self, telegram_id):
+        """Check if user has lifetime premium (no expiration date)"""
+        try:
+            self.cursor.execute("""
+                SELECT is_premium, subscription_end FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                is_premium, sub_end = row
+                # Lifetime premium: is_premium = 1 AND subscription_end is NULL
+                return is_premium == 1 and sub_end is None
+            return False
+        except Exception as e:
+            print(f"DB Error (is_user_lifetime_premium): {e}")
+            return False
+
+    def get_auto_signal_eligible_users(self):
+        """Get users eligible for auto signals (admin + lifetime premium)"""
+        try:
+            eligible_users = []
+            
+            # Add admin
+            admin_id = int(self.get_admin_id())
+            if admin_id > 0:
+                eligible_users.append(admin_id)
+                print(f"👑 Admin eligible for auto signals: {admin_id}")
+            
+            # Get lifetime premium users
+            self.cursor.execute("""
+                SELECT telegram_id, first_name, username FROM users 
+                WHERE is_premium = 1 
+                AND (subscription_end IS NULL OR subscription_end = '')
+                AND telegram_id IS NOT NULL 
+                AND telegram_id != 0
+                AND telegram_id != ?
+            """, (admin_id,))
+            
+            lifetime_users = self.cursor.fetchall()
+            for user in lifetime_users:
+                user_id, first_name, username = user
+                eligible_users.append(user_id)
+                print(f"💎 Lifetime premium user eligible: {user_id} ({first_name})")
+            
+            print(f"✅ Total eligible users for auto signals: {len(eligible_users)}")
+            return eligible_users
+            
+        except Exception as e:
+            print(f"❌ Error getting auto signal eligible users: {e}")
+            return []
+
+    def validate_user_privileges(self, telegram_id):
+        """Validate user privileges and return status"""
+        try:
+            is_admin = self.is_user_admin(telegram_id)
+            is_premium = self.is_user_premium(telegram_id)
+            is_lifetime = self.is_user_lifetime_premium(telegram_id)
+            credits = self.get_user_credits(telegram_id)
+            
+            return {
+                'is_admin': is_admin,
+                'is_premium': is_premium, 
+                'is_lifetime': is_lifetime,
+                'credits': credits,
+                'auto_signals_eligible': is_admin or is_lifetime
+            }
+        except Exception as e:
+            print(f"Error validating user privileges: {e}")
+            return {
+                'is_admin': False,
+                'is_premium': False,
+                'is_lifetime': False,
+                'credits': 0,
+                'auto_signals_eligible': False
+            }
+
     def close(self):
         """Close database connection with final backup"""
         try:
