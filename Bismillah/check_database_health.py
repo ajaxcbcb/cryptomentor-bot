@@ -15,204 +15,98 @@ except ImportError as e:
     print("Make sure database.py exists in the same directory")
     sys.exit(1)
 
+
 def check_database_health():
     """Comprehensive database health check"""
-    print("🔍 CryptoMentor AI - Database Health Check")
+    print("🏥 CryptoMentor AI - Database Health Check")
     print("=" * 50)
 
     try:
-        # Initialize database connection
-        print("📂 Connecting to database...")
+        # Initialize database
         db = Database()
-        print("✅ Database connection successful")
+        print("✅ Database connection established")
 
-        # Check database structure
-        print("\n🏗️ Database Structure:")
-        try:
-            # Check if users table exists and get structure
-            db.cursor.execute("PRAGMA table_info(users)")
-            users_columns = db.cursor.fetchall()
+        # Perform comprehensive health check
+        health_status = db.database_health_check()
 
-            if users_columns:
-                print("✅ Users table exists")
-                print("📋 Columns:", [col[1] for col in users_columns])
-            else:
-                print("❌ Users table missing!")
-                return
+        print("\n📊 Detailed Statistics:")
+        stats = db.get_bot_statistics()
 
-            # Check if user_activity table exists
-            db.cursor.execute("PRAGMA table_info(user_activity)")
-            activity_columns = db.cursor.fetchall()
+        print(f"👥 Total Users: {stats['total_users']}")
+        print(f"⭐ Premium Users: {stats['premium_users']}")
+        print(f"🆓 Free Users: {stats['total_users'] - stats['premium_users']}")
+        print(f"📈 Active Today: {stats['active_today']}")
+        print(f"💳 Total Credits: {stats['total_credits']}")
+        print(f"📊 Average Credits/User: {stats['avg_credits']:.2f}")
+        print(f"⚡ Commands Today: {stats['commands_today']}")
+        print(f"📈 Total Analyses: {stats['analyses_count']}")
 
-            if activity_columns:
-                print("✅ User activity table exists")
-            else:
-                print("⚠️ User activity table missing")
+        # Data integrity checks
+        print("\n🔍 Data Integrity Checks:")
 
-            # Check if portfolio table exists
-            db.cursor.execute("PRAGMA table_info(portfolio)")
-            portfolio_columns = db.cursor.fetchall()
+        # Check for users with invalid telegram_id
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+        invalid_ids = db.cursor.fetchone()[0]
+        print(f"❌ Invalid telegram_id: {invalid_ids}")
 
-            if portfolio_columns:
-                print("✅ Portfolio table exists")
-            else:
-                print("⚠️ Portfolio table missing")
+        # Check for users with negative credits
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
+        negative_credits = db.cursor.fetchone()[0]
+        print(f"➖ Negative credits: {negative_credits}")
 
-        except Exception as e:
-            print(f"❌ Database structure error: {e}")
-
-        # Check data integrity
-        print("\n🔍 Data Integrity Check:")
-        try:
-            # Count total users
-            db.cursor.execute("SELECT COUNT(*) FROM users")
-            total_users = db.cursor.fetchone()[0]
-            print(f"👥 Total users: {total_users}")
-
-            # Check for users with NULL telegram_id
-            db.cursor.execute("SELECT COUNT(*) FROM users WHERE user_id IS NULL OR user_id = ''")
-            null_telegram_id = db.cursor.fetchone()[0]
-
-            # Check for users with NULL credits
-            db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits IS NULL")
-            null_credits = db.cursor.fetchone()[0]
-
-            # Check for users with negative credits
-            db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
-            negative_credits = db.cursor.fetchone()[0]
-
-            # Check for users with zero credits
-            db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits = 0")
-            zero_credits = db.cursor.fetchone()[0]
-
-            # Check premium users
-            db.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
-            premium_users = db.cursor.fetchone()[0]
-
-            # Check expired premium users
-            db.cursor.execute("""
-                SELECT COUNT(*) FROM users 
-                WHERE is_premium = 1 
-                AND subscription_end IS NOT NULL 
-                AND datetime(subscription_end) < datetime('now')
-            """)
-            expired_premium = db.cursor.fetchone()[0]
-
-            print(f"🆔 Users with NULL ID: {null_telegram_id}")
-            print(f"💳 Users with NULL credits: {null_credits}")
-            print(f"❌ Users with negative credits: {negative_credits}")
-            print(f"🔒 Users with zero credits: {zero_credits}")
-            print(f"⭐ Premium users: {premium_users}")
-            print(f"⏰ Expired premium: {expired_premium}")
-
-            # Data quality assessment
-            quality_issues = null_telegram_id + null_credits + negative_credits + expired_premium
-
-            if quality_issues == 0:
-                print("✅ Data integrity: Excellent")
-            elif quality_issues < total_users * 0.05:  # Less than 5% issues
-                print("🟡 Data integrity: Good (minor issues)")
-            else:
-                print("🔴 Data integrity: Poor (significant issues)")
-
-        except Exception as e:
-            print(f"❌ Database operations error: {e}")
-
-        # Memory usage check
-        print("\n💾 Database Performance:")
-        try:
-            db.cursor.execute("PRAGMA page_count")
-            page_count = db.cursor.fetchone()[0]
-
-            db.cursor.execute("PRAGMA page_size")
-            page_size = db.cursor.fetchone()[0]
-
-            total_size = page_count * page_size
-            print(f"📊 Database size: {total_size:,} bytes ({page_count:,} pages)")
-
-            # Check for unused space
-            db.cursor.execute("PRAGMA freelist_count")
-            free_pages = db.cursor.fetchone()[0]
-            if free_pages > page_count * 0.1:  # More than 10% free space
-                print(f"⚠️ High fragmentation: {free_pages} free pages")
-                print("💡 Consider running VACUUM to optimize")
-            else:
-                print("✅ Database fragmentation: Normal")
-
-        except Exception as e:
-            print(f"❌ Error checking performance: {e}")
-
-        # Recommendations
-        print("\n💡 Recommendations:")
-
-        if null_telegram_id > 0:
-            print("• Fix users with NULL telegram_id")
-
-        if null_credits > 0:
-            print("• Fix users with NULL credits")
-
-        if zero_credits > total_users * 0.8:  # More than 80% users have 0 credits
-            print("• Consider credit distribution campaign")
-
-        if expired_premium > 0:
-            print("• Update expired premium users")
-
-        if quality_issues == 0:
-            print("• Database is healthy! 🎉")
-
-        # Close database connection
-        db.conn.close()
-        print("\n✅ Database health check completed")
-
-    except Exception as e:
-        print(f"❌ Critical database error: {e}")
-        print("🔧 Database may need repair or recreation")
-
-def fix_common_issues():
-    """Fix common database issues"""
-    print("\n🔧 Auto-fixing common issues...")
-
-    try:
-        db = Database()
-
-        # Fix NULL credits
-        db.cursor.execute("UPDATE users SET credits = 10 WHERE credits IS NULL")
-        null_credits_fixed = db.cursor.rowcount
-
-        # Fix users with negative credits
-        db.cursor.execute("UPDATE users SET credits = 0 WHERE credits < 0")
-        negative_credits_fixed = db.cursor.rowcount
-
-        # Fix expired premium users
+        # Check for expired premium users still marked as premium
         db.cursor.execute("""
-            UPDATE users SET is_premium = 0 
+            SELECT COUNT(*) FROM users 
             WHERE is_premium = 1 
             AND subscription_end IS NOT NULL 
             AND datetime(subscription_end) < datetime('now')
         """)
-        expired_premium_fixed = db.cursor.rowcount
+        expired_premium = db.cursor.fetchone()[0]
+        print(f"⏰ Expired premium: {expired_premium}")
 
-        db.conn.commit()
+        # Check for orphaned activity records
+        db.cursor.execute("""
+            SELECT COUNT(*) FROM user_activity ua
+            WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.telegram_id = ua.telegram_id)
+        """)
+        orphaned_activities = db.cursor.fetchone()[0]
+        print(f"🔗 Orphaned activities: {orphaned_activities}")
 
-        print(f"✅ Fixed NULL credits: {null_credits_fixed} users")
-        print(f"✅ Fixed negative credits: {negative_credits_fixed} users") 
-        print(f"✅ Fixed expired premium: {expired_premium_fixed} users")
+        # Overall health assessment
+        print("\n🎯 Overall Health Assessment:")
 
-        db.conn.close()
+        issues_found = invalid_ids + negative_credits + expired_premium + orphaned_activities
+
+        if issues_found == 0:
+            print("🟢 DATABASE HEALTHY - No issues detected")
+        elif issues_found <= 5:
+            print("🟡 DATABASE MINOR ISSUES - Some cleanup needed")
+        else:
+            print("🔴 DATABASE NEEDS ATTENTION - Multiple issues found")
+
+        if issues_found > 0:
+            print("\n💡 Recommended Actions:")
+            if invalid_ids > 0:
+                print("• Run database user fix to clean invalid users")
+            if negative_credits > 0:
+                print("• Reset negative credits to 0 or positive values")
+            if expired_premium > 0:
+                print("• Update expired premium users status")
+            if orphaned_activities > 0:
+                print("• Clean orphaned activity records")
+
+            print("\nRun: python fix_database_users.py")
+
+        db.close()
+        print(f"\n✅ Health check completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        return health_status
 
     except Exception as e:
-        print(f"❌ Error during auto-fix: {e}")
+        print(f"❌ Error during health check: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 
 if __name__ == "__main__":
     check_database_health()
-
-    # Ask if user wants to fix issues
-    print("\n" + "="*50)
-    fix_issues = input("🔧 Run auto-fix for common issues? (y/n): ").lower().strip()
-
-    if fix_issues == 'y':
-        fix_common_issues()
-        print("\n🔄 Re-running health check after fixes...")
-        check_database_health()
-    else:
-        print("👋 Health check completed. Run again anytime!")
