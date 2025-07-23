@@ -2,395 +2,429 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
-import random
+from crypto_api import CryptoAPI
+from ai_assistant import AIAssistant
+from database import Database
+import os
 
-class SignalMonitor:
-    def __init__(self, crypto_api, ai_assistant, database, bot_instance):
-        self.crypto_api = crypto_api
-        self.ai_assistant = ai_assistant
-        self.database = database
-        self.bot = bot_instance
-        self.is_running = False
-        self.last_signal_time = {}
-        self.min_signal_interval = 3600  # 1 hour minimum between signals for same coin
+class AutoSignalMonitor:
+    def __init__(self, bot_instance=None):
+        self.crypto_api = CryptoAPI()
+        self.ai = AIAssistant()
+        self.db = Database()
+        self.bot_instance = bot_instance
+        self.admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
         
-        # Extended list of coins to monitor (not just top 10)
-        self.monitored_coins = [
-            'BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'AVAX', 'LINK',
-            'DOT', 'UNI', 'LTC', 'ALGO', 'ATOM', 'FTM', 'NEAR', 'SAND', 'MANA', 'AXS',
-            'CRV', 'SUSHI', 'COMP', 'AAVE', 'MKR', 'SNX', 'YFI', 'RUNE', 'LUNA', 'UST',
-            'CAKE', 'PCS', 'AUTO', 'BAKE', 'TWT', 'SFP', 'LINA', 'DODO', 'ALPACA', 'XVS',
-            'VAI', 'BETH', 'SXP', 'CTK', 'HARD', 'KAVA', 'SWP', 'USDP', 'NFT', 'C98',
-            'ALICE', 'FOR', 'REQ', 'GHST', 'TLM', 'SUPER', 'ICP', 'AR', 'FIL', 'ETC',
-            'THETA', 'VET', 'TRX', 'FTT', 'SHIB', 'CRO', 'LEO', 'WBTC', 'DAI', 'HEX',
-            'BUSD', 'USDC', 'USDT', 'TUSD', 'USDP', 'FRAX', 'GUSD', 'HUSD', 'SUSD',
-            'ONDO', 'SEI', 'PEPE', 'FLOKI', 'WIF', 'BONK', 'JUP', 'PYTH', 'RENDER',
-            'INJ', 'SUI', 'APT', 'OP', 'ARB', 'TIA', 'PENDLE', 'EIGEN', 'HYPERLIQUID'
+        # High confidence symbols to monitor (expanded list)
+        self.symbols_to_monitor = [
+            'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'MATIC',
+            'DOT', 'UNI', 'ATOM', 'LTC', 'BCH', 'ICP', 'NEAR', 'FTM', 'MANA', 'SAND',
+            'APE', 'CRV', 'AAVE', 'COMP', 'SUSHI', 'YFI', 'BAL', 'LRC', 'ENJ', 'CHZ',
+            'FLOW', 'EGLD', 'XTZ', 'ALGO', 'VET', 'ONE', 'HBAR', 'FIL', 'EOS', 'TRX',
+            'THETA', 'KSM', 'WAVES', 'ZIL', 'SC', 'ONT', 'ICX', 'BAT', 'ZRX', 'REN'
         ]
         
-        # Confidence threshold for signals
-        self.min_confidence_score = 7.5  # Only high confidence signals
+        # Signal tracking to avoid spam
+        self.last_signals_sent = {}
+        self.signal_cooldown = 3600  # 1 hour cooldown per symbol
         
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-
+        # Confidence thresholds for auto-sending
+        self.high_confidence_threshold = 8.5  # Score above 8.5/10
+        self.risk_reward_threshold = 2.0  # R/R ratio above 2:1
+        
     async def start_monitoring(self):
-        """Start the automated signal monitoring"""
-        if self.is_running:
-            self.logger.info("Signal monitor already running")
-            return
-            
-        self.is_running = True
-        self.logger.info("🚀 Starting automated signal monitoring for admin and premium lifetime users")
+        """Start the automatic signal monitoring"""
+        print("🚀 Starting Auto Signal Monitor for Admin & Premium Lifetime Users...")
+        print(f"👑 Admin ID: {self.admin_id}")
+        print(f"📊 Monitoring {len(self.symbols_to_monitor)} symbols")
+        print(f"🎯 High Confidence Threshold: {self.high_confidence_threshold}/10")
         
-        while self.is_running:
+        while True:
             try:
-                await self.scan_and_send_signals()
-                # Wait 30 minutes before next scan
-                await asyncio.sleep(1800)  # 30 minutes
+                await self.scan_for_high_confidence_signals()
+                await asyncio.sleep(300)  # Check every 5 minutes
             except Exception as e:
-                self.logger.error(f"Error in signal monitoring loop: {e}")
-                # Wait 5 minutes before retrying if error
-                await asyncio.sleep(300)
-
-    async def stop_monitoring(self):
-        """Stop the automated signal monitoring"""
-        self.is_running = False
-        self.logger.info("🛑 Stopped automated signal monitoring")
-
-    async def scan_and_send_signals(self):
-        """Scan all monitored coins and send high-confidence signals"""
-        self.logger.info(f"🔍 Scanning {len(self.monitored_coins)} coins for high-confidence signals...")
+                print(f"❌ Error in signal monitoring: {e}")
+                await asyncio.sleep(600)  # Wait 10 minutes before retry
+    
+    async def scan_for_high_confidence_signals(self):
+        """Scan all symbols for high confidence trading opportunities"""
+        print(f"🔍 Scanning for high confidence signals... {datetime.now().strftime('%H:%M:%S')}")
         
         high_confidence_signals = []
         
-        # Randomly shuffle coins to distribute API load
-        coins_to_scan = self.monitored_coins.copy()
-        random.shuffle(coins_to_scan)
-        
-        # Scan first 30 coins each cycle to manage API limits
-        for symbol in coins_to_scan[:30]:
+        for symbol in self.symbols_to_monitor:
             try:
-                # Check if enough time has passed since last signal for this coin
-                if self._should_skip_coin(symbol):
+                # Check cooldown
+                if self._is_symbol_in_cooldown(symbol):
                     continue
                 
-                signal_data = await self._analyze_coin_for_signal(symbol)
+                # Get comprehensive analysis
+                signal_analysis = await self._analyze_symbol_for_signal(symbol)
                 
-                if signal_data and signal_data['confidence_score'] >= self.min_confidence_score:
-                    high_confidence_signals.append(signal_data)
-                    self.logger.info(f"✅ High confidence signal found: {symbol} (Score: {signal_data['confidence_score']}/10)")
+                if signal_analysis and signal_analysis['confidence_score'] >= self.high_confidence_threshold:
+                    high_confidence_signals.append(signal_analysis)
+                    print(f"✅ High confidence signal found: {symbol} (Score: {signal_analysis['confidence_score']}/10)")
                 
-                # Small delay to avoid API rate limits
+                # Rate limiting
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                self.logger.error(f"Error analyzing {symbol}: {e}")
+                print(f"❌ Error analyzing {symbol}: {e}")
                 continue
         
         # Send signals if found
         if high_confidence_signals:
-            await self._send_signals_to_special_users(high_confidence_signals)
+            await self._send_high_confidence_signals(high_confidence_signals)
         else:
-            self.logger.info("🔍 No high-confidence signals found in this scan")
-
-    async def _analyze_coin_for_signal(self, symbol: str) -> Dict[str, Any]:
-        """Analyze a single coin for trading signals"""
+            print("📊 No high confidence signals detected at this time")
+    
+    async def _analyze_symbol_for_signal(self, symbol):
+        """Analyze a symbol for high confidence trading signals"""
         try:
-            # Get comprehensive data
-            price_data = self.crypto_api.get_price(symbol)
+            # Get real-time data
+            price_data = self.crypto_api.get_price(symbol, force_refresh=True)
+            futures_data = self.crypto_api.get_futures_data(symbol)
+            
             if not price_data or 'error' in price_data:
                 return None
-                
+            
             current_price = price_data.get('price', 0)
             change_24h = price_data.get('change_24h', 0)
             volume_24h = price_data.get('volume_24h', 0)
             
-            # Get futures data
-            futures_data = self.crypto_api.get_futures_data(symbol)
-            long_ratio = futures_data.get('long_ratio', 50) if futures_data else 50
+            # Get technical indicators
+            timeframes = ['15m', '1h', '4h', '1d']
+            technical_scores = []
             
-            # Get supply/demand analysis if available
-            sd_analysis = None
-            try:
-                sd_analysis = self.crypto_api.analyze_supply_demand(symbol)
-            except:
-                pass
+            for tf in timeframes:
+                tf_data = self.crypto_api.get_timeframe_data(symbol, tf)
+                if tf_data and 'error' not in tf_data:
+                    score = self._calculate_technical_score(tf_data, tf)
+                    technical_scores.append(score)
             
-            # Calculate confidence score
-            confidence_score = self._calculate_confidence_score(
-                symbol, current_price, change_24h, volume_24h, long_ratio, sd_analysis
-            )
-            
-            if confidence_score < self.min_confidence_score:
+            if not technical_scores:
                 return None
             
-            # Generate signal recommendation
-            signal_recommendation = self._generate_signal_recommendation(
-                symbol, current_price, change_24h, long_ratio, sd_analysis, confidence_score
-            )
+            avg_technical_score = sum(technical_scores) / len(technical_scores)
+            
+            # Get Long/Short ratio for sentiment
+            ls_data = self.crypto_api.get_binance_long_short_ratio(symbol)
+            long_ratio = ls_data.get('long_ratio', 50) if ls_data and 'error' not in ls_data else 50
+            
+            # Calculate market sentiment score
+            sentiment_score = self._calculate_sentiment_score(change_24h, volume_24h, long_ratio)
+            
+            # Calculate overall confidence score
+            confidence_score = (avg_technical_score * 0.6) + (sentiment_score * 0.4)
+            
+            # Generate trading signal if confidence is high
+            if confidence_score >= self.high_confidence_threshold:
+                trading_signal = self._generate_trading_signal(
+                    symbol, current_price, technical_scores, sentiment_score, confidence_score
+                )
+                
+                return {
+                    'symbol': symbol,
+                    'confidence_score': confidence_score,
+                    'current_price': current_price,
+                    'change_24h': change_24h,
+                    'signal': trading_signal,
+                    'timestamp': datetime.now()
+                }
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error analyzing {symbol}: {e}")
+            return None
+    
+    def _calculate_technical_score(self, timeframe_data, timeframe):
+        """Calculate technical analysis score for a timeframe"""
+        try:
+            trend_analysis = timeframe_data.get('trend_analysis', {})
+            support_resistance = timeframe_data.get('support_resistance', {})
+            volatility = timeframe_data.get('volatility', {})
+            
+            score = 5.0  # Base score
+            
+            # Trend strength
+            trend_direction = trend_analysis.get('direction', 'neutral')
+            trend_strength = trend_analysis.get('strength', 'weak')
+            
+            if trend_direction in ['bullish', 'bearish']:
+                if trend_strength == 'strong':
+                    score += 2.0
+                elif trend_strength == 'moderate':
+                    score += 1.0
+                else:
+                    score += 0.5
+            
+            # Support/Resistance proximity
+            dist_to_support = support_resistance.get('distance_to_support', 0)
+            dist_to_resistance = support_resistance.get('distance_to_resistance', 0)
+            
+            if abs(dist_to_support) < 2:  # Near support
+                score += 1.5
+            elif abs(dist_to_resistance) < 2:  # Near resistance
+                score += 1.0
+            
+            # Volatility consideration
+            vol_level = volatility.get('volatility', 'low')
+            if vol_level in ['moderate', 'high']:
+                score += 0.5
+            elif vol_level == 'very_high':
+                score -= 1.0  # Too risky
+            
+            # Timeframe weight (longer timeframes more important)
+            weights = {'15m': 0.8, '1h': 1.0, '4h': 1.2, '1d': 1.5}
+            weight = weights.get(timeframe, 1.0)
+            
+            return min(score * weight, 10.0)
+            
+        except Exception as e:
+            print(f"Error calculating technical score: {e}")
+            return 5.0
+    
+    def _calculate_sentiment_score(self, change_24h, volume_24h, long_ratio):
+        """Calculate market sentiment score"""
+        try:
+            score = 5.0
+            
+            # Price momentum
+            if change_24h > 5:
+                score += 2.0
+            elif change_24h > 2:
+                score += 1.0
+            elif change_24h < -5:
+                score += 1.5  # Oversold bounce potential
+            elif change_24h < -2:
+                score += 0.5
+            
+            # Volume analysis
+            if volume_24h > 100000000:  # High volume
+                score += 1.0
+            elif volume_24h > 50000000:  # Medium volume
+                score += 0.5
+            
+            # Long/Short ratio (contrarian indicator)
+            if long_ratio > 75:  # Extremely bullish (potential reversal)
+                score += 1.0
+            elif long_ratio < 25:  # Extremely bearish (potential bounce)
+                score += 1.5
+            elif 40 <= long_ratio <= 60:  # Balanced
+                score += 0.5
+            
+            return min(score, 10.0)
+            
+        except Exception as e:
+            print(f"Error calculating sentiment score: {e}")
+            return 5.0
+    
+    def _generate_trading_signal(self, symbol, current_price, technical_scores, sentiment_score, confidence_score):
+        """Generate detailed trading signal"""
+        try:
+            # Determine direction based on scores
+            avg_tech_score = sum(technical_scores) / len(technical_scores)
+            
+            if avg_tech_score > 6.5 and sentiment_score > 6.0:
+                direction = "LONG"
+                signal_emoji = "📈"
+            elif avg_tech_score < 4.5 and sentiment_score < 4.5:
+                direction = "SHORT"
+                signal_emoji = "📉"
+            else:
+                direction = "NEUTRAL"
+                signal_emoji = "⚪"
+            
+            # Calculate entry, stop loss, and take profit
+            if direction == "LONG":
+                entry_price = current_price * 0.999  # Slight discount for entry
+                stop_loss = current_price * 0.985   # 1.5% stop loss
+                take_profit_1 = current_price * 1.025  # 2.5% TP1
+                take_profit_2 = current_price * 1.045  # 4.5% TP2
+            elif direction == "SHORT":
+                entry_price = current_price * 1.001  # Slight premium for short entry
+                stop_loss = current_price * 1.015    # 1.5% stop loss
+                take_profit_1 = current_price * 0.975  # 2.5% TP1
+                take_profit_2 = current_price * 0.955  # 4.5% TP2
+            else:
+                return None
+            
+            # Calculate R/R ratio
+            risk = abs(entry_price - stop_loss)
+            reward = abs(take_profit_1 - entry_price)
+            rr_ratio = reward / risk if risk > 0 else 0
+            
+            # Only proceed if R/R is favorable
+            if rr_ratio < self.risk_reward_threshold:
+                return None
             
             return {
-                'symbol': symbol,
+                'direction': direction,
+                'signal_emoji': signal_emoji,
+                'entry_price': entry_price,
+                'stop_loss': stop_loss,
+                'take_profit_1': take_profit_1,
+                'take_profit_2': take_profit_2,
+                'rr_ratio': rr_ratio,
                 'confidence_score': confidence_score,
-                'current_price': current_price,
-                'change_24h': change_24h,
-                'volume_24h': volume_24h,
-                'long_ratio': long_ratio,
-                'recommendation': signal_recommendation,
-                'timestamp': datetime.now()
+                'technical_scores': technical_scores,
+                'sentiment_score': sentiment_score
             }
             
         except Exception as e:
-            self.logger.error(f"Error in _analyze_coin_for_signal for {symbol}: {e}")
+            print(f"Error generating trading signal: {e}")
             return None
-
-    def _calculate_confidence_score(self, symbol: str, price: float, change_24h: float, 
-                                  volume_24h: float, long_ratio: float, sd_analysis: Any) -> float:
-        """Calculate confidence score for a trading signal"""
-        confidence = 5.0  # Base score
-        
-        # Volume factor (higher volume = higher confidence)
-        if volume_24h > 100000000:  # > 100M
-            confidence += 1.5
-        elif volume_24h > 50000000:  # > 50M
-            confidence += 1.0
-        elif volume_24h > 10000000:  # > 10M
-            confidence += 0.5
-        
-        # Price momentum factor
-        abs_change = abs(change_24h)
-        if abs_change > 10:
-            confidence += 2.0  # Strong momentum
-        elif abs_change > 5:
-            confidence += 1.5
-        elif abs_change > 3:
-            confidence += 1.0
-        elif abs_change < 1:
-            confidence -= 1.0  # Low momentum reduces confidence
-        
-        # Long/Short ratio factor (extreme ratios indicate potential reversals)
-        if long_ratio > 75 or long_ratio < 25:
-            confidence += 2.0  # Extreme sentiment = high reversal potential
-        elif long_ratio > 65 or long_ratio < 35:
-            confidence += 1.0
-        
-        # Supply/Demand factor
-        if sd_analysis and 'error' not in sd_analysis:
-            sd_score_data = sd_analysis.get('supply_demand_score', {})
-            sd_score = sd_score_data.get('score', 50)
-            
-            if sd_score >= 80 or sd_score <= 20:
-                confidence += 1.5  # Strong S&D levels
-            elif sd_score >= 70 or sd_score <= 30:
-                confidence += 1.0
-        
-        # Market cap consideration (major coins get slight boost)
-        major_coins = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'AVAX', 'LINK']
-        if symbol in major_coins:
-            confidence += 0.5
-        
-        # Cap confidence score at 10
-        return min(10.0, confidence)
-
-    def _generate_signal_recommendation(self, symbol: str, price: float, change_24h: float,
-                                      long_ratio: float, sd_analysis: Any, confidence: float) -> Dict[str, Any]:
-        """Generate trading signal recommendation"""
-        
-        # Determine signal direction
-        signal_direction = "HOLD"
-        signal_strength = "NEUTRAL"
-        entry_price = price
-        stop_loss = price
-        take_profit = price
-        reasoning = []
-        
-        # Contrarian approach based on long/short ratio
-        if long_ratio > 70:
-            signal_direction = "SHORT"
-            signal_strength = "STRONG" if long_ratio > 80 else "MODERATE"
-            entry_price = price * 1.002
-            stop_loss = price * 1.025
-            take_profit = price * 0.96
-            reasoning.append(f"Long ratio sangat tinggi ({long_ratio:.1f}%) - potensi long squeeze")
-        elif long_ratio < 30:
-            signal_direction = "LONG"
-            signal_strength = "STRONG" if long_ratio < 20 else "MODERATE"
-            entry_price = price * 0.998
-            stop_loss = price * 0.975
-            take_profit = price * 1.04
-            reasoning.append(f"Long ratio sangat rendah ({long_ratio:.1f}%) - potensi short squeeze")
-        
-        # Momentum consideration
-        if abs(change_24h) > 8:
-            if change_24h > 0 and signal_direction != "SHORT":
-                signal_direction = "LONG"
-                reasoning.append(f"Momentum bullish kuat (+{change_24h:.1f}%)")
-            elif change_24h < 0 and signal_direction != "LONG":
-                signal_direction = "SHORT"
-                reasoning.append(f"Momentum bearish kuat ({change_24h:.1f}%)")
-        
-        # Supply/Demand enhancement
-        if sd_analysis and 'error' not in sd_analysis:
-            sd_score_data = sd_analysis.get('supply_demand_score', {})
-            sd_bias = sd_score_data.get('bias', 'Balanced')
-            
-            if 'Strong Demand' in sd_bias and signal_direction != "SHORT":
-                signal_direction = "LONG"
-                reasoning.append("Area demand kuat teridentifikasi")
-            elif 'Strong Supply' in sd_bias and signal_direction != "LONG":
-                signal_direction = "SHORT"
-                reasoning.append("Area supply kuat teridentifikasi")
-        
-        return {
-            'direction': signal_direction,
-            'strength': signal_strength,
-            'entry_price': entry_price,
-            'stop_loss': stop_loss,
-            'take_profit': take_profit,
-            'risk_reward_ratio': abs(take_profit - entry_price) / abs(stop_loss - entry_price) if abs(stop_loss - entry_price) > 0 else 1.5,
-            'reasoning': reasoning,
-            'confidence': confidence
-        }
-
-    def _should_skip_coin(self, symbol: str) -> bool:
-        """Check if we should skip this coin due to recent signal"""
-        last_signal = self.last_signal_time.get(symbol)
-        if last_signal:
-            time_diff = (datetime.now() - last_signal).total_seconds()
-            if time_diff < self.min_signal_interval:
-                return True
-        return False
-
-    async def _send_signals_to_special_users(self, signals: List[Dict[str, Any]]):
-        """Send signals to admin and premium lifetime users"""
+    
+    async def _send_high_confidence_signals(self, signals):
+        """Send high confidence signals to admin and premium lifetime users"""
         try:
-            # Get admin and premium lifetime users
-            special_users = self._get_special_users()
+            # Get eligible users (admin + premium lifetime)
+            eligible_users = self._get_eligible_users()
             
-            if not special_users:
-                self.logger.info("No special users found to send signals")
+            if not eligible_users:
+                print("⚠️ No eligible users found for auto signals")
                 return
             
-            # Format signal message
-            signal_message = self._format_signal_message(signals)
+            # Sort signals by confidence score
+            signals.sort(key=lambda x: x['confidence_score'], reverse=True)
             
-            # Send to each special user
+            # Take top 3 signals
+            top_signals = signals[:3]
+            
+            # Format message
+            message = self._format_auto_signal_message(top_signals)
+            
+            # Send to eligible users
             sent_count = 0
-            for user_id in special_users:
+            for user_id in eligible_users:
                 try:
-                    await self.bot.send_message(
-                        chat_id=user_id,
-                        text=signal_message,
-                        parse_mode='Markdown',
-                        disable_web_page_preview=True
-                    )
-                    sent_count += 1
-                    
-                    # Update last signal time for all coins in this batch
-                    for signal in signals:
-                        self.last_signal_time[signal['symbol']] = datetime.now()
-                    
-                    # Log activity
-                    signal_symbols = [s['symbol'] for s in signals]
-                    self.database.log_user_activity(
-                        user_id, 
-                        "auto_signal_received", 
-                        f"Received automated signals: {', '.join(signal_symbols)}"
-                    )
-                    
-                    # Small delay between sends
-                    await asyncio.sleep(0.5)
-                    
+                    if self.bot_instance and self.bot_instance.application:
+                        await self.bot_instance.application.bot.send_message(
+                            chat_id=user_id,
+                            text=message,
+                            parse_mode='Markdown'
+                        )
+                        sent_count += 1
+                        
+                        # Log the auto signal
+                        self.db.log_user_activity(user_id, "auto_signal_received", f"High confidence signals sent: {len(top_signals)} signals")
+                        
+                        await asyncio.sleep(0.5)  # Rate limiting
                 except Exception as e:
-                    self.logger.error(f"Failed to send signal to user {user_id}: {e}")
-                    continue
+                    print(f"❌ Failed to send signal to user {user_id}: {e}")
             
-            self.logger.info(f"✅ Sent {len(signals)} signals to {sent_count} special users")
+            # Update cooldown for sent signals
+            for signal in top_signals:
+                self.last_signals_sent[signal['symbol']] = datetime.now()
+            
+            print(f"✅ Auto signals sent to {sent_count}/{len(eligible_users)} eligible users")
             
         except Exception as e:
-            self.logger.error(f"Error in _send_signals_to_special_users: {e}")
-
-    def _get_special_users(self) -> List[int]:
-        """Get list of admin and premium lifetime users"""
+            print(f"❌ Error sending auto signals: {e}")
+    
+    def _get_eligible_users(self):
+        """Get users eligible for auto signals (admin + premium lifetime)"""
         try:
-            special_users = []
+            eligible_users = []
             
-            # Add admin user from environment variables
-            import os
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
-            if admin_id > 0:
-                special_users.append(admin_id)
+            # Add admin
+            if self.admin_id > 0:
+                eligible_users.append(self.admin_id)
             
-            # Add premium lifetime users
-            self.database.cursor.execute("""
+            # Get premium lifetime users
+            self.db.cursor.execute("""
                 SELECT telegram_id FROM users 
-                WHERE is_premium = 1 AND (subscription_end IS NULL OR subscription_end = '')
-                AND telegram_id IS NOT NULL
+                WHERE is_premium = 1 
+                AND (subscription_end IS NULL OR subscription_end = '')
+                AND telegram_id IS NOT NULL 
+                AND telegram_id != 0
             """)
             
-            lifetime_users = self.database.cursor.fetchall()
-            for user in lifetime_users:
+            premium_users = self.db.cursor.fetchall()
+            for user in premium_users:
                 user_id = user[0]
-                if user_id not in special_users:
-                    special_users.append(user_id)
+                if user_id != self.admin_id:  # Avoid duplicate admin
+                    eligible_users.append(user_id)
             
-            self.logger.info(f"Special users found: {len(special_users)} (Admin: {admin_id > 0}, Lifetime: {len(lifetime_users)})")
-            return special_users
+            print(f"👥 Found {len(eligible_users)} eligible users for auto signals")
+            return eligible_users
             
         except Exception as e:
-            self.logger.error(f"Error getting special users: {e}")
-            # Fallback: try to get admin from environment
-            import os
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
-            return [admin_id] if admin_id > 0 else []
+            print(f"❌ Error getting eligible users: {e}")
+            return []
+    
+    def _format_auto_signal_message(self, signals):
+        """Format the auto signal message"""
+        try:
+            message = f"""🚨 **AUTO SIGNAL ALERT - HIGH CONFIDENCE**
 
-    def _format_signal_message(self, signals: List[Dict[str, Any]]) -> str:
-        """Format signals into a readable message"""
-        if not signals:
-            return ""
-        
-        current_time = datetime.now().strftime('%H:%M:%S WIB')
-        
-        message = f"""🚨 **SINYAL OTOMATIS PREMIUM**
-
-⏰ **Waktu**: {current_time}
-🎯 **High Confidence Signals** ({len(signals)} coins)
+🎯 **Elite Trading Opportunities Detected**
+⏰ **Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔥 **Confidence Level**: VERY HIGH
 
 """
-        
-        for i, signal in enumerate(signals[:5], 1):  # Limit to 5 signals per message
-            symbol = signal['symbol']
-            confidence = signal['confidence_score']
-            recommendation = signal['recommendation']
-            current_price = signal['current_price']
-            change_24h = signal['change_24h']
             
-            direction_emoji = "🟢" if recommendation['direction'] == "LONG" else "🔴" if recommendation['direction'] == "SHORT" else "⚪"
-            
-            message += f"""**{i}. {symbol} {direction_emoji} {recommendation['direction']}**
-💰 Price: ${current_price:,.4f} ({change_24h:+.1f}%)
-🎯 Confidence: {confidence:.1f}/10
-📈 Entry: ${recommendation['entry_price']:,.4f}
-🛡️ SL: ${recommendation['stop_loss']:,.4f}
-🎯 TP: ${recommendation['take_profit']:,.4f}
-📊 R/R: {recommendation['risk_reward_ratio']:.1f}:1
-💡 Alasan: {', '.join(recommendation['reasoning'][:2])}
+            for i, signal_data in enumerate(signals, 1):
+                signal = signal_data['signal']
+                symbol = signal_data['symbol']
+                confidence = signal_data['confidence_score']
+                
+                message += f"""**#{i} {signal['signal_emoji']} {symbol} {signal['direction']}** (Score: {confidence:.1f}/10)
+💰 **Entry**: ${signal['entry_price']:,.4f}
+🛡️ **Stop Loss**: ${signal['stop_loss']:,.4f}
+🎯 **TP1**: ${signal['take_profit_1']:,.4f}
+🚀 **TP2**: ${signal['take_profit_2']:,.4f}
+📊 **R/R**: {signal['rr_ratio']:.1f}:1
 
 """
-        
-        message += f"""⚠️ **DISCLAIMER:**
-• Sinyal otomatis berdasarkan analisis teknikal
-• Gunakan proper risk management
-• DYOR sebelum trading
-• Trading berisiko tinggi
+            
+            message += f"""⚡ **EXECUTION NOTES:**
+• Use proper position sizing (1-2% risk per trade)
+• Consider market conditions before entering
+• Set stop losses immediately after entry
+• Take partial profits at TP1, let runners go to TP2
 
-🤖 **Auto Signal System** - Hanya untuk Admin & Premium Lifetime"""
-        
-        return message
+🤖 **Auto Signal System**
+📡 Real-time analysis dari {len(self.symbols_to_monitor)} symbols
+🎯 Hanya mengirim sinyal dengan confidence >8.5/10
+⏰ Update setiap 5 menit
 
-    async def force_scan_now(self):
-        """Force immediate scan (for testing purposes)"""
-        self.logger.info("🔄 Force scanning for signals...")
-        await self.scan_and_send_signals()
+**DISCLAIMER**: Trading berisiko tinggi! Gunakan money management yang tepat."""
+            
+            return message
+            
+        except Exception as e:
+            print(f"❌ Error formatting message: {e}")
+            return "❌ Error formatting auto signal message"
+    
+    def _is_symbol_in_cooldown(self, symbol):
+        """Check if symbol is in cooldown period"""
+        if symbol not in self.last_signals_sent:
+            return False
+        
+        last_sent = self.last_signals_sent[symbol]
+        cooldown_end = last_sent + timedelta(seconds=self.signal_cooldown)
+        
+        return datetime.now() < cooldown_end
+    
+    def get_monitor_status(self):
+        """Get current monitoring status"""
+        try:
+            eligible_users = self._get_eligible_users()
+            recent_signals = len([s for s in self.last_signals_sent.values() 
+                                if (datetime.now() - s).total_seconds() < 3600])
+            
+            return {
+                'eligible_users': len(eligible_users),
+                'monitored_symbols': len(self.symbols_to_monitor),
+                'recent_signals_sent': recent_signals,
+                'confidence_threshold': self.high_confidence_threshold,
+                'rr_threshold': self.risk_reward_threshold,
+                'cooldown_minutes': self.signal_cooldown // 60
+            }
+            
+        except Exception as e:
+            print(f"Error getting monitor status: {e}")
+            return {}
