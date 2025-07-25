@@ -42,42 +42,76 @@ class CryptoAPI:
             if not symbol.endswith('USDT'):
                 symbol = symbol.upper() + 'USDT'
 
+            # Enhanced headers for real-time data
+            headers = {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'User-Agent': 'CryptoMentorAI/1.0'
+            }
+
             # Add timestamp parameter to prevent caching in deployment
             params = {'symbol': symbol}
             if force_refresh:
                 import time
-                params['timestamp'] = int(time.time() * 1000)  # Prevent caching
+                params['_t'] = int(time.time() * 1000)  # Cache buster
 
-            # Get 24hr ticker statistics with real-time enforcement
-            response = requests.get(
+            # Multiple endpoint attempts for better reliability
+            endpoints_to_try = [
                 f"{self.binance_spot_url}/ticker/24hr",
-                params=params,
-                timeout=15,
-                headers={'Cache-Control': 'no-cache'} if force_refresh else {}
-            )
-            response.raise_for_status()
-            data = response.json()
+                f"{self.binance_spot_url}/ticker/price"
+            ]
 
-            return {
-                'symbol': symbol,
-                'price': float(data['lastPrice']),
-                'change_24h': float(data['priceChangePercent']),
-                'high_24h': float(data['highPrice']),
-                'low_24h': float(data['lowPrice']),
-                'volume_24h': float(data['volume']),
-                'quote_volume_24h': float(data['quoteVolume']),
-                'open_price': float(data['openPrice']),
-                'close_price': float(data['lastPrice']),
-                'price_change': float(data['priceChange']),
-                'count': int(data['count']),
-                'first_id': data['firstId'],
-                'last_id': data['lastId'],
-                'open_time': data['openTime'],
-                'close_time': data['closeTime'],
-                'source': 'binance_spot'
-            }
+            for endpoint in endpoints_to_try:
+                try:
+                    response = requests.get(
+                        endpoint,
+                        params=params,
+                        timeout=10,
+                        headers=headers
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                    # Handle different endpoint responses
+                    if endpoint.endswith('/ticker/24hr'):
+                        return {
+                            'symbol': symbol,
+                            'price': float(data['lastPrice']),
+                            'change_24h': float(data['priceChangePercent']),
+                            'high_24h': float(data['highPrice']),
+                            'low_24h': float(data['lowPrice']),
+                            'volume_24h': float(data['volume']),
+                            'quote_volume_24h': float(data['quoteVolume']),
+                            'open_price': float(data['openPrice']),
+                            'close_price': float(data['lastPrice']),
+                            'price_change': float(data['priceChange']),
+                            'count': int(data['count']),
+                            'first_id': data['firstId'],
+                            'last_id': data['lastId'],
+                            'open_time': data['openTime'],
+                            'close_time': data['closeTime'],
+                            'source': 'binance_spot'
+                        }
+                    else:  # ticker/price endpoint
+                        return {
+                            'symbol': symbol,
+                            'price': float(data['price']),
+                            'change_24h': 0,  # Not available in price endpoint
+                            'volume_24h': 0,
+                            'source': 'binance_spot_simple'
+                        }
+                        
+                except requests.exceptions.RequestException as e:
+                    print(f"⚠️ Binance endpoint {endpoint} failed: {e}")
+                    continue
+                    
+            # If all endpoints failed
+            raise Exception("All Binance Spot endpoints failed")
+            
         except Exception as e:
-            return self._fallback_price(symbol, str(e))
+            print(f"❌ Binance Spot API completely failed for {symbol}: {e}")
+            return {'error': f"Binance API error: {str(e)}"}
 
     def get_binance_candlestick(self, symbol, interval='1h', limit=100):
         """Get candlestick/kline data from Binance"""
@@ -580,42 +614,66 @@ class CryptoAPI:
         mode = "DEPLOYMENT REAL-TIME" if is_deployment else "STANDARD"
         print(f"🔄 {mode} MODE: Fetching price data for {symbol} (Force: {force_refresh})")
 
-        # 1. Try Binance first (fastest and most accurate for real-time)
-        try:
-            # Add timestamp to prevent any caching
-            binance_data = self.get_binance_price(symbol, force_refresh=force_refresh)
-            if 'error' not in binance_data and binance_data.get('price', 0) > 0:
-                price_sources['binance'] = binance_data
-                price_str = f"${binance_data.get('price', 0):,.2f}"
-                if is_deployment:
-                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅")
-                else:
-                    print(f"✅ Standard Binance data for {symbol}: {price_str}")
-                # Return immediately if Binance works to ensure real-time
-                return self._combine_price_data(symbol, price_sources)
-        except Exception as e:
-            print(f"⚠️ Binance API error for {symbol}: {e}")
-            pass
+        # Multiple attempts for real-time data in deployment
+        max_attempts = 3 if is_deployment else 1
+        
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                print(f"🔄 Deployment retry attempt {attempt + 1}/{max_attempts} for {symbol}")
+                import time
+                time.sleep(1)  # Brief delay between attempts
+            
+            # 1. Try Binance Spot API first (most reliable for real-time)
+            try:
+                binance_data = self.get_binance_price(symbol, force_refresh=True)
+                if 'error' not in binance_data and binance_data.get('price', 0) > 0:
+                    price_sources['binance'] = binance_data
+                    price_str = f"${binance_data.get('price', 0):,.4f}"
+                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅ (Binance Spot)")
+                    return self._combine_price_data(symbol, price_sources)
+            except Exception as e:
+                print(f"⚠️ Binance Spot API error for {symbol}: {e}")
+            
+            # 2. Try Binance Futures API as backup
+            try:
+                futures_data = self.get_binance_futures_price(symbol)
+                if 'error' not in futures_data and futures_data.get('price', 0) > 0:
+                    price_sources['binance_futures'] = futures_data
+                    price_str = f"${futures_data.get('price', 0):,.4f}"
+                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅ (Binance Futures)")
+                    return self._combine_price_data(symbol, price_sources)
+            except Exception as e:
+                print(f"⚠️ Binance Futures API error for {symbol}: {e}")
 
-        # 2. Try CoinGecko (comprehensive market data)
-        try:
-            coingecko_data = self.get_coingecko_price(symbol)
-            if 'error' not in coingecko_data and coingecko_data.get('price', 0) > 0:
-                price_sources['coingecko'] = coingecko_data
-        except:
-            pass
+            # 3. Try CoinGecko Pro/Free
+            try:
+                coingecko_data = self.get_coingecko_price(symbol)
+                if 'error' not in coingecko_data and coingecko_data.get('price', 0) > 0:
+                    price_sources['coingecko'] = coingecko_data
+                    price_str = f"${coingecko_data.get('price', 0):,.4f}"
+                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅ (CoinGecko)")
+                    return self._combine_price_data(symbol, price_sources)
+            except Exception as e:
+                print(f"⚠️ CoinGecko API error for {symbol}: {e}")
 
-        # 3. Try CoinGecko market data for additional insights
-        try:
-            market_data = self.get_coingecko_market_data(symbol)
-            if 'error' not in market_data and market_data.get('current_price', 0) > 0:
-                price_sources['coingecko_market'] = market_data
-        except:
-            pass
+            # 4. Try CoinGecko market data
+            try:
+                market_data = self.get_coingecko_market_data(symbol)
+                if 'error' not in market_data and market_data.get('current_price', 0) > 0:
+                    price_sources['coingecko_market'] = market_data
+                    price_str = f"${market_data.get('current_price', 0):,.4f}"
+                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅ (CoinGecko Market)")
+                    return self._combine_price_data(symbol, price_sources)
+            except Exception as e:
+                print(f"⚠️ CoinGecko Market API error for {symbol}: {e}")
 
-        # Combine best data from multiple sources
+        # Only use fallback if ALL attempts failed AND not in deployment
         if price_sources:
             return self._combine_price_data(symbol, price_sources)
+        elif is_deployment:
+            # In deployment, return error instead of mock data
+            print(f"❌ DEPLOYMENT: All real APIs failed for {symbol} - returning error")
+            return {'error': f'Real-time data unavailable for {symbol} in deployment mode'}
         else:
             return self._fallback_price(symbol, "All APIs unavailable")
 
@@ -627,7 +685,7 @@ class CryptoAPI:
             'data_quality': 'excellent' if len(price_sources) >= 2 else 'good'
         }
 
-        # Priority: Binance for real-time price, CoinGecko for market data
+        # Priority: Binance (Spot/Futures) for real-time price, CoinGecko for market data
         if 'binance' in price_sources:
             binance = price_sources['binance']
             combined_data.update({
@@ -637,6 +695,16 @@ class CryptoAPI:
                 'high_24h': binance.get('high_24h', 0),
                 'low_24h': binance.get('low_24h', 0),
                 'primary_source': 'binance'
+            })
+        elif 'binance_futures' in price_sources:
+            binance_futures = price_sources['binance_futures']
+            combined_data.update({
+                'price': binance_futures.get('price', 0),
+                'change_24h': binance_futures.get('change_24h', 0),
+                'volume_24h': binance_futures.get('volume_24h', 0),
+                'high_24h': binance_futures.get('high_24h', 0),
+                'low_24h': binance_futures.get('low_24h', 0),
+                'primary_source': 'binance_futures'
             })
 
         # Add CoinGecko market insights

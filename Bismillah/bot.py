@@ -551,16 +551,18 @@ class TelegramBot:
 
         if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
             source = price_data.get('source', 'unknown')
+            primary_source = price_data.get('primary_source', source)
 
             # Enhanced source indicators with API health
             source_emoji = {
-                'binance': '🟢 Binance API (Real-Time)',
+                'binance': '🟢 Binance Spot (Real-Time)',
+                'binance_futures': '🟢 Binance Futures (Real-Time)',
                 'binance_simple': '🟡 Binance Simple (Real-Time)', 
                 'coingecko': '🔵 CoinGecko Pro (Real-Time)',
                 'coingecko_free': '🔵 CoinGecko Free (Real-Time)',
                 'coingecko_fallback': '🟡 CoinGecko Backup (Real-Time)',
                 'fallback_simulation': '⚠️ Simulation Data'
-            }.get(source, '🔄 Market Data')
+            }.get(primary_source, '🔄 Market Data')
 
             is_real_api = source in ['binance', 'binance_simple', 'coingecko', 'coingecko_free', 'coingecko_fallback']
             
@@ -636,7 +638,28 @@ class TelegramBot:
 
             message += f"🔗 **Mode**: {'🌐 Always On (Deployment)' if IS_DEPLOYMENT else '🔧 Development Workspace'}"
         else:
-            message = f"❌ Tidak dapat menemukan data untuk {symbol}"
+            # Check if we're in deployment and show appropriate error
+            is_deployment = (
+                os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+                os.getenv('REPL_DEPLOYMENT') == '1' or
+                os.path.exists('/tmp/repl_deployment_flag')
+            )
+            
+            if is_deployment:
+                error_reason = price_data.get('error', 'Unknown error') if price_data else 'API completely unavailable'
+                message = f"""❌ **Real-time data tidak tersedia untuk {symbol}**
+
+🌐 **Mode**: Deployment (Real-time Only)
+⚠️ **Error**: {error_reason}
+
+🔄 **Solusi**:
+• Coba beberapa saat lagi
+• API sedang mengalami gangguan sementara
+• Tidak menggunakan data simulasi di deployment
+
+💡 **Info**: Bot hanya menampilkan data real-time di deployment mode"""
+            else:
+                message = f"❌ Tidak dapat menemukan data untuk {symbol}"
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
