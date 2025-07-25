@@ -532,11 +532,8 @@ class TelegramBot:
         print(f"🔄 Fetching real-time data for {symbol} from multiple sources...")
 
         # Primary: Binance API for most accurate real-time prices
-        # Force refresh in deployment to ensure real-time data
-        if IS_DEPLOYMENT:
-            price_data = self.crypto_api.get_multi_api_price(symbol, force_refresh=True)
-        else:
-            price_data = self.crypto_api.get_binance_price(symbol)
+        # ALWAYS force refresh in deployment to ensure real-time data
+        price_data = self.crypto_api.get_multi_api_price(symbol, force_refresh=IS_DEPLOYMENT)
         coingecko_data = None
         news_data = None
 
@@ -2742,10 +2739,10 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
             if any(word in text for word in ['harga', 'price', 'berapa']):
                 if detected_symbol:
                     # Show loading message
-                    loading_msg = await update.message.reply_text(f"⏳ Mengecek harga {detected_symbol}...")
+                    loading_msg = await update.message.reply_text(f"⏳ Mengecek harga {detected_symbol} real-time...")
 
-                    # Get price data
-                    price_data = self.crypto_api.get_price(detected_symbol, force_refresh=True)
+                    # Get price data with deployment-aware force refresh
+                    price_data = self.crypto_api.get_price(detected_symbol, force_refresh=IS_DEPLOYMENT)
 
                     if price_data and 'error' not in price_data:
                         source = price_data.get('source', 'unknown')

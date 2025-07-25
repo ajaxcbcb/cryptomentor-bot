@@ -35,18 +35,25 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Server time error: {str(e)}"}
 
-    def get_binance_price(self, symbol):
+    def get_binance_price(self, symbol, force_refresh=False):
         """Get real-time price from Binance Spot API"""
         try:
             # Normalize symbol format
             if not symbol.endswith('USDT'):
                 symbol = symbol.upper() + 'USDT'
 
-            # Get 24hr ticker statistics
+            # Add timestamp parameter to prevent caching in deployment
+            params = {'symbol': symbol}
+            if force_refresh:
+                import time
+                params['timestamp'] = int(time.time() * 1000)  # Prevent caching
+
+            # Get 24hr ticker statistics with real-time enforcement
             response = requests.get(
                 f"{self.binance_spot_url}/ticker/24hr",
-                params={'symbol': symbol},
-                timeout=15
+                params=params,
+                timeout=15,
+                headers={'Cache-Control': 'no-cache'} if force_refresh else {}
             )
             response.raise_for_status()
             data = response.json()
@@ -561,25 +568,27 @@ class CryptoAPI:
             os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
             os.path.exists('/tmp/repl_deployment_flag') or
             bool(os.getenv('REPL_SLUG')) or
-            bool(os.getenv('REPLIT_DB_URL'))
+            bool(os.getenv('REPLIT_DB_URL')) or
+            bool(os.getenv('REPL_OWNER'))  # Additional deployment check
         )
         
-        # Auto-enable force_refresh in deployment
+        # ALWAYS force refresh in deployment for real-time data
         if is_deployment:
             force_refresh = True
 
         # Enhanced logging for deployment mode
-        mode = "DEPLOYMENT REAL-TIME" if force_refresh else "STANDARD"
-        print(f"🔄 {mode} MODE: Fetching price data for {symbol}")
+        mode = "DEPLOYMENT REAL-TIME" if is_deployment else "STANDARD"
+        print(f"🔄 {mode} MODE: Fetching price data for {symbol} (Force: {force_refresh})")
 
         # 1. Try Binance first (fastest and most accurate for real-time)
         try:
-            binance_data = self.get_binance_price(symbol)
+            # Add timestamp to prevent any caching
+            binance_data = self.get_binance_price(symbol, force_refresh=force_refresh)
             if 'error' not in binance_data and binance_data.get('price', 0) > 0:
                 price_sources['binance'] = binance_data
                 price_str = f"${binance_data.get('price', 0):,.2f}"
-                if force_refresh:
-                    print(f"🚀 DEPLOYMENT: Real-time Binance data for {symbol}: {price_str}")
+                if is_deployment:
+                    print(f"🚀 DEPLOYMENT REAL-TIME: {symbol} = {price_str} ✅")
                 else:
                     print(f"✅ Standard Binance data for {symbol}: {price_str}")
                 # Return immediately if Binance works to ensure real-time
@@ -750,6 +759,20 @@ class CryptoAPI:
 
     def get_price(self, symbol, force_refresh=False):
         """Get price with multi-API integration"""
+        # Check if in deployment mode
+        is_deployment = (
+            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+            os.getenv('REPL_DEPLOYMENT') == '1' or
+            os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
+            os.path.exists('/tmp/repl_deployment_flag') or
+            bool(os.getenv('REPL_SLUG')) or
+            bool(os.getenv('REPL_OWNER'))
+        )
+        
+        # Always force refresh in deployment
+        if is_deployment:
+            force_refresh = True
+            
         return self.get_multi_api_price(symbol, force_refresh)
 
     

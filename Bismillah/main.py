@@ -32,7 +32,10 @@ def main():
         'deployment_flag_file': os.path.exists('/tmp/repl_deployment_flag'),
         'cwd_contains_deployment': 'deployment' in os.getcwd().lower(),
         'replit_slug': bool(os.getenv('REPL_SLUG')),
-        'replit_owner': bool(os.getenv('REPL_OWNER'))
+        'replit_owner': bool(os.getenv('REPL_OWNER')),
+        'replit_db_url': bool(os.getenv('REPLIT_DB_URL')),
+        'has_public_domain': bool(os.getenv('REPLIT_DEV_DOMAIN')),
+        'always_on_indicator': os.path.exists('/etc/replit_deployment')
     }
     
     is_deployment = any(deployment_checks.values())
