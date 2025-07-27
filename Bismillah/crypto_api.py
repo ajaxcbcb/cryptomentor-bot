@@ -10,7 +10,7 @@ class CryptoAPI:
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.binance_spot_url = "https://api.binance.com/api/v3"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
-        
+
         # Binance-exclusive configuration
         print("🚀 CryptoAPI initialized with Binance-exclusive mode")
         print(f"📊 Binance Spot API: {self.binance_spot_url}")
@@ -106,14 +106,14 @@ class CryptoAPI:
                             'volume_24h': 0,
                             'source': 'binance_spot_simple'
                         }
-                        
+
                 except requests.exceptions.RequestException as e:
                     print(f"⚠️ Binance endpoint {endpoint} failed: {e}")
                     continue
-                    
+
             # If all endpoints failed
             raise Exception("All Binance Spot endpoints failed")
-            
+
         except Exception as e:
             print(f"❌ Binance Spot API completely failed for {symbol}: {e}")
             return {'error': f"Binance API error: {str(e)}"}
@@ -439,7 +439,131 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Comprehensive data error: {str(e)}"}
 
-    # === BINANCE-ONLY INTEGRATION METHODS ===
+    # === BINANCE MARKET DATA METHODS ===
+
+    def get_binance_market_data(self, symbol):
+        """Get comprehensive market data from Binance only"""
+        try:
+            # Get price data from spot
+            spot_data = self.get_binance_price(symbol)
+
+            # Get futures data
+            futures_data = self.get_binance_futures_price(symbol)
+
+            # Get additional futures metrics
+            mark_data = self.get_binance_mark_price(symbol)
+            funding_data = self.get_binance_funding_rate(symbol)
+            oi_data = self.get_binance_open_interest(symbol)
+            ls_data = self.get_binance_long_short_ratio(symbol)
+
+            # Combine data with Binance as primary source
+            if 'error' not in spot_data:
+                primary_data = spot_data
+                source = 'binance_spot'
+            elif 'error' not in futures_data:
+                primary_data = futures_data
+                source = 'binance_futures'
+            else:
+                return {'error': 'All Binance endpoints failed'}
+
+            return {
+                'symbol': symbol.upper(),
+                'name': symbol.upper().replace('USDT', ''),
+                'current_price': primary_data.get('price', 0),
+                'price_change_24h': primary_data.get('price_change', 0),
+                'price_change_percentage_24h': primary_data.get('change_24h', 0),
+                'high_24h': primary_data.get('high_24h', 0),
+                'low_24h': primary_data.get('low_24h', 0),
+                'total_volume': primary_data.get('volume_24h', 0),
+                'quote_volume': primary_data.get('quote_volume_24h', 0),
+                'open_price': primary_data.get('open_price', 0),
+                'close_price': primary_data.get('close_price', primary_data.get('price', 0)),
+                'trade_count': primary_data.get('count', 0),
+                # Futures-specific data
+                'mark_price': mark_data.get('mark_price', 0) if 'error' not in mark_data else 0,
+                'funding_rate': funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0,
+                'open_interest': oi_data.get('open_interest', 0) if 'error' not in oi_data else 0,
+                'long_ratio': ls_data.get('long_ratio', 50) if 'error' not in ls_data else 50,
+                'short_ratio': ls_data.get('short_ratio', 50) if 'error' not in ls_data else 50,
+                'last_updated': datetime.now().isoformat(),
+                'source': source,
+                'data_quality': 'excellent'
+            }
+
+        except Exception as e:
+            return {'error': f"Binance market data error: {str(e)}"}
+
+    def get_binance_global_data(self):
+        """Get global market data using only Binance data"""
+        try:
+            # Get data from top cryptocurrencies via Binance
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
+            prices_data = self.get_multiple_binance_prices(major_symbols)
+
+            if 'error' not in prices_data and len(prices_data) > 0:
+                # Calculate market metrics from Binance data
+                btc_data = prices_data.get('BTC', {})
+                eth_data = prices_data.get('ETH', {})
+
+                # Calculate total volume and dominance estimates
+                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
+                btc_volume = btc_data.get('volume_24h', 0)
+                eth_volume = eth_data.get('volume_24h', 0)
+
+                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
+                eth_dominance = (eth_volume / total_volume * 100) if total_volume > 0 else 18.0
+
+                # Calculate weighted average market change
+                changes = []
+                volumes = []
+                for data in prices_data.values():
+                    if 'change_24h' in data and 'volume_24h' in data:
+                        changes.append(data['change_24h'])
+                        volumes.append(data['volume_24h'])
+
+                if changes and volumes:
+                    weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes)
+                else:
+                    weighted_change = 0
+
+                # Estimate total market cap (rough calculation based on BTC dominance)
+                btc_price = btc_data.get('price', 0)
+                estimated_market_cap = btc_price * 19500000 / (btc_dominance / 100) if btc_dominance > 0 else total_volume * 20
+
+                return {
+                    'total_market_cap': estimated_market_cap,
+                    'total_volume': total_volume,
+                    'market_cap_change_percentage_24h_usd': weighted_change,
+                    'btc_dominance': btc_dominance,
+                    'eth_dominance': eth_dominance,
+                    'active_cryptocurrencies': len(prices_data),
+                    'updated_at': int(datetime.now().timestamp()),
+                    'source': 'binance_global_estimate'
+                }
+            else:
+                return {'error': 'Binance global data unavailable'}
+        except Exception as e:
+            return {'error': f"Binance global data error: {str(e)}"}
+
+    # === PRICE METHODS (BINANCE ONLY) ===
+
+    def get_price(self, symbol, force_refresh=False):
+        """Get price from Binance APIs only"""
+        # Check if in deployment mode
+        is_deployment = (
+            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+            os.getenv('REPL_DEPLOYMENT') == '1' or
+            os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
+            os.path.exists('/tmp/repl_deployment_flag') or
+            bool(os.getenv('REPL_SLUG')) or
+            bool(os.getenv('REPL_OWNER'))
+        )
+
+        # Always force refresh in deployment
+        if is_deployment:
+            force_refresh = True
+
+        return self.get_multi_api_price(symbol, force_refresh)
 
     def get_multi_api_price(self, symbol, force_refresh=False):
         """Get price from Binance APIs only - centralized to Binance"""
@@ -455,7 +579,7 @@ class CryptoAPI:
             bool(os.getenv('REPL_DB_URL')) or
             bool(os.getenv('REPL_OWNER'))  # Additional deployment check
         )
-        
+
         # ALWAYS force refresh in deployment for real-time data
         if is_deployment:
             force_refresh = True
@@ -466,13 +590,13 @@ class CryptoAPI:
 
         # Multiple attempts for real-time data in deployment
         max_attempts = 3 if is_deployment else 1
-        
+
         for attempt in range(max_attempts):
             if attempt > 0:
                 print(f"🔄 Binance retry attempt {attempt + 1}/{max_attempts} for {symbol}")
                 import time
                 time.sleep(1)  # Brief delay between attempts
-            
+
             # 1. Try Binance Spot API first (most reliable for real-time)
             try:
                 binance_data = self.get_binance_price(symbol, force_refresh=True)
@@ -483,7 +607,7 @@ class CryptoAPI:
                     return self._combine_binance_price_data(symbol, price_sources)
             except Exception as e:
                 print(f"⚠️ Binance Spot API error for {symbol}: {e}")
-            
+
             # 2. Try Binance Futures API as backup
             try:
                 futures_data = self.get_binance_futures_price(symbol)
@@ -617,7 +741,7 @@ class CryptoAPI:
 
         # Calculate data quality score (more strict for Binance-only)
         success_rate = (analysis_data['successful_calls'] / analysis_data['total_calls']) if analysis_data['total_calls'] > 0 else 0
-        
+
         if success_rate >= 0.8:
             analysis_data['data_quality'] = 'excellent'
         elif success_rate >= 0.6:
@@ -639,26 +763,6 @@ class CryptoAPI:
             return self._fallback_futures_data(symbol)
         return ls_data
 
-    def get_price(self, symbol, force_refresh=False):
-        """Get price with multi-API integration"""
-        # Check if in deployment mode
-        is_deployment = (
-            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
-            os.getenv('REPL_DEPLOYMENT') == '1' or
-            os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
-            os.path.exists('/tmp/repl_deployment_flag') or
-            bool(os.getenv('REPL_SLUG')) or
-            bool(os.getenv('REPL_OWNER'))
-        )
-        
-        # Always force refresh in deployment
-        if is_deployment:
-            force_refresh = True
-            
-        return self.get_multi_api_price(symbol, force_refresh)
-
-    
-
     def get_funding_rate(self, symbol):
         """Get funding rate data from Binance"""
         return self.get_binance_funding_rate(symbol)
@@ -677,670 +781,117 @@ class CryptoAPI:
         """Get all available futures symbols"""
         return self.provider.get_tickers()
 
-    def get_advanced_futures_analytics(self, symbol):
-        """Get advanced futures analytics using multiple Binance endpoints"""
-        try:
-            # Get comprehensive data
-            analytics = {}
-            
-            # 1. Get price and volume metrics
-            price_data = self.get_binance_futures_price(symbol)
-            analytics['price_metrics'] = price_data
-            
-            # 2. Get funding rate trends
-            funding_data = self.get_binance_funding_rate(symbol, limit=50)
-            analytics['funding_trends'] = funding_data
-            
-            # 3. Get open interest analytics
-            oi_data = self.get_binance_open_interest(symbol)
-            analytics['open_interest'] = oi_data
-            
-            # 4. Get long/short sentiment over time
-            ls_data = self.get_binance_long_short_ratio(symbol, period='1h', limit=24)
-            analytics['sentiment_trends'] = ls_data
-            
-            # 5. Get recent liquidation patterns
-            liq_data = self.get_binance_liquidation_orders(symbol, limit=200)
-            analytics['liquidation_patterns'] = liq_data
-            
-            # 6. Calculate advanced metrics
-            analytics['advanced_metrics'] = self._calculate_advanced_metrics(
-                price_data, funding_data, oi_data, ls_data, liq_data
-            )
-            
-            return {
-                'symbol': symbol,
-                'analytics': analytics,
-                'timestamp': datetime.now().isoformat(),
-                'source': 'binance_advanced_analytics'
-            }
-            
-        except Exception as e:
-            return {'error': f"Advanced analytics error: {str(e)}"}
+    def get_multiple_binance_prices(self, symbols):
+        """Get prices for multiple symbols from Binance only"""
+        prices_data = {}
 
-    def _calculate_advanced_metrics(self, price_data, funding_data, oi_data, ls_data, liq_data):
-        """Calculate advanced trading metrics"""
-        try:
-            metrics = {}
-            
-            # Price momentum score
-            if 'error' not in price_data:
-                change_24h = price_data.get('change_24h', 0)
-                volume_24h = price_data.get('volume_24h', 0)
-                
-                momentum_score = abs(change_24h) * (volume_24h / 1000000000)  # Weighted by volume
-                metrics['momentum_score'] = min(momentum_score, 100)  # Cap at 100
-            
-            # Funding rate pressure
-            if 'error' not in funding_data:
-                avg_funding = funding_data.get('average_funding_rate', 0)
-                last_funding = funding_data.get('last_funding_rate', 0)
-                
-                funding_pressure = abs(last_funding) * 1000  # Convert to basis points
-                metrics['funding_pressure'] = funding_pressure
-            
-            # Open interest health
-            if 'error' not in oi_data:
-                oi_value = oi_data.get('open_interest', 0)
-                # Normalize OI (this is simplified)
-                oi_health = min(oi_value / 100000000, 10)  # Scale factor
-                metrics['oi_health'] = oi_health
-            
-            # Sentiment extremes
-            if 'error' not in ls_data:
-                long_ratio = ls_data.get('long_ratio', 50)
-                sentiment_extreme = abs(long_ratio - 50)  # Distance from neutral
-                metrics['sentiment_extreme'] = sentiment_extreme
-            
-            # Liquidation risk
-            if 'error' not in liq_data:
-                total_liq = liq_data.get('total_liquidation', 0)
-                liq_risk = min(total_liq / 1000000000, 10)  # Scale factor
-                metrics['liquidation_risk'] = liq_risk
-            
-            return metrics
-            
-        except Exception as e:
-            return {'error': f"Metrics calculation error: {str(e)}"}
+        for symbol in symbols:
+            try:
+                # Try Binance Spot first
+                price_data = self.get_binance_price(symbol)
+                if 'error' not in price_data and price_data.get('price', 0) > 0:
+                    prices_data[symbol] = {
+                        'price': price_data.get('price', 0),
+                        'change_24h': price_data.get('change_24h', 0),
+                        'volume_24h': price_data.get('volume_24h', 0),
+                        'high_24h': price_data.get('high_24h', 0),
+                        'low_24h': price_data.get('low_24h', 0),
+                        'source': 'binance_spot'
+                    }
+                    continue
 
-    def analyze_supply_demand(self, symbol):
-        """Analyze supply and demand levels for entry recommendations"""
-        try:
-            # Get comprehensive market data
-            price_data = self.get_binance_price(symbol)
-            futures_data = self.get_comprehensive_futures_data(symbol)
-            candlestick_data = self.get_binance_candlestick(symbol, '1h', 24)
-            
-            if 'error' in price_data:
-                return {'error': 'Failed to get price data for supply/demand analysis'}
-            
-            current_price = price_data.get('price', 0)
-            volume_24h = price_data.get('volume_24h', 0)
-            change_24h = price_data.get('change_24h', 0)
-            
-            # 1. Volume Analysis (Supply/Demand Pressure)
-            volume_pressure = self._analyze_volume_pressure(volume_24h, change_24h)
-            
-            # 2. Order Book Imbalance (using available data)
-            order_imbalance = self._analyze_order_imbalance(futures_data)
-            
-            # 3. Support/Resistance as Supply/Demand Zones
-            supply_demand_zones = self._identify_supply_demand_zones(candlestick_data, current_price)
-            
-            # 4. Market Structure Analysis
-            market_structure = self._analyze_market_structure(candlestick_data)
-            
-            # 5. Open Interest Flow Analysis
-            oi_flow = self._analyze_oi_flow(futures_data)
-            
-            # 6. Generate Supply/Demand Score
-            sd_score = self._calculate_supply_demand_score(
-                volume_pressure, order_imbalance, supply_demand_zones, 
-                market_structure, oi_flow
-            )
-            
-            # 7. Generate Entry Recommendations
-            entry_recommendation = self._generate_supply_demand_entry(
-                current_price, sd_score, supply_demand_zones, market_structure
-            )
-            
-            return {
-                'symbol': symbol,
-                'current_price': current_price,
-                'volume_pressure': volume_pressure,
-                'order_imbalance': order_imbalance,
-                'supply_demand_zones': supply_demand_zones,
-                'market_structure': market_structure,
-                'oi_flow': oi_flow,
-                'supply_demand_score': sd_score,
-                'entry_recommendation': entry_recommendation,
-                'timestamp': datetime.now().isoformat(),
-                'source': 'binance_supply_demand_analysis'
-            }
-            
-        except Exception as e:
-            return {'error': f"Supply/Demand analysis error: {str(e)}"}
+                # Fallback to Binance Futures
+                futures_data = self.get_binance_futures_price(symbol)
+                if 'error' not in futures_data and futures_data.get('price', 0) > 0:
+                    prices_data[symbol] = {
+                        'price': futures_data.get('price', 0),
+                        'change_24h': futures_data.get('change_24h', 0),
+                        'volume_24h': futures_data.get('volume_24h', 0),
+                        'high_24h': futures_data.get('high_24h', 0),
+                        'low_24h': futures_data.get('low_24h', 0),
+                        'source': 'binance_futures'
+                    }
 
-    def _analyze_volume_pressure(self, volume_24h, change_24h):
-        """Analyze volume pressure to determine buying/selling pressure"""
-        try:
-            # Calculate volume-price relationship
-            if volume_24h == 0:
-                return {
-                    'pressure_type': 'neutral',
-                    'pressure_strength': 0,
-                    'analysis': 'Insufficient volume data'
-                }
-            
-            # High volume + positive change = Strong buying pressure (Demand)
-            # High volume + negative change = Strong selling pressure (Supply)
-            # Low volume + any change = Weak pressure
-            
-            volume_threshold_high = 100000000  # 100M USDT
-            volume_threshold_medium = 50000000  # 50M USDT
-            
-            if volume_24h > volume_threshold_high:
-                volume_level = 'high'
-                volume_multiplier = 3
-            elif volume_24h > volume_threshold_medium:
-                volume_level = 'medium'
-                volume_multiplier = 2
-            else:
-                volume_level = 'low'
-                volume_multiplier = 1
-            
-            # Determine pressure direction and strength
-            if change_24h > 2:
-                pressure_type = 'strong_demand'
-                pressure_strength = min(abs(change_24h) * volume_multiplier, 100)
-                analysis = f"Strong buying pressure - High demand with {volume_level} volume"
-            elif change_24h > 0:
-                pressure_type = 'moderate_demand'
-                pressure_strength = min(abs(change_24h) * volume_multiplier * 0.7, 100)
-                analysis = f"Moderate buying pressure - Some demand with {volume_level} volume"
-            elif change_24h < -2:
-                pressure_type = 'strong_supply'
-                pressure_strength = min(abs(change_24h) * volume_multiplier, 100)
-                analysis = f"Strong selling pressure - High supply with {volume_level} volume"
-            elif change_24h < 0:
-                pressure_type = 'moderate_supply'
-                pressure_strength = min(abs(change_24h) * volume_multiplier * 0.7, 100)
-                analysis = f"Moderate selling pressure - Some supply with {volume_level} volume"
-            else:
-                pressure_type = 'equilibrium'
-                pressure_strength = 0
-                analysis = f"Balanced supply/demand - No clear pressure with {volume_level} volume"
-            
-            return {
-                'pressure_type': pressure_type,
-                'pressure_strength': pressure_strength,
-                'volume_level': volume_level,
-                'volume_24h': volume_24h,
-                'price_change_24h': change_24h,
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return {'error': f"Volume pressure analysis error: {str(e)}"}
+            except Exception as e:
+                print(f"Error getting Binance price for {symbol}: {e}")
+                continue
 
-    def _analyze_order_imbalance(self, futures_data):
-        """Analyze order imbalance using long/short ratio as proxy"""
-        try:
-            if 'error' in futures_data:
-                return {
-                    'imbalance_type': 'unknown',
-                    'imbalance_strength': 0,
-                    'analysis': 'Futures data unavailable'
-                }
-            
-            ls_data = futures_data.get('long_short_ratio_data', {})
-            if 'error' in ls_data:
-                return {
-                    'imbalance_type': 'unknown',
-                    'imbalance_strength': 0,
-                    'analysis': 'Long/short ratio data unavailable'
-                }
-            
-            long_ratio = ls_data.get('long_ratio', 50)
-            short_ratio = ls_data.get('short_ratio', 50)
-            
-            # Calculate imbalance (contrarian approach)
-            if long_ratio > 75:
-                imbalance_type = 'oversupplied_longs'  # Too many longs = potential supply
-                imbalance_strength = min((long_ratio - 50) * 2, 100)
-                analysis = f"Extreme long bias ({long_ratio:.1f}%) - Risk of long liquidations creating supply"
-            elif long_ratio > 65:
-                imbalance_type = 'high_long_bias'
-                imbalance_strength = min((long_ratio - 50) * 1.5, 100)
-                analysis = f"High long bias ({long_ratio:.1f}%) - Potential supply pressure from overleverage"
-            elif short_ratio > 75:
-                imbalance_type = 'oversupplied_shorts'  # Too many shorts = potential demand
-                imbalance_strength = min((short_ratio - 50) * 2, 100)
-                analysis = f"Extreme short bias ({short_ratio:.1f}%) - Risk of short squeeze creating demand"
-            elif short_ratio > 65:
-                imbalance_type = 'high_short_bias'
-                imbalance_strength = min((short_ratio - 50) * 1.5, 100)
-                analysis = f"High short bias ({short_ratio:.1f}%) - Potential demand from short covering"
-            else:
-                imbalance_type = 'balanced'
-                imbalance_strength = 0
-                analysis = f"Balanced positioning ({long_ratio:.1f}%/{short_ratio:.1f}%) - No significant imbalance"
-            
-            return {
-                'imbalance_type': imbalance_type,
-                'imbalance_strength': imbalance_strength,
-                'long_ratio': long_ratio,
-                'short_ratio': short_ratio,
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return {'error': f"Order imbalance analysis error: {str(e)}"}
+        return prices_data if prices_data else {'error': 'No Binance price data available'}
 
-    def _identify_supply_demand_zones(self, candlestick_data, current_price):
-        """Identify key supply and demand zones from price action"""
-        try:
-            if 'error' in candlestick_data:
-                return {
-                    'demand_zones': [],
-                    'supply_zones': [],
-                    'analysis': 'Candlestick data unavailable'
-                }
-            
-            candlesticks = candlestick_data.get('candlesticks', [])
-            if len(candlesticks) < 10:
-                return {
-                    'demand_zones': [],
-                    'supply_zones': [],
-                    'analysis': 'Insufficient price history'
-                }
-            
-            demand_zones = []
-            supply_zones = []
-            
-            # Look for strong reactions (supply/demand zones)
-            for i in range(2, len(candlesticks) - 2):
-                candle = candlesticks[i]
-                prev_candle = candlesticks[i-1]
-                next_candle = candlesticks[i+1]
-                
-                high = float(candle['high'])
-                low = float(candle['low'])
-                close = float(candle['close'])
-                open_price = float(candle['open'])
-                volume = float(candle['volume'])
-                
-                # Identify demand zones (strong buying reactions from low)
-                if (low < float(prev_candle['low']) and 
-                    close > open_price and  # Bullish candle
-                    float(next_candle['close']) > close):  # Follow-through
-                    
-                    zone_strength = self._calculate_zone_strength(volume, close - open_price, current_price, low)
-                    demand_zones.append({
-                        'price_level': low,
-                        'zone_high': min(open_price, close),
-                        'zone_low': low,
-                        'strength': zone_strength,
-                        'distance_from_current': abs(current_price - low) / current_price * 100,
-                        'type': 'demand'
-                    })
-                
-                # Identify supply zones (strong selling reactions from high)
-                if (high > float(prev_candle['high']) and 
-                    close < open_price and  # Bearish candle
-                    float(next_candle['close']) < close):  # Follow-through
-                    
-                    zone_strength = self._calculate_zone_strength(volume, open_price - close, current_price, high)
-                    supply_zones.append({
-                        'price_level': high,
-                        'zone_high': high,
-                        'zone_low': max(open_price, close),
-                        'strength': zone_strength,
-                        'distance_from_current': abs(current_price - high) / current_price * 100,
-                        'type': 'supply'
-                    })
-            
-            # Sort by strength and proximity
-            demand_zones = sorted(demand_zones, key=lambda x: (x['strength'], -x['distance_from_current']), reverse=True)[:3]
-            supply_zones = sorted(supply_zones, key=lambda x: (x['strength'], -x['distance_from_current']), reverse=True)[:3]
-            
-            return {
-                'demand_zones': demand_zones,
-                'supply_zones': supply_zones,
-                'nearest_demand': demand_zones[0] if demand_zones else None,
-                'nearest_supply': supply_zones[0] if supply_zones else None,
-                'analysis': f"Found {len(demand_zones)} demand zones and {len(supply_zones)} supply zones"
-            }
-            
-        except Exception as e:
-            return {'error': f"Supply/Demand zones error: {str(e)}"}
+    def get_multiple_prices(self, symbols):
+        """Legacy method - now uses Binance only"""
+        return self.get_multiple_binance_prices(symbols)
 
-    def _calculate_zone_strength(self, volume, body_size, current_price, zone_price):
-        """Calculate the strength of a supply/demand zone"""
+    def get_market_overview(self):
+        """Get market overview data using Binance data exclusively"""
         try:
-            # Factors: Volume, reaction size, freshness (proximity to current price)
-            volume_score = min(volume / 1000000, 10)  # Normalize volume
-            reaction_score = min(abs(body_size) / current_price * 100 * 10, 10)  # Reaction percentage
-            freshness_score = max(10 - abs(current_price - zone_price) / current_price * 100, 1)  # Proximity bonus
-            
-            # Weighted combination
-            strength = (volume_score * 0.4 + reaction_score * 0.4 + freshness_score * 0.2)
-            return min(strength, 10)
-            
-        except Exception as e:
-            return 5  # Default moderate strength
+            # Get data from top cryptocurrencies via Binance
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
+            prices_data = self.get_multiple_binance_prices(major_symbols)
 
-    def _analyze_market_structure(self, candlestick_data):
-        """Analyze market structure for supply/demand context"""
-        try:
-            if 'error' in candlestick_data:
-                return {
-                    'structure': 'unknown',
-                    'trend': 'unknown',
-                    'analysis': 'Candlestick data unavailable'
-                }
-            
-            candlesticks = candlestick_data.get('candlesticks', [])
-            if len(candlesticks) < 10:
-                return {
-                    'structure': 'unknown',
-                    'trend': 'unknown',
-                    'analysis': 'Insufficient data for structure analysis'
-                }
-            
-            # Analyze recent price action for structure
-            recent_closes = [float(c['close']) for c in candlesticks[-10:]]
-            recent_highs = [float(c['high']) for c in candlesticks[-10:]]
-            recent_lows = [float(c['low']) for c in candlesticks[-10:]]
-            
-            # Higher highs and higher lows = Uptrend (Demand controlling)
-            # Lower highs and lower lows = Downtrend (Supply controlling)
-            # Mixed = Sideways (Balanced supply/demand)
-            
-            hh_count = 0  # Higher highs
-            hl_count = 0  # Higher lows
-            lh_count = 0  # Lower highs
-            ll_count = 0  # Lower lows
-            
-            for i in range(1, len(recent_closes)):
-                if recent_highs[i] > recent_highs[i-1]:
-                    hh_count += 1
-                elif recent_highs[i] < recent_highs[i-1]:
-                    lh_count += 1
-                    
-                if recent_lows[i] > recent_lows[i-1]:
-                    hl_count += 1
-                elif recent_lows[i] < recent_lows[i-1]:
-                    ll_count += 1
-            
-            # Determine structure
-            if hh_count >= 3 and hl_count >= 2:
-                structure = 'uptrend'
-                trend = 'bullish'
-                analysis = "Higher highs and higher lows - Demand in control, look for demand zone entries"
-            elif lh_count >= 3 and ll_count >= 2:
-                structure = 'downtrend'
-                trend = 'bearish'
-                analysis = "Lower highs and lower lows - Supply in control, look for supply zone entries"
-            else:
-                structure = 'sideways'
-                trend = 'neutral'
-                analysis = "Mixed structure - Supply and demand balanced, range-bound market"
-            
-            return {
-                'structure': structure,
-                'trend': trend,
-                'higher_highs': hh_count,
-                'higher_lows': hl_count,
-                'lower_highs': lh_count,
-                'lower_lows': ll_count,
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return {'error': f"Market structure analysis error: {str(e)}"}
+            if 'error' not in prices_data and len(prices_data) > 0:
+                # Calculate market metrics from Binance data
+                btc_data = prices_data.get('BTC', {})
+                eth_data = prices_data.get('ETH', {})
+                bnb_data = prices_data.get('BNB', {})
 
-    def _analyze_oi_flow(self, futures_data):
-        """Analyze open interest flow for supply/demand insights"""
-        try:
-            if 'error' in futures_data:
-                return {
-                    'oi_trend': 'unknown',
-                    'flow_direction': 'unknown',
-                    'analysis': 'Futures data unavailable'
-                }
-            
-            oi_data = futures_data.get('open_interest_data', {})
-            if 'error' in oi_data:
-                return {
-                    'oi_trend': 'unknown',
-                    'flow_direction': 'unknown',
-                    'analysis': 'Open interest data unavailable'
-                }
-            
-            current_oi = oi_data.get('open_interest', 0)
-            
-            # Get funding rate for context
-            funding_data = futures_data.get('funding_rate_data', {})
-            current_funding = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
-            
-            # Analyze OI with funding rate context
-            if current_oi > 1000000:  # High OI
-                if current_funding > 0.01:  # Positive funding = longs paying shorts
-                    flow_direction = 'long_pressure'
-                    analysis = "High OI with positive funding - Long demand but expensive to hold"
-                elif current_funding < -0.01:  # Negative funding = shorts paying longs
-                    flow_direction = 'short_pressure'
-                    analysis = "High OI with negative funding - Short pressure but expensive to maintain"
+                # Calculate total volume and dominance estimates
+                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
+                btc_volume = btc_data.get('volume_24h', 0)
+                eth_volume = eth_data.get('volume_24h', 0)
+
+                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
+                eth_dominance = (eth_volume / total_volume * 100) if total_volume > 0 else 18.0
+
+                # Calculate weighted average market change
+                changes = []
+                volumes = []
+                for data in prices_data.values():
+                    if 'change_24h' in data and 'volume_24h' in data:
+                        changes.append(data['change_24h'])
+                        volumes.append(data['volume_24h'])
+
+                if changes and volumes:
+                    weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes)
                 else:
-                    flow_direction = 'balanced'
-                    analysis = "High OI with neutral funding - Balanced supply/demand"
-            else:
-                flow_direction = 'low_interest'
-                analysis = "Low open interest - Limited futures activity"
-            
-            oi_trend = 'increasing' if current_oi > 500000 else 'decreasing'
-            
-            return {
-                'oi_trend': oi_trend,
-                'flow_direction': flow_direction,
-                'current_oi': current_oi,
-                'funding_rate': current_funding,
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return {'error': f"OI flow analysis error: {str(e)}"}
+                    weighted_change = 0
 
-    def _calculate_supply_demand_score(self, volume_pressure, order_imbalance, supply_demand_zones, market_structure, oi_flow):
-        """Calculate overall supply/demand score for trading recommendation"""
-        try:
-            score = 50  # Start neutral (50/100)
-            factors = []
-            
-            # Volume pressure analysis (30% weight)
-            if volume_pressure.get('pressure_type') == 'strong_demand':
-                score += 15
-                factors.append("Strong volume demand pressure (+15)")
-            elif volume_pressure.get('pressure_type') == 'moderate_demand':
-                score += 8
-                factors.append("Moderate volume demand pressure (+8)")
-            elif volume_pressure.get('pressure_type') == 'strong_supply':
-                score -= 15
-                factors.append("Strong volume supply pressure (-15)")
-            elif volume_pressure.get('pressure_type') == 'moderate_supply':
-                score -= 8
-                factors.append("Moderate volume supply pressure (-8)")
-            
-            # Order imbalance analysis (25% weight)
-            imbalance_type = order_imbalance.get('imbalance_type')
-            if imbalance_type == 'oversupplied_shorts':
-                score += 12
-                factors.append("Oversupplied shorts - demand potential (+12)")
-            elif imbalance_type == 'high_short_bias':
-                score += 6
-                factors.append("High short bias - some demand potential (+6)")
-            elif imbalance_type == 'oversupplied_longs':
-                score -= 12
-                factors.append("Oversupplied longs - supply risk (-12)")
-            elif imbalance_type == 'high_long_bias':
-                score -= 6
-                factors.append("High long bias - some supply risk (-6)")
-            
-            # Market structure analysis (25% weight)
-            structure = market_structure.get('structure')
-            if structure == 'uptrend':
-                score += 10
-                factors.append("Uptrend structure - demand favored (+10)")
-            elif structure == 'downtrend':
-                score -= 10
-                factors.append("Downtrend structure - supply favored (-10)")
-            
-            # Supply/demand zones proximity (20% weight)
-            nearest_demand = supply_demand_zones.get('nearest_demand')
-            nearest_supply = supply_demand_zones.get('nearest_supply')
-            
-            if nearest_demand and nearest_demand.get('distance_from_current', 100) < 5:
-                score += 8
-                factors.append("Near strong demand zone (+8)")
-            if nearest_supply and nearest_supply.get('distance_from_current', 100) < 5:
-                score -= 8
-                factors.append("Near strong supply zone (-8)")
-            
-            # Ensure score stays within bounds
-            score = max(0, min(100, score))
-            
-            # Determine overall bias
-            if score >= 70:
-                bias = "Strong Demand"
-                recommendation = "LONG"
-            elif score >= 60:
-                bias = "Moderate Demand"
-                recommendation = "WEAK LONG"
-            elif score <= 30:
-                bias = "Strong Supply"
-                recommendation = "SHORT"
-            elif score <= 40:
-                bias = "Moderate Supply"
-                recommendation = "WEAK SHORT"
-            else:
-                bias = "Balanced"
-                recommendation = "HOLD"
-            
-            return {
-                'score': score,
-                'bias': bias,
-                'recommendation': recommendation,
-                'factors': factors,
-                'confidence': 'High' if abs(score - 50) >= 20 else 'Medium' if abs(score - 50) >= 10 else 'Low'
-            }
-            
-        except Exception as e:
-            return {'error': f"Score calculation error: {str(e)}"}
+                # Estimate total market cap (rough calculation)
+                btc_price = btc_data.get('price', 0)
+                estimated_market_cap = btc_price * 19500000 / (btc_dominance / 100) if btc_dominance > 0 else total_volume * 20
 
-    def _generate_supply_demand_entry(self, current_price, sd_score, supply_demand_zones, market_structure):
-        """Generate specific entry recommendations based on supply/demand analysis"""
-        try:
-            recommendations = []
-            
-            score = sd_score.get('score', 50)
-            bias = sd_score.get('bias', 'Balanced')
-            
-            # Get zones
-            demand_zones = supply_demand_zones.get('demand_zones', [])
-            supply_zones = supply_demand_zones.get('supply_zones', [])
-            
-            if score >= 60:  # Demand favored
-                # Look for demand zone entries
-                if demand_zones:
-                    best_demand = demand_zones[0]
-                    entry_price = best_demand['zone_high']
-                    stop_loss = best_demand['zone_low'] * 0.998  # Just below demand zone
-                    take_profit = current_price * 1.02  # 2% target
-                    
-                    recommendations.append({
-                        'direction': 'LONG',
-                        'entry_type': 'Demand Zone Entry',
-                        'entry_price': entry_price,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'risk_reward': abs(take_profit - entry_price) / abs(entry_price - stop_loss),
-                        'confidence': sd_score.get('confidence', 'Medium'),
-                        'logic': f"Enter long at demand zone ${entry_price:,.4f} with SL below zone"
-                    })
-                else:
-                    # Market entry with tight SL
-                    entry_price = current_price
-                    stop_loss = current_price * 0.98
-                    take_profit = current_price * 1.03
-                    
-                    recommendations.append({
-                        'direction': 'LONG',
-                        'entry_type': 'Market Entry',
-                        'entry_price': entry_price,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'risk_reward': abs(take_profit - entry_price) / abs(entry_price - stop_loss),
-                        'confidence': sd_score.get('confidence', 'Medium'),
-                        'logic': f"Market long entry with demand bias"
-                    })
-            
-            elif score <= 40:  # Supply favored
-                # Look for supply zone entries
-                if supply_zones:
-                    best_supply = supply_zones[0]
-                    entry_price = best_supply['zone_low']
-                    stop_loss = best_supply['zone_high'] * 1.002  # Just above supply zone
-                    take_profit = current_price * 0.98  # 2% target
-                    
-                    recommendations.append({
-                        'direction': 'SHORT',
-                        'entry_type': 'Supply Zone Entry',
-                        'entry_price': entry_price,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'risk_reward': abs(entry_price - take_profit) / abs(stop_loss - entry_price),
-                        'confidence': sd_score.get('confidence', 'Medium'),
-                        'logic': f"Enter short at supply zone ${entry_price:,.4f} with SL above zone"
-                    })
-                else:
-                    # Market entry with tight SL
-                    entry_price = current_price
-                    stop_loss = current_price * 1.02
-                    take_profit = current_price * 0.97
-                    
-                    recommendations.append({
-                        'direction': 'SHORT',
-                        'entry_type': 'Market Entry',
-                        'entry_price': entry_price,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'risk_reward': abs(entry_price - take_profit) / abs(stop_loss - entry_price),
-                        'confidence': sd_score.get('confidence', 'Medium'),
-                        'logic': f"Market short entry with supply bias"
-                    })
-            
-            else:  # Balanced market
-                recommendations.append({
-                    'direction': 'HOLD',
-                    'entry_type': 'Wait for Clear Signal',
-                    'entry_price': current_price,
-                    'stop_loss': None,
-                    'take_profit': None,
-                    'risk_reward': 0,
-                    'confidence': 'Low',
-                    'logic': "Balanced supply/demand - wait for clearer directional bias"
-                })
-            
-            return {
-                'primary_recommendation': recommendations[0] if recommendations else None,
-                'alternative_setups': recommendations[1:] if len(recommendations) > 1 else [],
-                'market_bias': bias,
-                'entry_timing': 'Immediate' if score >= 70 or score <= 30 else 'Wait for confirmation'
-            }
-            
+                # Get BTC futures data for additional insights
+                btc_futures = self.get_comprehensive_futures_data('BTC')
+                funding_rate = 0
+                open_interest = 0
+                if 'error' not in btc_futures:
+                    funding_data = btc_futures.get('funding_rate_data', {})
+                    oi_data = btc_futures.get('open_interest_data', {})
+                    funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
+                    open_interest = oi_data.get('open_interest', 0) if 'error' not in oi_data else 0
+
+                return {
+                    'total_market_cap': estimated_market_cap,
+                    'market_cap_change_24h': weighted_change,
+                    'btc_dominance': btc_dominance,
+                    'eth_dominance': eth_dominance,
+                    'btc_price': btc_data.get('price', 0),
+                    'eth_price': eth_data.get('price', 0),
+                    'bnb_price': bnb_data.get('price', 0),
+                    'btc_change_24h': btc_data.get('change_24h', 0),
+                    'eth_change_24h': eth_data.get('change_24h', 0),
+                    'bnb_change_24h': bnb_data.get('change_24h', 0),
+                    'total_volume_24h': total_volume,
+                    'active_cryptocurrencies': len(prices_data),
+                    'btc_funding_rate': funding_rate,
+                    'btc_open_interest': open_interest,
+                    'source': 'binance_comprehensive',
+                    'last_updated': datetime.now().isoformat()
+                }
+            else:
+                return {'error': 'Binance market data unavailable'}
         except Exception as e:
-            return {'error': f"Entry recommendation error: {str(e)}"}
+            return {'error': f"Market overview error: {str(e)}"}
 
     def check_api_status(self):
         """Check Binance API health status comprehensively"""
@@ -1372,35 +923,35 @@ class CryptoAPI:
             # Test advanced Binance futures endpoints
             advanced_endpoints_ok = 0
             total_advanced = 6
-            
+
             try:
                 test_symbol = 'BTCUSDT'
-                
+
                 # Test each advanced endpoint
                 oi_test = self.get_binance_open_interest(test_symbol)
                 if 'error' not in oi_test:
                     advanced_endpoints_ok += 1
-                    
+
                 funding_test = self.get_binance_funding_rate(test_symbol)
                 if 'error' not in funding_test:
                     advanced_endpoints_ok += 1
-                    
+
                 mark_test = self.get_binance_mark_price(test_symbol)
                 if 'error' not in mark_test:
                     advanced_endpoints_ok += 1
-                    
+
                 ls_test = self.get_binance_long_short_ratio(test_symbol)
                 if 'error' not in ls_test:
                     advanced_endpoints_ok += 1
-                    
+
                 liq_test = self.get_binance_liquidation_orders(test_symbol)
                 if 'error' not in liq_test:
                     advanced_endpoints_ok += 1
-                    
+
                 candle_test = self.get_binance_candlestick(test_symbol, '1h', 5)
                 if 'error' not in candle_test:
                     advanced_endpoints_ok += 1
-                    
+
             except:
                 pass
 
@@ -1411,7 +962,7 @@ class CryptoAPI:
             core_binance_ok = binance_spot_ok and binance_futures_ok
             price_endpoints_ok = spot_price_ok or futures_price_ok
             advanced_ok = advanced_endpoints_ok >= 4  # At least 4 out of 6 working
-            
+
             overall_health = core_binance_ok and price_endpoints_ok and advanced_ok
 
             return {
@@ -1462,7 +1013,7 @@ class CryptoAPI:
             bool(os.getenv('REPL_SLUG')) or
             bool(os.getenv('REPL_OWNER'))
         )
-        
+
         if is_deployment:
             print(f"❌ DEPLOYMENT: No fallback data for {symbol} - Binance-only mode")
             return {
@@ -1475,7 +1026,7 @@ class CryptoAPI:
         # Only use simulation data in development as last resort
         import random
         print(f"⚠️ Using simulation data for {symbol} - Binance APIs unavailable")
-        
+
         mock_prices = {
             'BTCUSDT': random.uniform(65000, 75000),
             'ETHUSDT': random.uniform(3000, 4000),
@@ -1557,311 +1108,3 @@ class CryptoAPI:
             {"title": "Regulatory Clarity Boosts Crypto Market Sentiment", "url": "#", "source": "mock"}
         ]
         return mock_news[:limit]
-
-    def get_timeframe_analysis(self, symbol, timeframe='1h'):
-        """Get comprehensive timeframe analysis using Binance API"""
-        try:
-            # Get candlestick data for the timeframe
-            candles_data = self.get_binance_candlestick(symbol, timeframe, 50)
-            if 'error' in candles_data:
-                return {'error': f"Failed to get candlestick data: {candles_data.get('error')}"}
-
-            # Get current price and futures data
-            price_data = self.get_binance_futures_price(symbol)
-            mark_data = self.get_binance_mark_price(symbol)
-            funding_data = self.get_binance_funding_rate(symbol)
-            oi_data = self.get_binance_open_interest(symbol)
-            ls_data = self.get_binance_long_short_ratio(symbol)
-            liq_data = self.get_binance_liquidation_orders(symbol)
-
-            # Analyze candlestick patterns and trends
-            candlesticks = candles_data.get('candlesticks', [])
-            trend_analysis = self._analyze_trend_from_candles(candlesticks, timeframe)
-            support_resistance = self._calculate_support_resistance(candlesticks)
-            volatility = self._calculate_volatility(candlesticks)
-
-            return {
-                'symbol': symbol,
-                'timeframe': timeframe,
-                'price_data': price_data,
-                'mark_data': mark_data,
-                'funding_data': funding_data,
-                'open_interest_data': oi_data,
-                'long_short_data': ls_data,
-                'liquidation_data': liq_data,
-                'candlesticks': candlesticks[-20:],  # Last 20 candles
-                'trend_analysis': trend_analysis,
-                'support_resistance': support_resistance,
-                'volatility': volatility,
-                'source': 'binance_timeframe_analysis'
-            }
-        except Exception as e:
-            return {'error': f"Timeframe analysis error: {str(e)}"}
-
-    def _analyze_trend_from_candles(self, candlesticks, timeframe):
-        """Analyze trend from candlestick data"""
-        if not candlesticks or len(candlesticks) < 10:
-            return {'trend': 'unknown', 'strength': 'weak', 'direction': 'neutral'}
-
-        # Calculate trend using moving averages
-        closes = [float(candle['close']) for candle in candlesticks[-20:]]
-        
-        # Simple moving averages
-        sma_5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else closes[-1]
-        sma_10 = sum(closes[-10:]) / 10 if len(closes) >= 10 else closes[-1]
-        sma_20 = sum(closes) / len(closes)
-
-        # Trend direction
-        if sma_5 > sma_10 > sma_20:
-            direction = 'bullish'
-            strength = 'strong' if (sma_5 - sma_20) / sma_20 > 0.02 else 'moderate'
-        elif sma_5 < sma_10 < sma_20:
-            direction = 'bearish'
-            strength = 'strong' if (sma_20 - sma_5) / sma_20 > 0.02 else 'moderate'
-        else:
-            direction = 'sideways'
-            strength = 'weak'
-
-        # Calculate momentum
-        price_change = (closes[-1] - closes[0]) / closes[0] * 100
-        
-        return {
-            'trend': direction,
-            'strength': strength,
-            'direction': direction,
-            'price_change_pct': price_change,
-            'sma_5': sma_5,
-            'sma_10': sma_10,
-            'sma_20': sma_20,
-            'timeframe': timeframe
-        }
-
-    def _calculate_support_resistance(self, candlesticks):
-        """Calculate support and resistance levels"""
-        if not candlesticks or len(candlesticks) < 10:
-            return {'support': 0, 'resistance': 0, 'levels': []}
-
-        highs = [float(candle['high']) for candle in candlesticks[-20:]]
-        lows = [float(candle['low']) for candle in candlesticks[-20:]]
-
-        # Simple support/resistance calculation
-        resistance = max(highs)
-        support = min(lows)
-        
-        # Current price
-        current_price = float(candlesticks[-1]['close'])
-        
-        # Calculate key levels
-        levels = []
-        for i in range(1, len(candlesticks) - 1):
-            high = float(candlesticks[i]['high'])
-            low = float(candlesticks[i]['low'])
-            
-            # Check for local highs (resistance)
-            if (high > float(candlesticks[i-1]['high']) and 
-                high > float(candlesticks[i+1]['high'])):
-                levels.append({'type': 'resistance', 'price': high})
-            
-            # Check for local lows (support)
-            if (low < float(candlesticks[i-1]['low']) and 
-                low < float(candlesticks[i+1]['low'])):
-                levels.append({'type': 'support', 'price': low})
-
-        return {
-            'support': support,
-            'resistance': resistance,
-            'current_price': current_price,
-            'distance_to_support': (current_price - support) / current_price * 100,
-            'distance_to_resistance': (resistance - current_price) / current_price * 100,
-            'key_levels': levels[-5:]  # Last 5 key levels
-        }
-
-    def _calculate_volatility(self, candlesticks):
-        """Calculate volatility metrics"""
-        if not candlesticks or len(candlesticks) < 10:
-            return {'volatility': 'low', 'atr': 0, 'price_range': 0}
-
-        # Calculate Average True Range (ATR)
-        atr_values = []
-        for i in range(1, len(candlesticks)):
-            high = float(candlesticks[i]['high'])
-            low = float(candlesticks[i]['low'])
-            prev_close = float(candlesticks[i-1]['close'])
-            
-            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-            atr_values.append(tr)
-
-        atr = sum(atr_values[-14:]) / min(14, len(atr_values))  # 14-period ATR
-        
-        # Calculate price range
-        recent_highs = [float(c['high']) for c in candlesticks[-10:]]
-        recent_lows = [float(c['low']) for c in candlesticks[-10:]]
-        price_range = (max(recent_highs) - min(recent_lows)) / min(recent_lows) * 100
-
-        # Volatility classification
-        if price_range > 10:
-            volatility = 'very_high'
-        elif price_range > 5:
-            volatility = 'high'
-        elif price_range > 2:
-            volatility = 'moderate'
-        else:
-            volatility = 'low'
-
-        return {
-            'volatility': volatility,
-            'atr': atr,
-            'price_range': price_range,
-            'classification': volatility
-        }
-
-    def get_multiple_binance_prices(self, symbols):
-        """Get prices for multiple symbols from Binance only"""
-        prices_data = {}
-        
-        for symbol in symbols:
-            try:
-                # Try Binance Spot first
-                price_data = self.get_binance_price(symbol)
-                if 'error' not in price_data and price_data.get('price', 0) > 0:
-                    prices_data[symbol] = {
-                        'price': price_data.get('price', 0),
-                        'change_24h': price_data.get('change_24h', 0),
-                        'volume_24h': price_data.get('volume_24h', 0),
-                        'high_24h': price_data.get('high_24h', 0),
-                        'low_24h': price_data.get('low_24h', 0),
-                        'source': 'binance_spot'
-                    }
-                    continue
-                
-                # Fallback to Binance Futures
-                futures_data = self.get_binance_futures_price(symbol)
-                if 'error' not in futures_data and futures_data.get('price', 0) > 0:
-                    prices_data[symbol] = {
-                        'price': futures_data.get('price', 0),
-                        'change_24h': futures_data.get('change_24h', 0),
-                        'volume_24h': futures_data.get('volume_24h', 0),
-                        'high_24h': futures_data.get('high_24h', 0),
-                        'low_24h': futures_data.get('low_24h', 0),
-                        'source': 'binance_futures'
-                    }
-                    
-            except Exception as e:
-                print(f"Error getting Binance price for {symbol}: {e}")
-                continue
-                
-        return prices_data if prices_data else {'error': 'No Binance price data available'}
-    
-    def get_multiple_prices(self, symbols):
-        """Legacy method - now uses Binance only"""
-        return self.get_multiple_binance_prices(symbols)
-
-    def get_binance_global_data(self):
-        """Get global market data using Binance APIs exclusively"""
-        try:
-            # Get data from top cryptocurrencies via Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX', 'LINK', 'LTC', 'UNI', 'ATOM']
-            prices_data = self.get_multiple_binance_prices(major_symbols)
-            
-            if 'error' not in prices_data and len(prices_data) > 0:
-                # Calculate market metrics from Binance data
-                btc_data = prices_data.get('BTC', {})
-                eth_data = prices_data.get('ETH', {})
-                
-                # Calculate total volume and market metrics
-                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
-                btc_volume = btc_data.get('volume_24h', 0)
-                eth_volume = eth_data.get('volume_24h', 0)
-                
-                # Estimate market cap and dominance
-                btc_price = btc_data.get('price', 0)
-                eth_price = eth_data.get('price', 0)
-                
-                # Rough market cap estimates based on known supply
-                btc_market_cap = btc_price * 19700000  # ~19.7M BTC in circulation
-                eth_market_cap = eth_price * 120000000  # ~120M ETH in circulation
-                
-                # Estimate total market cap (BTC dominance typically 40-50%)
-                estimated_total_market_cap = btc_market_cap / 0.45  # Assume 45% dominance
-                
-                btc_dominance = (btc_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 45.0
-                eth_dominance = (eth_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 18.0
-                
-                # Calculate weighted average market change
-                changes = []
-                volumes = []
-                for data in prices_data.values():
-                    if 'change_24h' in data and 'volume_24h' in data:
-                        changes.append(data['change_24h'])
-                        volumes.append(data['volume_24h'])
-                
-                weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes) if volumes else 0
-                
-                return {
-                    'total_market_cap': estimated_total_market_cap,
-                    'total_volume': total_volume,
-                    'market_cap_percentage': {
-                        'btc': btc_dominance,
-                        'eth': eth_dominance,
-                        'others': 100 - btc_dominance - eth_dominance
-                    },
-                    'market_cap_change_percentage_24h_usd': weighted_change,
-                    'active_cryptocurrencies': len(prices_data),
-                    'markets': 1,  # Binance
-                    'updated_at': int(datetime.now().timestamp()),
-                    'source': 'binance_global_estimate'
-                }
-            else:
-                return {'error': 'Binance market data unavailable for global calculation'}
-        except Exception as e:
-            return {'error': f"Binance global data error: {str(e)}"}
-
-    def get_market_overview(self):
-        """Get market overview data using Binance data exclusively"""
-        try:
-            # Get global data using Binance
-            global_data = self.get_binance_global_data()
-            
-            # Get data from top cryptocurrencies via Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
-            prices_data = self.get_multiple_binance_prices(major_symbols)
-            
-            if 'error' not in prices_data and len(prices_data) > 0:
-                # Get individual coin data
-                btc_data = prices_data.get('BTC', {})
-                eth_data = prices_data.get('ETH', {})
-                bnb_data = prices_data.get('BNB', {})
-                
-                # Get BTC futures data for additional insights
-                btc_futures = self.get_comprehensive_futures_data('BTC')
-                funding_rate = 0
-                open_interest = 0
-                if 'error' not in btc_futures:
-                    funding_data = btc_futures.get('funding_rate_data', {})
-                    oi_data = btc_futures.get('open_interest_data', {})
-                    funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
-                    open_interest = oi_data.get('open_interest', 0) if 'error' not in oi_data else 0
-                
-                # Combine global and specific data
-                return {
-                    'total_market_cap': global_data.get('total_market_cap', 0),
-                    'market_cap_change_24h': global_data.get('market_cap_change_percentage_24h_usd', 0),
-                    'btc_dominance': global_data.get('market_cap_percentage', {}).get('btc', 45.0),
-                    'eth_dominance': global_data.get('market_cap_percentage', {}).get('eth', 18.0),
-                    'btc_price': btc_data.get('price', 0),
-                    'eth_price': eth_data.get('price', 0),
-                    'bnb_price': bnb_data.get('price', 0),
-                    'btc_change_24h': btc_data.get('change_24h', 0),
-                    'eth_change_24h': eth_data.get('change_24h', 0),
-                    'bnb_change_24h': bnb_data.get('change_24h', 0),
-                    'total_volume_24h': global_data.get('total_volume', 0),
-                    'active_cryptocurrencies': len(prices_data),
-                    'btc_funding_rate': funding_rate,
-                    'btc_open_interest': open_interest,
-                    'source': 'binance_exclusive',
-                    'last_updated': datetime.now().isoformat()
-                }
-            else:
-                return {'error': 'Binance market data unavailable'}
-        except Exception as e:
-            return {'error': f"Market overview error: {str(e)}"}
