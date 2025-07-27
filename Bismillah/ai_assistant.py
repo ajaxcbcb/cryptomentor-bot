@@ -990,8 +990,8 @@ Futures trading is high risk!
 Use proper risk management and don't FOMO!"""
 
         try:
-            # Get global market sentiment first
-            global_data = crypto_api.get_coingecko_global_data()
+            # Get global market sentiment first using Binance data
+            global_data = crypto_api.get_binance_global_data()
             news_data = crypto_api.get_crypto_news(3)
 
             # Analyze global market sentiment
@@ -1078,9 +1078,10 @@ Use proper risk management and don't FOMO!"""
                     message += f"\n  💡 Zone: {signal['entry_zone_info']}\n"
 
                 message += f"""
-🔍 **Enhanced Multi-API Analysis:**
-• ✅ Binance: Real-time price + futures data
-• ✅ CoinGecko: Market fundamentals + ranking  
+🔍 **Enhanced Binance-Exclusive Analysis:**
+• ✅ Binance Spot: Real-time price data
+• ✅ Binance Futures: Advanced futures metrics
+• ✅ Binance Global: Market dominance analysis
 • ✅ CryptoNews: Market sentiment analysis
 • 🎯 Supply/Demand: Entry zones + institutional levels
 
@@ -1090,7 +1091,7 @@ Use proper risk management and don't FOMO!"""
 • Risk/reward ratio dioptimalkan
 • Position sizing berdasarkan confidence
 
-📡 **Enhanced Sources:** Binance + CoinGecko + CryptoNews + S&D Analysis
+📡 **Enhanced Sources:** Binance Comprehensive + CryptoNews + S&D Analysis
 🕐 **Update:** {datetime.now().strftime('%H:%M:%S WIB')}"""
 
             else:
@@ -1110,9 +1111,10 @@ Use proper risk management and don't FOMO!"""
                     message += f"\n  💡 Zone: {signal['entry_zone_info']}\n"
 
                 message += f"""
-🔍 **Enhanced Multi-API Analysis:**
-• ✅ Binance: Real-time price + futures data
-• ✅ CoinGecko: Market fundamentals + ranking
+🔍 **Enhanced Binance-Exclusive Analysis:**
+• ✅ Binance Spot: Real-time price data
+• ✅ Binance Futures: Advanced futures metrics
+• ✅ Binance Global: Market dominance analysis
 • ✅ CryptoNews: Market sentiment analysis
 • 🎯 Supply/Demand: Entry zones + institutional levels
 
@@ -1122,7 +1124,7 @@ Use proper risk management and don't FOMO!"""
 • Optimized risk/reward ratios
 • Position sizing based on confidence
 
-📡 **Enhanced Sources:** Binance + CoinGecko + CryptoNews + S&D Analysis
+📡 **Enhanced Sources:** Binance Comprehensive + CryptoNews + S&D Analysis
 🕐 **Update:** {datetime.now().strftime('%H:%M:%S UTC')}"""
 
             return message
@@ -1147,13 +1149,13 @@ Error: {str(e)}
 Futures trading is high risk!"""
 
     def _analyze_global_market_sentiment(self, global_data, news_data):
-        """Analyze global market sentiment from CoinGecko and news"""
+        """Analyze global market sentiment from Binance and news"""
         sentiment_score = 5  # Base neutral
 
-        # Global market analysis
+        # Global market analysis using Binance data
         if global_data and 'error' not in global_data:
             mcap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
-            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 50)
+            btc_dominance = global_data.get('btc_dominance', 50)
 
             # Market cap trend
             if mcap_change > 3:
