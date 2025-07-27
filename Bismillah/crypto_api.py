@@ -43,9 +43,22 @@ class CryptoAPI:
     def get_binance_price(self, symbol, force_refresh=False):
         """Get real-time price from Binance Spot API with enhanced error handling"""
         try:
-            # Normalize symbol format
-            if not symbol.endswith('USDT'):
-                symbol = symbol.upper() + 'USDT'
+            # Normalize symbol format - Only accept USDT pairs
+            original_symbol = symbol.upper()
+            if not original_symbol.endswith('USDT'):
+                symbol = original_symbol + 'USDT'
+            else:
+                symbol = original_symbol
+
+            # Validate symbol contains USDT
+            if 'USDT' not in symbol:
+                print(f"❌ Symbol {original_symbol} does not contain USDT - skipping")
+                return {
+                    'error': f'Symbol {original_symbol} not supported - only USDT pairs accepted',
+                    'symbol': original_symbol,
+                    'api_call_successful': False,
+                    'error_type': 'invalid_symbol'
+                }
 
             # Check deployment mode for different approach
             is_deployment = (
@@ -54,7 +67,7 @@ class CryptoAPI:
                 bool(os.getenv('REPL_SLUG'))
             )
 
-            print(f"🔄 Fetching Binance price for {symbol} (Deployment: {is_deployment})")
+            print(f"🔄 Fetching Binance price for {symbol} (Original: {original_symbol}, Deployment: {is_deployment})")
 
             # Enhanced headers for better API compatibility
             headers = {
@@ -100,6 +113,7 @@ class CryptoAPI:
                     )
                     
                     print(f"📊 Binance API Response Status: {response.status_code}")
+                    print(f"📊 Response Headers: {dict(response.headers)}")
                     
                     # Check response status
                     if response.status_code != 200:
@@ -107,6 +121,7 @@ class CryptoAPI:
                         try:
                             error_data = response.json()
                             error_msg = f"HTTP {response.status_code}: {error_data.get('msg', 'Unknown error')}"
+                            print(f"❌ Binance API Error Details: {error_data}")
                         except:
                             pass
                         print(f"❌ Binance API Error: {error_msg}")
@@ -114,7 +129,16 @@ class CryptoAPI:
                         continue
 
                     response.raise_for_status()
-                    data = response.json()
+                    
+                    # Parse JSON response with validation
+                    try:
+                        data = response.json()
+                        print(f"📊 Raw API Response: {data}")
+                    except ValueError as json_error:
+                        print(f"❌ JSON parsing failed: {json_error}")
+                        print(f"📊 Raw response text: {response.text[:200]}...")
+                        last_error = f"JSON parsing error: {json_error}"
+                        continue
                     
                     # Validate response data
                     if not data or not isinstance(data, dict):
@@ -122,7 +146,7 @@ class CryptoAPI:
                         last_error = "Invalid response format"
                         continue
 
-                    # Handle different endpoint responses with validation
+                    # Handle different endpoint responses with enhanced validation
                     if endpoint.endswith('/ticker/24hr'):
                         # Validate required fields
                         required_fields = ['lastPrice', 'priceChangePercent', 'highPrice', 'lowPrice', 'volume', 'quoteVolume']
@@ -133,35 +157,89 @@ class CryptoAPI:
                             last_error = f"Missing required fields: {missing_fields}"
                             continue
 
-                        price = float(data['lastPrice'])
-                        
-                        # Validate price is not zero or negative
-                        if price <= 0:
-                            print(f"❌ Invalid price received from Binance: {price}")
-                            last_error = f"Invalid price: {price}"
+                        # Enhanced lastPrice parsing with multiple validations
+                        try:
+                            raw_last_price = data.get('lastPrice')
+                            print(f"📊 Raw lastPrice from API: {raw_last_price} (type: {type(raw_last_price)})")
+                            
+                            if raw_last_price is None:
+                                print(f"❌ lastPrice is None")
+                                last_error = "lastPrice field is None"
+                                continue
+                            
+                            if isinstance(raw_last_price, str) and raw_last_price.strip() == '':
+                                print(f"❌ lastPrice is empty string")
+                                last_error = "lastPrice field is empty"
+                                continue
+                            
+                            # Parse to float with validation
+                            price = float(raw_last_price)
+                            print(f"📊 Parsed price: {price}")
+                            
+                            # Validate price is not zero, negative, or NaN
+                            if price <= 0 or price != price:  # price != price checks for NaN
+                                print(f"❌ Invalid price received from Binance: {price}")
+                                last_error = f"Invalid price: {price}"
+                                continue
+                            
+                            # Additional sanity check for reasonable price range
+                            if price > 10000000:  # Arbitrary large number check
+                                print(f"⚠️ Suspiciously large price: {price} - possible data error")
+                                last_error = f"Suspiciously large price: {price}"
+                                continue
+                                
+                        except (ValueError, TypeError) as price_error:
+                            print(f"❌ Price parsing error: {price_error}")
+                            print(f"❌ Failed to parse lastPrice: {data.get('lastPrice')}")
+                            last_error = f"Price parsing error: {price_error}"
                             continue
+
+                        # Parse other numeric fields with error handling
+                        try:
+                            change_24h = float(data.get('priceChangePercent', 0))
+                            high_24h = float(data.get('highPrice', 0))
+                            low_24h = float(data.get('lowPrice', 0))
+                            volume_24h = float(data.get('volume', 0))
+                            quote_volume_24h = float(data.get('quoteVolume', 0))
+                            open_price = float(data.get('openPrice', 0))
+                            price_change = float(data.get('priceChange', 0))
+                            count = int(data.get('count', 0))
+                        except (ValueError, TypeError) as parse_error:
+                            print(f"⚠️ Warning: Error parsing additional fields: {parse_error}")
+                            # Use defaults for non-critical fields
+                            change_24h = 0
+                            high_24h = 0
+                            low_24h = 0
+                            volume_24h = 0
+                            quote_volume_24h = 0
+                            open_price = 0
+                            price_change = 0
+                            count = 0
 
                         result = {
                             'symbol': symbol,
                             'price': price,
-                            'change_24h': float(data['priceChangePercent']),
-                            'high_24h': float(data['highPrice']),
-                            'low_24h': float(data['lowPrice']),
-                            'volume_24h': float(data['volume']),
-                            'quote_volume_24h': float(data['quoteVolume']),
-                            'open_price': float(data['openPrice']),
-                            'close_price': float(data['lastPrice']),
-                            'price_change': float(data['priceChange']),
-                            'count': int(data['count']),
-                            'first_id': data['firstId'],
-                            'last_id': data['lastId'],
-                            'open_time': data['openTime'],
-                            'close_time': data['closeTime'],
+                            'change_24h': change_24h,
+                            'high_24h': high_24h,
+                            'low_24h': low_24h,
+                            'volume_24h': volume_24h,
+                            'quote_volume_24h': quote_volume_24h,
+                            'open_price': open_price,
+                            'close_price': price,  # lastPrice is close price
+                            'price_change': price_change,
+                            'count': count,
+                            'first_id': data.get('firstId', 0),
+                            'last_id': data.get('lastId', 0),
+                            'open_time': data.get('openTime', 0),
+                            'close_time': data.get('closeTime', 0),
                             'source': 'binance_spot_24hr',
-                            'api_call_successful': True
+                            'api_call_successful': True,
+                            'raw_last_price': raw_last_price,  # For debugging
+                            'price_validation_passed': True
                         }
                         
-                        print(f"✅ Binance 24hr ticker success for {symbol}: ${price:,.4f}")
+                        print(f"✅ Binance 24hr ticker success for {symbol}: ${price:,.6f}")
+                        print(f"✅ Price validation: {price} > 0 = {price > 0}")
                         return result
 
                     else:  # ticker/price endpoint
@@ -171,12 +249,34 @@ class CryptoAPI:
                             last_error = "Price field missing"
                             continue
 
-                        price = float(data['price'])
-                        
-                        # Validate price is not zero or negative
-                        if price <= 0:
-                            print(f"❌ Invalid price received from Binance: {price}")
-                            last_error = f"Invalid price: {price}"
+                        # Enhanced price parsing for simple endpoint
+                        try:
+                            raw_price = data.get('price')
+                            print(f"📊 Raw price from simple API: {raw_price} (type: {type(raw_price)})")
+                            
+                            if raw_price is None:
+                                print(f"❌ price is None")
+                                last_error = "price field is None"
+                                continue
+                            
+                            if isinstance(raw_price, str) and raw_price.strip() == '':
+                                print(f"❌ price is empty string")
+                                last_error = "price field is empty"
+                                continue
+                            
+                            price = float(raw_price)
+                            print(f"📊 Parsed simple price: {price}")
+                            
+                            # Validate price is not zero, negative, or NaN
+                            if price <= 0 or price != price:
+                                print(f"❌ Invalid price received from Binance: {price}")
+                                last_error = f"Invalid price: {price}"
+                                continue
+                                
+                        except (ValueError, TypeError) as price_error:
+                            print(f"❌ Simple price parsing error: {price_error}")
+                            print(f"❌ Failed to parse price: {data.get('price')}")
+                            last_error = f"Simple price parsing error: {price_error}"
                             continue
 
                         result = {
@@ -185,10 +285,12 @@ class CryptoAPI:
                             'change_24h': 0,  # Not available in price endpoint
                             'volume_24h': 0,
                             'source': 'binance_spot_simple',
-                            'api_call_successful': True
+                            'api_call_successful': True,
+                            'raw_price': raw_price,  # For debugging
+                            'price_validation_passed': True
                         }
                         
-                        print(f"✅ Binance simple ticker success for {symbol}: ${price:,.4f}")
+                        print(f"✅ Binance simple ticker success for {symbol}: ${price:,.6f}")
                         return result
 
                 except requests.exceptions.Timeout as e:
@@ -218,7 +320,7 @@ class CryptoAPI:
                     continue
 
             # If all endpoints failed
-            final_error = f"All Binance Spot endpoints failed. Last error: {last_error}"
+            final_error = f"All Binance Spot endpoints failed for {symbol}. Last error: {last_error}"
             print(f"❌ {final_error}")
             raise Exception(final_error)
 
@@ -284,8 +386,22 @@ class CryptoAPI:
     def get_binance_futures_price(self, symbol):
         """Get futures price ticker from Binance Futures with enhanced validation"""
         try:
-            if not symbol.endswith('USDT'):
-                symbol = symbol.upper() + 'USDT'
+            # Normalize symbol format - Only accept USDT pairs
+            original_symbol = symbol.upper()
+            if not original_symbol.endswith('USDT'):
+                symbol = original_symbol + 'USDT'
+            else:
+                symbol = original_symbol
+
+            # Validate symbol contains USDT
+            if 'USDT' not in symbol:
+                print(f"❌ Futures symbol {original_symbol} does not contain USDT - skipping")
+                return {
+                    'error': f'Futures symbol {original_symbol} not supported - only USDT pairs accepted',
+                    'symbol': original_symbol,
+                    'api_call_successful': False,
+                    'error_type': 'invalid_symbol'
+                }
 
             # Check deployment mode
             is_deployment = (
@@ -294,7 +410,7 @@ class CryptoAPI:
                 bool(os.getenv('REPL_SLUG'))
             )
 
-            print(f"🔄 Fetching Binance Futures price for {symbol} (Deployment: {is_deployment})")
+            print(f"🔄 Fetching Binance Futures price for {symbol} (Original: {original_symbol}, Deployment: {is_deployment})")
 
             headers = {
                 'User-Agent': 'CryptoMentorAI/1.0',
@@ -312,6 +428,7 @@ class CryptoAPI:
             )
             
             print(f"📊 Binance Futures API Response Status: {response.status_code}")
+            print(f"📊 Futures Response Headers: {dict(response.headers)}")
 
             # Check response status
             if response.status_code != 200:
@@ -319,18 +436,27 @@ class CryptoAPI:
                 try:
                     error_data = response.json()
                     error_msg = f"HTTP {response.status_code}: {error_data.get('msg', 'Unknown error')}"
+                    print(f"❌ Binance Futures API Error Details: {error_data}")
                 except:
                     pass
                 print(f"❌ Binance Futures API Error: {error_msg}")
-                return {'error': f"Futures API error: {error_msg}"}
+                return {'error': f"Futures API error: {error_msg}", 'api_call_successful': False}
 
             response.raise_for_status()
-            data = response.json()
+            
+            # Parse JSON response with validation
+            try:
+                data = response.json()
+                print(f"📊 Raw Futures API Response: {data}")
+            except ValueError as json_error:
+                print(f"❌ Futures JSON parsing failed: {json_error}")
+                print(f"📊 Raw futures response text: {response.text[:200]}...")
+                return {'error': f"Futures JSON parsing error: {json_error}", 'api_call_successful': False}
 
             # Validate response data
             if not data or not isinstance(data, dict):
                 print(f"❌ Invalid Binance Futures API response format for {symbol}")
-                return {'error': 'Invalid response format'}
+                return {'error': 'Invalid futures response format', 'api_call_successful': False}
 
             # Validate required fields
             required_fields = ['lastPrice', 'priceChangePercent', 'highPrice', 'lowPrice', 'volume', 'quoteVolume']
@@ -338,34 +464,86 @@ class CryptoAPI:
             
             if missing_fields:
                 print(f"❌ Missing fields in Futures ticker response: {missing_fields}")
-                return {'error': f'Missing required fields: {missing_fields}'}
+                return {'error': f'Missing required fields: {missing_fields}', 'api_call_successful': False}
 
-            price = float(data['lastPrice'])
-            
-            # Validate price is not zero or negative
-            if price <= 0:
-                print(f"❌ Invalid futures price received from Binance: {price}")
-                return {'error': f'Invalid price: {price}'}
+            # Enhanced lastPrice parsing with multiple validations
+            try:
+                raw_last_price = data.get('lastPrice')
+                print(f"📊 Raw futures lastPrice from API: {raw_last_price} (type: {type(raw_last_price)})")
+                
+                if raw_last_price is None:
+                    print(f"❌ Futures lastPrice is None")
+                    return {'error': 'Futures lastPrice field is None', 'api_call_successful': False}
+                
+                if isinstance(raw_last_price, str) and raw_last_price.strip() == '':
+                    print(f"❌ Futures lastPrice is empty string")
+                    return {'error': 'Futures lastPrice field is empty', 'api_call_successful': False}
+                
+                # Parse to float with validation
+                price = float(raw_last_price)
+                print(f"📊 Parsed futures price: {price}")
+                
+                # Validate price is not zero, negative, or NaN
+                if price <= 0 or price != price:  # price != price checks for NaN
+                    print(f"❌ Invalid futures price received from Binance: {price}")
+                    return {'error': f'Invalid futures price: {price}', 'api_call_successful': False}
+                
+                # Additional sanity check for reasonable price range
+                if price > 10000000:  # Arbitrary large number check
+                    print(f"⚠️ Suspiciously large futures price: {price} - possible data error")
+                    return {'error': f'Suspiciously large futures price: {price}', 'api_call_successful': False}
+                    
+            except (ValueError, TypeError) as price_error:
+                print(f"❌ Futures price parsing error: {price_error}")
+                print(f"❌ Failed to parse futures lastPrice: {data.get('lastPrice')}")
+                return {'error': f'Futures price parsing error: {price_error}', 'api_call_successful': False}
+
+            # Parse other numeric fields with error handling
+            try:
+                change_24h = float(data.get('priceChangePercent', 0))
+                high_24h = float(data.get('highPrice', 0))
+                low_24h = float(data.get('lowPrice', 0))
+                volume_24h = float(data.get('volume', 0))
+                quote_volume_24h = float(data.get('quoteVolume', 0))
+                open_price = float(data.get('openPrice', 0))
+                weighted_avg_price = float(data.get('weightedAvgPrice', 0))
+                price_change = float(data.get('priceChange', 0))
+                count = int(data.get('count', 0))
+            except (ValueError, TypeError) as parse_error:
+                print(f"⚠️ Warning: Error parsing additional futures fields: {parse_error}")
+                # Use defaults for non-critical fields
+                change_24h = 0
+                high_24h = 0
+                low_24h = 0
+                volume_24h = 0
+                quote_volume_24h = 0
+                open_price = 0
+                weighted_avg_price = 0
+                price_change = 0
+                count = 0
 
             result = {
                 'symbol': symbol,
                 'price': price,
-                'change_24h': float(data['priceChangePercent']),
-                'high_24h': float(data['highPrice']),
-                'low_24h': float(data['lowPrice']),
-                'volume_24h': float(data['volume']),
-                'quote_volume_24h': float(data['quoteVolume']),
-                'open_price': float(data['openPrice']),
-                'weighted_avg_price': float(data['weightedAvgPrice']),
-                'price_change': float(data['priceChange']),
-                'count': int(data['count']),
-                'open_time': data['openTime'],
-                'close_time': data['closeTime'],
+                'change_24h': change_24h,
+                'high_24h': high_24h,
+                'low_24h': low_24h,
+                'volume_24h': volume_24h,
+                'quote_volume_24h': quote_volume_24h,
+                'open_price': open_price,
+                'weighted_avg_price': weighted_avg_price,
+                'price_change': price_change,
+                'count': count,
+                'open_time': data.get('openTime', 0),
+                'close_time': data.get('closeTime', 0),
                 'source': 'binance_futures',
-                'api_call_successful': True
+                'api_call_successful': True,
+                'raw_last_price': raw_last_price,  # For debugging
+                'price_validation_passed': True
             }
 
-            print(f"✅ Binance Futures success for {symbol}: ${price:,.4f}")
+            print(f"✅ Binance Futures success for {symbol}: ${price:,.6f}")
+            print(f"✅ Futures price validation: {price} > 0 = {price > 0}")
             return result
 
         except requests.exceptions.Timeout as e:
