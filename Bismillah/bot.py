@@ -883,17 +883,45 @@ Contoh: `/add_coin btc 0.5`
 
             print(f"✅ Futures signals generated successfully for user {user_id}")
 
+            # Clean signals text to prevent markdown parsing errors
+            def clean_markdown_text(text):
+                """Clean text to prevent Telegram markdown parsing errors"""
+                # Replace problematic characters
+                text = text.replace('&', '&amp;')
+                text = text.replace('<', '&lt;')
+                text = text.replace('>', '&gt;')
+                # Ensure balanced markdown
+                if text.count('*') % 2 != 0:
+                    text += '*'
+                if text.count('_') % 2 != 0:
+                    text += '_'
+                return text
+
+            cleaned_signals = clean_markdown_text(signals)
+
             # Split long messages if needed
-            if len(signals) > 4000:
+            if len(cleaned_signals) > 4000:
                 # Split into chunks
-                chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                chunks = [cleaned_signals[i:i+4000] for i in range(0, len(cleaned_signals), 4000)]
+                try:
+                    await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                except Exception as e:
+                    print(f"Markdown error, sending as plain text: {e}")
+                    await loading_msg.edit_text(chunks[0], parse_mode=None)
 
                 for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                    try:
+                        await update.message.reply_text(chunk, parse_mode='Markdown')
+                    except Exception as e:
+                        print(f"Markdown error in chunk, sending as plain text: {e}")
+                        await update.message.reply_text(chunk, parse_mode=None)
             else:
                 # Edit the loading message with the signals
-                await loading_msg.edit_text(signals, parse_mode='Markdown')
+                try:
+                    await loading_msg.edit_text(cleaned_signals, parse_mode='Markdown')
+                except Exception as e:
+                    print(f"Markdown error, sending as plain text: {e}")
+                    await loading_msg.edit_text(cleaned_signals, parse_mode=None)
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan saat menganalisis sinyal futures: {str(e)[:100]}"
