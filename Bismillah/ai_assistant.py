@@ -1775,6 +1775,112 @@ Error: {str(e)}
 ⚠️ **Risk Warning:**
 Trading is high risk! Use proper risk management!"""
 
+    def analyze_snd_for_auto_signals(self, symbol, crypto_api):
+        """Analyze SnD specifically for auto signals system with high confidence requirements"""
+        try:
+            if not crypto_api:
+                return {'error': 'API not available'}
+                
+            # Get SnD analysis
+            snd_analysis = crypto_api.analyze_supply_demand(symbol)
+            
+            if 'error' in snd_analysis:
+                return snd_analysis
+                
+            # Enhanced confidence scoring for auto signals
+            confidence_score = self._calculate_auto_signal_confidence(snd_analysis, symbol, crypto_api)
+            
+            # Only return signals with high confidence (>=75%)
+            if confidence_score < 75:
+                return {'error': 'Confidence too low for auto signal'}
+                
+            # Extract key data
+            signals = snd_analysis.get('signals', [])
+            support_levels = snd_analysis.get('support_levels', [])
+            resistance_levels = snd_analysis.get('resistance_levels', [])
+            
+            if not signals:
+                return {'error': 'No signals found'}
+                
+            # Find best signal
+            best_signal = max(signals, key=lambda x: x.get('confidence', 0))
+            
+            return {
+                'symbol': symbol,
+                'confidence': confidence_score,
+                'signal': best_signal,
+                'support_levels': support_levels,
+                'resistance_levels': resistance_levels,
+                'analysis_successful': True
+            }
+            
+        except Exception as e:
+            print(f"Error in SnD auto signals analysis for {symbol}: {e}")
+            return {'error': str(e)}
+            
+    def _calculate_auto_signal_confidence(self, snd_analysis, symbol, crypto_api):
+        """Calculate enhanced confidence score for auto signals"""
+        try:
+            base_confidence = 50
+            
+            # Get additional market data
+            price_data = crypto_api.get_binance_price(symbol)
+            futures_data = crypto_api.get_binance_futures_price(symbol)
+            
+            # Factor 1: Volume confirmation (+15 points)
+            volume_24h = price_data.get('volume_24h', 0) if price_data else 0
+            if volume_24h > 1000000:  # High volume
+                base_confidence += 15
+            elif volume_24h > 500000:  # Medium volume
+                base_confidence += 10
+                
+            # Factor 2: Price momentum (+10 points)
+            change_24h = price_data.get('change_24h', 0) if price_data else 0
+            if abs(change_24h) > 5:  # Strong momentum
+                base_confidence += 10
+            elif abs(change_24h) > 2:  # Medium momentum
+                base_confidence += 5
+                
+            # Factor 3: SnD signal strength (+15 points)
+            signals = snd_analysis.get('signals', [])
+            if signals:
+                signal_confidence = max(s.get('confidence', 0) for s in signals)
+                if signal_confidence > 80:
+                    base_confidence += 15
+                elif signal_confidence > 60:
+                    base_confidence += 10
+                    
+            # Factor 4: Support/Resistance levels quality (+10 points)
+            support_levels = snd_analysis.get('support_levels', [])
+            resistance_levels = snd_analysis.get('resistance_levels', [])
+            
+            total_levels = len(support_levels) + len(resistance_levels)
+            if total_levels >= 5:  # Good level identification
+                base_confidence += 10
+            elif total_levels >= 3:
+                base_confidence += 5
+                
+            # Factor 5: Market structure (+10 points)
+            if futures_data and 'error' not in futures_data:
+                # Check for clean price action
+                current_price = price_data.get('price', 0) if price_data else 0
+                mark_price = futures_data.get('price', 0)
+                
+                # Price convergence indicates clean structure
+                if current_price > 0 and mark_price > 0:
+                    price_diff = abs(current_price - mark_price) / current_price
+                    if price_diff < 0.001:  # Very close prices
+                        base_confidence += 10
+                    elif price_diff < 0.005:
+                        base_confidence += 5
+                        
+            # Cap at 95% (never 100% certain)
+            return min(base_confidence, 95)
+            
+        except Exception as e:
+            print(f"Error calculating auto signal confidence: {e}")
+            return 50  # Default confidence
+
     def generate_single_futures_signal(self, symbol, language='id', crypto_api=None):
         """Generate futures trading signal for a single coin using Binance API"""
         if not crypto_api:
