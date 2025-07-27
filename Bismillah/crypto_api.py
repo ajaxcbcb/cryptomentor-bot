@@ -912,23 +912,87 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Binance global data error: {str(e)}"}
 
+    def test_binance_connectivity(self, symbol='BTCUSDT'):
+        """Test Binance API connectivity with detailed logging"""
+        print(f"🔧 Testing Binance API connectivity for {symbol}...")
+        
+        test_results = {
+            'spot_ping': False,
+            'futures_ping': False,
+            'spot_price': False,
+            'futures_price': False,
+            'spot_price_value': None,
+            'futures_price_value': None,
+            'deployment_mode': self.is_deployment_mode(),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Test Spot API ping
+        try:
+            spot_ping = requests.get(f"{self.binance_spot_url}/ping", timeout=5)
+            test_results['spot_ping'] = spot_ping.status_code == 200
+            print(f"📡 Spot API ping: {'✅ OK' if test_results['spot_ping'] else '❌ FAIL'}")
+        except Exception as e:
+            print(f"❌ Spot API ping failed: {e}")
+        
+        # Test Futures API ping
+        try:
+            futures_ping = requests.get(f"{self.binance_futures_url}/ping", timeout=5)
+            test_results['futures_ping'] = futures_ping.status_code == 200
+            print(f"📡 Futures API ping: {'✅ OK' if test_results['futures_ping'] else '❌ FAIL'}")
+        except Exception as e:
+            print(f"❌ Futures API ping failed: {e}")
+        
+        # Test Spot price retrieval
+        try:
+            spot_data = self.get_binance_price('BTC')
+            if 'error' not in spot_data and spot_data.get('price', 0) > 0:
+                test_results['spot_price'] = True
+                test_results['spot_price_value'] = spot_data.get('price')
+                print(f"💰 Spot price: ✅ ${spot_data.get('price'):,.2f}")
+            else:
+                print(f"❌ Spot price failed: {spot_data.get('error', 'Unknown error')}")
+        except Exception as e:
+            print(f"❌ Spot price exception: {e}")
+        
+        # Test Futures price retrieval
+        try:
+            futures_data = self.get_binance_futures_price('BTC')
+            if 'error' not in futures_data and futures_data.get('price', 0) > 0:
+                test_results['futures_price'] = True
+                test_results['futures_price_value'] = futures_data.get('price')
+                print(f"🚀 Futures price: ✅ ${futures_data.get('price'):,.2f}")
+            else:
+                print(f"❌ Futures price failed: {futures_data.get('error', 'Unknown error')}")
+        except Exception as e:
+            print(f"❌ Futures price exception: {e}")
+        
+        # Overall assessment
+        working_endpoints = sum([
+            test_results['spot_ping'],
+            test_results['futures_ping'], 
+            test_results['spot_price'],
+            test_results['futures_price']
+        ])
+        
+        test_results['overall_health'] = working_endpoints >= 2
+        test_results['working_endpoints'] = f"{working_endpoints}/4"
+        
+        print(f"📊 Overall Binance API Health: {'✅ GOOD' if test_results['overall_health'] else '❌ POOR'} ({working_endpoints}/4 endpoints working)")
+        
+        return test_results
+
     # === PRICE METHODS (BINANCE ONLY) ===
 
     def get_price(self, symbol, force_refresh=False):
-        """Get price from Binance APIs only"""
-        # Check if in deployment mode
-        is_deployment = (
-            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
-            os.getenv('REPL_DEPLOYMENT') == '1' or
-            os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
-            os.path.exists('/tmp/repl_deployment_flag') or
-            bool(os.getenv('REPL_SLUG')) or
-            bool(os.getenv('REPL_OWNER'))
-        )
+        """Get price from Binance APIs only with enhanced deployment detection"""
+        # Check if in deployment mode using comprehensive method
+        is_deployment = self.is_deployment_mode()
 
-        # Always force refresh in deployment
+        # Always force refresh in deployment for real-time data
         if is_deployment:
             force_refresh = True
+            print(f"🚀 DEPLOYMENT MODE: Force refresh enabled for {symbol}")
 
         return self.get_multi_api_price(symbol, force_refresh)
 
@@ -936,7 +1000,19 @@ class CryptoAPI:
         """Get price from Binance APIs only - centralized to Binance with enhanced validation"""
         price_sources = {}
 
-        # Enhanced deployment environment check
+        # Enhanced deployment environment check with comprehensive logging
+        deployment_indicators = {
+            'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT'),
+            'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT'),
+            'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT'),
+            'REPL_SLUG': bool(os.getenv('REPL_SLUG')),
+            'REPL_DB_URL': bool(os.getenv('REPL_DB_URL')),
+            'REPL_OWNER': bool(os.getenv('REPL_OWNER')),
+            'deployment_flag_exists': os.path.exists('/tmp/repl_deployment_flag')
+        }
+        
+        print(f"🔍 Deployment indicators check: {deployment_indicators}")
+        
         is_deployment = (
             os.getenv('REPLIT_DEPLOYMENT') == '1' or 
             os.getenv('REPL_DEPLOYMENT') == '1' or
@@ -956,21 +1032,57 @@ class CryptoAPI:
         print(f"🔄 {mode} MODE: Fetching price data for {symbol} from Binance (Force: {force_refresh})")
 
         def validate_price_data(data, source_name):
-            """Validate price data to ensure it's valid"""
+            """Validate price data to ensure it's valid with comprehensive checks"""
+            print(f"🔍 Validating {source_name} data: {data}")
+            
             if 'error' in data:
                 print(f"❌ {source_name} returned error: {data['error']}")
                 return False
             
             price = data.get('price', 0)
-            if not isinstance(price, (int, float)) or price <= 0:
-                print(f"❌ {source_name} returned invalid price: {price}")
-                return False
+            print(f"🔍 Raw price from {source_name}: {price} (type: {type(price)})")
             
-            if not data.get('api_call_successful', True):
-                print(f"❌ {source_name} API call was not successful")
+            # Enhanced price validation
+            if price is None:
+                print(f"❌ {source_name} price is None")
                 return False
                 
-            print(f"✅ {source_name} price validation passed: ${price:,.4f}")
+            if not isinstance(price, (int, float)):
+                try:
+                    price = float(price)
+                    print(f"🔄 Converted {source_name} price to float: {price}")
+                except (ValueError, TypeError) as e:
+                    print(f"❌ {source_name} price conversion failed: {e}")
+                    return False
+            
+            # Check for zero, negative, or unreasonable prices
+            if price <= 0:
+                print(f"❌ {source_name} returned zero or negative price: {price}")
+                return False
+                
+            if price != price:  # NaN check
+                print(f"❌ {source_name} returned NaN price")
+                return False
+                
+            if price > 10000000:  # Unreasonably high price
+                print(f"❌ {source_name} returned suspiciously high price: {price}")
+                return False
+                
+            if price < 0.00000001:  # Unreasonably low price
+                print(f"❌ {source_name} returned suspiciously low price: {price}")
+                return False
+            
+            # Check API call success indicator
+            if not data.get('api_call_successful', True):
+                print(f"❌ {source_name} API call was marked as unsuccessful")
+                return False
+            
+            # Check price validation flag if exists
+            if 'price_validation_passed' in data and not data['price_validation_passed']:
+                print(f"❌ {source_name} failed internal price validation")
+                return False
+                
+            print(f"✅ {source_name} price validation passed: ${price:,.8f}")
             return True
 
         # In deployment mode, prioritize Futures API first due to stability
@@ -1325,6 +1437,34 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Market overview error: {str(e)}"}
 
+    def is_deployment_mode(self):
+        """Check if running in deployment mode with comprehensive logging"""
+        deployment_checks = {
+            'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT'),
+            'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT'), 
+            'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT'),
+            'REPL_SLUG': os.getenv('REPL_SLUG'),
+            'REPL_DB_URL': os.getenv('REPL_DB_URL'),
+            'REPL_OWNER': os.getenv('REPL_OWNER'),
+            'deployment_flag': os.path.exists('/tmp/repl_deployment_flag')
+        }
+        
+        is_deployment = (
+            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+            os.getenv('REPL_DEPLOYMENT') == '1' or
+            os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
+            os.path.exists('/tmp/repl_deployment_flag') or
+            bool(os.getenv('REPL_SLUG')) or 
+            bool(os.getenv('REPL_DB_URL')) or
+            bool(os.getenv('REPL_OWNER'))
+        )
+        
+        print(f"🚀 Deployment Mode Check:")
+        print(f"   Environment Variables: {deployment_checks}")
+        print(f"   Result: {'DEPLOYMENT' if is_deployment else 'DEVELOPMENT'}")
+        
+        return is_deployment
+
     def check_api_status(self):
         """Check Binance API health status comprehensively"""
         try:
@@ -1498,6 +1638,107 @@ class CryptoAPI:
             'long_short_ratio': long_ratio / (100 - long_ratio),
             'source': 'fallback_simulation'
         }
+
+    def analyze_supply_demand(self, symbol, timeframe='1h'):
+        """Analyze supply and demand zones using Binance candlestick data"""
+        try:
+            # Get candlestick data
+            candle_data = self.get_binance_candlestick(symbol, timeframe, 100)
+            
+            if 'error' in candle_data:
+                print(f"❌ Candlestick data error for {symbol}: {candle_data['error']}")
+                return {
+                    'error': f"Cannot get candlestick data: {candle_data['error']}",
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
+
+            candlesticks = candle_data.get('candlesticks', [])
+            if len(candlesticks) < 20:
+                return {
+                    'error': 'Not enough data for analysis',
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
+
+            # Calculate basic SnD analysis
+            highs = [c['high'] for c in candlesticks[-50:]]
+            lows = [c['low'] for c in candlesticks[-50:]]
+            closes = [c['close'] for c in candlesticks[-50:]]
+            volumes = [c['volume'] for c in candlesticks[-50:]]
+
+            current_price = closes[-1]
+            
+            # Find resistance (supply) levels
+            resistance_levels = []
+            for i in range(2, len(highs) - 2):
+                if (highs[i] > highs[i-1] and highs[i] > highs[i-2] and 
+                    highs[i] > highs[i+1] and highs[i] > highs[i+2]):
+                    resistance_levels.append({
+                        'price': highs[i],
+                        'strength': volumes[i],
+                        'type': 'resistance'
+                    })
+
+            # Find support (demand) levels
+            support_levels = []
+            for i in range(2, len(lows) - 2):
+                if (lows[i] < lows[i-1] and lows[i] < lows[i-2] and 
+                    lows[i] < lows[i+1] and lows[i] < lows[i+2]):
+                    support_levels.append({
+                        'price': lows[i],
+                        'strength': volumes[i],
+                        'type': 'support'
+                    })
+
+            # Sort and get strongest levels
+            resistance_levels.sort(key=lambda x: x['strength'], reverse=True)
+            support_levels.sort(key=lambda x: x['strength'], reverse=True)
+
+            # Calculate trend
+            sma_20 = sum(closes[-20:]) / 20
+            sma_50 = sum(closes[-50:]) / 50
+            trend = 'bullish' if sma_20 > sma_50 else 'bearish'
+
+            # Generate signals based on proximity to levels
+            signals = []
+            nearest_resistance = min(resistance_levels[:3], key=lambda x: abs(x['price'] - current_price)) if resistance_levels else None
+            nearest_support = min(support_levels[:3], key=lambda x: abs(x['price'] - current_price)) if support_levels else None
+
+            if nearest_support and current_price - nearest_support['price'] < current_price * 0.02:
+                signals.append({
+                    'type': 'buy',
+                    'reason': f'Price near strong support at {nearest_support["price"]:.4f}',
+                    'confidence': min(90, 60 + (nearest_support['strength'] / max(volumes)) * 30)
+                })
+
+            if nearest_resistance and nearest_resistance['price'] - current_price < current_price * 0.02:
+                signals.append({
+                    'type': 'sell',
+                    'reason': f'Price near strong resistance at {nearest_resistance["price"]:.4f}',
+                    'confidence': min(90, 60 + (nearest_resistance['strength'] / max(volumes)) * 30)
+                })
+
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'trend': trend,
+                'resistance_levels': resistance_levels[:5],
+                'support_levels': support_levels[:5],
+                'signals': signals,
+                'analysis_successful': True,
+                'timeframe': timeframe,
+                'data_points': len(candlesticks),
+                'source': 'binance_snd_analysis'
+            }
+
+        except Exception as e:
+            print(f"❌ SnD analysis error for {symbol}: {str(e)}")
+            return {
+                'error': f"SnD analysis failed: {str(e)}",
+                'symbol': symbol,
+                'analysis_successful': False
+            }
 
     # === NEWS API ===
 
