@@ -11,11 +11,12 @@ class CryptoAPI:
         self.binance_spot_url = "https://api.binance.com/api/v3"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
         
-        # Binance-focused configuration
+        # Binance-exclusive configuration
         print("🚀 CryptoAPI initialized with Binance-exclusive mode")
         print(f"📊 Binance Spot API: {self.binance_spot_url}")
         print(f"📈 Binance Futures API: {self.binance_futures_url}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
+        print("🎯 All price data centralized to Binance APIs only")
 
     # === BINANCE SPOT API METHODS ===
 
@@ -438,162 +439,7 @@ class CryptoAPI:
         except Exception as e:
             return {'error': f"Comprehensive data error: {str(e)}"}
 
-    # === COINGECKO API METHODS ===
-
-    def get_coingecko_price(self, symbol):
-        """Get price data from CoinGecko API"""
-        try:
-            # Convert symbol to CoinGecko ID format
-            symbol_map = {
-                'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin',
-                'ADA': 'cardano', 'SOL': 'solana', 'XRP': 'ripple',
-                'DOT': 'polkadot', 'DOGE': 'dogecoin', 'MATIC': 'polygon',
-                'AVAX': 'avalanche-2', 'LINK': 'chainlink', 'LTC': 'litecoin',
-                'UNI': 'uniswap', 'ATOM': 'cosmos', 'FIL': 'filecoin',
-                'TRX': 'tron', 'ETC': 'ethereum-classic', 'XLM': 'stellar',
-                'AAVE': 'aave', 'ALGO': 'algorand', 'VET': 'vechain'
-            }
-
-            coin_id = symbol_map.get(symbol.upper(), symbol.lower())
-            
-            headers = {}
-            if self.coingecko_key:
-                headers['x-cg-pro-api-key'] = self.coingecko_key
-
-            params = {
-                'ids': coin_id,
-                'vs_currencies': 'usd',
-                'include_24hr_change': 'true',
-                'include_24hr_vol': 'true',
-                'include_market_cap': 'true',
-                'include_last_updated_at': 'true'
-            }
-
-            response = requests.get(
-                f"{self.coingecko_base_url}/simple/price",
-                params=params,
-                headers=headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            if coin_id in data:
-                coin_data = data[coin_id]
-                return {
-                    'symbol': symbol.upper(),
-                    'coin_id': coin_id,
-                    'price': coin_data.get('usd', 0),
-                    'change_24h': coin_data.get('usd_24h_change', 0),
-                    'volume_24h': coin_data.get('usd_24h_vol', 0),
-                    'market_cap': coin_data.get('usd_market_cap', 0),
-                    'last_updated': coin_data.get('last_updated_at', 0),
-                    'source': 'coingecko_pro' if self.coingecko_key else 'coingecko_free'
-                }
-            else:
-                return {'error': f"Symbol {symbol} not found in CoinGecko"}
-
-        except Exception as e:
-            return {'error': f"CoinGecko API error: {str(e)}"}
-
-    def get_coingecko_market_data(self, symbol):
-        """Get comprehensive market data from CoinGecko"""
-        try:
-            symbol_map = {
-                'BTC': 'bitcoin', 'ETH': 'ethereum', 'BNB': 'binancecoin',
-                'ADA': 'cardano', 'SOL': 'solana', 'XRP': 'ripple',
-                'DOT': 'polkadot', 'DOGE': 'dogecoin', 'MATIC': 'polygon'
-            }
-
-            coin_id = symbol_map.get(symbol.upper(), symbol.lower())
-            
-            headers = {}
-            if self.coingecko_key:
-                headers['x-cg-pro-api-key'] = self.coingecko_key
-
-            response = requests.get(
-                f"{self.coingecko_base_url}/coins/{coin_id}",
-                params={
-                    'localization': 'false',
-                    'tickers': 'false',
-                    'market_data': 'true',
-                    'community_data': 'false',
-                    'developer_data': 'false',
-                    'sparkline': 'false'
-                },
-                headers=headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            market_data = data.get('market_data', {})
-            
-            return {
-                'symbol': symbol.upper(),
-                'coin_id': coin_id,
-                'name': data.get('name', ''),
-                'current_price': market_data.get('current_price', {}).get('usd', 0),
-                'market_cap': market_data.get('market_cap', {}).get('usd', 0),
-                'market_cap_rank': market_data.get('market_cap_rank', 0),
-                'total_volume': market_data.get('total_volume', {}).get('usd', 0),
-                'high_24h': market_data.get('high_24h', {}).get('usd', 0),
-                'low_24h': market_data.get('low_24h', {}).get('usd', 0),
-                'price_change_24h': market_data.get('price_change_24h', 0),
-                'price_change_percentage_24h': market_data.get('price_change_percentage_24h', 0),
-                'price_change_percentage_7d': market_data.get('price_change_percentage_7d', 0),
-                'price_change_percentage_30d': market_data.get('price_change_percentage_30d', 0),
-                'circulating_supply': market_data.get('circulating_supply', 0),
-                'total_supply': market_data.get('total_supply', 0),
-                'max_supply': market_data.get('max_supply', 0),
-                'ath': market_data.get('ath', {}).get('usd', 0),
-                'ath_change_percentage': market_data.get('ath_change_percentage', {}).get('usd', 0),
-                'ath_date': market_data.get('ath_date', {}).get('usd', ''),
-                'atl': market_data.get('atl', {}).get('usd', 0),
-                'atl_change_percentage': market_data.get('atl_change_percentage', {}).get('usd', 0),
-                'atl_date': market_data.get('atl_date', {}).get('usd', ''),
-                'last_updated': data.get('last_updated', ''),
-                'source': 'coingecko_pro' if self.coingecko_key else 'coingecko_free'
-            }
-
-        except Exception as e:
-            return {'error': f"CoinGecko market data error: {str(e)}"}
-
-    def get_coingecko_global_data(self):
-        """Get global crypto market data from CoinGecko"""
-        try:
-            headers = {}
-            if self.coingecko_key:
-                headers['x-cg-pro-api-key'] = self.coingecko_key
-
-            response = requests.get(
-                f"{self.coingecko_base_url}/global",
-                headers=headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            global_data = data.get('data', {})
-            
-            return {
-                'total_market_cap': global_data.get('total_market_cap', {}).get('usd', 0),
-                'total_volume': global_data.get('total_volume', {}).get('usd', 0),
-                'market_cap_percentage': global_data.get('market_cap_percentage', {}),
-                'market_cap_change_percentage_24h_usd': global_data.get('market_cap_change_percentage_24h_usd', 0),
-                'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
-                'upcoming_icos': global_data.get('upcoming_icos', 0),
-                'ongoing_icos': global_data.get('ongoing_icos', 0),
-                'ended_icos': global_data.get('ended_icos', 0),
-                'markets': global_data.get('markets', 0),
-                'updated_at': global_data.get('updated_at', 0),
-                'source': 'coingecko_global'
-            }
-
-        except Exception as e:
-            return {'error': f"CoinGecko global data error: {str(e)}"}
-
-    # === MULTI-API INTEGRATION METHODS ===
+    # === BINANCE-ONLY INTEGRATION METHODS ===
 
     def get_multi_api_price(self, symbol, force_refresh=False):
         """Get price from Binance APIs only - centralized to Binance"""
@@ -1910,26 +1756,36 @@ class CryptoAPI:
         """Legacy method - now uses Binance only"""
         return self.get_multiple_binance_prices(symbols)
 
-    def get_market_overview(self):
-        """Get market overview data using Binance data exclusively"""
+    def get_binance_global_data(self):
+        """Get global market data using Binance APIs exclusively"""
         try:
             # Get data from top cryptocurrencies via Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX', 'LINK', 'LTC', 'UNI', 'ATOM']
             prices_data = self.get_multiple_binance_prices(major_symbols)
             
             if 'error' not in prices_data and len(prices_data) > 0:
                 # Calculate market metrics from Binance data
                 btc_data = prices_data.get('BTC', {})
                 eth_data = prices_data.get('ETH', {})
-                bnb_data = prices_data.get('BNB', {})
                 
-                # Calculate total volume and dominance estimates
+                # Calculate total volume and market metrics
                 total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
                 btc_volume = btc_data.get('volume_24h', 0)
                 eth_volume = eth_data.get('volume_24h', 0)
                 
-                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
-                eth_dominance = (eth_volume / total_volume * 100) if total_volume > 0 else 18.0
+                # Estimate market cap and dominance
+                btc_price = btc_data.get('price', 0)
+                eth_price = eth_data.get('price', 0)
+                
+                # Rough market cap estimates based on known supply
+                btc_market_cap = btc_price * 19700000  # ~19.7M BTC in circulation
+                eth_market_cap = eth_price * 120000000  # ~120M ETH in circulation
+                
+                # Estimate total market cap (BTC dominance typically 40-50%)
+                estimated_total_market_cap = btc_market_cap / 0.45  # Assume 45% dominance
+                
+                btc_dominance = (btc_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 45.0
+                eth_dominance = (eth_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 18.0
                 
                 # Calculate weighted average market change
                 changes = []
@@ -1939,14 +1795,42 @@ class CryptoAPI:
                         changes.append(data['change_24h'])
                         volumes.append(data['volume_24h'])
                 
-                if changes and volumes:
-                    weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes)
-                else:
-                    weighted_change = 0
+                weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes) if volumes else 0
                 
-                # Estimate total market cap (rough calculation)
-                btc_price = btc_data.get('price', 0)
-                estimated_market_cap = btc_price * 19500000 / (btc_dominance / 100) if btc_dominance > 0 else total_volume * 20
+                return {
+                    'total_market_cap': estimated_total_market_cap,
+                    'total_volume': total_volume,
+                    'market_cap_percentage': {
+                        'btc': btc_dominance,
+                        'eth': eth_dominance,
+                        'others': 100 - btc_dominance - eth_dominance
+                    },
+                    'market_cap_change_percentage_24h_usd': weighted_change,
+                    'active_cryptocurrencies': len(prices_data),
+                    'markets': 1,  # Binance
+                    'updated_at': int(datetime.now().timestamp()),
+                    'source': 'binance_global_estimate'
+                }
+            else:
+                return {'error': 'Binance market data unavailable for global calculation'}
+        except Exception as e:
+            return {'error': f"Binance global data error: {str(e)}"}
+
+    def get_market_overview(self):
+        """Get market overview data using Binance data exclusively"""
+        try:
+            # Get global data using Binance
+            global_data = self.get_binance_global_data()
+            
+            # Get data from top cryptocurrencies via Binance
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
+            prices_data = self.get_multiple_binance_prices(major_symbols)
+            
+            if 'error' not in prices_data and len(prices_data) > 0:
+                # Get individual coin data
+                btc_data = prices_data.get('BTC', {})
+                eth_data = prices_data.get('ETH', {})
+                bnb_data = prices_data.get('BNB', {})
                 
                 # Get BTC futures data for additional insights
                 btc_futures = self.get_comprehensive_futures_data('BTC')
@@ -1958,22 +1842,23 @@ class CryptoAPI:
                     funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
                     open_interest = oi_data.get('open_interest', 0) if 'error' not in oi_data else 0
                 
+                # Combine global and specific data
                 return {
-                    'total_market_cap': estimated_market_cap,
-                    'market_cap_change_24h': weighted_change,
-                    'btc_dominance': btc_dominance,
-                    'eth_dominance': eth_dominance,
+                    'total_market_cap': global_data.get('total_market_cap', 0),
+                    'market_cap_change_24h': global_data.get('market_cap_change_percentage_24h_usd', 0),
+                    'btc_dominance': global_data.get('market_cap_percentage', {}).get('btc', 45.0),
+                    'eth_dominance': global_data.get('market_cap_percentage', {}).get('eth', 18.0),
                     'btc_price': btc_data.get('price', 0),
                     'eth_price': eth_data.get('price', 0),
                     'bnb_price': bnb_data.get('price', 0),
                     'btc_change_24h': btc_data.get('change_24h', 0),
                     'eth_change_24h': eth_data.get('change_24h', 0),
                     'bnb_change_24h': bnb_data.get('change_24h', 0),
-                    'total_volume_24h': total_volume,
+                    'total_volume_24h': global_data.get('total_volume', 0),
                     'active_cryptocurrencies': len(prices_data),
                     'btc_funding_rate': funding_rate,
                     'btc_open_interest': open_interest,
-                    'source': 'binance_comprehensive',
+                    'source': 'binance_exclusive',
                     'last_updated': datetime.now().isoformat()
                 }
             else:

@@ -221,9 +221,9 @@ Ask me anything about crypto! 🚀"""
             if not crypto_api:
                 return self._get_fallback_market_overview(language)
 
-            # Get comprehensive data from multiple sources
-            # 1. CoinGecko global data
-            global_data = crypto_api.get_coingecko_global_data()
+            # Get comprehensive data from Binance sources
+            # 1. Binance global data
+            global_data = crypto_api.get_binance_global_data()
 
             # 2. Enhanced market overview
             market_data = crypto_api.get_market_overview()
