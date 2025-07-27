@@ -40,6 +40,7 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
+from snd_auto_signals import start_auto_signals_system
 
 class TelegramBot:
     def __init__(self):
@@ -121,6 +122,8 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("trigger_snd_signals", self.trigger_snd_signals_command))
+            self.application.add_handler(CommandHandler("snd_status", self.snd_status_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -133,6 +136,11 @@ class TelegramBot:
             print(f"🌍 Environment: {mode_text}")
             print(f"🔑 API Status: BIN=✅, CG=✅, CN=✅ (Binance Primary + CoinGecko + CryptoNews)")
             print("🚀 Starting bot polling with Binance Advanced API integration...")
+
+            # Start auto signals system for small altcoins
+            if IS_DEPLOYMENT:
+                print("🎯 Starting SnD Auto Signals system...")
+                asyncio.create_task(start_auto_signals_system(self.application))
 
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
@@ -1989,6 +1997,90 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
                 if oi_value > 1000000000:
                     oi_format = f"{oi_value/1000000000:.2f}B"
                 elif oi_value > 1000000:
+
+    async def trigger_snd_signals_command(self, update: Update, context: CallbackContext):
+        """Manually trigger SnD signals scan (admin only)"""
+        user_id = update.message.from_user.id
+        
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+        
+        try:
+            from snd_auto_signals import auto_signals_instance
+            
+            if not auto_signals_instance:
+                await update.message.reply_text("❌ SnD Auto Signals system is not running.")
+                return
+            
+            loading_msg = await update.message.reply_text("🔍 Manually triggering SnD signals scan...")
+            
+            # Trigger manual scan
+            await auto_signals_instance.scan_and_send_signals()
+            
+            await loading_msg.edit_text("""✅ **Manual SnD Signals Scan Completed**
+
+🎯 Scanned all small altcoins for high-confidence signals
+📡 Signals sent to eligible users (Admin + Lifetime Premium)
+
+Next automatic scan in 30 minutes.""")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error triggering signals: {str(e)}")
+
+    async def snd_status_command(self, update: Update, context: CallbackContext):
+        """Show SnD auto signals system status (admin only)"""
+        user_id = update.message.from_user.id
+        
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+        
+        try:
+            from snd_auto_signals import auto_signals_instance
+            
+            # Get eligible users count
+            eligible_count = 0
+            try:
+                lifetime_users = self.db.cursor.execute("""
+                    SELECT COUNT(*) FROM users 
+                    WHERE is_premium = 1 AND subscription_end IS NULL
+                """).fetchone()[0]
+                eligible_count = lifetime_users + (1 if self.admin_id > 0 else 0)
+            except:
+                eligible_count = 1  # At least admin
+            
+            status = "🟢 RUNNING" if auto_signals_instance else "🔴 STOPPED"
+            
+            message = f"""📊 **SnD Auto Signals System Status**
+
+🔄 **Status**: {status}
+👥 **Eligible Users**: {eligible_count} (Admin + Lifetime Premium)
+🎯 **Monitored Altcoins**: 18 small-cap coins
+⏱️ **Scan Interval**: 30 minutes
+🎯 **Min Confidence**: 85%
+🛡️ **Cooldown**: 1 hour per symbol
+
+📈 **Monitored Symbols**:
+INJ, FET, RENDER, THETA, RUNE, OCEAN, KAVA, ROSE, 
+CHZ, ENJ, BAT, ZIL, HOT, CELR, ANKR, SKL, CTSI, AUDIO
+
+⚙️ **Features**:
+• Advanced SnD zone detection
+• Contrarian futures sentiment
+• Volume profile analysis
+• Risk/Reward optimization
+• Auto entry/TP/SL calculation
+
+🎯 **Target Users**: Exclusive untuk Admin & Lifetime Premium members
+
+💡 **Manual Trigger**: `/trigger_snd_signals`"""
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting status: {str(e)}")
+
                     oi_format = f"{oi_value/1000000:.2f}M"
                 else:
                     oi_format = f"{oi_value:,.0f}"
