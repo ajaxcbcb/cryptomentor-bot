@@ -121,6 +121,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("test_binance", self.test_binance_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -2396,6 +2397,171 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
             short_ratio = ls_data.get('short_ratio', 0)
             ls_ratio = ls_data.get('long_short_ratio', 0)
             long_account = ls_data.get('long_account', 0)
+
+
+    async def test_binance_command(self, update: Update, context: CallbackContext):
+        """Handle /test_binance command - admin only debug tool"""
+        user_id = update.message.from_user.id
+        
+        # Admin only command
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+            
+        # Show loading message
+        loading_msg = await update.message.reply_text("🔧 Testing Binance API connectivity and price validation...")
+        
+        try:
+            print(f"🔧 Admin {user_id} initiated Binance API test")
+            
+            # Test deployment mode detection
+            is_deployment = (
+                os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+                os.getenv('REPL_DEPLOYMENT') == '1' or
+                os.path.exists('/tmp/repl_deployment_flag') or
+                bool(os.getenv('REPL_SLUG'))
+            )
+            
+            # Test basic connectivity
+            connectivity_test = self.crypto_api.test_binance_connectivity()
+            
+            # Test price retrieval for major coins
+            test_symbols = ['BTC', 'ETH', 'BNB']
+            price_tests = {}
+            
+            for symbol in test_symbols:
+                try:
+                    price_data = self.crypto_api.get_binance_price(symbol, force_refresh=True)
+                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        price_tests[symbol] = {
+                            'success': True,
+                            'price': price_data.get('price'),
+                            'source': price_data.get('source', 'unknown'),
+                            'validation': price_data.get('price_validation_passed', False)
+                        }
+                    else:
+                        price_tests[symbol] = {
+                            'success': False,
+                            'error': price_data.get('error', 'Unknown error'),
+                            'source': 'failed'
+                        }
+                except Exception as e:
+                    price_tests[symbol] = {
+                        'success': False,
+                        'error': str(e),
+                        'source': 'exception'
+                    }
+            
+            # Test futures API
+            futures_test = {}
+            try:
+                futures_data = self.crypto_api.get_binance_futures_price('BTC')
+                if 'error' not in futures_data and futures_data.get('price', 0) > 0:
+                    futures_test = {
+                        'success': True,
+                        'price': futures_data.get('price'),
+                        'validation': futures_data.get('price_validation_passed', False)
+                    }
+                else:
+                    futures_test = {
+                        'success': False,
+                        'error': futures_data.get('error', 'Unknown futures error')
+                    }
+            except Exception as e:
+                futures_test = {
+                    'success': False,
+                    'error': str(e)
+                }
+            
+            # Build comprehensive test report
+            successful_tests = sum([
+                connectivity_test.get('spot_ping', False),
+                connectivity_test.get('futures_ping', False),
+                connectivity_test.get('spot_price', False),
+                connectivity_test.get('futures_price', False),
+                sum(1 for test in price_tests.values() if test.get('success', False)),
+                futures_test.get('success', False)
+            ])
+            
+            total_tests = 4 + len(test_symbols) + 1  # 4 connectivity + price tests + futures test
+            success_rate = (successful_tests / total_tests) * 100
+            
+            # Format test results
+            message = f"""🔧 **Binance API Test Results**
+
+📍 **Environment**: {'🌐 DEPLOYMENT' if is_deployment else '🔧 DEVELOPMENT'}
+📊 **Overall Health**: {success_rate:.1f}% ({successful_tests}/{total_tests} tests passed)
+
+🌐 **Connectivity Tests**:
+• Spot API Ping: {'✅' if connectivity_test.get('spot_ping') else '❌'}
+• Futures API Ping: {'✅' if connectivity_test.get('futures_ping') else '❌'}
+• Spot Price Test: {'✅' if connectivity_test.get('spot_price') else '❌'}
+• Futures Price Test: {'✅' if connectivity_test.get('futures_price') else '❌'}
+
+💰 **Price Validation Tests**:"""
+
+            for symbol, test in price_tests.items():
+                if test.get('success'):
+                    price_str = f"${test.get('price'):,.4f}"
+                    source = test.get('source', 'unknown')
+                    validation = '✅' if test.get('validation') else '⚠️'
+                    message += f"\n• {symbol}: ✅ {price_str} ({source}) {validation}"
+                else:
+                    error = test.get('error', 'Unknown error')[:50]
+                    message += f"\n• {symbol}: ❌ {error}..."
+
+            # Futures test result
+            if futures_test.get('success'):
+                futures_price = f"${futures_test.get('price'):,.4f}"
+                validation = '✅' if futures_test.get('validation') else '⚠️'
+                message += f"\n\n🚀 **Futures Test**: ✅ BTC {futures_price} {validation}"
+            else:
+                futures_error = futures_test.get('error', 'Unknown error')[:50]
+                message += f"\n\n🚀 **Futures Test**: ❌ {futures_error}..."
+
+            # Add deployment specific info
+            if is_deployment:
+                message += f"\n\n🌐 **Deployment Info**:"
+                message += f"\n• Real-time Mode: {'✅ Enabled' if is_deployment else '❌ Disabled'}"
+                message += f"\n• Force Refresh: ✅ Active"
+                message += f"\n• Cache Control: ✅ Disabled"
+            else:
+                message += f"\n\n🔧 **Development Info**:"
+                message += f"\n• Test Mode: ✅ Active"
+                message += f"\n• Retry Logic: ✅ Enabled"
+                message += f"\n• Debug Logging: ✅ Verbose"
+
+            # Health assessment
+            if success_rate >= 80:
+                message += f"\n\n✅ **Status**: Excellent - All systems operational"
+            elif success_rate >= 60:
+                message += f"\n\n🟡 **Status**: Good - Minor issues detected"
+            else:
+                message += f"\n\n❌ **Status**: Poor - Major issues require attention"
+
+            message += f"\n\n⏰ **Test Time**: {datetime.now().strftime('%H:%M:%S WIB')}"
+            
+            print(f"✅ Binance test completed for admin {user_id}: {success_rate:.1f}% success rate")
+            
+            await loading_msg.edit_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            error_msg = f"""❌ **Binance Test Failed**
+
+**Error**: {str(e)[:200]}...
+
+🔧 **Troubleshooting**:
+• Check internet connectivity
+• Verify Binance API status
+• Review bot logs for details
+• Try again in a few minutes
+
+⏰ **Failed at**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+            
+            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            print(f"❌ Binance test failed for admin {user_id}: {e}")
+
+
             short_account = ls_data.get('short_account', 0)
 
             # Determine sentiment
