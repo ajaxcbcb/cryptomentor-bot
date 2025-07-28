@@ -11,17 +11,37 @@ class SnDAutoSignals:
         self.crypto_api = CryptoAPI()
         self.db = Database()
         self.is_running = False
-        self.scan_interval = 3600  # 1 hour
         
-        # Altcoins kecil dengan volume tinggi
-        self.target_symbols = [
-            'ONDO', 'SEI', 'PEPE', 'MOODENG', 'SHIB', 'FLOKI', 
-            'WIF', 'BONK', 'JUP', 'PYTH', 'RENDER', 'INJ', 
-            'SUI', 'APT', 'OP', 'ARB', 'TIA', 'POPCAT', 
-            'PENDLE', 'EIGEN', 'DOGE', 'MATIC'
+        # Check deployment mode for scan interval
+        import os
+        deployment_checks = [
+            os.getenv('REPLIT_DEPLOYMENT') == '1',
+            os.getenv('REPL_DEPLOYMENT') == '1',
+            os.path.exists('/tmp/repl_deployment_flag'),
+            bool(os.getenv('REPL_SLUG'))
         ]
+        is_deployment = any(deployment_checks)
         
-        self.min_confidence = 75  # Minimum confidence level
+        # More frequent scanning in deployment
+        self.scan_interval = 1800 if is_deployment else 3600  # 30 min deployment, 1 hour dev
+        self.is_deployment = is_deployment
+        
+        # Prioritized altcoins for deployment
+        if is_deployment:
+            self.target_symbols = [
+                'PEPE', 'SHIB', 'DOGE', 'WIF', 'BONK',  # High volume memecoins
+                'SEI', 'SUI', 'APT', 'OP', 'ARB',      # Layer 1/2 with futures
+                'ONDO', 'JUP', 'RENDER', 'PENDLE'      # DeFi tokens
+            ]
+        else:
+            self.target_symbols = [
+                'ONDO', 'SEI', 'PEPE', 'MOODENG', 'SHIB', 'FLOKI', 
+                'WIF', 'BONK', 'JUP', 'PYTH', 'RENDER', 'INJ', 
+                'SUI', 'APT', 'OP', 'ARB', 'TIA', 'POPCAT', 
+                'PENDLE', 'EIGEN', 'DOGE', 'MATIC'
+            ]
+        
+        self.min_confidence = 80 if is_deployment else 75  # Higher confidence for deployment
         
     async def start_auto_scanner(self):
         """Start automatic SnD signal scanner"""
@@ -46,37 +66,65 @@ class SnDAutoSignals:
         print("🛑 SnD auto scanner stopped")
         
     async def scan_and_send_signals(self):
-        """Scan symbols and send high-confidence signals"""
-        print(f"🔍 Scanning {len(self.target_symbols)} altcoins for SnD signals...")
+        """Scan symbols and send high-confidence signals with deployment optimization"""
+        mode_text = "DEPLOYMENT" if self.is_deployment else "DEVELOPMENT"
+        print(f"🔍 [{mode_text}] Scanning {len(self.target_symbols)} altcoins for SnD signals...")
         
         high_confidence_signals = []
+        processed_count = 0
         
         for symbol in self.target_symbols:
             try:
+                print(f"📈 [{mode_text}] Analyzing {symbol}...")
                 signal = await self.analyze_snd_signal(symbol)
+                processed_count += 1
+                
                 if signal and signal['confidence'] >= self.min_confidence:
                     high_confidence_signals.append(signal)
-                    print(f"✅ High confidence signal found: {symbol} - {signal['confidence']}%")
+                    print(f"✅ [{mode_text}] High confidence signal: {symbol} - {signal['confidence']}%")
+                else:
+                    if signal:
+                        print(f"⚠️ [{mode_text}] Low confidence: {symbol} - {signal.get('confidence', 0)}%")
                     
-                # Rate limiting
-                await asyncio.sleep(2)
+                # Adaptive rate limiting based on deployment
+                sleep_time = 1 if self.is_deployment else 2
+                await asyncio.sleep(sleep_time)
                 
             except Exception as e:
-                print(f"❌ Error analyzing {symbol}: {e}")
+                print(f"❌ [{mode_text}] Error analyzing {symbol}: {e}")
                 continue
                 
+        print(f"📊 [{mode_text}] Scan complete: {processed_count}/{len(self.target_symbols)} symbols processed")
+        
         if high_confidence_signals:
+            print(f"🎯 [{mode_text}] Found {len(high_confidence_signals)} high-confidence signals")
             await self.send_signals_to_eligible_users(high_confidence_signals)
         else:
-            print("📊 No high-confidence signals found in this scan")
+            print(f"📊 [{mode_text}] No high-confidence signals found in this scan")
             
     async def analyze_snd_signal(self, symbol):
-        """Analyze SnD for a single symbol"""
+        """Analyze SnD for a single symbol with deployment optimization"""
         try:
-            # Get comprehensive data
-            snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
-            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            futures_data = self.crypto_api.get_binance_futures_price(symbol)
+            # Get comprehensive data with deployment-specific optimization
+            force_refresh = self.is_deployment  # Always force refresh in deployment
+            
+            # Primary: Get real-time price data
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=force_refresh)
+            
+            # Secondary: Futures data for additional confirmation
+            try:
+                futures_data = self.crypto_api.get_binance_futures_price(symbol)
+            except Exception as e:
+                print(f"⚠️ Futures data unavailable for {symbol}: {e}")
+                futures_data = None
+            
+            # Enhanced SnD analysis with fallback
+            try:
+                snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
+            except Exception as e:
+                print(f"⚠️ S&D analysis failed for {symbol}: {e}")
+                # Use price-based S&D analysis as fallback
+                snd_analysis = self._fallback_snd_analysis(symbol, price_data)
             
             if 'error' in snd_analysis or 'error' in price_data:
                 return None
@@ -186,6 +234,49 @@ class SnDAutoSignals:
         except Exception as e:
             print(f"Error in SnD analysis for {symbol}: {e}")
             return None
+    
+    def _fallback_snd_analysis(self, symbol, price_data):
+        """Fallback SnD analysis based on price action"""
+        if not price_data or 'error' in price_data:
+            return {'error': 'No price data available'}
+            
+        current_price = price_data.get('price', 0)
+        change_24h = price_data.get('change_24h', 0)
+        volume = price_data.get('volume_24h', 0)
+        
+        # Simple SnD logic based on price action
+        signals = []
+        
+        # Volume-based signal strength
+        volume_strength = min(100, max(0, (volume / 1000000) * 10))  # Scale volume
+        
+        # Price momentum analysis
+        if change_24h > 5 and volume_strength > 50:
+            signals.append({
+                'type': 'BUY',
+                'confidence': min(95, 70 + volume_strength/10),
+                'reason': f'Strong bullish momentum (+{change_24h:.1f}%) with high volume'
+            })
+        elif change_24h < -5 and volume_strength > 50:
+            signals.append({
+                'type': 'SELL', 
+                'confidence': min(95, 70 + volume_strength/10),
+                'reason': f'Strong bearish momentum ({change_24h:.1f}%) with high volume'
+            })
+        elif abs(change_24h) > 3:
+            confidence = 60 + min(20, volume_strength/5)
+            signal_type = 'BUY' if change_24h > 0 else 'SELL'
+            signals.append({
+                'type': signal_type,
+                'confidence': confidence,
+                'reason': f'Moderate momentum ({change_24h:+.1f}%) - price action signal'
+            })
+            
+        return {
+            'signals': signals,
+            'support_levels': [{'price': current_price * 0.95}],
+            'resistance_levels': [{'price': current_price * 1.05}]
+        }
             
     def _find_nearest_level(self, levels, current_price, direction):
         """Find nearest support/resistance level"""
@@ -288,13 +379,15 @@ class SnDAutoSignals:
             return []
             
     def _format_signals_message(self, signals):
-        """Format signals into telegram message"""
+        """Format signals into telegram message with deployment info"""
         timestamp = datetime.now().strftime('%H:%M:%S UTC')
+        mode_indicator = "🌐 DEPLOYMENT" if self.is_deployment else "🔧 DEVELOPMENT"
         
         message = f"""🎯 **AUTO SnD SIGNALS ALERT** 🎯
 
 📊 **{len(signals)} High-Confidence Signals Found**
 🕐 **Scan Time:** {timestamp}
+🔄 **Mode:** {mode_indicator}
 
 """
 
