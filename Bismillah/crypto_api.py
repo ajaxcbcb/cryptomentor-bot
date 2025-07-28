@@ -11,12 +11,14 @@ class CryptoAPI:
         self.coinapi_key = os.getenv("COINAPI_KEY")
         self.coinapi_url = "https://rest.coinapi.io/v1"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
+        self.binance_spot_url = "https://api.binance.com/api/v3"  # Add missing spot URL
 
         # CoinAPI-exclusive configuration for price data
         print("🚀 CryptoAPI initialized with CoinAPI-exclusive mode")
         print(f"📊 CoinAPI Base URL: {self.coinapi_url}")
         print(f"🔑 CoinAPI Key: {'✅ Enabled' if self.coinapi_key else '❌ Disabled'}")
         print(f"📈 Binance Futures API: {self.binance_futures_url} (for advanced data)")
+        print(f"📊 Binance Spot API: {self.binance_spot_url} (for candlestick data)")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
         print("🎯 All price data centralized to CoinAPI only")
 
