@@ -75,7 +75,7 @@ class SnDAutoSignals:
         try:
             # Get comprehensive data
             snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
-            price_data = self.crypto_api.get_binance_price(symbol)
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
             futures_data = self.crypto_api.get_binance_futures_price(symbol)
             
             if 'error' in snd_analysis or 'error' in price_data:
