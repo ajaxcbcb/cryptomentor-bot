@@ -128,6 +128,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
             self.application.add_handler(CommandHandler("start_auto_signals", self.start_auto_signals_command))
             self.application.add_handler(CommandHandler("stop_auto_signals", self.stop_auto_signals_command))
+            self.application.add_handler(CommandHandler("test_snd_connection", self.test_snd_connection_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -141,17 +142,27 @@ class TelegramBot:
             print(f"🔑 API Status: BIN=✅, CG=✅, CN=✅ (Binance Primary + CoinGecko + CryptoNews)")
             print("🚀 Starting bot polling with Binance Advanced API integration...")
 
-            # Initialize and start auto signals system
+            # Initialize and start auto signals system with SnD integration
             try:
                 self.auto_signals = initialize_auto_signals(self)
+                
+                # Verify SnD integration
+                if hasattr(self.ai, 'analyze_snd_for_auto_signals'):
+                    print("✅ SnD analysis integration verified")
+                else:
+                    print("⚠️ SnD analysis integration missing")
+                
                 if self.auto_signals and IS_DEPLOYMENT:
                     # Start auto signals in deployment mode only
-                    asyncio.create_task(self.auto_signals.start_auto_scanner())
-                    print("🎯 Auto S&D signals scanner started")
+                    scanner_task = asyncio.create_task(self.auto_signals.start_auto_scanner())
+                    print("🎯 Auto S&D signals scanner started in deployment mode")
+                    print(f"📊 Scanning {len(self.auto_signals.target_symbols)} symbols every {self.auto_signals.scan_interval//60} minutes")
                 else:
                     print("🔧 Auto signals available but not started (development mode)")
+                    print(f"💡 Would scan {len(self.auto_signals.target_symbols) if self.auto_signals else 'N/A'} symbols in deployment")
             except Exception as e:
                 print(f"⚠️ Auto signals initialization failed: {e}")
+                # Continue without auto signals in case of error
 
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
@@ -2786,6 +2797,135 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
         # Get user language preference
         user_data = self.db.get_user(user_id)
         language = user_data.get('language', 'id') if user_data else 'id'
+
+
+    async def test_snd_connection_command(self, update: Update, context: CallbackContext):
+        """Test SnD connection and auto signals - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Admin only command")
+            return
+
+        test_symbol = context.args[0].upper() if context.args else 'BTC'
+        
+        message = f"🔍 **Testing SnD Connection for {test_symbol}**\n\n"
+        
+        # Test AI assistant connection
+        if hasattr(self, 'ai') and hasattr(self.ai, 'analyze_snd_for_auto_signals'):
+            message += "✅ AI Assistant SnD method available\n"
+            
+            # Test SnD analysis
+            try:
+                result = self.ai.analyze_snd_for_auto_signals(test_symbol, self.crypto_api)
+                if result and 'error' not in result:
+                    message += f"✅ SnD Analysis successful\n"
+                    message += f"📊 Confidence: {result.get('confidence', 'N/A')}%\n"
+                else:
+                    message += f"❌ SnD Analysis failed: {result.get('error', 'Unknown')}\n"
+            except Exception as e:
+                message += f"❌ SnD Analysis error: {str(e)}\n"
+        else:
+            message += "❌ AI Assistant SnD method not available\n"
+        
+        # Test auto signals system
+        if self.auto_signals:
+            message += "✅ Auto signals system initialized\n"
+            message += f"📊 Target symbols: {len(self.auto_signals.target_symbols)}\n"
+            message += f"🔄 Scan interval: {self.auto_signals.scan_interval//60} minutes\n"
+            message += f"🎯 Min confidence: {self.auto_signals.min_confidence}%\n"
+            message += f"🌐 Deployment mode: {self.auto_signals.is_deployment}\n"
+            message += f"▶️ Scanner running: {self.auto_signals.is_running}\n"
+        else:
+            message += "❌ Auto signals system not initialized\n"
+            
+        # Test crypto API connection
+        try:
+            price_test = self.crypto_api.get_coinapi_price(test_symbol, force_refresh=True)
+            if price_test and 'error' not in price_test:
+                message += f"✅ CryptoAPI connection working\n"
+                message += f"💰 {test_symbol} price: ${price_test.get('price', 0):.6f}\n"
+            else:
+                message += f"❌ CryptoAPI failed: {price_test.get('error', 'Unknown')}\n"
+        except Exception as e:
+            message += f"❌ CryptoAPI error: {str(e)}\n"
+            
+        message += f"\n🕐 **Test completed**: {datetime.now().strftime('%H:%M:%S WIB')}"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def auto_signals_status_command(self, update: Update, context: CallbackContext):
+        """Check auto signals status - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Admin only command")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system not initialized")
+            return
+
+        status_message = f"""📊 **Auto S&D Signals Status**
+
+▶️ **Scanner Status**: {'🟢 Running' if self.auto_signals.is_running else '🔴 Stopped'}
+🌐 **Mode**: {'Deployment' if self.auto_signals.is_deployment else 'Development'}
+🔄 **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
+🎯 **Min Confidence**: {self.auto_signals.min_confidence}%
+📊 **Target Symbols**: {len(self.auto_signals.target_symbols)}
+
+**Symbols being monitored:**
+{', '.join(self.auto_signals.target_symbols[:10])}{'...' if len(self.auto_signals.target_symbols) > 10 else ''}
+
+🕐 **Status checked**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+        await update.message.reply_text(status_message, parse_mode='Markdown')
+
+    async def start_auto_signals_command(self, update: Update, context: CallbackContext):
+        """Start auto signals scanner - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Admin only command")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system not initialized")
+            return
+
+        if self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto signals scanner already running")
+            return
+
+        try:
+            asyncio.create_task(self.auto_signals.start_auto_scanner())
+            await update.message.reply_text("✅ Auto S&D signals scanner started")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to start scanner: {str(e)}")
+
+    async def stop_auto_signals_command(self, update: Update, context: CallbackContext):
+        """Stop auto signals scanner - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Admin only command")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system not initialized")
+            return
+
+        if not self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto signals scanner not running")
+            return
+
+        try:
+            await self.auto_signals.stop_auto_scanner()
+            await update.message.reply_text("✅ Auto S&D signals scanner stopped")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to stop scanner: {str(e)}")
+
+
 
         # Check if message contains crypto-related queries
         crypto_keywords = ['harga', 'price', 'bitcoin', 'btc', 'ethereum', 'eth', 'bnb', 'ada', 'sol', 'doge', 

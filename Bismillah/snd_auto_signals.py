@@ -103,7 +103,7 @@ class SnDAutoSignals:
             print(f"📊 [{mode_text}] No high-confidence signals found in this scan")
             
     async def analyze_snd_signal(self, symbol):
-        """Analyze SnD for a single symbol with deployment optimization"""
+        """Analyze SnD for a single symbol with deployment optimization and AI integration"""
         try:
             # Get comprehensive data with deployment-specific optimization
             force_refresh = self.is_deployment  # Always force refresh in deployment
@@ -118,9 +118,28 @@ class SnDAutoSignals:
                 print(f"⚠️ Futures data unavailable for {symbol}: {e}")
                 futures_data = None
             
-            # Enhanced SnD analysis with fallback
+            # Enhanced SnD analysis with AI assistant integration
             try:
-                snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
+                # Use AI assistant's SnD analysis method if available
+                if hasattr(self.bot, 'ai') and hasattr(self.bot.ai, 'analyze_snd_for_auto_signals'):
+                    print(f"🤖 Using AI assistant SnD analysis for {symbol}")
+                    ai_snd_result = self.bot.ai.analyze_snd_for_auto_signals(symbol, self.crypto_api)
+                    
+                    if ai_snd_result and 'error' not in ai_snd_result:
+                        print(f"✅ AI SnD analysis successful for {symbol}")
+                        # Convert AI result to expected format
+                        snd_analysis = {
+                            'signals': [ai_snd_result['signal']] if 'signal' in ai_snd_result else [],
+                            'support_levels': ai_snd_result.get('support_levels', []),
+                            'resistance_levels': ai_snd_result.get('resistance_levels', [])
+                        }
+                    else:
+                        print(f"⚠️ AI SnD analysis failed for {symbol}, using fallback")
+                        snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
+                else:
+                    print(f"⚠️ AI assistant not available for {symbol}, using direct API")
+                    snd_analysis = self.crypto_api.analyze_supply_demand(symbol)
+                    
             except Exception as e:
                 print(f"⚠️ S&D analysis failed for {symbol}: {e}")
                 # Use price-based S&D analysis as fallback
