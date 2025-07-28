@@ -106,48 +106,50 @@ class SnDAutoSignals:
             entry_price = current_price
             
             if signal_type == 'BUY':
-                # Find nearest support for entry refinement
+                # Find nearest support for S&D entry refinement
                 nearest_support = self._find_nearest_level(support_levels, current_price, 'below')
                 nearest_resistance = self._find_nearest_level(resistance_levels, current_price, 'above')
                 
                 if nearest_support and nearest_resistance:
-                    # Entry di support level atau current price
-                    entry_price = max(nearest_support['price'], current_price * 0.995)
+                    # Precise S&D entry at demand zone
+                    entry_price = nearest_support['price'] * 1.002  # Tight entry above support
+                    stop_loss = nearest_support['price'] * 0.998   # SL below support zone
                     
-                    # TP di resistance level
-                    tp1 = nearest_resistance['price'] * 0.98  # Conservative TP
-                    tp2 = nearest_resistance['price'] * 1.02  # Aggressive TP
-                    
-                    # SL below support
-                    stop_loss = nearest_support['price'] * 0.97
+                    # Calculate 1:1 RR based on risk
+                    risk_amount = entry_price - stop_loss
+                    tp1 = entry_price + risk_amount                 # 1:1 RR
+                    tp2 = entry_price + (risk_amount * 1.2)         # 1:1.2 RR bonus
                     
                 else:
-                    # Default calculation
-                    tp1 = current_price * 1.03
-                    tp2 = current_price * 1.06
-                    stop_loss = current_price * 0.97
+                    # Default S&D-style calculation with 1:1 RR
+                    entry_price = current_price * 0.998
+                    risk_percentage = 0.015  # 1.5% risk
+                    stop_loss = entry_price * (1 - risk_percentage)
+                    tp1 = entry_price * (1 + risk_percentage)       # 1:1 RR
+                    tp2 = entry_price * (1 + risk_percentage * 1.3) # 1:1.3 RR
                     
             elif signal_type == 'SELL':
-                # Find nearest resistance for entry refinement
+                # Find nearest resistance for S&D entry refinement
                 nearest_resistance = self._find_nearest_level(resistance_levels, current_price, 'above')
                 nearest_support = self._find_nearest_level(support_levels, current_price, 'below')
                 
                 if nearest_resistance and nearest_support:
-                    # Entry di resistance level atau current price
-                    entry_price = min(nearest_resistance['price'], current_price * 1.005)
+                    # Precise S&D entry at supply zone
+                    entry_price = nearest_resistance['price'] * 0.998  # Tight entry below resistance
+                    stop_loss = nearest_resistance['price'] * 1.002   # SL above supply zone
                     
-                    # TP di support level
-                    tp1 = nearest_support['price'] * 1.02  # Conservative TP
-                    tp2 = nearest_support['price'] * 0.98  # Aggressive TP
-                    
-                    # SL above resistance
-                    stop_loss = nearest_resistance['price'] * 1.03
+                    # Calculate 1:1 RR based on risk
+                    risk_amount = stop_loss - entry_price
+                    tp1 = entry_price - risk_amount                   # 1:1 RR
+                    tp2 = entry_price - (risk_amount * 1.2)           # 1:1.2 RR bonus
                     
                 else:
-                    # Default calculation
-                    tp1 = current_price * 0.97
-                    tp2 = current_price * 0.94
-                    stop_loss = current_price * 1.03
+                    # Default S&D-style calculation with 1:1 RR
+                    entry_price = current_price * 1.002
+                    risk_percentage = 0.015  # 1.5% risk
+                    stop_loss = entry_price * (1 + risk_percentage)
+                    tp1 = entry_price * (1 - risk_percentage)         # 1:1 RR
+                    tp2 = entry_price * (1 - risk_percentage * 1.3)   # 1:1.3 RR
             else:
                 return None
                 
@@ -310,12 +312,13 @@ class SnDAutoSignals:
             
             message += f"""**{i}. {symbol} {direction_emoji} {signal_type}**
 
-💰 **Entry:** ${entry:.6f}
-🎯 **TP1:** ${tp1:.6f}
-🚀 **TP2:** ${tp2:.6f}
-🛡️ **SL:** ${sl:.6f}
+💰 **Entry:** ${entry:.6f} (S&D Zone)
+🎯 **TP1:** ${tp1:.6f} (1:1 RR)
+🚀 **TP2:** ${tp2:.6f} (Bonus)
+🛡️ **SL:** ${sl:.6f} (Zone Protection)
 📊 **R/R:** {rr:.1f}:1
 ✅ **Confidence:** {confidence}%
+🔍 **Method:** Supply/Demand Analysis
 
 """
 
