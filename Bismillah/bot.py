@@ -689,8 +689,8 @@ class TelegramBot:
         loading_msg = await update.message.reply_text("⏳ Menganalisis data komprehensif + berita crypto...")
 
         try:
-            # Get price and futures data for comprehensive analysis
-            price_data = self.crypto_api.get_price(symbol)
+            # Get price and futures data for comprehensive analysis using CoinAPI
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
             futures_data = self.crypto_api.get_futures_data(symbol)
 
             # Use comprehensive analysis function with crypto_api for news
