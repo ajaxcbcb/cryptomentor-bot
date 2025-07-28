@@ -2828,7 +2828,7 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
         else:
             message += "❌ AI Assistant SnD method not available\n"
         
-        # Test auto signals system
+        # Test auto signals system with enhanced verification
         if self.auto_signals:
             message += "✅ Auto signals system initialized\n"
             message += f"📊 Target symbols: {len(self.auto_signals.target_symbols)}\n"
@@ -2836,6 +2836,42 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
             message += f"🎯 Min confidence: {self.auto_signals.min_confidence}%\n"
             message += f"🌐 Deployment mode: {self.auto_signals.is_deployment}\n"
             message += f"▶️ Scanner running: {self.auto_signals.is_running}\n"
+            
+            # Test AI assistant integration
+            if hasattr(self.ai, 'analyze_snd_for_auto_signals'):
+                message += "✅ AI assistant SnD integration: Connected\n"
+                
+                # Test a sample analysis
+                try:
+                    test_symbol = 'BTC'
+                    test_result = self.ai.analyze_snd_for_auto_signals(test_symbol, self.crypto_api)
+                    if test_result and 'error' not in test_result:
+                        message += f"✅ Sample SnD test ({test_symbol}): Success\n"
+                        message += f"📈 Test confidence: {test_result.get('confidence', 'N/A')}%\n"
+                    else:
+                        message += f"⚠️ Sample SnD test ({test_symbol}): {test_result.get('error', 'Failed')}\n"
+                except Exception as e:
+                    message += f"❌ Sample SnD test error: {str(e)}\n"
+            else:
+                message += "❌ AI assistant SnD integration: Not connected\n"
+                
+            # Test crypto API connection for auto signals
+            message += f"🔗 CryptoAPI connection: {'✅ Connected' if self.crypto_api else '❌ Not available'}\n"
+            
+            if self.crypto_api:
+                # Test deployment mode detection
+                is_deployment = self.crypto_api.is_deployment_mode()
+                message += f"🚀 Deployment detection: {'✅ Active' if is_deployment else '🔧 Development'}\n"
+                
+                # Test CoinAPI connectivity
+                try:
+                    coinapi_test = self.crypto_api.get_coinapi_price('BTC', force_refresh=True)
+                    if 'error' not in coinapi_test and coinapi_test.get('price', 0) > 0:
+                        message += f"✅ CoinAPI connectivity: Working (BTC: ${coinapi_test.get('price'):,.2f})\n"
+                    else:
+                        message += f"❌ CoinAPI connectivity: {coinapi_test.get('error', 'Failed')}\n"
+                except Exception as e:
+                    message += f"❌ CoinAPI test error: {str(e)}\n"
         else:
             message += "❌ Auto signals system not initialized\n"
             
