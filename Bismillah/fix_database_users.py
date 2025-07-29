@@ -49,7 +49,7 @@ def fix_database_users():
         print(f"➖ Negative credits: {negative_credits}")
 
         # Start fixing issues
-        print("\n🔧 Fixing Issues:")
+        print("\n🔧 Starting Database Fixes...")\n🔧 Fixing Issues:")
 
         # Fix NULL credits
         if null_credits > 0:

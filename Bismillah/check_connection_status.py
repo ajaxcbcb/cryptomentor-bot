@@ -74,7 +74,8 @@ def check_telegram_bot_token():
         print("❌ Telegram API Timeout - Network issue")
         return False
     except Exception as e:
-        print(f"❌ Bot Token Check Error: {str(e)}")
+        print(f"❌ Bot Token Check Error: {e}")
+        return False: {str(e)}")
         return False
 
 def check_coinapi_key():

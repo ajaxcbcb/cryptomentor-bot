@@ -1413,7 +1413,7 @@ Gunakan credit dengan bijak!"""
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start_auto_signals command - Admin only""\"
+        """Handle /start_auto_signals command - Admin only"""
         user_id = update.message.from_user.id
 
         if user_id != self.admin_id:
@@ -1471,6 +1471,34 @@ Gunakan credit dengan bijak!"""
 
         if not portfolio:
             message = """💼 **Portfolio Anda kosong**
+
+Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
+Contoh: `/add_coin btc 0.5`
+
+Harga akan diambil real-time dari CoinAPI."""
+        else:
+            message = "💼 **Portfolio Anda (CoinAPI Real-time):**\n\n"
+            total_value = 0
+
+            for coin in portfolio:
+                symbol = coin['symbol']
+                amount = coin['amount']
+                price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+
+                if price_data and 'error' not in price_data:
+                    current_price = price_data.get('price', 0)
+                    value = amount * current_price
+                    total_value += value
+
+                    price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
+                    value_format = f"${value:,.2f}"
+                    message += f"• {symbol}: {amount} koin ({price_format} = {value_format})\n"
+                else:
+                    message += f"• {symbol}: {amount} koin (Price unavailable)\n"
+
+            message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
 
 Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
 Contoh: `/add_coin btc 0.5`

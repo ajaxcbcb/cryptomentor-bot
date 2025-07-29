@@ -233,6 +233,9 @@ def initialize_auto_signals(bot_instance):
     except Exception as e:
         print(f"❌ Failed to initialize auto signals: {e}")
         return None
+    except Exception as e:
+        print(f"❌ Failed to initialize auto signals: {e}")
+        return None
 
 class SnDAutoSignals:
     def __init__(self, bot_instance):
@@ -576,6 +579,31 @@ def initialize_auto_signals(bot_instance):
 
             if not eligible_users:
                 print("📊 No eligible users for auto signals")
+                return
+
+            # Send signals to each eligible user
+            success_count = 0
+            for user_data in eligible_users:
+                try:
+                    user_id = user_data.get('telegram_id')
+                    if not user_id:
+                        continue
+
+                    await self.bot.application.bot.send_message(
+                        chat_id=user_id,
+                        text=signals,
+                        parse_mode='Markdown'
+                    )
+                    success_count += 1
+                    await asyncio.sleep(0.1)  # Rate limiting
+
+                except Exception as send_error:
+                    print(f"❌ Failed to send auto signal to user {user_id}: {send_error}")
+
+            print(f"✅ Auto signals sent to {success_count}/{len(eligible_users)} eligible users")
+
+        except Exception as e:
+            print(f"❌ Error sending auto signals: {e}"))
                 return
 
             print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
