@@ -1971,49 +1971,115 @@ Try again in a few minutes for real-time data."""
             snd_signals = snd_analysis.get('signals', [])
             confidence_score = snd_analysis.get('confidence_score', 0)
 
-            if not snd_signals or confidence_score < 55:  # Slightly lower threshold for SHORT
-                return None
-
-            # Enhanced signal selection - prioritize SHORT signals
+            # FORCE signal generation even with weak SnD zones
             best_signal = None
             
-            # First, look for SHORT signals from supply zones
-            short_signals = [s for s in snd_signals if s.get('direction') == 'SHORT']
-            long_signals = [s for s in snd_signals if s.get('direction') == 'LONG']
-            
-            # Prioritize SHORT if market conditions favor it
-            if short_signals and (long_ratio > 65 or funding_rate > 0.005):
-                best_signal = max(short_signals, key=lambda x: x.get('confidence', 0))
-                print(f"🔴 SHORT signal prioritized for {symbol} (L/S: {long_ratio:.1f}%, Funding: {funding_rate*100:.4f}%)")
-            elif long_signals and (long_ratio < 35 or funding_rate < -0.005):
-                best_signal = max(long_signals, key=lambda x: x.get('confidence', 0))
-                print(f"🟢 LONG signal prioritized for {symbol} (L/S: {long_ratio:.1f}%, Funding: {funding_rate*100:.4f}%)")
-            else:
-                # Take best signal overall
-                best_signal = max(snd_signals, key=lambda x: x.get('confidence', 0))
+            if snd_signals and len(snd_signals) > 0:
+                # First, look for SHORT signals from supply zones
+                short_signals = [s for s in snd_signals if s.get('direction') == 'SHORT']
+                long_signals = [s for s in snd_signals if s.get('direction') == 'LONG']
+                
+                # Prioritize SHORT if market conditions favor it
+                if short_signals and (long_ratio > 65 or funding_rate > 0.005):
+                    best_signal = max(short_signals, key=lambda x: x.get('confidence', 0))
+                    print(f"🔴 SHORT signal prioritized for {symbol} (L/S: {long_ratio:.1f}%, Funding: {funding_rate*100:.4f}%)")
+                elif long_signals and (long_ratio < 35 or funding_rate < -0.005):
+                    best_signal = max(long_signals, key=lambda x: x.get('confidence', 0))
+                    print(f"🟢 LONG signal prioritized for {symbol} (L/S: {long_ratio:.1f}%, Funding: {funding_rate*100:.4f}%)")
+                else:
+                    # Take best signal overall
+                    best_signal = max(snd_signals, key=lambda x: x.get('confidence', 0))
 
+            # FALLBACK: Generate signal based on market conditions even without SnD zones
             if not best_signal:
-                return None
+                print(f"⚠️ No SnD signals for {symbol}, generating based on market conditions...")
+                
+                # Generate signal based on long/short ratio and funding rate
+                if long_ratio > 70 or funding_rate > 0.01:
+                    # Overcrowded longs = SHORT opportunity
+                    direction = 'SHORT'
+                    entry_price = current_price * 1.002  # Slight rally entry
+                    tp1 = current_price * 0.975  # 2.5% down
+                    tp2 = current_price * 0.95   # 5% down
+                    sl = current_price * 1.015   # 1.5% up
+                    base_confidence = 65
+                    reason = f"Overcrowded longs ({long_ratio:.1f}%) + positive funding"
+                elif long_ratio < 30 or funding_rate < -0.01:
+                    # Overcrowded shorts = LONG opportunity
+                    direction = 'LONG'
+                    entry_price = current_price * 0.998  # Slight dip entry
+                    tp1 = current_price * 1.025  # 2.5% up
+                    tp2 = current_price * 1.05   # 5% up
+                    sl = current_price * 0.985   # 1.5% down
+                    base_confidence = 65
+                    reason = f"Overcrowded shorts ({long_ratio:.1f}%) + negative funding"
+                else:
+                    # Neutral market - use price action to determine direction
+                    price_change_24h = price_data.get('change_24h', 0)
+                    if price_change_24h > 2:
+                        direction = 'LONG'
+                        entry_price = current_price * 0.999
+                        tp1 = current_price * 1.02
+                        tp2 = current_price * 1.04
+                        sl = current_price * 0.985
+                        reason = f"Bullish momentum ({price_change_24h:.1f}%)"
+                    else:
+                        direction = 'SHORT'
+                        entry_price = current_price * 1.001
+                        tp1 = current_price * 0.98
+                        tp2 = current_price * 0.96
+                        sl = current_price * 1.015
+                        reason = f"Bearish bias (momentum: {price_change_24h:.1f}%)"
+                    base_confidence = 60
 
-            # Enhanced signal generation
-            direction = best_signal.get('direction', 'UNKNOWN')
+                # Create fallback signal
+                best_signal = {
+                    'direction': direction,
+                    'entry_price': entry_price,
+                    'take_profit_1': tp1,
+                    'take_profit_2': tp2,
+                    'stop_loss': sl,
+                    'confidence': base_confidence,
+                    'reason': reason,
+                    'zone_distance': 5  # Fallback value
+                }
+                print(f"✅ Generated fallback {direction} signal for {symbol} based on market conditions")
+
+            # Enhanced signal generation - FORCE direction to be valid
+            direction = best_signal.get('direction', 'LONG')  # Default to LONG if unknown
+            
+            # Ensure direction is never UNKNOWN
+            if direction not in ['LONG', 'SHORT']:
+                # Determine direction based on market conditions
+                if long_ratio > 60 or funding_rate > 0.005:
+                    direction = 'SHORT'
+                else:
+                    direction = 'LONG'
+                print(f"🔧 Fixed direction for {symbol}: {direction} (was: {best_signal.get('direction', 'None')})")
+
             entry_price = best_signal.get('entry_price', current_price)
 
-            # Dynamic TP/SL calculation based on volatility
-            volatility_multiplier = 1.0
-            if symbol in ['BTC', 'ETH']:
-                volatility_multiplier = 0.8  # Lower for major coins
+            # Use TP/SL from best_signal if available, otherwise calculate
+            if 'take_profit_1' in best_signal and 'stop_loss' in best_signal:
+                tp1 = best_signal.get('take_profit_1')
+                tp2 = best_signal.get('take_profit_2', tp1 * 1.5)
+                sl = best_signal.get('stop_loss')
             else:
-                volatility_multiplier = 1.2  # Higher for altcoins
+                # Dynamic TP/SL calculation based on volatility
+                volatility_multiplier = 1.0
+                if symbol in ['BTC', 'ETH']:
+                    volatility_multiplier = 0.8  # Lower for major coins
+                else:
+                    volatility_multiplier = 1.2  # Higher for altcoins
 
-            if direction == 'LONG':
-                tp1 = entry_price * (1 + 0.025 * volatility_multiplier)  # 2.5% for majors, 3% for alts
-                tp2 = entry_price * (1 + 0.05 * volatility_multiplier)   # 5% for majors, 6% for alts
-                sl = entry_price * (1 - 0.015 * volatility_multiplier)   # 1.5% for majors, 1.8% for alts
-            else:  # SHORT - Enhanced calculations
-                tp1 = entry_price * (1 - 0.025 * volatility_multiplier)  # 2.5% down for majors, 3% for alts
-                tp2 = entry_price * (1 - 0.05 * volatility_multiplier)   # 5% down for majors, 6% for alts
-                sl = entry_price * (1 + 0.015 * volatility_multiplier)   # 1.5% up for majors, 1.8% for alts
+                if direction == 'LONG':
+                    tp1 = entry_price * (1 + 0.025 * volatility_multiplier)  # 2.5% for majors, 3% for alts
+                    tp2 = entry_price * (1 + 0.05 * volatility_multiplier)   # 5% for majors, 6% for alts
+                    sl = entry_price * (1 - 0.015 * volatility_multiplier)   # 1.5% for majors, 1.8% for alts
+                else:  # SHORT - Enhanced calculations
+                    tp1 = entry_price * (1 - 0.025 * volatility_multiplier)  # 2.5% down for majors, 3% for alts
+                    tp2 = entry_price * (1 - 0.05 * volatility_multiplier)   # 5% down for majors, 6% for alts
+                    sl = entry_price * (1 + 0.015 * volatility_multiplier)   # 1.5% up for majors, 1.8% for alts
 
             # Calculate confidence based on multiple factors - ENHANCED SHORT LOGIC
             final_confidence = confidence_score
@@ -2349,12 +2415,12 @@ Try again in a few minutes for real-time data."""
                 'long_ratio': long_ratio,
                 'funding_rate': funding_rate * 100,  # Convert to percentage
                 'open_interest': open_interest,
-                'recommendation': 'hold',
-                'confidence': 0,
-                'entry_price': 0,
-                'tp1': 0,
-                'tp2': 0,
-                'sl': 0,
+                'recommendation': 'long',  # Default to LONG instead of hold
+                'confidence': 60,  # Base confidence
+                'entry_price': current_price,
+                'tp1': current_price * 1.025,  # 2.5% up
+                'tp2': current_price * 1.05,   # 5% up
+                'sl': current_price * 0.985,   # 1.5% down
                 'position_size': '1-2%',
                 'reasoning': []
             }
@@ -2362,6 +2428,8 @@ Try again in a few minutes for real-time data."""
             # ENHANCED SHORT SIGNAL DETECTION - Priority Check
             short_conditions_met = 0
             short_confidence_boost = 0
+            long_conditions_met = 0
+            long_confidence_boost = 0
 
             # Check for SHORT-favorable conditions
             if long_ratio > 65:  # Overcrowded longs
@@ -2379,35 +2447,64 @@ Try again in a few minutes for real-time data."""
                 short_confidence_boost += 20
                 signal['reasoning'].append(f"🔴 Strong bearish trend ({condition_strength:.1f}%)")
 
-            # If multiple SHORT conditions are met, prioritize SHORT
-            if short_conditions_met >= 2:
+            # Check for LONG-favorable conditions
+            if long_ratio < 35:  # Overcrowded shorts
+                long_conditions_met += 1
+                long_confidence_boost += 15
+                signal['reasoning'].append(f"🟢 Overcrowded shorts ({long_ratio:.1f}%) - LONG opportunity")
+
+            if funding_rate < -0.005:  # Negative funding = shorts pay longs
+                long_conditions_met += 1
+                long_confidence_boost += 10
+                signal['reasoning'].append(f"🟢 Negative funding ({funding_rate*100:.4f}%) favors LONG")
+
+            if trend_direction == 'bullish' and condition_strength > 50:
+                long_conditions_met += 1
+                long_confidence_boost += 20
+                signal['reasoning'].append(f"🟢 Strong bullish trend ({condition_strength:.1f}%)")
+
+            # Determine recommendation based on stronger signal
+            if short_conditions_met > long_conditions_met or (short_conditions_met == long_conditions_met and short_conditions_met >= 1):
                 signal['recommendation'] = 'short'
                 signal['confidence'] = min(92, 65 + short_confidence_boost)
                 signal['entry_price'] = current_price * 1.001  # Slight rally entry
                 signal['tp1'] = current_price * 0.975  # 2.5% down
                 signal['tp2'] = current_price * 0.955  # 4.5% down
                 signal['sl'] = current_price * 1.015   # 1.5% up
-                signal['reasoning'].append("🎯 Multiple SHORT conditions aligned")
-                signal['position_size'] = '2-3%'  # Confident position
-                
+                signal['reasoning'].append("🎯 SHORT conditions favored")
+                signal['position_size'] = '2-3%'
+                return signal
+            elif long_conditions_met >= 1:
+                signal['recommendation'] = 'long'
+                signal['confidence'] = min(92, 65 + long_confidence_boost)
+                signal['entry_price'] = current_price * 0.999  # Slight dip entry
+                signal['tp1'] = current_price * 1.025  # 2.5% up
+                signal['tp2'] = current_price * 1.055  # 5.5% up
+                signal['sl'] = current_price * 0.985   # 1.5% down
+                signal['reasoning'].append("🎯 LONG conditions favored")
+                signal['position_size'] = '2-3%'
                 return signal
 
-            # Determine trading signal based on conditions (original logic with enhancements)
+            # FORCE LONG/SHORT recommendation - NO range trading or hold
+            # Determine trading signal based on conditions (always LONG or SHORT)
             if condition_type == 'sideways':
-                signal['recommendation'] = 'range_trading'
-                signal['confidence'] = max(0, 70 - volatility * 5)
-                signal['reasoning'].append(f"Market sideways dengan volatility {volatility:.2f}%")
-                signal['reasoning'].append("Range trading opportunity - buy support, sell resistance")
-
-                # Set range trading levels
-                sr_levels = market_condition.get('support_resistance', [])
-                if sr_levels:
-                    support = next((l['level'] for l in sr_levels if l['type'] == 'support'), current_price * 0.98)
-                    resistance = next((l['level'] for l in sr_levels if l['type'] == 'resistance'), current_price * 1.02)
-
-                    signal['entry_price'] = support
-                    signal['tp1'] = resistance
-                    signal['sl'] = support * 0.985
+                # Even in sideways market, choose LONG or SHORT based on long/short ratio
+                if long_ratio > 55:
+                    signal['recommendation'] = 'short'
+                    signal['confidence'] = 65
+                    signal['entry_price'] = current_price * 1.001
+                    signal['tp1'] = current_price * 0.98
+                    signal['tp2'] = current_price * 0.96
+                    signal['sl'] = current_price * 1.015
+                    signal['reasoning'].append(f"Sideways market + overcrowded longs ({long_ratio:.1f}%) = SHORT")
+                else:
+                    signal['recommendation'] = 'long'
+                    signal['confidence'] = 65
+                    signal['entry_price'] = current_price * 0.999
+                    signal['tp1'] = current_price * 1.02
+                    signal['tp2'] = current_price * 1.04
+                    signal['sl'] = current_price * 0.985
+                    signal['reasoning'].append(f"Sideways market + balanced ratio ({long_ratio:.1f}%) = LONG")
 
             elif condition_type == 'trending' and condition_strength > 60:
                 if trend_direction == 'bullish':
