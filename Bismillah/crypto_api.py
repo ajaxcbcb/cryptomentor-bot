@@ -120,6 +120,7 @@ class CryptoAPI:
             
             print(f"📡 CoinAPI Request: {endpoint}")
             print(f"📊 Headers: API Key present = {bool(self.coinapi_key)}")
+            print(f"🔄 Force refresh: {force_refresh}, Deployment: {is_deployment}")
 
             try:
                 # Make request with enhanced timeout handling
@@ -1063,100 +1064,69 @@ class CryptoAPI:
         )
 
     def get_market_overview(self):
-        """Get market overview using CoinAPI as primary source"""
-        print("📊 Getting market overview from CoinAPI...")
-        return self._get_coinapi_market_overview()
+        """Get market overview using CoinAPI in deployment mode, fallback to Binance"""
+        is_deployment = self.is_deployment_mode()
+        
+        if is_deployment:
+            print("🚀 DEPLOYMENT MODE: Using CoinAPI for market overview")
+            return self._get_coinapi_market_overview()
+        else:
+            print("🔧 DEVELOPMENT MODE: Using Binance for market overview")
+            return self.get_binance_global_data()
 
     def _get_coinapi_market_overview(self):
-        """Get market overview using CoinAPI data with enhanced error handling"""
+        """Get market overview using CoinAPI data"""
         try:
             # Get major cryptocurrencies from CoinAPI
             major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
             market_data = {}
-            total_estimated_volume = 0
-            successful_requests = 0
-            
-            print(f"📊 Fetching market data for {len(major_symbols)} symbols from CoinAPI...")
+            total_volume = 0
             
             for symbol in major_symbols:
                 try:
                     price_data = self.get_coinapi_price(symbol, force_refresh=True)
                     if 'error' not in price_data and price_data.get('price', 0) > 0:
                         market_data[symbol] = price_data
-                        # Estimate volume based on price and market activity
-                        price = price_data.get('price', 0)
-                        estimated_daily_volume = price * 50000000  # Estimate based on price
-                        total_estimated_volume += estimated_daily_volume
-                        successful_requests += 1
-                        print(f"✅ {symbol}: ${price:,.4f}")
-                    else:
-                        print(f"❌ {symbol}: {price_data.get('error', 'Failed')}")
+                        # Estimate volume (CoinAPI doesn't provide volume in exchange rate)
+                        total_volume += price_data.get('price', 0) * 1000000  # Mock volume estimation
                 except Exception as e:
                     print(f"⚠️ Failed to get {symbol} from CoinAPI: {e}")
                     continue
 
-            if not market_data or successful_requests < 2:
-                print(f"❌ Insufficient market data: {successful_requests}/{len(major_symbols)} successful")
-                return {'error': f'Insufficient market data from CoinAPI ({successful_requests}/{len(major_symbols)} successful)'}
+            if not market_data:
+                return {'error': 'No market data available from CoinAPI'}
 
-            # Calculate market metrics with improved accuracy
+            # Calculate market metrics
             btc_data = market_data.get('BTC', {})
             eth_data = market_data.get('ETH', {})
-            bnb_data = market_data.get('BNB', {})
             
-            # Calculate market cap with current supply estimates
+            # Estimate market cap (rough calculation)
             btc_price = btc_data.get('price', 0)
-            eth_price = eth_data.get('price', 0)
-            bnb_price = bnb_data.get('price', 0)
-            
-            # Market cap calculations with current supply
-            btc_supply = 19700000  # Updated BTC supply
-            eth_supply = 120000000  # ETH supply estimate
-            bnb_supply = 147000000  # BNB supply estimate
-            
-            btc_market_cap = btc_price * btc_supply if btc_price > 0 else 0
-            eth_market_cap = eth_price * eth_supply if eth_price > 0 else 0
-            bnb_market_cap = bnb_price * bnb_supply if bnb_price > 0 else 0
-            
-            # Estimate total market cap (BTC + ETH + others)
-            major_caps = btc_market_cap + eth_market_cap + bnb_market_cap
-            estimated_total_market_cap = major_caps * 2.2  # Multiply by 2.2 to account for other cryptos
+            estimated_market_cap = btc_price * 19500000 if btc_price > 0 else 2400000000000  # 19.5M BTC supply
             
             # Calculate dominance
-            btc_dominance = (btc_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 45.0
-            eth_dominance = (eth_market_cap / estimated_total_market_cap * 100) if estimated_total_market_cap > 0 else 18.0
+            btc_market_cap = btc_price * 19500000 if btc_price > 0 else 0
+            eth_price = eth_data.get('price', 0)
+            eth_market_cap = eth_price * 120000000 if eth_price > 0 else 0  # 120M ETH supply
             
-            # Calculate average price change (mock data since CoinAPI exchange rate doesn't provide 24h change)
-            avg_change = 2.1  # Positive market assumption
-            
-            print(f"📈 Market Overview Generated:")
-            print(f"   - Total Market Cap: ${estimated_total_market_cap:,.0f}")
-            print(f"   - BTC Dominance: {btc_dominance:.1f}%")
-            print(f"   - Successful API calls: {successful_requests}/{len(major_symbols)}")
+            btc_dominance = (btc_market_cap / estimated_market_cap * 100) if estimated_market_cap > 0 else 45.0
+            eth_dominance = (eth_market_cap / estimated_market_cap * 100) if estimated_market_cap > 0 else 18.0
             
             return {
-                'total_market_cap': estimated_total_market_cap,
-                'total_volume': total_estimated_volume,
-                'market_cap_change_percentage_24h_usd': avg_change,
+                'total_market_cap': estimated_market_cap,
+                'total_volume': total_volume,
+                'market_cap_change_percentage_24h_usd': 1.5,  # Estimated since CoinAPI doesn't provide 24h change
                 'market_cap_percentage': {
                     'btc': btc_dominance,
                     'eth': eth_dominance
                 },
-                'btc_price': btc_price,
-                'eth_price': eth_price,
-                'bnb_price': bnb_price,
                 'active_cryptocurrencies': len(market_data),
-                'successful_api_calls': successful_requests,
-                'total_api_calls': len(major_symbols),
-                'data_quality': 'excellent' if successful_requests >= 8 else 'good' if successful_requests >= 5 else 'partial',
                 'updated_at': int(datetime.now().timestamp()),
                 'source': 'coinapi_market_overview'
             }
             
         except Exception as e:
             print(f"❌ CoinAPI market overview error: {e}")
-            import traceback
-            traceback.print_exc()
             return {'error': f"CoinAPI market overview error: {str(e)}"}
 
     def test_coinapi_connectivity(self, symbol='BTC'):
@@ -1455,11 +1425,15 @@ class CryptoAPI:
         return self.get_multiple_coinapi_prices(symbols)
 
     def get_market_overview(self):
-        """Get market overview data using Binance data exclusively"""
-        try:
-            # Get data from top cryptocurrencies via Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
-            prices_data = self.get_multiple_binance_prices(major_symbols)
+        """Get market overview using CoinAPI in deployment mode, fallback to Binance"""
+        is_deployment = self.is_deployment_mode()
+        
+        if is_deployment:
+            print("🚀 DEPLOYMENT MODE: Using CoinAPI for market overview")
+            return self._get_coinapi_market_overview()
+        else:
+            print("🔧 DEVELOPMENT MODE: Using Binance for market overview")
+            return self.get_binance_global_data()
 
             if 'error' not in prices_data and len(prices_data) > 0:
                 # Calculate market metrics from Binance data
@@ -1725,648 +1699,102 @@ class CryptoAPI:
         }
 
     def analyze_supply_demand(self, symbol, timeframe='1h'):
-        """Enhanced Supply and Demand analysis with order block detection"""
+        """Analyze supply and demand zones using Binance candlestick data"""
         try:
-            print(f"🔍 Starting SnD analysis for {symbol} ({timeframe})")
-            
-            # Get current price from CoinAPI
-            current_price_data = self.get_coinapi_price(symbol, force_refresh=True)
-            if 'error' in current_price_data:
-                return {
-                    'error': f"Cannot get current price: {current_price_data['error']}",
-                    'symbol': symbol,
-                    'analysis_successful': False
-                }
-            
-            current_price = current_price_data.get('price', 0)
-            if current_price <= 0:
-                return {
-                    'error': 'Invalid current price',
-                    'symbol': symbol,
-                    'analysis_successful': False
-                }
-            
-            # Get candlestick data from Binance for technical analysis
-            candle_data = self.get_binance_candlestick(symbol, timeframe, 200)
+            # Get candlestick data
+            candle_data = self.get_binance_candlestick(symbol, timeframe, 100)
             
             if 'error' in candle_data:
                 print(f"❌ Candlestick data error for {symbol}: {candle_data['error']}")
-                # Use simplified SnD analysis without candlestick data
-                return self._simplified_snd_analysis(symbol, current_price)
+                return {
+                    'error': f"Cannot get candlestick data: {candle_data['error']}",
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
 
             candlesticks = candle_data.get('candlesticks', [])
-            if len(candlesticks) < 50:
-                print(f"⚠️ Insufficient candlestick data ({len(candlesticks)}), using simplified analysis")
-                return self._simplified_snd_analysis(symbol, current_price)
+            if len(candlesticks) < 20:
+                return {
+                    'error': 'Not enough data for analysis',
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
 
-            print(f"📊 Analyzing {len(candlesticks)} candlesticks for {symbol}")
+            # Calculate basic SnD analysis
+            highs = [c['high'] for c in candlesticks[-50:]]
+            lows = [c['low'] for c in candlesticks[-50:]]
+            closes = [c['close'] for c in candlesticks[-50:]]
+            volumes = [c['volume'] for c in candlesticks[-50:]]
 
-            # Extract OHLCV data
-            opens = [c['open'] for c in candlesticks]
-            highs = [c['high'] for c in candlesticks]
-            lows = [c['low'] for c in candlesticks]
-            closes = [c['close'] for c in candlesticks]
-            volumes = [c['volume'] for c in candlesticks]
-
-            # Enhanced SnD Analysis
-            snd_result = self._enhanced_snd_analysis(
-                symbol, current_price, opens, highs, lows, closes, volumes, timeframe
-            )
+            current_price = closes[-1]
             
-            return snd_result
-
-        except Exception as e:
-            print(f"❌ SnD analysis error for {symbol}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return {
-                'error': f"SnD analysis failed: {str(e)}",
-                'symbol': symbol,
-                'analysis_successful': False
-            }
-
-    def _enhanced_snd_analysis(self, symbol, current_price, opens, highs, lows, closes, volumes, timeframe):
-        """Enhanced Supply and Demand analysis with multiple techniques"""
-        try:
-            # 1. Order Block Detection
-            order_blocks = self._detect_order_blocks(opens, highs, lows, closes, volumes)
-            
-            # 2. Support/Resistance Levels
-            support_resistance = self._find_support_resistance_levels(highs, lows, volumes)
-            
-            # 3. Volume Analysis
-            volume_analysis = self._analyze_volume_pressure(closes, volumes)
-            
-            # 4. Market Structure Analysis
-            market_structure = self._analyze_market_structure(highs, lows, closes)
-            
-            # 5. Entry/Exit Point Calculation
-            entry_points = self._calculate_entry_exit_points(
-                current_price, support_resistance, order_blocks, market_structure
-            )
-            
-            # 6. Overall SnD Score
-            snd_score = self._calculate_snd_score(
-                current_price, support_resistance, order_blocks, volume_analysis, market_structure
-            )
-            
-            # 7. Generate Trading Signals
-            signals = self._generate_snd_signals(
-                current_price, support_resistance, order_blocks, snd_score, entry_points
-            )
-            
-            return {
-                'symbol': symbol,
-                'current_price': current_price,
-                'timeframe': timeframe,
-                'order_blocks': order_blocks,
-                'support_levels': support_resistance['support'],
-                'resistance_levels': support_resistance['resistance'],
-                'volume_pressure': volume_analysis,
-                'market_structure': market_structure,
-                'entry_exit_points': entry_points,
-                'snd_score': snd_score,
-                'signals': signals,
-                'analysis_successful': True,
-                'data_points': len(closes),
-                'source': 'enhanced_snd_analysis'
-            }
-            
-        except Exception as e:
-            print(f"❌ Enhanced SnD analysis error: {e}")
-            return self._simplified_snd_analysis(symbol, current_price)
-
-    def _detect_order_blocks(self, opens, highs, lows, closes, volumes):
-        """Detect order blocks (institutional levels)"""
-        order_blocks = {'bullish': [], 'bearish': []}
-        
-        try:
-            for i in range(3, len(closes) - 3):
-                # Bullish Order Block: Strong buying pressure followed by upward movement
-                if (closes[i] > opens[i] and  # Green candle
-                    volumes[i] > sum(volumes[i-3:i]) / 3 * 1.5 and  # High volume
-                    closes[i+1] > closes[i] and closes[i+2] > closes[i+1]):  # Upward continuation
-                    
-                    order_blocks['bullish'].append({
-                        'high': highs[i],
-                        'low': lows[i],
-                        'price': (highs[i] + lows[i]) / 2,
-                        'volume': volumes[i],
-                        'strength': volumes[i] / (sum(volumes) / len(volumes)) * 100,
-                        'index': i
-                    })
-                
-                # Bearish Order Block: Strong selling pressure followed by downward movement
-                elif (closes[i] < opens[i] and  # Red candle
-                      volumes[i] > sum(volumes[i-3:i]) / 3 * 1.5 and  # High volume
-                      closes[i+1] < closes[i] and closes[i+2] < closes[i+1]):  # Downward continuation
-                    
-                    order_blocks['bearish'].append({
-                        'high': highs[i],
-                        'low': lows[i],
-                        'price': (highs[i] + lows[i]) / 2,
-                        'volume': volumes[i],
-                        'strength': volumes[i] / (sum(volumes) / len(volumes)) * 100,
-                        'index': i
-                    })
-            
-            # Sort by strength and keep top 5
-            order_blocks['bullish'] = sorted(order_blocks['bullish'], key=lambda x: x['strength'], reverse=True)[:5]
-            order_blocks['bearish'] = sorted(order_blocks['bearish'], key=lambda x: x['strength'], reverse=True)[:5]
-            
-            return order_blocks
-            
-        except Exception as e:
-            print(f"⚠️ Order block detection error: {e}")
-            return {'bullish': [], 'bearish': []}
-
-    def _find_support_resistance_levels(self, highs, lows, volumes):
-        """Find support and resistance levels using pivot points"""
-        support_levels = []
-        resistance_levels = []
-        
-        try:
-            # Find pivot highs (resistance)
-            for i in range(5, len(highs) - 5):
-                if (highs[i] == max(highs[i-5:i+6])):  # Local maximum
+            # Find resistance (supply) levels
+            resistance_levels = []
+            for i in range(2, len(highs) - 2):
+                if (highs[i] > highs[i-1] and highs[i] > highs[i-2] and 
+                    highs[i] > highs[i+1] and highs[i] > highs[i+2]):
                     resistance_levels.append({
                         'price': highs[i],
                         'strength': volumes[i],
-                        'touches': 1,
-                        'index': i
+                        'type': 'resistance'
                     })
-            
-            # Find pivot lows (support)
-            for i in range(5, len(lows) - 5):
-                if (lows[i] == min(lows[i-5:i+6])):  # Local minimum
+
+            # Find support (demand) levels
+            support_levels = []
+            for i in range(2, len(lows) - 2):
+                if (lows[i] < lows[i-1] and lows[i] < lows[i-2] and 
+                    lows[i] < lows[i+1] and lows[i] < lows[i+2]):
                     support_levels.append({
                         'price': lows[i],
                         'strength': volumes[i],
-                        'touches': 1,
-                        'index': i
+                        'type': 'support'
                     })
-            
-            # Consolidate nearby levels
-            support_levels = self._consolidate_levels(support_levels)
-            resistance_levels = self._consolidate_levels(resistance_levels)
-            
-            # Sort by strength
-            support_levels = sorted(support_levels, key=lambda x: x['strength'], reverse=True)[:10]
-            resistance_levels = sorted(resistance_levels, key=lambda x: x['strength'], reverse=True)[:10]
-            
-            return {
-                'support': support_levels,
-                'resistance': resistance_levels
-            }
-            
-        except Exception as e:
-            print(f"⚠️ Support/Resistance detection error: {e}")
-            return {'support': [], 'resistance': []}
 
-    def _consolidate_levels(self, levels):
-        """Consolidate nearby price levels"""
-        if not levels:
-            return []
-        
-        consolidated = []
-        levels.sort(key=lambda x: x['price'])
-        
-        current_group = [levels[0]]
-        
-        for i in range(1, len(levels)):
-            # If price is within 1% of current group average, add to group
-            group_avg = sum(l['price'] for l in current_group) / len(current_group)
-            if abs(levels[i]['price'] - group_avg) / group_avg < 0.01:
-                current_group.append(levels[i])
-            else:
-                # Consolidate current group
-                if current_group:
-                    consolidated_level = {
-                        'price': sum(l['price'] for l in current_group) / len(current_group),
-                        'strength': sum(l['strength'] for l in current_group),
-                        'touches': len(current_group)
-                    }
-                    consolidated.append(consolidated_level)
-                
-                current_group = [levels[i]]
-        
-        # Don't forget the last group
-        if current_group:
-            consolidated_level = {
-                'price': sum(l['price'] for l in current_group) / len(current_group),
-                'strength': sum(l['strength'] for l in current_group),
-                'touches': len(current_group)
-            }
-            consolidated.append(consolidated_level)
-        
-        return consolidated
+            # Sort and get strongest levels
+            resistance_levels.sort(key=lambda x: x['strength'], reverse=True)
+            support_levels.sort(key=lambda x: x['strength'], reverse=True)
 
-    def _analyze_volume_pressure(self, closes, volumes):
-        """Analyze volume pressure for supply/demand imbalance"""
-        try:
-            if len(closes) < 20 or len(volumes) < 20:
-                return {'pressure_type': 'neutral', 'strength': 50}
-            
-            # Calculate volume-weighted pressure
-            recent_closes = closes[-20:]
-            recent_volumes = volumes[-20:]
-            
-            buying_volume = sum(v for i, v in enumerate(recent_volumes) 
-                              if recent_closes[i] > recent_closes[i-1] if i > 0 else False)
-            selling_volume = sum(v for i, v in enumerate(recent_volumes) 
-                               if recent_closes[i] < recent_closes[i-1] if i > 0 else False)
-            
-            total_volume = buying_volume + selling_volume
-            
-            if total_volume == 0:
-                return {'pressure_type': 'neutral', 'strength': 50}
-            
-            buying_pressure = (buying_volume / total_volume) * 100
-            
-            if buying_pressure > 60:
-                pressure_type = 'buying_pressure'
-                strength = min(100, buying_pressure * 1.2)
-            elif buying_pressure < 40:
-                pressure_type = 'selling_pressure'  
-                strength = min(100, (100 - buying_pressure) * 1.2)
-            else:
-                pressure_type = 'balanced'
-                strength = 50
-            
-            return {
-                'pressure_type': pressure_type,
-                'strength': strength,
-                'buying_pressure': buying_pressure,
-                'selling_pressure': 100 - buying_pressure
-            }
-            
-        except Exception as e:
-            print(f"⚠️ Volume pressure analysis error: {e}")
-            return {'pressure_type': 'neutral', 'strength': 50}
+            # Calculate trend
+            sma_20 = sum(closes[-20:]) / 20
+            sma_50 = sum(closes[-50:]) / 50
+            trend = 'bullish' if sma_20 > sma_50 else 'bearish'
 
-    def _analyze_market_structure(self, highs, lows, closes):
-        """Analyze market structure for trend direction"""
-        try:
-            if len(closes) < 50:
-                return {'structure': 'unknown', 'trend': 'sideways'}
-            
-            recent_highs = highs[-20:]
-            recent_lows = lows[-20:]
-            recent_closes = closes[-20:]
-            
-            # Higher highs and higher lows = uptrend
-            higher_highs = sum(1 for i in range(1, len(recent_highs)) if recent_highs[i] > recent_highs[i-1])
-            higher_lows = sum(1 for i in range(1, len(recent_lows)) if recent_lows[i] > recent_lows[i-1])
-            
-            # Lower highs and lower lows = downtrend
-            lower_highs = sum(1 for i in range(1, len(recent_highs)) if recent_highs[i] < recent_highs[i-1])
-            lower_lows = sum(1 for i in range(1, len(recent_lows)) if recent_lows[i] < recent_lows[i-1])
-            
-            if higher_highs > lower_highs and higher_lows > lower_lows:
-                structure = 'bullish_structure'
-                trend = 'uptrend'
-            elif lower_highs > higher_highs and lower_lows > higher_lows:
-                structure = 'bearish_structure'
-                trend = 'downtrend'
-            else:
-                structure = 'ranging_structure'
-                trend = 'sideways'
-            
-            # Calculate structure strength
-            total_points = len(recent_highs) + len(recent_lows) - 2
-            if trend == 'uptrend':
-                strength = ((higher_highs + higher_lows) / total_points) * 100
-            elif trend == 'downtrend':
-                strength = ((lower_highs + lower_lows) / total_points) * 100
-            else:
-                strength = 50
-            
-            return {
-                'structure': structure,
-                'trend': trend,
-                'strength': strength,
-                'higher_highs': higher_highs,
-                'higher_lows': higher_lows,
-                'lower_highs': lower_highs,
-                'lower_lows': lower_lows
-            }
-            
-        except Exception as e:
-            print(f"⚠️ Market structure analysis error: {e}")
-            return {'structure': 'unknown', 'trend': 'sideways', 'strength': 50}
-
-    def _calculate_entry_exit_points(self, current_price, support_resistance, order_blocks, market_structure):
-        """Calculate optimal entry and exit points based on SnD analysis"""
-        try:
-            entry_points = {'long': [], 'short': []}
-            
-            # Find nearest support for long entries
-            supports = support_resistance.get('support', [])
-            resistances = support_resistance.get('resistance', [])
-            
-            for support in supports[:3]:  # Top 3 support levels
-                distance = abs(current_price - support['price']) / current_price * 100
-                if distance < 5:  # Within 5% of current price
-                    entry_points['long'].append({
-                        'type': 'support_bounce',
-                        'entry_price': support['price'] * 1.001,  # Slightly above support
-                        'stop_loss': support['price'] * 0.995,   # 0.5% below support
-                        'take_profit_1': current_price * 1.02,   # 2% profit
-                        'take_profit_2': current_price * 1.04,   # 4% profit
-                        'confidence': min(90, 70 + support['strength']/1000),
-                        'risk_reward': 4.0  # 1:4 risk reward
-                    })
-            
-            # Find nearest resistance for short entries
-            for resistance in resistances[:3]:  # Top 3 resistance levels
-                distance = abs(current_price - resistance['price']) / current_price * 100
-                if distance < 5:  # Within 5% of current price
-                    entry_points['short'].append({
-                        'type': 'resistance_rejection',
-                        'entry_price': resistance['price'] * 0.999,  # Slightly below resistance
-                        'stop_loss': resistance['price'] * 1.005,    # 0.5% above resistance
-                        'take_profit_1': current_price * 0.98,       # 2% profit
-                        'take_profit_2': current_price * 0.96,       # 4% profit
-                        'confidence': min(90, 70 + resistance['strength']/1000),
-                        'risk_reward': 4.0  # 1:4 risk reward
-                    })
-            
-            # Add order block entries
-            bullish_blocks = order_blocks.get('bullish', [])
-            bearish_blocks = order_blocks.get('bearish', [])
-            
-            for block in bullish_blocks[:2]:  # Top 2 bullish order blocks
-                distance = abs(current_price - block['price']) / current_price * 100
-                if distance < 3:  # Within 3% of current price
-                    entry_points['long'].append({
-                        'type': 'bullish_order_block',
-                        'entry_price': block['low'] * 1.002,
-                        'stop_loss': block['low'] * 0.995,
-                        'take_profit_1': current_price * 1.025,
-                        'take_profit_2': current_price * 1.05,
-                        'confidence': min(95, 75 + block['strength']/10),
-                        'risk_reward': 5.0
-                    })
-            
-            for block in bearish_blocks[:2]:  # Top 2 bearish order blocks
-                distance = abs(current_price - block['price']) / current_price * 100
-                if distance < 3:  # Within 3% of current price
-                    entry_points['short'].append({
-                        'type': 'bearish_order_block',
-                        'entry_price': block['high'] * 0.998,
-                        'stop_loss': block['high'] * 1.005,
-                        'take_profit_1': current_price * 0.975,
-                        'take_profit_2': current_price * 0.95,
-                        'confidence': min(95, 75 + block['strength']/10),
-                        'risk_reward': 5.0
-                    })
-            
-            return entry_points
-            
-        except Exception as e:
-            print(f"⚠️ Entry/Exit calculation error: {e}")
-            return {'long': [], 'short': []}
-
-    def _calculate_snd_score(self, current_price, support_resistance, order_blocks, volume_analysis, market_structure):
-        """Calculate overall Supply and Demand score (0-100)"""
-        try:
-            score = 50  # Base neutral score
-            factors = []
-            
-            # 1. Support/Resistance proximity (±20 points)
-            supports = support_resistance.get('support', [])
-            resistances = support_resistance.get('resistance', [])
-            
-            nearest_support = min(supports, key=lambda x: abs(x['price'] - current_price)) if supports else None
-            nearest_resistance = min(resistances, key=lambda x: abs(x['price'] - current_price)) if resistances else None
-            
-            if nearest_support:
-                support_distance = abs(current_price - nearest_support['price']) / current_price * 100
-                if support_distance < 2:  # Very close to support
-                    score += 15
-                    factors.append("Very close to strong support")
-                elif support_distance < 5:
-                    score += 8
-                    factors.append("Near support level")
-            
-            if nearest_resistance:
-                resistance_distance = abs(current_price - nearest_resistance['price']) / current_price * 100
-                if resistance_distance < 2:  # Very close to resistance
-                    score -= 15
-                    factors.append("Very close to strong resistance")
-                elif resistance_distance < 5:
-                    score -= 8
-                    factors.append("Near resistance level")
-            
-            # 2. Volume pressure (±15 points)
-            pressure_type = volume_analysis.get('pressure_type', 'neutral')
-            pressure_strength = volume_analysis.get('strength', 50)
-            
-            if pressure_type == 'buying_pressure':
-                score += (pressure_strength - 50) / 50 * 15
-                factors.append(f"Strong buying pressure ({pressure_strength:.0f}%)")
-            elif pressure_type == 'selling_pressure':
-                score -= (pressure_strength - 50) / 50 * 15
-                factors.append(f"Strong selling pressure ({pressure_strength:.0f}%)")
-            
-            # 3. Market structure (±10 points)
-            structure_trend = market_structure.get('trend', 'sideways')
-            structure_strength = market_structure.get('strength', 50)
-            
-            if structure_trend == 'uptrend':
-                score += structure_strength / 50 * 10
-                factors.append("Bullish market structure")
-            elif structure_trend == 'downtrend':
-                score -= structure_strength / 50 * 10
-                factors.append("Bearish market structure")
-            
-            # 4. Order blocks (±10 points)
-            bullish_blocks = order_blocks.get('bullish', [])
-            bearish_blocks = order_blocks.get('bearish', [])
-            
-            if bullish_blocks:
-                avg_bullish_strength = sum(b['strength'] for b in bullish_blocks) / len(bullish_blocks)
-                score += min(10, avg_bullish_strength / 20)
-                factors.append("Strong bullish order blocks present")
-            
-            if bearish_blocks:
-                avg_bearish_strength = sum(b['strength'] for b in bearish_blocks) / len(bearish_blocks)
-                score -= min(10, avg_bearish_strength / 20)
-                factors.append("Strong bearish order blocks present")
-            
-            # Ensure score stays within bounds
-            score = max(0, min(100, score))
-            
-            # Determine bias and recommendation
-            if score >= 70:
-                bias = "Strong Demand"
-                recommendation = "STRONG BUY"
-                confidence = "High"
-            elif score >= 60:
-                bias = "Moderate Demand"
-                recommendation = "BUY"
-                confidence = "Medium"
-            elif score <= 30:
-                bias = "Strong Supply"
-                recommendation = "STRONG SELL"
-                confidence = "High"
-            elif score <= 40:
-                bias = "Moderate Supply"
-                recommendation = "SELL"
-                confidence = "Medium"
-            else:
-                bias = "Balanced"
-                recommendation = "HOLD"
-                confidence = "Low"
-            
-            return {
-                'score': round(score, 1),
-                'bias': bias,
-                'recommendation': recommendation,
-                'confidence': confidence,
-                'factors': factors
-            }
-            
-        except Exception as e:
-            print(f"⚠️ SnD score calculation error: {e}")
-            return {
-                'score': 50,
-                'bias': 'Balanced',
-                'recommendation': 'HOLD',
-                'confidence': 'Low',
-                'factors': ['Error in calculation']
-            }
-
-    def _generate_snd_signals(self, current_price, support_resistance, order_blocks, snd_score, entry_points):
-        """Generate trading signals based on SnD analysis"""
-        try:
+            # Generate signals based on proximity to levels
             signals = []
-            score = snd_score.get('score', 50)
-            
-            # Generate signals based on score and entry points
-            long_entries = entry_points.get('long', [])
-            short_entries = entry_points.get('short', [])
-            
-            # Strong buy signals
-            if score >= 70 and long_entries:
-                best_long = max(long_entries, key=lambda x: x['confidence'])
-                signals.append({
-                    'type': 'BUY',
-                    'strength': 'STRONG',
-                    'confidence': best_long['confidence'],
-                    'entry_price': best_long['entry_price'],
-                    'stop_loss': best_long['stop_loss'],
-                    'take_profit_1': best_long['take_profit_1'],
-                    'take_profit_2': best_long['take_profit_2'],
-                    'risk_reward': best_long['risk_reward'],
-                    'reason': f"Strong demand zone + {best_long['type']}",
-                    'setup_type': best_long['type']
-                })
-            
-            # Strong sell signals
-            elif score <= 30 and short_entries:
-                best_short = max(short_entries, key=lambda x: x['confidence'])
-                signals.append({
-                    'type': 'SELL',
-                    'strength': 'STRONG',
-                    'confidence': best_short['confidence'],
-                    'entry_price': best_short['entry_price'],
-                    'stop_loss': best_short['stop_loss'],
-                    'take_profit_1': best_short['take_profit_1'],
-                    'take_profit_2': best_short['take_profit_2'],
-                    'risk_reward': best_short['risk_reward'],
-                    'reason': f"Strong supply zone + {best_short['type']}",
-                    'setup_type': best_short['type']
-                })
-            
-            # Moderate signals
-            elif 60 <= score < 70 and long_entries:
-                best_long = max(long_entries, key=lambda x: x['confidence'])
-                signals.append({
-                    'type': 'BUY',
-                    'strength': 'MODERATE',
-                    'confidence': best_long['confidence'] * 0.8,  # Reduce confidence
-                    'entry_price': best_long['entry_price'],
-                    'stop_loss': best_long['stop_loss'],
-                    'take_profit_1': best_long['take_profit_1'],
-                    'take_profit_2': best_long['take_profit_2'],
-                    'risk_reward': best_long['risk_reward'],
-                    'reason': f"Moderate demand + {best_long['type']}",
-                    'setup_type': best_long['type']
-                })
-            
-            elif 30 < score <= 40 and short_entries:
-                best_short = max(short_entries, key=lambda x: x['confidence'])
-                signals.append({
-                    'type': 'SELL',
-                    'strength': 'MODERATE',  
-                    'confidence': best_short['confidence'] * 0.8,
-                    'entry_price': best_short['entry_price'],
-                    'stop_loss': best_short['stop_loss'],
-                    'take_profit_1': best_short['take_profit_1'],
-                    'take_profit_2': best_short['take_profit_2'],
-                    'risk_reward': best_short['risk_reward'],
-                    'reason': f"Moderate supply + {best_short['type']}",
-                    'setup_type': best_short['type']
-                })
-            
-            return signals
-            
-        except Exception as e:
-            print(f"⚠️ Signal generation error: {e}")
-            return []
+            nearest_resistance = min(resistance_levels[:3], key=lambda x: abs(x['price'] - current_price)) if resistance_levels else None
+            nearest_support = min(support_levels[:3], key=lambda x: abs(x['price'] - current_price)) if support_levels else None
 
-    def _simplified_snd_analysis(self, symbol, current_price):
-        """Simplified SnD analysis when candlestick data is unavailable"""
-        try:
-            # Get additional price data for basic analysis
-            futures_price_data = self.get_binance_futures_price(symbol)
-            
-            # Basic support/resistance calculation
-            support_price = current_price * 0.95  # 5% below current
-            resistance_price = current_price * 1.05  # 5% above current
-            
-            # Basic analysis based on futures data if available
-            score = 50
-            factors = ["Using simplified analysis - limited data available"]
-            bias = "Balanced"
-            recommendation = "HOLD"
-            
-            if 'error' not in futures_price_data:
-                change_24h = futures_price_data.get('change_24h', 0)
-                if change_24h > 5:
-                    score = 65
-                    bias = "Moderate Demand"
-                    recommendation = "BUY"
-                    factors.append(f"Strong positive momentum (+{change_24h:.1f}%)")
-                elif change_24h < -5:
-                    score = 35
-                    bias = "Moderate Supply"
-                    recommendation = "SELL"
-                    factors.append(f"Strong negative momentum ({change_24h:.1f}%)")
-            
+            if nearest_support and current_price - nearest_support['price'] < current_price * 0.02:
+                signals.append({
+                    'type': 'buy',
+                    'reason': f'Price near strong support at {nearest_support["price"]:.4f}',
+                    'confidence': min(90, 60 + (nearest_support['strength'] / max(volumes)) * 30)
+                })
+
+            if nearest_resistance and nearest_resistance['price'] - current_price < current_price * 0.02:
+                signals.append({
+                    'type': 'sell',
+                    'reason': f'Price near strong resistance at {nearest_resistance["price"]:.4f}',
+                    'confidence': min(90, 60 + (nearest_resistance['strength'] / max(volumes)) * 30)
+                })
+
             return {
                 'symbol': symbol,
                 'current_price': current_price,
-                'support_levels': [{'price': support_price, 'strength': 100, 'type': 'calculated'}],
-                'resistance_levels': [{'price': resistance_price, 'strength': 100, 'type': 'calculated'}],
-                'snd_score': {
-                    'score': score,
-                    'bias': bias,
-                    'recommendation': recommendation,
-                    'confidence': 'Medium',
-                    'factors': factors
-                },
-                'signals': [],
+                'trend': trend,
+                'resistance_levels': resistance_levels[:5],
+                'support_levels': support_levels[:5],
+                'signals': signals,
                 'analysis_successful': True,
-                'source': 'simplified_snd_analysis',
-                'note': 'Basic analysis due to limited data availability'
+                'timeframe': timeframe,
+                'data_points': len(candlesticks),
+                'source': 'binance_snd_analysis'
             }
-            
+
         except Exception as e:
-            print(f"❌ Simplified SnD analysis error: {e}")
+            print(f"❌ SnD analysis error for {symbol}: {str(e)}")
             return {
-                'error': f"Simplified SnD analysis failed: {str(e)}",
+                'error': f"SnD analysis failed: {str(e)}",
                 'symbol': symbol,
                 'analysis_successful': False
             }
