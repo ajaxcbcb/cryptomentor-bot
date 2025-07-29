@@ -220,7 +220,7 @@ Ask me anything about crypto! 🚀"""
 
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market sentiment analysis using CoinAPI and crypto news"""
+        """Get market sentiment analysis using CoinMarketCap and crypto news"""
         if not crypto_api:
             # Return static response when API is not available
             if language == 'id':
@@ -251,20 +251,9 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
         try:
-            # Get market data from CoinAPI and Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
-            market_data = {}
-
-            # Get prices from CoinAPI
-            for symbol in major_symbols:
-                try:
-                    price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
-                        market_data[symbol] = price_data
-                    time.sleep(0.2)  # Rate limiting
-                except:
-                    continue
-
+            # Get market overview from CoinMarketCap
+            market_overview = crypto_api.get_market_overview()
+            
             # Get futures data for additional insights
             btc_futures = crypto_api.get_comprehensive_futures_data('BTC')
             eth_futures = crypto_api.get_comprehensive_futures_data('ETH')
@@ -273,16 +262,16 @@ Try again in a few minutes for real-time data."""
             news_data = crypto_api.get_crypto_news(3)
 
             if language == 'id':
-                return self._format_market_sentiment_id(market_data, btc_futures, eth_futures, news_data)
+                return self._format_cmc_market_sentiment_id(market_overview, btc_futures, eth_futures, news_data)
             else:
-                return self._format_market_sentiment_en(market_data, btc_futures, eth_futures, news_data)
+                return self._format_cmc_market_sentiment_en(market_overview, btc_futures, eth_futures, news_data)
 
         except Exception as e:
             print(f"Error in market sentiment analysis: {e}")
             if language == 'id':
                 return f"""❌ **Error dalam analisis pasar**
 
-Gagal mengambil data real-time dari CoinAPI.
+Gagal mengambil data real-time dari CoinMarketCap.
 Error: {str(e)[:100]}
 
 💡 **Alternatif:**
@@ -294,7 +283,7 @@ Coba lagi dalam beberapa menit."""
             else:
                 return f"""❌ **Error in market analysis**
 
-Failed to fetch real-time data from CoinAPI.
+Failed to fetch real-time data from CoinMarketCap.
 Error: {str(e)[:100]}
 
 💡 **Alternatives:**
@@ -508,6 +497,179 @@ Try again in a few minutes."""
             overall_health = "🟢 SEHAT"
         elif health_score >= 5:
             overall_health = "🟡 STABIL"
+
+    def _format_cmc_market_sentiment_id(self, market_data, btc_futures, eth_futures, news_data):
+        """Format market sentiment in Indonesian using CoinMarketCap data"""
+        try:
+            if 'error' in market_data:
+                return self._get_fallback_market_overview('id')
+
+            # Format market cap
+            total_mcap = market_data.get('total_market_cap', 0)
+            mcap_change = market_data.get('market_cap_change_24h', 0)
+            total_volume = market_data.get('total_volume_24h', 0)
+            
+            if total_mcap > 1e12:
+                mcap_str = f"${total_mcap/1e12:.2f}T"
+            else:
+                mcap_str = f"${total_mcap/1e9:.1f}B"
+                
+            if total_volume > 1e12:
+                volume_str = f"${total_volume/1e12:.2f}T"
+            else:
+                volume_str = f"${total_volume/1e9:.1f}B"
+
+            change_emoji = "📈" if mcap_change >= 0 else "📉"
+            change_color = "+" if mcap_change >= 0 else ""
+
+            message = f"""🌍 **OVERVIEW PASAR CRYPTO** (CoinMarketCap Real-time)
+
+💰 **Data Global:**
+• **Total Market Cap**: {mcap_str} {change_emoji} {change_color}{mcap_change:.2f}%
+• **Volume 24j**: {volume_str}
+• **BTC Dominance**: {market_data.get('btc_dominance', 0):.1f}%
+• **ETH Dominance**: {market_data.get('eth_dominance', 0):.1f}%
+• **Crypto Aktif**: {market_data.get('active_cryptocurrencies', 0):,}
+• **Exchange Aktif**: {market_data.get('active_exchanges', 0):,}
+
+📊 **Harga Utama:**
+• **Bitcoin**: ${market_data.get('btc_price', 0):,.2f} ({market_data.get('btc_change_24h', 0):+.2f}%)
+• **Ethereum**: ${market_data.get('eth_price', 0):,.2f} ({market_data.get('eth_change_24h', 0):+.2f}%)
+
+⚡ **Futures Sentiment:**
+• **BTC Long/Short**: {btc_futures.get('long_short_ratio_data', {}).get('long_ratio', 50):.1f}% / {btc_futures.get('long_short_ratio_data', {}).get('short_ratio', 50):.1f}%
+• **ETH Long/Short**: {eth_futures.get('long_short_ratio_data', {}).get('long_ratio', 50):.1f}% / {eth_futures.get('long_short_ratio_data', {}).get('short_ratio', 50):.1f}%"""
+
+            # Add funding rates if available
+            if 'error' not in btc_futures:
+                funding_data = btc_futures.get('funding_rate_data', {})
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"\n• **BTC Funding Rate**: {funding_rate:.4f}%"
+
+            # Add news
+            if news_data and len(news_data) > 0:
+                latest_news = news_data[0]
+                message += f"""
+
+📰 **Berita Terbaru:**
+• {latest_news.get('title', 'No title')[:80]}..."""
+
+            # Market sentiment assessment
+            sentiment_score = 0
+            if mcap_change > 2: sentiment_score += 2
+            elif mcap_change > 0: sentiment_score += 1
+            elif mcap_change < -2: sentiment_score -= 2
+            elif mcap_change < 0: sentiment_score -= 1
+
+            if sentiment_score >= 2:
+                sentiment = "🟢 Sangat Bullish"
+            elif sentiment_score == 1:
+                sentiment = "🟢 Bullish"
+            elif sentiment_score == 0:
+                sentiment = "🟡 Netral"
+            elif sentiment_score == -1:
+                sentiment = "🔴 Bearish"
+            else:
+                sentiment = "🔴 Sangat Bearish"
+
+            message += f"""
+
+🎯 **Market Sentiment**: {sentiment}
+📡 **Source**: CoinMarketCap Global + Binance Futures
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting CoinMarketCap market sentiment: {str(e)}"
+
+    def _format_cmc_market_sentiment_en(self, market_data, btc_futures, eth_futures, news_data):
+        """Format market sentiment in English using CoinMarketCap data"""
+        try:
+            if 'error' in market_data:
+                return self._get_fallback_market_overview('en')
+
+            # Format market cap
+            total_mcap = market_data.get('total_market_cap', 0)
+            mcap_change = market_data.get('market_cap_change_24h', 0)
+            total_volume = market_data.get('total_volume_24h', 0)
+            
+            if total_mcap > 1e12:
+                mcap_str = f"${total_mcap/1e12:.2f}T"
+            else:
+                mcap_str = f"${total_mcap/1e9:.1f}B"
+                
+            if total_volume > 1e12:
+                volume_str = f"${total_volume/1e12:.2f}T"
+            else:
+                volume_str = f"${total_volume/1e9:.1f}B"
+
+            change_emoji = "📈" if mcap_change >= 0 else "📉"
+            change_color = "+" if mcap_change >= 0 else ""
+
+            message = f"""🌍 **CRYPTO MARKET OVERVIEW** (CoinMarketCap Real-time)
+
+💰 **Global Data:**
+• **Total Market Cap**: {mcap_str} {change_emoji} {change_color}{mcap_change:.2f}%
+• **24h Volume**: {volume_str}
+• **BTC Dominance**: {market_data.get('btc_dominance', 0):.1f}%
+• **ETH Dominance**: {market_data.get('eth_dominance', 0):.1f}%
+• **Active Cryptos**: {market_data.get('active_cryptocurrencies', 0):,}
+• **Active Exchanges**: {market_data.get('active_exchanges', 0):,}
+
+📊 **Major Prices:**
+• **Bitcoin**: ${market_data.get('btc_price', 0):,.2f} ({market_data.get('btc_change_24h', 0):+.2f}%)
+• **Ethereum**: ${market_data.get('eth_price', 0):,.2f} ({market_data.get('eth_change_24h', 0):+.2f}%)
+
+⚡ **Futures Sentiment:**
+• **BTC Long/Short**: {btc_futures.get('long_short_ratio_data', {}).get('long_ratio', 50):.1f}% / {btc_futures.get('long_short_ratio_data', {}).get('short_ratio', 50):.1f}%
+• **ETH Long/Short**: {eth_futures.get('long_short_ratio_data', {}).get('long_ratio', 50):.1f}% / {eth_futures.get('long_short_ratio_data', {}).get('short_ratio', 50):.1f}%"""
+
+            # Add funding rates if available
+            if 'error' not in btc_futures:
+                funding_data = btc_futures.get('funding_rate_data', {})
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"\n• **BTC Funding Rate**: {funding_rate:.4f}%"
+
+            # Add news
+            if news_data and len(news_data) > 0:
+                latest_news = news_data[0]
+                message += f"""
+
+📰 **Latest News:**
+• {latest_news.get('title', 'No title')[:80]}..."""
+
+            # Market sentiment assessment
+            sentiment_score = 0
+            if mcap_change > 2: sentiment_score += 2
+            elif mcap_change > 0: sentiment_score += 1
+            elif mcap_change < -2: sentiment_score -= 2
+            elif mcap_change < 0: sentiment_score -= 1
+
+            if sentiment_score >= 2:
+                sentiment = "🟢 Very Bullish"
+            elif sentiment_score == 1:
+                sentiment = "🟢 Bullish"
+            elif sentiment_score == 0:
+                sentiment = "🟡 Neutral"
+            elif sentiment_score == -1:
+                sentiment = "🔴 Bearish"
+            else:
+                sentiment = "🔴 Very Bearish"
+
+            message += f"""
+
+🎯 **Market Sentiment**: {sentiment}
+📡 **Source**: CoinMarketCap Global + Binance Futures
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S UTC')}"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting CoinMarketCap market sentiment: {str(e)}"
+
         elif health_score >= 3:
             overall_health = "🟡 LEMAH"
         else:
@@ -1065,7 +1227,7 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
     def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Get comprehensive crypto analysis with CoinAPI integration"""
+        """Get comprehensive crypto analysis with CoinMarketCap integration"""
         try:
             if language == 'id':
                 return self._get_comprehensive_analysis_id(symbol, futures_data, price_data, crypto_api)
@@ -1080,33 +1242,59 @@ Try again in a few minutes for real-time data."""
                 return f"❌ Failed to analyze {symbol}. Error: {error_msg[:100]}"
 
     def _get_comprehensive_analysis_id(self, symbol, futures_data, price_data, crypto_api):
-        """Indonesian comprehensive analysis"""
+        """Indonesian comprehensive analysis using CoinMarketCap data"""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-        # Get current price from CoinAPI
-        if price_data and 'error' not in price_data:
+        # Get comprehensive data from CoinMarketCap
+        cmc_data = None
+        if crypto_api and hasattr(crypto_api, 'get_comprehensive_crypto_analysis'):
+            analysis_data = crypto_api.get_comprehensive_crypto_analysis(symbol)
+            cmc_data = analysis_data.get('cmc_data', {}) if 'error' not in analysis_data else {}
+
+        # Use CoinMarketCap data if available, fallback to CoinAPI
+        if cmc_data and 'error' not in cmc_data:
+            current_price = cmc_data.get('price', 0)
+            change_24h = cmc_data.get('percent_change_24h', 0)
+            market_cap = cmc_data.get('market_cap', 0)
+            volume_24h = cmc_data.get('volume_24h', 0)
+            rank = cmc_data.get('cmc_rank', 0)
+            name = cmc_data.get('name', symbol)
+            description = cmc_data.get('description', '')
+        elif price_data and 'error' not in price_data:
             current_price = price_data.get('price', 0)
             change_24h = price_data.get('change_24h', 0)
-
-            if current_price < 1:
-                price_format = f"${current_price:.8f}"
-            elif current_price < 100:
-                price_format = f"${current_price:.4f}"
-            else:
-                price_format = f"${current_price:,.2f}"
-
-            change_emoji = "📈" if change_24h >= 0 else "📉"
-            change_color = "+" if change_24h >= 0 else ""
+            market_cap = 0
+            volume_24h = 0
+            rank = 0
+            name = symbol
+            description = ''
         else:
-            price_format = "Data tidak tersedia"
+            current_price = 0
             change_24h = 0
-            change_emoji = "⚠️"
-            change_color = ""
+            market_cap = 0
+            volume_24h = 0
+            rank = 0
+            name = symbol
+            description = ''
 
-        analysis = f"""🔍 **ANALISIS KOMPREHENSIF {symbol}** (CoinAPI Real-time)
+        # Format price
+        if current_price < 1:
+            price_format = f"${current_price:.8f}"
+        elif current_price < 100:
+            price_format = f"${current_price:.4f}"
+        else:
+            price_format = f"${current_price:,.2f}"
 
-💰 **Harga Saat Ini**: {price_format}
+        change_emoji = "📈" if change_24h >= 0 else "📉"
+        change_color = "+" if change_24h >= 0 else ""
+
+        analysis = f"""🔍 **ANALISIS KOMPREHENSIF {symbol}** ({name})
+
+💰 **Data Fundamental (CoinMarketCap):**
+• **Harga**: {price_format}
 {change_emoji} **Perubahan 24j**: {change_color}{change_24h:.2f}%
+• **Market Cap**: ${market_cap:,.0f} {f'(Rank #{rank})' if rank > 0 else ''}
+• **Volume 24j**: ${volume_24h:,.0f}
 
 📊 **Analisis Teknikal:**"""
 

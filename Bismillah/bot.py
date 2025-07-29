@@ -471,30 +471,33 @@ class TelegramBot:
 
     async def help_command(self, update: Update, context: CallbackContext):
         """Handle /help command"""
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinMarketCap Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
 • `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
-• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
+• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinMarketCap data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
-📊 **Harga & Data Pasar (CoinAPI Real-time):**
+📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
-• `/market` - Overview pasar komprehensif dengan CoinAPI data (20 credit)
+• `/market` - Overview pasar global dari CoinMarketCap (20 credit) ⭐
+  Data: Total market cap, dominance, volume global, fear & greed
 
 📈 **Analisis Trading dengan SnD:**
-• `/analyze <symbol>` - Analisis mendalam dengan CoinAPI (20 credit) ⭐ **RECOMMENDED**
-  Contoh: `/analyze btc` → Technical analysis, sentiment, prediksi harga dari CoinAPI
+• `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
+  Contoh: `/analyze btc` → Fundamental dari CoinMarketCap + Technical analysis
+  Data: Rank, market cap, volume, description, website, price prediction
 
 • `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
   Contoh: `/futures btc` → Pilih timeframe dengan SnD entry/exit points
   Hasil: Entry, TP, SL, confidence level, risk management
 
 • `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
+  Multiple coins dengan konfirmasi Supply/Demand zones
 
 💼 **Portfolio & Credit:**
-• `/portfolio` - Lihat portfolio
+• `/portfolio` - Lihat portfolio dengan CoinAPI prices
 • `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
 • `/credits` - Cek sisa credit
@@ -509,23 +512,29 @@ class TelegramBot:
 
 💳 **Sistem Credit:**
 - User baru: 100 credit gratis
-- `/analyze` = 20 credit ⭐
+- `/analyze` = 20 credit ⭐ (Fundamental + Technical)
 - `/futures` = 20 credit ⭐ (dengan SnD)
-- `/futures_signals` = 60 credit (dengan SnD)
-- `/market` = 20 credit
+- `/futures_signals` = 60 credit (Multiple SnD signals)
+- `/market` = 20 credit (Global overview)
 
 🎯 **Langkah untuk Pemula:**
 1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
-2. **Coba `/analyze btc`** (20 credit) - analisis dengan CoinAPI data
-3. **Test `/futures btc`** (20 credit) - SnD signals untuk trading
-4. **Upgrade premium** untuk unlimited access + auto signals
+2. **Coba `/market`** (20 credit) - overview pasar global CoinMarketCap
+3. **Test `/analyze btc`** (20 credit) - fundamental + technical analysis
+4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
+5. **Upgrade premium** untuk unlimited access + auto signals
 
 💡 **Fitur Premium:**
 - Unlimited access semua fitur
 - Auto SnD signals (Admin & Lifetime only)
 - Priority support
+- No credit limits
 
-🚀 **Semua data real-time dari CoinAPI & Binance API dengan Supply & Demand analysis!**"""
+🚀 **Data Sources:**
+- **Fundamental**: CoinMarketCap (Startup Plan)
+- **Prices**: CoinAPI Real-time
+- **Futures**: Binance API
+- **SnD Analysis**: Internal algorithm + Binance candlesticks"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def price_command(self, update: Update, context: CallbackContext):
@@ -618,7 +627,7 @@ class TelegramBot:
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
     async def analyze_command(self, update: Update, context: CallbackContext):
-        """Handle /analyze command - comprehensive analysis with CoinAPI integration"""
+        """Handle /analyze command - comprehensive analysis with CoinMarketCap integration"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -640,35 +649,61 @@ class TelegramBot:
         symbol = context.args[0].upper()
 
         # Show loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis data komprehensif + berita crypto dengan CoinAPI...")
+        loading_msg = await update.message.reply_text("⏳ Menganalisis data fundamental + teknikal dengan CoinMarketCap...")
 
         try:
-            # Get price and futures data for comprehensive analysis using CoinAPI
-            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            # Get comprehensive data from CoinMarketCap and other sources
+            analysis_data = self.crypto_api.get_comprehensive_crypto_analysis(symbol)
             futures_data = self.crypto_api.get_futures_data(symbol)
+            
+            # Get CoinAPI price as backup
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
 
-            # Use comprehensive analysis function with CoinAPI
+            # Use comprehensive analysis function with CoinMarketCap data
             analysis = self.ai.get_comprehensive_analysis(symbol, futures_data, price_data, 'id', self.crypto_api)
+
+            # Add fundamental analysis from CoinMarketCap if available
+            if 'error' not in analysis_data:
+                cmc_data = analysis_data.get('cmc_data', {})
+                if 'error' not in cmc_data and cmc_data.get('description'):
+                    description = cmc_data.get('description', '')[:200] + '...' if len(cmc_data.get('description', '')) > 200 else cmc_data.get('description', '')
+                    
+                    analysis += f"""
+
+📋 **Informasi Fundamental:**
+• **Nama**: {cmc_data.get('name', symbol)}
+• **Rank**: #{cmc_data.get('cmc_rank', 'N/A')}
+• **Deskripsi**: {description}"""
+                    
+                    if cmc_data.get('website'):
+                        website = cmc_data['website'][0] if cmc_data['website'] else 'N/A'
+                        analysis += f"\n• **Website**: {website}"
 
             # Deduct credit only for non-premium, non-admin users (20 credits for comprehensive analysis)
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinAPI: -20 credit)"
+                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinMarketCap: -20 credit)"
             elif is_premium:
                 analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
                 analysis += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Edit the loading message with the analysis
-            await loading_msg.edit_text(analysis, parse_mode='Markdown')
+            # Handle long messages
+            if len(analysis) > 4000:
+                chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
+                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                for chunk in chunks[1:]:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+            else:
+                await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
             await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
             print(f"Error in analyze command: {e}")
 
     async def market_command(self, update: Update, context: CallbackContext):
-        """Handle /market command with CoinAPI integration"""
+        """Handle /market command with CoinMarketCap integration"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -684,30 +719,30 @@ class TelegramBot:
             return
 
         # Show enhanced loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinAPI...")
+        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinMarketCap...")
 
         try:
             print(f"🔄 Market command initiated by user {user_id}")
 
-            # Verify CoinAPI availability first
-            if not self.crypto_api.coinapi_key:
-                await loading_msg.edit_text("❌ CoinAPI key tidak tersedia. Silakan set COINAPI_KEY di Secrets.", parse_mode='Markdown')
+            # Verify CoinMarketCap availability first
+            if not self.crypto_api.cmc_provider.api_key:
+                await loading_msg.edit_text("❌ CoinMarketCap API key tidak tersedia. Silakan set CMC_API_KEY di Secrets.", parse_mode='Markdown')
                 return
 
-            # Get comprehensive market overview with CoinAPI real-time data
-            print("📊 Calling AI market sentiment analysis with CoinAPI...")
+            # Get comprehensive market overview with CoinMarketCap real-time data
+            print("📊 Calling AI market sentiment analysis with CoinMarketCap...")
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
 
             if not market_data or len(market_data.strip()) < 50:
                 # Fallback if data is too short
-                market_data = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
+                market_data = """🌍 **OVERVIEW PASAR CRYPTO (CoinMarketCap)**
 
 ⚠️ **Data sementara tidak lengkap**
 
 💡 **Alternatif yang bisa dicoba:**
 • `/price btc` - Cek harga Bitcoin dari CoinAPI
 • `/price eth` - Cek harga Ethereum dari CoinAPI
-• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinAPI data
+• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinMarketCap data
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
@@ -715,7 +750,7 @@ class TelegramBot:
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinAPI: -20 credit)"
+                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinMarketCap: -20 credit)"
             elif is_premium:
                 market_data += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
@@ -736,14 +771,14 @@ class TelegramBot:
                 await loading_msg.edit_text(market_data, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinAPI)\n• `/futures_signals` (SnD)"
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinMarketCap)\n• `/futures_signals` (SnD)"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"❌ Error in market command: {e}")
             import traceback
             traceback.print_exc()
 
     async def futures_signals_command(self, update: Update, context: CallbackContext):
-        """Handle /futures_signals command with SnD analysis"""
+        """Handle /futures_signals command with SnD analysis and enhanced debugging"""
         user_id = update.message.from_user.id
         credits = self.db.get_user_credits(user_id)
         is_premium = self.db.is_user_premium(user_id)
@@ -758,18 +793,61 @@ class TelegramBot:
         loading_msg = await update.message.reply_text("⏳ Menganalisis sinyal futures dengan Supply & Demand analysis...")
 
         try:
-            # Verify CoinAPI connection first
-            if not self.crypto_api.coinapi_key:
-                await loading_msg.edit_text("❌ CoinAPI key tidak tersedia. Silakan set COINAPI_KEY di Secrets.")
+            # Enhanced debugging logs
+            print(f"🔄 Starting SnD futures signals generation for user {user_id}")
+            print(f"📊 API Status - CoinAPI: {'✅' if self.crypto_api.coinapi_key else '❌'}")
+            print(f"📊 API Status - CoinMarketCap: {'✅' if self.crypto_api.cmc_provider.api_key else '❌'}")
+
+            # Verify API connections
+            if not self.crypto_api.coinapi_key and not self.crypto_api.cmc_provider.api_key:
+                error_msg = "❌ Tidak ada API key yang tersedia (CoinAPI/CoinMarketCap)."
+                print(f"❌ {error_msg}")
+                await loading_msg.edit_text(error_msg)
                 return
 
-            print(f"🔄 Generating SnD futures signals for user {user_id}")
+            # Generate signals with SnD analysis with enhanced error handling
+            try:
+                print("🎯 Calling AI generate_futures_signals...")
+                signals = self.ai.generate_futures_signals('id', self.crypto_api)
+                print(f"📊 Signals generated: {len(signals) if signals else 0} characters")
+                
+                if not signals:
+                    print("❌ AI returned None/empty signals")
+                    error_reason = "AI tidak dapat menghasilkan sinyal - kemungkinan data pasar tidak mencukupi"
+                elif len(signals.strip()) < 50:
+                    print(f"❌ AI returned too short signals: {len(signals.strip())} chars")
+                    error_reason = "Sinyal terlalu pendek - data pasar mungkin tidak lengkap"
+                else:
+                    print("✅ Signals generated successfully")
+                    error_reason = None
+                    
+            except Exception as signal_error:
+                print(f"❌ Error in generate_futures_signals: {signal_error}")
+                error_reason = f"Error dalam proses AI: {str(signal_error)[:100]}"
+                signals = None
 
-            # Generate signals with SnD analysis
-            signals = self.ai.generate_futures_signals('id', self.crypto_api)
-
+            # Handle failed signal generation
             if not signals or len(signals.strip()) < 50:
-                await loading_msg.edit_text("❌ Gagal mengambil data sinyal futures SnD. Silakan coba lagi dalam beberapa menit.")
+                fallback_msg = f"""❌ **Gagal Generate Sinyal Futures SnD**
+
+🔍 **Alasan Gagal:**
+{error_reason or 'Sinyal tidak dapat dihasilkan'}
+
+💡 **Kemungkinan Penyebab:**
+• Market volatilitas rendah (tidak ada setup SnD yang jelas)
+• Data candlestick tidak mencukupi untuk analisis
+• Tidak ada zone Supply/Demand yang kuat terdeteksi
+• API rate limiting
+
+🔄 **Solusi:**
+• Coba lagi dalam 15-30 menit
+• Gunakan `/futures btc` untuk analisis spesifik 1 coin
+• Gunakan `/analyze btc` untuk analisis fundamental
+
+⚠️ **Note**: SnD signals memerlukan kondisi market yang tepat untuk memberikan entry yang aman."""
+
+                print(f"📤 Sending fallback message to user {user_id}")
+                await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
                 return
 
             # Enhance signals with SnD information
@@ -786,9 +864,14 @@ class TelegramBot:
 
 ⚠️ **SnD Trading Rules:**
 • Tunggu konfirmasi price action di zone
-• Gunakan proper position sizing
-• Monitor volume untuk validasi
-• Exit partial di TP1, hold untuk TP2"""
+• Gunakan proper position sizing (1-3% risk per trade)
+• Monitor volume untuk validasi breakout/rejection
+• Exit partial di TP1, hold untuk TP2
+
+📈 **Risk Management:**
+• Maksimal 2-3 posisi simultan
+• Set stop loss sebelum entry
+• Jangan FOMO jika miss entry point"""
 
             # Deduct credit only for non-premium, non-admin users (60 credits for SnD futures signals)
             if not is_premium and not is_admin:
@@ -800,7 +883,7 @@ class TelegramBot:
             elif is_admin:
                 enhanced_signals += f"\n\n👑 **Admin Access** - Unlimited"
 
-            print(f"✅ SnD futures signals generated successfully for user {user_id}")
+            print(f"✅ SnD futures signals enhanced and ready for user {user_id}")
 
             # Clean signals text to prevent markdown parsing errors
             def clean_markdown_text(text):
@@ -820,32 +903,33 @@ class TelegramBot:
 
             # Split long messages if needed
             if len(cleaned_signals) > 4000:
-                # Split into chunks
+                print(f"📤 Splitting long message ({len(cleaned_signals)} chars) into chunks")
                 chunks = [cleaned_signals[i:i+4000] for i in range(0, len(cleaned_signals), 4000)]
                 try:
                     await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
                 except Exception as e:
-                    print(f"Markdown error, sending as plain text: {e}")
+                    print(f"⚠️ Markdown error, sending as plain text: {e}")
                     await loading_msg.edit_text(chunks[0], parse_mode=None)
 
-                for chunk in chunks[1:]:
+                for i, chunk in enumerate(chunks[1:], 1):
                     try:
                         await update.message.reply_text(chunk, parse_mode='Markdown')
                     except Exception as e:
-                        print(f"Markdown error in chunk, sending as plain text: {e}")
+                        print(f"⚠️ Markdown error in chunk {i}, sending as plain text: {e}")
                         await update.message.reply_text(chunk, parse_mode=None)
             else:
                 # Edit the loading message with the signals
                 try:
                     await loading_msg.edit_text(cleaned_signals, parse_mode='Markdown')
+                    print(f"✅ Successfully sent SnD signals to user {user_id}")
                 except Exception as e:
-                    print(f"Markdown error, sending as plain text: {e}")
+                    print(f"⚠️ Markdown error, sending as plain text: {e}")
                     await loading_msg.edit_text(cleaned_signals, parse_mode=None)
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan saat menganalisis sinyal SnD futures: {str(e)[:100]}"
-            await loading_msg.edit_text(error_msg)
-            print(f"Error in futures_signals command: {e}")
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis sinyal SnD futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
+            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            print(f"💥 CRITICAL Error in futures_signals command: {e}")
             import traceback
             traceback.print_exc()
 

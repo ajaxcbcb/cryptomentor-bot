@@ -3,12 +3,15 @@ import os
 import time
 from datetime import datetime, timezone
 from binance_provider import BinanceFuturesProvider
+from coinmarketcap_provider import CoinMarketCapProvider
 
 class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.coinapi_key = os.getenv("COINAPI_KEY")
+        self.cmc_provider = CoinMarketCapProvider()
+        
         if not self.coinapi_key:
             print("⚠️ COINAPI_KEY not found in environment variables")
             print("💡 Please set COINAPI_KEY in Replit Secrets")
@@ -16,13 +19,14 @@ class CryptoAPI:
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
         self.binance_spot_url = "https://api.binance.com/api/v3"
 
-        # CoinAPI-exclusive configuration for price data
-        print("🚀 CryptoAPI initialized with CoinAPI-exclusive mode")
+        # Updated configuration with CoinMarketCap integration
+        print("🚀 CryptoAPI initialized with CoinMarketCap + CoinAPI integration")
         print(f"📊 CoinAPI Base URL: {self.coinapi_url}")
         print(f"🔑 CoinAPI Key: {'✅ Enabled' if self.coinapi_key else '❌ Disabled'}")
+        print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📈 Binance Futures API: {self.binance_futures_url} (for advanced data)")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
-        print("🎯 All price data centralized to CoinAPI only")
+        print("🎯 Market data from CoinMarketCap, price data from CoinAPI")
 
     # === BINANCE SPOT API METHODS ===
 
@@ -1739,43 +1743,16 @@ class CryptoAPI:
         return prices_data if prices_data else {'error': 'No price data available'}
 
     def get_market_overview(self):
-        """Get market overview data using Binance data exclusively"""
+        """Get market overview data using CoinMarketCap global metrics"""
         try:
-            # Get data from top cryptocurrencies via Binance
-            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'DOT', 'AVAX']
-            prices_data = self.get_multiple_binance_prices(major_symbols)
-
-            if 'error' not in prices_data and len(prices_data) > 0:
-                # Calculate market metrics from Binance data
-                btc_data = prices_data.get('BTC', {})
-                eth_data = prices_data.get('ETH', {})
-                bnb_data = prices_data.get('BNB', {})
-
-                # Calculate total volume and dominance estimates
-                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
-                btc_volume = btc_data.get('volume_24h', 0)
-                eth_volume = eth_data.get('volume_24h', 0)
-
-                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
-                eth_dominance = (eth_volume / total_volume * 100) if total_volume > 0 else 18.0
-
-                # Calculate weighted average market change
-                changes = []
-                volumes = []
-                for data in prices_data.values():
-                    if 'change_24h' in data and 'volume_24h' in data:
-                        changes.append(data['change_24h'])
-                        volumes.append(data['volume_24h'])
-
-                if changes and volumes:
-                    weighted_change = sum(c * v for c, v in zip(changes, volumes)) / sum(volumes)
-                else:
-                    weighted_change = 0
-
-                # Estimate total market cap (rough calculation)
-                btc_price = btc_data.get('price', 0)
-                estimated_market_cap = btc_price * 19500000 / (btc_dominance / 100) if btc_dominance > 0 else total_volume * 20
-
+            # Get global metrics from CoinMarketCap
+            global_data = self.cmc_provider.get_global_metrics()
+            
+            if 'error' not in global_data:
+                # Get BTC and ETH quotes for additional data
+                btc_quotes = self.cmc_provider.get_cryptocurrency_quotes('BTC')
+                eth_quotes = self.cmc_provider.get_cryptocurrency_quotes('ETH')
+                
                 # Get BTC futures data for additional insights
                 btc_futures = self.get_comprehensive_futures_data('BTC')
                 funding_rate = 0
@@ -1787,27 +1764,93 @@ class CryptoAPI:
                     open_interest = oi_data.get('open_interest', 0) if 'error' not in oi_data else 0
 
                 return {
-                    'total_market_cap': estimated_market_cap,
-                    'market_cap_change_24h': weighted_change,
-                    'btc_dominance': btc_dominance,
-                    'eth_dominance': eth_dominance,
-                    'btc_price': btc_data.get('price', 0),
-                    'eth_price': eth_data.get('price', 0),
-                    'bnb_price': bnb_data.get('price', 0),
-                    'btc_change_24h': btc_data.get('change_24h', 0),
-                    'eth_change_24h': eth_data.get('change_24h', 0),
-                    'bnb_change_24h': bnb_data.get('change_24h', 0),
-                    'total_volume_24h': total_volume,
-                    'active_cryptocurrencies': len(prices_data),
+                    'total_market_cap': global_data.get('total_market_cap', 0),
+                    'total_volume_24h': global_data.get('total_volume_24h', 0),
+                    'market_cap_change_24h': global_data.get('market_cap_change_24h', 0),
+                    'btc_dominance': global_data.get('btc_dominance', 0),
+                    'eth_dominance': global_data.get('eth_dominance', 0),
+                    'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
+                    'active_exchanges': global_data.get('active_exchanges', 0),
+                    'active_market_pairs': global_data.get('active_market_pairs', 0),
+                    'btc_price': btc_quotes.get('price', 0) if 'error' not in btc_quotes else 0,
+                    'eth_price': eth_quotes.get('price', 0) if 'error' not in eth_quotes else 0,
+                    'btc_change_24h': btc_quotes.get('percent_change_24h', 0) if 'error' not in btc_quotes else 0,
+                    'eth_change_24h': eth_quotes.get('percent_change_24h', 0) if 'error' not in eth_quotes else 0,
                     'btc_funding_rate': funding_rate,
                     'btc_open_interest': open_interest,
-                    'source': 'binance_comprehensive',
+                    'source': 'coinmarketcap_global',
+                    'last_updated': global_data.get('last_updated', datetime.now().isoformat())
+                }
+            else:
+                # Fallback to Binance data if CMC fails
+                return self._get_binance_market_fallback()
+                
+        except Exception as e:
+            print(f"❌ CoinMarketCap market overview error: {e}")
+            return self._get_binance_market_fallback()
+
+    def _get_binance_market_fallback(self):
+        """Fallback market overview using Binance data"""
+        try:
+            major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']
+            prices_data = self.get_multiple_binance_prices(major_symbols)
+
+            if 'error' not in prices_data and len(prices_data) > 0:
+                btc_data = prices_data.get('BTC', {})
+                eth_data = prices_data.get('ETH', {})
+
+                total_volume = sum(data.get('volume_24h', 0) for data in prices_data.values())
+                btc_volume = btc_data.get('volume_24h', 0)
+                eth_volume = eth_data.get('volume_24h', 0)
+
+                btc_dominance = (btc_volume / total_volume * 100) if total_volume > 0 else 45.0
+                eth_dominance = (eth_volume / total_volume * 100) if total_volume > 0 else 18.0
+
+                return {
+                    'total_market_cap': 2400000000000,  # Estimated
+                    'total_volume_24h': total_volume,
+                    'market_cap_change_24h': 1.5,  # Estimated
+                    'btc_dominance': btc_dominance,
+                    'eth_dominance': eth_dominance,
+                    'active_cryptocurrencies': 12000,  # Estimated
+                    'btc_price': btc_data.get('price', 0),
+                    'eth_price': eth_data.get('price', 0),
+                    'btc_change_24h': btc_data.get('change_24h', 0),
+                    'eth_change_24h': eth_data.get('change_24h', 0),
+                    'source': 'binance_fallback',
                     'last_updated': datetime.now().isoformat()
                 }
             else:
-                return {'error': 'Binance market data unavailable'}
+                return {'error': 'All market data sources unavailable'}
         except Exception as e:
-            return {'error': f"Market overview error: {str(e)}"}
+            return {'error': f"Fallback market data error: {str(e)}"}
+
+    def get_comprehensive_crypto_analysis(self, symbol):
+        """Get comprehensive analysis data using CoinMarketCap + CoinAPI"""
+        try:
+            # Get comprehensive data from CoinMarketCap
+            cmc_data = self.cmc_provider.get_comprehensive_data(symbol)
+            
+            # Get real-time price from CoinAPI as backup
+            coinapi_price = self.get_coinapi_price(symbol, force_refresh=True)
+            
+            # Get futures data from Binance
+            futures_data = self.get_comprehensive_futures_data(symbol)
+            
+            # Combine all data
+            analysis_data = {
+                'symbol': symbol.upper(),
+                'timestamp': datetime.now().isoformat(),
+                'cmc_data': cmc_data,
+                'coinapi_price': coinapi_price,
+                'futures_data': futures_data,
+                'source': 'comprehensive_multi_api'
+            }
+            
+            return analysis_data
+            
+        except Exception as e:
+            return {'error': f"Comprehensive analysis error: {str(e)}"}
 
     def is_deployment_mode(self):
         """Check if running in deployment mode with comprehensive logging"""
