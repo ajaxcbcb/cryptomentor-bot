@@ -1124,19 +1124,34 @@ class TelegramBot:
                             price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
                             current_price = price_data.get('price', 0) if price_data and 'error' not in price_data else self.ai._get_estimated_price(symbol)
                             
+                            # Smart price formatting
+                            def format_price_clear(price):
+                                if price < 1:
+                                    return f"${price:.8f}"
+                                elif price < 100:
+                                    return f"${price:.4f}"
+                                else:
+                                    return f"${price:,.2f}"
+                            
+                            entry_price = current_price * 0.999
+                            tp1_price = current_price * 1.025
+                            tp2_price = current_price * 1.05
+                            sl_price = current_price * 0.985
+                            
                             analysis_text = f"""🎯 **ANALISIS FUTURES {symbol.upper()} ({timeframe})**
 
-💰 **Harga Saat Ini**: ${current_price:,.4f}
-📡 **Sumber Data**: CoinAPI Real-time
+💰 **HARGA REAL-TIME**: {format_price_clear(current_price)}
+📡 **SUMBER DATA**: CoinAPI Real-time
+⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 🟢 **SIGNAL**: LONG
 📊 **Confidence**: 70%
 
 💰 **LEVEL TRADING WAJIB:**
-• **📍 ENTRY**: ${current_price * 0.999:,.4f}
-• **🎯 TP 1**: ${current_price * 1.025:,.4f} (ambil 50% profit)
-• **🎯 TP 2**: ${current_price * 1.05:,.4f} (ambil 50% profit)
-• **🛡️ STOP LOSS**: ${current_price * 0.985:,.4f} (WAJIB!)
+┣━ 📍 **ENTRY**: {format_price_clear(entry_price)}
+┣━ 🎯 **TP 1**: {format_price_clear(tp1_price)} (ambil 50% profit)
+┣━ 🎯 **TP 2**: {format_price_clear(tp2_price)} (ambil 50% profit)
+┗━ 🛡️ **STOP LOSS**: {format_price_clear(sl_price)} (**WAJIB!**)
 
 📈 **ANALISIS FAKTOR:**
 • Timeframe {timeframe} menunjukkan momentum positif
@@ -1153,9 +1168,7 @@ class TelegramBot:
 🛡️ **RISK MANAGEMENT:**
 • Set stop loss WAJIB sebelum entry
 • Gunakan position sizing yang tepat
-• Exit jika market structure berubah
-
-⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+• Exit jika market structure berubah"""
 
                         # Double-check that signal is clear
                         if not ('LONG' in analysis_text or 'SHORT' in analysis_text):

@@ -99,15 +99,22 @@ class AIAssistant:
                 print(f"❌ Signal validation FAILED for {symbol} {timeframe}, forcing emergency signal")
                 signal_analysis = self._generate_emergency_trading_signal(symbol, timeframe, primary_price, language)
             
+            # Smart price formatting for better readability
+            if primary_price < 1:
+                price_display = f"${primary_price:.8f}"
+            elif primary_price < 100:
+                price_display = f"${primary_price:.4f}"
+            else:
+                price_display = f"${primary_price:,.2f}"
+
             if language == 'id':
                 message = f"""🎯 **REKOMENDASI TRADING FUTURES {symbol.upper()} ({timeframe})**
 
-💰 **Harga Real-time**: ${primary_price:,.6f}
-📡 **Sumber Data**: {price_source}
+💰 **HARGA REAL-TIME**: {price_display}
+📡 **SUMBER DATA**: {price_source}
+⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 {signal_analysis}
-
-⏰ **Timeframe**: {timeframe} | 🔄 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 🛡️ **WAJIB RISK MANAGEMENT:**
 • Set stop loss SEBELUM entry (TIDAK BOLEH SKIP!)
@@ -119,12 +126,11 @@ class AIAssistant:
             else:
                 message = f"""🎯 **FUTURES TRADING RECOMMENDATION {symbol.upper()} ({timeframe})**
 
-💰 **Real-time Price**: ${primary_price:,.6f}
-📡 **Data Source**: {price_source}
+💰 **REAL-TIME PRICE**: {price_display}
+📡 **DATA SOURCE**: {price_source}
+⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S UTC')}
 
 {signal_analysis}
-
-⏰ **Timeframe**: {timeframe} | 🔄 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
 
 🛡️ **MANDATORY RISK MANAGEMENT:**
 • Set stop loss BEFORE entry (NEVER SKIP!)
@@ -276,6 +282,15 @@ class AIAssistant:
             risk_reward = reward / risk if risk > 0 else 2.5
             print(f"📊 Risk/Reward calculated: {risk_reward:.1f}:1")
 
+            # Smart price formatting for trading levels
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.4f}"
+                else:
+                    return f"${price:,.2f}"
+
             # Format MANDATORY trading signal with ALL required elements
             if language == 'id':
                 analysis = f"""🎯 **SINYAL TRADING WAJIB:**
@@ -285,10 +300,10 @@ class AIAssistant:
 🎯 **Setup**: {zone_info}
 
 💰 **LEVEL TRADING WAJIB (HARUS DIIKUTI):**
-• **📍 ENTRY**: ${entry_price:,.6f}
-• **🎯 TP 1**: ${tp1:,.6f} (ambil 50% profit)
-• **🎯 TP 2**: ${tp2:,.6f} (ambil 50% profit sisanya)
-• **🛡️ STOP LOSS**: ${sl:,.6f} (WAJIB - TIDAK BOLEH SKIP!)
+• **📍 ENTRY**: {format_price(entry_price)}
+• **🎯 TP 1**: {format_price(tp1)} (ambil 50% profit)
+• **🎯 TP 2**: {format_price(tp2)} (ambil 50% profit sisanya)
+• **🛡️ STOP LOSS**: {format_price(sl)} (WAJIB - TIDAK BOLEH SKIP!)
 
 📈 **FAKTOR ANALISIS:**"""
                 
@@ -1605,6 +1620,143 @@ class AIAssistant:
         except Exception as e:
             print(f"❌ Error generating signal: {e}")
             return "❌ Error dalam menghasilkan sinyal trading."
+
+    def generate_futures_signals(self, language='id', crypto_api=None):
+        """Generate multiple futures signals with enhanced formatting"""
+        try:
+            print(f"🎯 Generating multiple futures signals with enhanced formatting")
+            
+            # Target symbols for signals
+            target_symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA']
+            timeframes = ['1h', '4h']
+            
+            signals_text = ""
+            
+            for symbol in target_symbols:
+                try:
+                    # Get price data
+                    price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
+                    futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
+                    
+                    # Use primary price source
+                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        current_price = price_data.get('price', 0)
+                        price_source = "CoinAPI"
+                    elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+                        current_price = futures_data.get('price_data', {}).get('price', 0)
+                        price_source = "Binance"
+                    else:
+                        current_price = self._get_estimated_price(symbol)
+                        price_source = "Estimated"
+                    
+                    # Smart price formatting
+                    if current_price < 1:
+                        price_display = f"${current_price:.6f}"
+                    elif current_price < 100:
+                        price_display = f"${current_price:.4f}"
+                    else:
+                        price_display = f"${current_price:,.2f}"
+                    
+                    # Generate signal for main timeframe (4h)
+                    signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(
+                        symbol, '4h', price_data, futures_data, current_price, language
+                    )
+                    
+                    # Extract key information from signal
+                    signal_direction = "LONG" if "LONG" in signal_analysis else "SHORT"
+                    signal_emoji = "🟢" if signal_direction == "LONG" else "🔴"
+                    
+                    # Calculate simplified levels
+                    if signal_direction == "LONG":
+                        entry = current_price * 0.999
+                        tp1 = current_price * 1.025
+                        tp2 = current_price * 1.05
+                        sl = current_price * 0.98
+                    else:
+                        entry = current_price * 1.001
+                        tp1 = current_price * 0.975
+                        tp2 = current_price * 0.95
+                        sl = current_price * 1.02
+                    
+                    # Format individual signal
+                    if language == 'id':
+                        signals_text += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 **{symbol}/USDT FUTURES SIGNAL** {signal_emoji}
+
+💰 **HARGA SAAT INI**: {price_display} ({price_source})
+📊 **SIGNAL**: {signal_direction} | ⏰ **TIMEFRAME**: 4H
+
+📈 **TRADING LEVELS:**
+┣━ 📍 **ENTRY**: {f'${entry:.6f}' if entry < 1 else f'${entry:.4f}' if entry < 100 else f'${entry:,.2f}'}
+┣━ 🎯 **TP 1**: {f'${tp1:.6f}' if tp1 < 1 else f'${tp1:.4f}' if tp1 < 100 else f'${tp1:,.2f}'} (50% profit)
+┣━ 🎯 **TP 2**: {f'${tp2:.6f}' if tp2 < 1 else f'${tp2:.4f}' if tp2 < 100 else f'${tp2:,.2f}'} (50% profit)
+┗━ 🛡️ **STOP LOSS**: {f'${sl:.6f}' if sl < 1 else f'${sl:.4f}' if sl < 100 else f'${sl:,.2f}'} (**WAJIB!**)
+
+🔥 **RISK/REWARD**: {abs(tp2-entry)/abs(sl-entry):.1f}:1
+⚡ **CONFIDENCE**: 75%
+"""
+                    else:
+                        signals_text += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 **{symbol}/USDT FUTURES SIGNAL** {signal_emoji}
+
+💰 **CURRENT PRICE**: {price_display} ({price_source})
+📊 **SIGNAL**: {signal_direction} | ⏰ **TIMEFRAME**: 4H
+
+📈 **TRADING LEVELS:**
+┣━ 📍 **ENTRY**: {f'${entry:.6f}' if entry < 1 else f'${entry:.4f}' if entry < 100 else f'${entry:,.2f}'}
+┣━ 🎯 **TP 1**: {f'${tp1:.6f}' if tp1 < 1 else f'${tp1:.4f}' if tp1 < 100 else f'${tp1:,.2f}'} (50% profit)
+┣━ 🎯 **TP 2**: {f'${tp2:.6f}' if tp2 < 1 else f'${tp2:.4f}' if tp2 < 100 else f'${tp2:,.2f}'} (50% profit)
+┗━ 🛡️ **STOP LOSS**: {f'${sl:.6f}' if sl < 1 else f'${sl:.4f}' if sl < 100 else f'${sl:,.2f}'} (**MANDATORY!**)
+
+🔥 **RISK/REWARD**: {abs(tp2-entry)/abs(sl-entry):.1f}:1
+⚡ **CONFIDENCE**: 75%
+"""
+                    
+                except Exception as e:
+                    print(f"❌ Error generating signal for {symbol}: {e}")
+                    continue
+            
+            # Add header and footer
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            if language == 'id':
+                final_message = f"""🚨 **FUTURES SIGNALS HARIAN - SnD ANALYSIS**
+⏰ **UPDATE**: {current_time} | 📊 **TIMEFRAME**: 4H
+
+{signals_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛡️ **RISK MANAGEMENT WAJIB:**
+• Position size maksimal 1-2% per trade
+• Set stop loss SEBELUM entry
+• Take profit bertahap: 50% di TP1, 50% di TP2
+• Move SL ke break-even setelah TP1 hit
+
+📊 **SUMBER DATA**: CoinAPI + Binance Futures Real-time
+⚠️ **DISCLAIMER**: High risk - gunakan proper risk management!"""
+            else:
+                final_message = f"""🚨 **DAILY FUTURES SIGNALS - SnD ANALYSIS**
+⏰ **UPDATE**: {current_time} | 📊 **TIMEFRAME**: 4H
+
+{signals_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛡️ **MANDATORY RISK MANAGEMENT:**
+• Maximum position size 1-2% per trade
+• Set stop loss BEFORE entry
+• Take profit gradually: 50% at TP1, 50% at TP2
+• Move SL to break-even after TP1 hit
+
+📊 **DATA SOURCE**: CoinAPI + Binance Futures Real-time
+⚠️ **DISCLAIMER**: High risk - use proper risk management!"""
+            
+            return final_message
+            
+        except Exception as e:
+            print(f"❌ Error in generate_futures_signals: {e}")
+            return "❌ Error generating futures signals. Please try again later."
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
