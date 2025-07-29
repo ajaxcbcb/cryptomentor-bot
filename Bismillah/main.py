@@ -68,9 +68,10 @@ async def main():
             bot = TelegramBot()
 
             print("🎯 Bot initialized successfully")
-            print("📡 Starting polling for updates...")
+            print("📡 Starting bot run sequence...")
 
-            # Run bot
+            # Run bot with enhanced logging
+            print("🚀 Calling bot.run_bot()...")
             await bot.run_bot()
 
             # If we reach here, bot stopped normally

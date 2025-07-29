@@ -151,15 +151,14 @@ class TelegramBot:
             print(f"🔑 API Status: CN=✅, BIN=✅, NEWS=✅ (CoinAPI Primary + Binance Futures + CryptoNews)")
             print("🚀 Starting bot polling with CoinAPI integration...")
             
-            # Test bot connection before starting with timeout
+            # Test bot connection before starting with shorter timeout
             try:
                 print("🔄 Testing bot connection...")
                 
-                # Create a timeout for the connection test
-                import asyncio
+                # Use shorter timeout for deployment environment
                 bot_info = await asyncio.wait_for(
                     self.application.bot.get_me(), 
-                    timeout=10.0
+                    timeout=5.0
                 )
                 
                 print(f"✅ Bot connected successfully: @{bot_info.username}")
@@ -167,18 +166,12 @@ class TelegramBot:
                 print(f"🤖 Bot can join groups: {bot_info.can_join_groups}")
                 
             except asyncio.TimeoutError:
-                print("❌ Bot connection test timed out after 10 seconds")
-                print("💡 This might be a network issue or invalid token")
-                print("🔄 Continuing anyway - bot might work during polling...")
-                logger.warning("Bot connection test timed out, but continuing")
+                print("⚠️ Bot connection test timed out - continuing to polling...")
+                logger.warning("Bot connection test timed out, starting polling anyway")
             except Exception as e:
-                print(f"❌ Bot connection test failed: {e}")
-                print(f"🔍 Error type: {type(e).__name__}")
-                logger.error(f"Bot connection error: {e}")
-                
-                # Don't raise - let polling attempt continue
-                print("🔄 Continuing to polling despite connection test failure...")
-                logger.warning("Bot connection test failed, but attempting polling anyway")
+                print(f"⚠️ Bot connection test failed: {e}")
+                print("🔄 Starting polling anyway...")
+                logger.warning(f"Bot connection test failed, but starting polling: {e}")
 
             # Initialize and start auto signals system
             try:
@@ -194,20 +187,49 @@ class TelegramBot:
 
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
+            print("🎯 Waiting for Telegram messages...")
+            
             try:
-                # Use shorter timeouts to prevent hanging
-                await self.application.run_polling(
-                    drop_pending_updates=True,  # Drop old updates on start
-                    pool_timeout=30,           # Shorter pool timeout to prevent hanging
-                    read_timeout=20,           # Shorter read timeout 
-                    write_timeout=20,          # Shorter write timeout
-                    connect_timeout=10,        # Much shorter connect timeout
-                    allowed_updates=['message', 'callback_query', 'inline_query'],  # Handle needed updates
-                    close_loop=False,          # Don't close event loop
-                    stop_signals=None          # Prevent signal handling conflicts
+                # Initialize the application
+                await self.application.initialize()
+                print("✅ Application initialized")
+                
+                # Start the application
+                await self.application.start()
+                print("✅ Application started")
+                
+                # Start polling with optimized settings for deployment
+                await self.application.updater.start_polling(
+                    poll_interval=1.0,         # Poll every 1 second
+                    timeout=20,                # Request timeout
+                    read_timeout=25,           # Read timeout
+                    write_timeout=25,          # Write timeout
+                    connect_timeout=10,        # Connect timeout
+                    pool_timeout=30,           # Pool timeout
+                    drop_pending_updates=True, # Drop old updates
+                    allowed_updates=['message', 'callback_query']  # Only handle these updates
                 )
+                print("🚀 Bot polling started successfully!")
+                
+                # Keep the bot running
+                import signal
+                
+                def signal_handler(signum, frame):
+                    print(f"\n🛑 Received signal {signum}, stopping bot...")
+                    raise KeyboardInterrupt
+                
+                signal.signal(signal.SIGINT, signal_handler)
+                signal.signal(signal.SIGTERM, signal_handler)
+                
+                # Keep running until interrupted
+                try:
+                    await self.application.updater.idle()
+                except KeyboardInterrupt:
+                    print("🛑 Bot stopped by interrupt signal")
+                    
             except Exception as polling_error:
                 print(f"❌ Polling error: {polling_error}")
+                logger.error(f"Polling error: {polling_error}")
                 raise
 
         except Exception as e:
@@ -281,6 +303,10 @@ class TelegramBot:
         """Handle /start command with enhanced user persistence"""
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
+        logger.info(f"Start command from user {user.id}")
+        
+        # Debug: Show that command handler is working
+        print(f"📞 Start command handler called successfully")
 
         try:
             # Validate user data
@@ -517,7 +543,9 @@ class TelegramBot:
 
     async def help_command(self, update: Update, context: CallbackContext):
         """Handle /help command"""
-        print(f"🎯 /help command received from user {update.effective_user.id}")
+        user_id = update.effective_user.id
+        print(f"🎯 /help command received from user {user_id}")
+        logger.info(f"Help command from user {user_id}")
         help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinMarketCap Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
@@ -1611,6 +1639,9 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle regular text messages"""
         text = update.message.text.lower().strip()
         user_id = update.message.from_user.id
+        
+        print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
+        logger.info(f"Message from user {user_id}: {text[:50]}")
 
         # Quick price check for popular symbols
         popular_symbols = ['btc', 'eth', 'bnb', 'sol', 'ada', 'doge', 'avax', 'matic', 'dot', 'link']
