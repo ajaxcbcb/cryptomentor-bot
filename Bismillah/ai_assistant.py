@@ -5,6 +5,7 @@ import random
 import os
 import asyncio
 from datetime import datetime
+import time
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -260,7 +261,7 @@ Try again in a few minutes for real-time data."""
                     price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
                     if 'error' not in price_data:
                         market_data[symbol] = price_data
-                    await asyncio.sleep(0.2)  # Rate limiting
+                    time.sleep(0.2)  # Rate limiting
                 except:
                     continue
 
@@ -1062,3 +1063,533 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 ⚠️ **Note:** Real-time data unavailable, use other commands for live analysis.
 
 Try again in a few minutes for real-time data."""
+
+    def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
+        """Get comprehensive crypto analysis with CoinAPI integration"""
+        try:
+            if language == 'id':
+                return self._get_comprehensive_analysis_id(symbol, futures_data, price_data, crypto_api)
+            else:
+                return self._get_comprehensive_analysis_en(symbol, futures_data, price_data, crypto_api)
+        except Exception as e:
+            error_msg = f"Error in comprehensive analysis: {str(e)}"
+            print(error_msg)
+            if language == 'id':
+                return f"❌ Gagal menganalisis {symbol}. Error: {error_msg[:100]}"
+            else:
+                return f"❌ Failed to analyze {symbol}. Error: {error_msg[:100]}"
+
+    def _get_comprehensive_analysis_id(self, symbol, futures_data, price_data, crypto_api):
+        """Indonesian comprehensive analysis"""
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+        # Get current price from CoinAPI
+        if price_data and 'error' not in price_data:
+            current_price = price_data.get('price', 0)
+            change_24h = price_data.get('change_24h', 0)
+
+            if current_price < 1:
+                price_format = f"${current_price:.8f}"
+            elif current_price < 100:
+                price_format = f"${current_price:.4f}"
+            else:
+                price_format = f"${current_price:,.2f}"
+
+            change_emoji = "📈" if change_24h >= 0 else "📉"
+            change_color = "+" if change_24h >= 0 else ""
+        else:
+            price_format = "Data tidak tersedia"
+            change_24h = 0
+            change_emoji = "⚠️"
+            change_color = ""
+
+        analysis = f"""🔍 **ANALISIS KOMPREHENSIF {symbol}** (CoinAPI Real-time)
+
+💰 **Harga Saat Ini**: {price_format}
+{change_emoji} **Perubahan 24j**: {change_color}{change_24h:.2f}%
+
+📊 **Analisis Teknikal:**"""
+
+        # Add technical analysis based on price movement
+        if change_24h > 5:
+            analysis += f"""
+• **Momentum**: Sangat Bullish 🚀
+• **Trend**: Strong upward momentum
+• **Support**: ${current_price * 0.95:.4f} (Dynamic)
+• **Resistance**: ${current_price * 1.05:.4f} (Next target)"""
+        elif change_24h > 2:
+            analysis += f"""
+• **Momentum**: Bullish 📈
+• **Trend**: Positive momentum
+• **Support**: ${current_price * 0.97:.4f}
+• **Resistance**: ${current_price * 1.03:.4f}"""
+        elif change_24h > -2:
+            analysis += f"""
+• **Momentum**: Sideways 📊
+• **Trend**: Konsolidasi
+• **Support**: ${current_price * 0.98:.4f}
+• **Resistance**: ${current_price * 1.02:.4f}"""
+        elif change_24h > -5:
+            analysis += f"""
+• **Momentum**: Bearish 📉
+• **Trend**: Koreksi ringan
+• **Support**: ${current_price * 0.95:.4f} (Critical)
+• **Resistance**: ${current_price * 1.02:.4f}"""
+        else:
+            analysis += f"""
+• **Momentum**: Sangat Bearish 🔻
+• **Trend**: Heavy correction
+• **Support**: ${current_price * 0.90:.4f} (Major)
+• **Resistance**: ${current_price * 1.05:.4f}"""
+
+        # Add futures analysis if available
+        if futures_data and 'error' not in futures_data:
+            analysis += f"""
+
+⚡ **Futures Analysis:**
+• **Mark Price**: ${futures_data.get('mark_price', current_price):,.4f}
+• **Funding Rate**: {futures_data.get('funding_rate', 0):.4f}%
+• **Open Interest**: ${futures_data.get('open_interest', 0):,.0f}"""
+
+        # Add prediction based on current momentum
+        if change_24h > 3:
+            prediction = "📈 **Prediksi Jangka Pendek**: Bullish continuation expected"
+        elif change_24h < -3:
+            prediction = "📉 **Prediksi Jangka Pendek**: Further correction possible"
+        else:
+            prediction = "📊 **Prediksi Jangka Pendek**: Range-bound movement"
+
+        analysis += f"""
+
+{prediction}
+
+🎯 **Rekomendasi Trading:**
+• **Entry Strategy**: Wait for confirmation at support/resistance
+• **Risk Management**: Use 2-3% position sizing
+• **Time Horizon**: 1-7 days untuk swing trading
+
+⏰ **Data Update**: {current_time}
+📡 **Source**: CoinAPI Real-time + Binance Futures
+
+⚠️ **Disclaimer**: Analisis ini untuk edukasi, bukan saran investasi."""
+
+        return analysis
+
+    def _get_comprehensive_analysis_en(self, symbol, futures_data, price_data, crypto_api):
+        """English comprehensive analysis"""
+        current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+        # Get current price from CoinAPI
+        if price_data and 'error' not in price_data:
+            current_price = price_data.get('price', 0)
+            change_24h = price_data.get('change_24h', 0)
+
+            if current_price < 1:
+                price_format = f"${current_price:.8f}"
+            elif current_price < 100:
+                price_format = f"${current_price:.4f}"
+            else:
+                price_format = f"${current_price:,.2f}"
+
+            change_emoji = "📈" if change_24h >= 0 else "📉"
+            change_color = "+" if change_24h >= 0 else ""
+        else:
+            price_format = "Data unavailable"
+            change_24h = 0
+            change_emoji = "⚠️"
+            change_color = ""
+
+        analysis = f"""🔍 **COMPREHENSIVE ANALYSIS {symbol}** (CoinAPI Real-time)
+
+💰 **Current Price**: {price_format}
+{change_emoji} **24h Change**: {change_color}{change_24h:.2f}%
+
+📊 **Technical Analysis:**"""
+
+        # Add technical analysis based on price movement
+        if change_24h > 5:
+            analysis += f"""
+• **Momentum**: Very Bullish 🚀
+• **Trend**: Strong upward momentum
+• **Support**: ${current_price * 0.95:.4f} (Dynamic)
+• **Resistance**: ${current_price * 1.05:.4f} (Next target)"""
+        elif change_24h > 2:
+            analysis += f"""
+• **Momentum**: Bullish 📈
+• **Trend**: Positive momentum
+• **Support**: ${current_price * 0.97:.4f}
+• **Resistance**: ${current_price * 1.03:.4f}"""
+        elif change_24h > -2:
+            analysis += f"""
+• **Momentum**: Sideways 📊
+• **Trend**: Consolidation
+• **Support**: ${current_price * 0.98:.4f}
+• **Resistance**: ${current_price * 1.02:.4f}"""
+        elif change_24h > -5:
+            analysis += f"""
+• **Momentum**: Bearish 📉
+• **Trend**: Light correction
+• **Support**: ${current_price * 0.95:.4f} (Critical)
+• **Resistance**: ${current_price * 1.02:.4f}"""
+        else:
+            analysis += f"""
+• **Momentum**: Very Bearish 🔻
+• **Trend**: Heavy correction
+• **Support**: ${current_price * 0.90:.4f} (Major)
+• **Resistance**: ${current_price * 1.05:.4f}"""
+
+        # Add futures analysis if available
+        if futures_data and 'error' not in futures_data:
+            analysis += f"""
+
+⚡ **Futures Analysis:**
+• **Mark Price**: ${futures_data.get('mark_price', current_price):,.4f}
+• **Funding Rate**: {futures_data.get('funding_rate', 0):.4f}%
+• **Open Interest**: ${futures_data.get('open_interest', 0):,.0f}"""
+
+        # Add prediction based on current momentum
+        if change_24h > 3:
+            prediction = "📈 **Short-term Prediction**: Bullish continuation expected"
+        elif change_24h < -3:
+            prediction = "📉 **Short-term Prediction**: Further correction possible"
+        else:
+            prediction = "📊 **Short-term Prediction**: Range-bound movement"
+
+        analysis += f"""
+
+{prediction}
+
+🎯 **Trading Recommendation:**
+• **Entry Strategy**: Wait for confirmation at support/resistance
+• **Risk Management**: Use 2-3% position sizing
+• **Time Horizon**: 1-7 days for swing trading
+
+⏰ **Data Update**: {current_time}
+📡 **Source**: CoinAPI Real-time + Binance Futures
+
+⚠️ **Disclaimer**: This analysis is for educational purposes, not investment advice."""
+
+        return analysis
+
+    def generate_futures_signals(self, language='id', crypto_api=None):
+        """Generate futures trading signals with SnD analysis"""
+        try:
+            if not crypto_api:
+                return "❌ Crypto API not available"
+
+            # Get data for major trading pairs
+            symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
+            signals_data = {}
+
+            for symbol in symbols:
+                try:
+                    # Get price and SnD data
+                    price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+                    snd_data = crypto_api.analyze_supply_demand(symbol, '4h')
+
+                    if 'error' not in price_data and 'error' not in snd_data:
+                        signals_data[symbol] = {
+                            'price_data': price_data,
+                            'snd_data': snd_data
+                        }
+
+                    time.sleep(0.3)  # Rate limiting
+                except:
+                    continue
+
+            if language == 'id':
+                return self._format_futures_signals_id(signals_data)
+            else:
+                return self._format_futures_signals_en(signals_data)
+
+        except Exception as e:
+            error_msg = f"Error generating futures signals: {str(e)}"
+            print(error_msg)
+            if language == 'id':
+                return f"❌ Gagal generate sinyal futures: {error_msg[:100]}"
+            else:
+                return f"❌ Failed to generate futures signals: {error_msg[:100]}"
+
+    def _format_futures_signals_id(self, signals_data):
+        """Format futures signals in Indonesian"""
+        if not signals_data:
+            return "❌ Tidak ada data sinyal tersedia saat ini"
+
+        message = "🚨 **SINYAL FUTURES HARIAN** (Supply & Demand Analysis)\n\n"
+
+        signal_count = 0
+        for symbol, data in signals_data.items():
+            if signal_count >= 3:  # Limit to top 3 signals
+                break
+
+            price_data = data['price_data']
+            snd_data = data['snd_data']
+
+            current_price = price_data.get('price', 0)
+            signals = snd_data.get('signals', [])
+
+            if signals:
+                signal = signals[0]  # Take first signal
+                direction = signal.get('direction', 'HOLD')
+                entry = signal.get('entry_price', current_price)
+                sl = signal.get('stop_loss', current_price * 0.97)
+                tp1 = signal.get('take_profit_1', current_price * 1.02)
+                tp2 = signal.get('take_profit_2', current_price * 1.05)
+                confidence = signal.get('confidence', 50)
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
+
+                message += f"""**{signal_count + 1}. {symbol} {direction} Signal {direction_emoji}**
+
+💰 **Current Price**: ${current_price:.4f}
+🎯 **Entry**: ${entry:.4f}
+🛑 **Stop Loss**: ${sl:.4f}
+🎉 **Take Profit 1**: ${tp1:.4f}
+🚀 **Take Profit 2**: ${tp2:.4f}
+📊 **Confidence**: {confidence:.1f}%
+
+"""
+                signal_count += 1
+
+        if signal_count == 0:
+            message += "⚠️ Tidak ada sinyal kuat terdeteksi saat ini\n"
+
+        message += f"""📋 **Trading Rules:**
+• Gunakan proper position sizing (1-3% risk)
+• Wait for price action confirmation
+• Exit partial di TP1, hold untuk TP2
+• Monitor market structure changes
+
+⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Source**: CoinAPI + SnD Analysis"""
+
+        return message
+
+    def _format_futures_signals_en(self, signals_data):
+        """Format futures signals in English"""
+        if not signals_data:
+            return "❌ No signal data available at the moment"
+
+        message = "🚨 **DAILY FUTURES SIGNALS** (Supply & Demand Analysis)\n\n"
+
+        signal_count = 0
+        for symbol, data in signals_data.items():
+            if signal_count >= 3:  # Limit to top 3 signals
+                break
+
+            price_data = data['price_data']
+            snd_data = data['snd_data']
+
+            current_price = price_data.get('price', 0)
+            signals = snd_data.get('signals', [])
+
+            if signals:
+                signal = signals[0]  # Take first signal
+                direction = signal.get('direction', 'HOLD')
+                entry = signal.get('entry_price', current_price)
+                sl = signal.get('stop_loss', current_price * 0.97)
+                tp1 = signal.get('take_profit_1', current_price * 1.02)
+                tp2 = signal.get('take_profit_2', current_price * 1.05)
+                confidence = signal.get('confidence', 50)
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
+
+                message += f"""**{signal_count + 1}. {symbol} {direction} Signal {direction_emoji}**
+
+💰 **Current Price**: ${current_price:.4f}
+🎯 **Entry**: ${entry:.4f}
+🛑 **Stop Loss**: ${sl:.4f}
+🎉 **Take Profit 1**: ${tp1:.4f}
+🚀 **Take Profit 2**: ${tp2:.4f}
+📊 **Confidence**: {confidence:.1f}%
+
+"""
+                signal_count += 1
+
+        if signal_count == 0:
+            message += "⚠️ No strong signals detected at the moment\n"
+
+        message += f"""📋 **Trading Rules:**
+• Use proper position sizing (1-3% risk)
+• Wait for price action confirmation
+• Exit partial at TP1, hold for TP2
+• Monitor market structure changes
+
+⏰ **Generated**: {datetime.now().strftime('%H:%M:%S UTC')}
+📡 **Source**: CoinAPI + SnD Analysis"""
+
+        return message
+
+    def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
+        """Get futures analysis for specific symbol and timeframe"""
+        try:
+            if not crypto_api:
+                return "❌ Crypto API not available"
+
+            # Get comprehensive data
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+
+            if language == 'id':
+                return self._format_futures_analysis_id(symbol, timeframe, price_data, snd_data, futures_data)
+            else:
+                return self._format_futures_analysis_en(symbol, timeframe, price_data, snd_data, futures_data)
+
+        except Exception as e:
+            error_msg = f"Error in futures analysis: {str(e)}"
+            print(error_msg)
+            if language == 'id':
+                return f"❌ Gagal menganalisis futures {symbol}: {error_msg[:100]}"
+            else:
+                return f"❌ Failed to analyze futures {symbol}: {error_msg[:100]}"
+
+    def _format_futures_analysis_id(self, symbol, timeframe, price_data, snd_data, futures_data):
+        """Format futures analysis in Indonesian"""
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+        # Price information
+        if 'error' not in price_data:
+            current_price = price_data.get('price', 0)
+            price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
+        else:
+            price_format = "Data tidak tersedia"
+            current_price = 0
+
+        message = f"""📊 **ANALISIS FUTURES {symbol} ({timeframe})**
+
+💰 **Harga Real-time**: {price_format} (CoinAPI)
+
+🎯 **Supply & Demand Analysis:**"""
+
+        # SnD Analysis
+        if 'error' not in snd_data:
+            signals = snd_data.get('signals', [])
+            confidence = snd_data.get('confidence_score', 0)
+
+            message += f"""
+📈 **Overall Confidence**: {confidence:.1f}%"""
+
+            if signals:
+                signal = signals[0]  # Primary signal
+                direction = signal.get('direction', 'HOLD')
+                entry = signal.get('entry_price', current_price)
+                sl = signal.get('stop_loss', current_price * 0.97)
+                tp1 = signal.get('take_profit_1', current_price * 1.02)
+                tp2 = signal.get('take_profit_2', current_price * 1.05)
+                rr_ratio = signal.get('risk_reward_ratio', 1.0)
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
+
+                message += f"""
+
+**Primary Signal {direction_emoji}**:
+• **Direction**: {direction}
+• **Entry**: ${entry:.4f}
+• **Stop Loss**: ${sl:.4f}
+• **Take Profit 1**: ${tp1:.4f}
+• **Take Profit 2**: ${tp2:.4f}
+• **Risk/Reward**: {rr_ratio:.1f}:1"""
+
+        # Futures data
+        if 'error' not in futures_data:
+            mark_price = futures_data.get('mark_price_data', {}).get('mark_price', current_price)
+            funding_rate = futures_data.get('funding_rate_data', {}).get('last_funding_rate', 0)
+            open_interest = futures_data.get('open_interest_data', {}).get('sum_open_interest', 0)
+
+            message += f"""
+
+⚡ **Futures Data**:
+• **Mark Price**: ${mark_price:.4f}
+• **Funding Rate**: {funding_rate:.4f}%
+• **Open Interest**: ${open_interest:,.0f}"""
+
+        message += f"""
+
+📋 **Trading Strategy ({timeframe})**:
+• Tunggu konfirmasi price action di zone
+• Gunakan position sizing 1-3% dari portfolio
+• Monitor volume untuk validasi breakout
+• Exit partial di TP1, trail stop untuk TP2
+
+⏰ **Update**: {current_time}
+📡 **Data**: CoinAPI + Binance Futures + SnD Analysis
+
+⚠️ **Risk Warning**: Futures trading berisiko tinggi, gunakan proper risk management."""
+
+        return message
+
+    def _format_futures_analysis_en(self, symbol, timeframe, price_data, snd_data, futures_data):
+        """Format futures analysis in English"""
+        current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+        # Price information
+        if 'error' not in price_data:
+            current_price = price_data.get('price', 0)
+            price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
+        else:
+            price_format = "Data unavailable"
+            current_price = 0
+
+        message = f"""📊 **FUTURES ANALYSIS {symbol} ({timeframe})**
+
+💰 **Real-time Price**: {price_format} (CoinAPI)
+
+🎯 **Supply & Demand Analysis:**"""
+
+        # SnD Analysis
+        if 'error' not in snd_data:
+            signals = snd_data.get('signals', [])
+            confidence = snd_data.get('confidence_score', 0)
+
+            message += f"""
+📈 **Overall Confidence**: {confidence:.1f}%"""
+
+            if signals:
+                signal = signals[0]  # Primary signal
+                direction = signal.get('direction', 'HOLD')
+                entry = signal.get('entry_price', current_price)
+                sl = signal.get('stop_loss', current_price * 0.97)
+                tp1 = signal.get('take_profit_1', current_price * 1.02)
+                tp2 = signal.get('take_profit_2', current_price * 1.05)
+                rr_ratio = signal.get('risk_reward_ratio', 1.0)
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
+
+                message += f"""
+
+**Primary Signal {direction_emoji}**:
+• **Direction**: {direction}
+• **Entry**: ${entry:.4f}
+• **Stop Loss**: ${sl:.4f}
+• **Take Profit 1**: ${tp1:.4f}
+• **Take Profit 2**: ${tp2:.4f}
+• **Risk/Reward**: {rr_ratio:.1f}:1"""
+
+        # Futures data
+        if 'error' not in futures_data:
+            mark_price = futures_data.get('mark_price_data', {}).get('mark_price', current_price)
+            funding_rate = futures_data.get('funding_rate_data', {}).get('last_funding_rate', 0)
+            open_interest = futures_data.get('open_interest_data', {}).get('sum_open_interest', 0)
+
+            message += f"""
+
+⚡ **Futures Data**:
+• **Mark Price**: ${mark_price:.4f}
+• **Funding Rate**: {funding_rate:.4f}%
+• **Open Interest**: ${open_interest:,.0f}"""
+
+        message += f"""
+
+📋 **Trading Strategy ({timeframe})**:
+• Wait for price action confirmation at zones
+• Use 1-3% position sizing of portfolio
+• Monitor volume for breakout validation
+• Exit partial at TP1, trail stop for TP2
+
+⏰ **Update**: {current_time}
+📡 **Data**: CoinAPI + Binance Futures + SnD Analysis
+
+⚠️ **Risk Warning**: Futures trading is high risk, use proper risk management."""
+
+        return message
