@@ -40,9 +40,9 @@ for check, result in deployment_indicators.items():
     print(f"  {'✅' if result else '❌'} {check}: {result}")
 print(f"📊 Bot Deployment Status: {'ENABLED' if is_deployment else 'DISABLED'}")
 
-# Setup logging
+# Setup logging with debug level to catch all errors
 logging.basicConfig(
-    level=logging.WARNING if is_deployment else logging.INFO,
+    level=logging.DEBUG,  # Always use DEBUG to catch hidden errors
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
