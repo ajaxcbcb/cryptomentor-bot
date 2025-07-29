@@ -212,7 +212,7 @@ I'm here to help you learn about cryptocurrency!
 Ask me anything about crypto! 🚀"""
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get comprehensive market sentiment analysis using multiple APIs with deployment mode support"""
+        """Get comprehensive market sentiment analysis using multiple APIs"""
         from datetime import datetime
 
         try:
@@ -221,22 +221,12 @@ Ask me anything about crypto! 🚀"""
             if not crypto_api:
                 return self._get_fallback_market_overview(language)
 
-            # Check deployment mode for API selection
-            is_deployment = crypto_api.is_deployment_mode() if hasattr(crypto_api, 'is_deployment_mode') else False
-            
-            # Get comprehensive data based on deployment mode
-            if is_deployment:
-                print("🚀 DEPLOYMENT MODE: Using CoinAPI for market overview")
-                # 1. CoinAPI market data
-                global_data = crypto_api.get_market_overview()
-                # 2. Enhanced market data (same as global_data in deployment)
-                market_data = global_data
-            else:
-                print("🔧 DEVELOPMENT MODE: Using Binance for market overview")
-                # 1. Binance global data
-                global_data = crypto_api.get_binance_global_data()
-                # 2. Enhanced market overview
-                market_data = crypto_api.get_market_overview()
+            # Get comprehensive data from Binance sources
+            # 1. Binance global data
+            global_data = crypto_api.get_binance_global_data()
+
+            # 2. Enhanced market overview
+            market_data = crypto_api.get_market_overview()
 
             # 3. Multiple price data from top cryptocurrencies
             major_symbols = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'XRP', 'DOGE', 'MATIC', 'AVAX', 'LINK']
@@ -245,7 +235,7 @@ Ask me anything about crypto! 🚀"""
 
             for symbol in major_symbols:
                 try:
-                    price_data = crypto_api.get_multi_api_price(symbol, force_refresh=is_deployment)
+                    price_data = crypto_api.get_multi_api_price(symbol, force_refresh=True)
                     if 'error' not in price_data and price_data.get('price', 0) > 0:
                         multi_prices[symbol] = price_data
                         print(f"✅ {symbol}: ${price_data.get('price', 0):,.2f}")
@@ -945,236 +935,6 @@ Ask me anything about crypto! 🚀"""
 
         return gainers, losers
 
-    def get_comprehensive_analysis(self, symbol, language='id', crypto_api=None):
-        """Generate comprehensive analysis with deployment mode optimization for /analyze command"""
-        from datetime import datetime
-        
-        if not crypto_api:
-            if language == 'id':
-                return f"""❌ **Error: API tidak tersedia**
-
-Tidak dapat mengakses data untuk analisis {symbol}.
-Silakan coba lagi nanti.
-
-⚠️ **Risk Warning:**
-Trading berisiko tinggi! Gunakan proper risk management!"""
-            else:
-                return f"""❌ **Error: API unavailable**
-
-Cannot access data for analysis of {symbol}.
-Please try again later.
-
-⚠️ **Risk Warning:**
-Trading is high risk! Use proper risk management!"""
-
-        try:
-            # Check deployment mode for enhanced data sources
-            is_deployment = crypto_api.is_deployment_mode() if hasattr(crypto_api, 'is_deployment_mode') else False
-            
-            if is_deployment:
-                print(f"🚀 DEPLOYMENT MODE: Enhanced analysis for {symbol} using CoinAPI")
-            else:
-                print(f"🔧 DEVELOPMENT MODE: Standard analysis for {symbol}")
-
-            # Get comprehensive data with deployment optimization
-            price_data = crypto_api.get_multi_api_price(symbol, force_refresh=is_deployment)
-            
-            if 'error' in price_data:
-                if language == 'id':
-                    return f"""❌ **Error dalam mengambil data {symbol}**
-
-{price_data.get('error', 'Unknown error')}
-
-Silakan coba lagi atau gunakan symbol lain."""
-                else:
-                    return f"""❌ **Error fetching data for {symbol}**
-
-{price_data.get('error', 'Unknown error')}
-
-Please try again or use another symbol."""
-
-            current_price = price_data.get('price', 0)
-            change_24h = price_data.get('change_24h', 0)
-            volume_24h = price_data.get('volume_24h', 0)
-            high_24h = price_data.get('high_24h', 0)
-            low_24h = price_data.get('low_24h', 0)
-            
-            # Get futures data if available
-            try:
-                futures_data = crypto_api.get_comprehensive_futures_data(symbol)
-                has_futures = 'error' not in futures_data
-            except:
-                has_futures = False
-                futures_data = {}
-
-            # Get SnD analysis
-            try:
-                snd_analysis = self.analyze_snd_for_auto_signals(symbol, crypto_api)
-                has_snd = 'error' not in snd_analysis
-            except:
-                has_snd = False
-                snd_analysis = {}
-
-            # Calculate technical indicators
-            price_momentum = "Bullish" if change_24h > 0 else "Bearish"
-            volatility = abs(change_24h)
-            
-            if volatility > 10:
-                volatility_level = "Very High"
-            elif volatility > 5:
-                volatility_level = "High"
-            elif volatility > 2:
-                volatility_level = "Moderate"
-            else:
-                volatility_level = "Low"
-
-            # Generate recommendation
-            if has_snd and snd_analysis.get('signal'):
-                signal = snd_analysis['signal']
-                recommendation = signal['type']
-                confidence = signal['confidence']
-                reasoning = signal['reason']
-            elif change_24h > 5:
-                recommendation = "BUY"
-                confidence = 75
-                reasoning = "Strong positive momentum"
-            elif change_24h < -5:
-                recommendation = "SELL"
-                confidence = 75
-                reasoning = "Strong negative momentum"
-            else:
-                recommendation = "HOLD"
-                confidence = 60
-                reasoning = "Sideways movement, wait for clear direction"
-
-            # Format response based on language
-            if language == 'id':
-                deployment_indicator = "🚀 [DEPLOYMENT ENHANCED]" if is_deployment else "🔧 [DEVELOPMENT]"
-                data_source = "CoinAPI Real-time" if is_deployment else "Multi-Source"
-                
-                message = f"""📊 **ANALISIS KOMPREHENSIF {symbol.upper()}** {deployment_indicator}
-
-💰 **Data Harga:**
-• **Current**: ${current_price:,.4f} ({change_24h:+.2f}%)
-• **24h High**: ${high_24h:,.4f}
-• **24h Low**: ${low_24h:,.4f}
-• **24h Volume**: {volume_24h:,.0f}
-
-📈 **Analisis Teknikal:**
-• **Momentum**: {price_momentum}
-• **Volatilitas**: {volatility_level} ({volatility:.1f}%)
-• **Trend**: {"Naik" if change_24h > 2 else "Turun" if change_24h < -2 else "Sideways"}
-
-🎯 **Rekomendasi AI:**
-• **Signal**: {recommendation} ({confidence:.0f}% confidence)
-• **Reasoning**: {reasoning}"""
-
-                if has_futures:
-                    ls_data = futures_data.get('long_short_ratio_data', {})
-                    funding_data = futures_data.get('funding_rate_data', {})
-                    long_ratio = ls_data.get('long_ratio', 50)
-                    funding_rate = funding_data.get('last_funding_rate', 0)
-                    
-                    message += f"""
-
-⚡ **Data Futures:**
-• **Long/Short Ratio**: {long_ratio:.1f}% / {100-long_ratio:.1f}%
-• **Funding Rate**: {funding_rate:.4f}%
-• **Sentiment**: {"Bullish" if long_ratio > 60 else "Bearish" if long_ratio < 40 else "Neutral"}"""
-
-                if has_snd:
-                    signal_data = snd_analysis.get('signal', {})
-                    message += f"""
-
-🔍 **Supply & Demand:**
-• **SnD Signal**: {signal_data.get('type', 'N/A')}
-• **Confidence**: {signal_data.get('confidence', 0):.0f}%
-• **Price Divergence**: {signal_data.get('price_divergence', 0):.2f}%
-• **Momentum Score**: {signal_data.get('momentum_score', 0):.0f}/100"""
-
-                message += f"""
-
-📡 **Data Source**: {data_source}
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-
-⚠️ **Risk Management:**
-• Gunakan stop loss
-• Position size: 1-2% portfolio
-• Jangan FOMO
-• Selalu DYOR"""
-
-            else:
-                deployment_indicator = "🚀 [DEPLOYMENT ENHANCED]" if is_deployment else "🔧 [DEVELOPMENT]"
-                data_source = "CoinAPI Real-time" if is_deployment else "Multi-Source"
-                
-                message = f"""📊 **COMPREHENSIVE ANALYSIS {symbol.upper()}** {deployment_indicator}
-
-💰 **Price Data:**
-• **Current**: ${current_price:,.4f} ({change_24h:+.2f}%)
-• **24h High**: ${high_24h:,.4f}
-• **24h Low**: ${low_24h:,.4f}
-• **24h Volume**: {volume_24h:,.0f}
-
-📈 **Technical Analysis:**
-• **Momentum**: {price_momentum}
-• **Volatility**: {volatility_level} ({volatility:.1f}%)
-• **Trend**: {"Uptrend" if change_24h > 2 else "Downtrend" if change_24h < -2 else "Sideways"}
-
-🎯 **AI Recommendation:**
-• **Signal**: {recommendation} ({confidence:.0f}% confidence)
-• **Reasoning**: {reasoning}"""
-
-                if has_futures:
-                    ls_data = futures_data.get('long_short_ratio_data', {})
-                    funding_data = futures_data.get('funding_rate_data', {})
-                    long_ratio = ls_data.get('long_ratio', 50)
-                    funding_rate = funding_data.get('last_funding_rate', 0)
-                    
-                    message += f"""
-
-⚡ **Futures Data:**
-• **Long/Short Ratio**: {long_ratio:.1f}% / {100-long_ratio:.1f}%
-• **Funding Rate**: {funding_rate:.4f}%
-• **Sentiment**: {"Bullish" if long_ratio > 60 else "Bearish" if long_ratio < 40 else "Neutral"}"""
-
-                if has_snd:
-                    signal_data = snd_analysis.get('signal', {})
-                    message += f"""
-
-🔍 **Supply & Demand:**
-• **SnD Signal**: {signal_data.get('type', 'N/A')}
-• **Confidence**: {signal_data.get('confidence', 0):.0f}%
-• **Price Divergence**: {signal_data.get('price_divergence', 0):.2f}%
-• **Momentum Score**: {signal_data.get('momentum_score', 0):.0f}/100"""
-
-                message += f"""
-
-📡 **Data Source**: {data_source}
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
-
-⚠️ **Risk Management:**
-• Use stop losses
-• Position size: 1-2% portfolio
-• Don't FOMO
-• Always DYOR"""
-
-            return message
-
-        except Exception as e:
-            print(f"Error in comprehensive analysis: {e}")
-            if language == 'id':
-                return f"""❌ **Error dalam analisis {symbol}**
-
-Terjadi kesalahan: {str(e)}
-
-⚠️ Silakan coba lagi atau gunakan command lain."""
-            else:
-                return f"""❌ **Error in analysis for {symbol}**
-
-Error occurred: {str(e)}
-
-⚠️ Please try again or use other commands."""
-
     def _get_fallback_market_overview(self, language='id'):
         """Fallback market overview when APIs fail"""
         if language == 'id':
@@ -1204,287 +964,6 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 
 Try again in a few minutes for real-time data."""
 
-    def analyze_snd_for_auto_signals(self, symbol, crypto_api):
-        """Analyze Supply & Demand for auto signal generation with enhanced deployment mode support"""
-        try:
-            # Check deployment mode
-            is_deployment = crypto_api.is_deployment_mode() if hasattr(crypto_api, 'is_deployment_mode') else False
-            
-            # Get current price data with deployment optimization
-            price_data = crypto_api.get_multi_api_price(symbol, force_refresh=is_deployment)
-            if 'error' in price_data or not price_data.get('price', 0):
-                return {'error': f'Cannot get price data for {symbol}'}
-                
-            current_price = price_data['price']
-            change_24h = price_data.get('change_24h', 0)
-            
-            # Get Binance futures data for additional confirmation
-            try:
-                futures_data = crypto_api.get_binance_futures_price(symbol)
-                if 'error' not in futures_data:
-                    futures_price = futures_data.get('price', current_price)
-                    futures_change = futures_data.get('change_24h', change_24h)
-                else:
-                    futures_price = current_price
-                    futures_change = change_24h
-            except:
-                futures_price = current_price
-                futures_change = change_24h
-                
-            # Enhanced SnD Analysis based on price action and volume
-            volume_strength = 50  # Base volume strength
-            momentum_score = 0
-            
-            # Price momentum analysis
-            if abs(change_24h) > 5:
-                momentum_score = min(100, abs(change_24h) * 10)
-                volume_strength = min(100, 50 + abs(change_24h) * 5)
-            elif abs(change_24h) > 2:
-                momentum_score = min(80, abs(change_24h) * 15)
-                volume_strength = min(90, 50 + abs(change_24h) * 8)
-            else:
-                momentum_score = 40
-                volume_strength = 45
-                
-            # Futures vs Spot divergence analysis
-            price_divergence = abs(futures_price - current_price) / current_price * 100
-            if price_divergence > 0.5:  # Significant divergence
-                if futures_price > current_price:
-                    signal_type = 'BUY'
-                    confidence = min(95, 70 + momentum_score/5)
-                    reason = f'Futures premium detected (+{price_divergence:.2f}%) with momentum'
-                else:
-                    signal_type = 'SELL'
-                    confidence = min(95, 70 + momentum_score/5)
-                    reason = f'Futures discount detected (-{price_divergence:.2f}%) with momentum'
-            else:
-                # Pure momentum-based signals
-                if change_24h > 3:
-                    signal_type = 'BUY'
-                    confidence = min(95, 60 + momentum_score/4)
-                    reason = f'Strong bullish momentum (+{change_24h:.1f}%) in deployment mode'
-                elif change_24h < -3:
-                    signal_type = 'SELL'
-                    confidence = min(95, 60 + momentum_score/4)
-                    reason = f'Strong bearish momentum ({change_24h:.1f}%) in deployment mode'
-                else:
-                    return {'error': 'No significant momentum detected'}
-                    
-            # Calculate support/resistance levels
-            support_level = current_price * 0.95
-            resistance_level = current_price * 1.05
-            
-            # Enhanced confidence based on deployment mode
-            if is_deployment:
-                confidence = min(100, confidence + 5)  # Boost confidence in deployment
-                reason += ' [DEPLOYMENT ENHANCED]'
-                
-            return {
-                'signal': {
-                    'type': signal_type,
-                    'confidence': confidence,
-                    'reason': reason,
-                    'current_price': current_price,
-                    'futures_price': futures_price,
-                    'price_divergence': price_divergence,
-                    'momentum_score': momentum_score,
-                    'deployment_mode': is_deployment
-                },
-                'support_levels': [{'price': support_level}],
-                'resistance_levels': [{'price': resistance_level}],
-                'volume_strength': volume_strength
-            }
-            
-        except Exception as e:
-            print(f"Error in SnD analysis for {symbol}: {e}")
-            return {'error': f'SnD analysis failed: {str(e)}'}
-
-    def _extract_entry_zones(self, sd_analysis, current_price):
-        """Extract entry zones from S&D analysis for enhanced signals"""
-        try:
-            if not sd_analysis or 'error' in sd_analysis:
-                return None
-                
-            entry_zones = {}
-            
-            # Extract support/resistance levels
-            support_levels = sd_analysis.get('support_levels', [])
-            resistance_levels = sd_analysis.get('resistance_levels', [])
-            
-            # Find nearest zones
-            if support_levels:
-                nearest_support = min(support_levels, key=lambda x: abs(x['price'] - current_price))
-                if abs(nearest_support['price'] - current_price) / current_price < 0.05:  # Within 5%
-                    entry_zones['strong_demand'] = {
-                        'zone_low': nearest_support['price'] * 0.998,
-                        'zone_high': nearest_support['price'] * 1.002
-                    }
-                    entry_zones['current_zone_type'] = 'near_demand'
-                    
-            if resistance_levels:
-                nearest_resistance = min(resistance_levels, key=lambda x: abs(x['price'] - current_price))
-                if abs(nearest_resistance['price'] - current_price) / current_price < 0.05:  # Within 5%
-                    entry_zones['strong_supply'] = {
-                        'zone_low': nearest_resistance['price'] * 0.998,
-                        'zone_high': nearest_resistance['price'] * 1.002
-                    }
-                    entry_zones['current_zone_type'] = 'near_supply'
-                    
-            return entry_zones if entry_zones else None
-            
-        except Exception as e:
-            print(f"Error extracting entry zones: {e}")
-            return None
-
-    def get_ai_futures_recommendation(self, symbol, timeframe, crypto_api):
-        """Generate AI-powered futures recommendation with enhanced SnD integration"""
-        try:
-            # Check deployment mode for enhanced data sources
-            is_deployment = crypto_api.is_deployment_mode() if hasattr(crypto_api, 'is_deployment_mode') else False
-            
-            # Get comprehensive price data
-            if is_deployment:
-                print(f"🚀 DEPLOYMENT MODE: Enhanced AI analysis for {symbol}")
-                price_data = crypto_api.get_multi_api_price(symbol, force_refresh=True)
-            else:
-                price_data = crypto_api.get_multi_api_price(symbol)
-                
-            if 'error' in price_data:
-                return f"❌ **Error getting price data for {symbol}**\n\n{price_data.get('error', 'Unknown error')}"
-                
-            current_price = price_data.get('price', 0)
-            change_24h = price_data.get('change_24h', 0)
-            
-            # Get futures comprehensive data
-            futures_data = crypto_api.get_comprehensive_futures_data(symbol)
-            
-            # Get SnD analysis with AI enhancement
-            snd_analysis = self.analyze_snd_for_auto_signals(symbol, crypto_api)
-            
-            # Extract key metrics
-            long_ratio = 50
-            funding_rate = 0
-            mark_price = current_price
-            
-            if 'error' not in futures_data:
-                ls_data = futures_data.get('long_short_ratio_data', {})
-                funding_data = futures_data.get('funding_rate_data', {})
-                mark_data = futures_data.get('mark_price_data', {})
-                
-                long_ratio = ls_data.get('long_ratio', 50)
-                funding_rate = funding_data.get('last_funding_rate', 0)
-                mark_price = mark_data.get('mark_price', current_price)
-                
-            # Enhanced AI recommendation
-            if 'error' not in snd_analysis and snd_analysis.get('signal'):
-                signal = snd_analysis['signal']
-                signal_type = signal['type']
-                confidence = signal['confidence']
-                reasoning = signal['reason']
-                
-                if signal_type == 'BUY':
-                    entry_price = current_price * 0.999
-                    tp1 = current_price * 1.025
-                    tp2 = current_price * 1.04
-                    stop_loss = current_price * 0.985
-                    signal_emoji = "🟢"
-                else:
-                    entry_price = current_price * 1.001
-                    tp1 = current_price * 0.975
-                    tp2 = current_price * 0.96
-                    stop_loss = current_price * 1.015
-                    signal_emoji = "🔴"
-                    
-                # Calculate risk/reward
-                risk = abs(entry_price - stop_loss)
-                reward = abs(tp1 - entry_price)
-                rr_ratio = reward / risk if risk > 0 else 1
-                
-                deployment_note = " [DEPLOYMENT ENHANCED]" if is_deployment else ""
-                
-                return f"""🤖 **AI Futures Recommendation - {symbol}** {signal_emoji}
-
-💰 **Current Price:** ${current_price:,.4f} ({change_24h:+.1f}%)
-📊 **Mark Price:** ${mark_price:,.4f}
-⚡ **Long/Short Ratio:** {long_ratio:.1f}% / {100-long_ratio:.1f}%
-💸 **Funding Rate:** {funding_rate:.4f}%
-
-🎯 **AI Signal:** {signal_type} ({confidence:.0f}% confidence){deployment_note}
-📝 **Reasoning:** {reasoning}
-
-📈 **Entry Strategy:**
-• **Entry:** ${entry_price:,.4f}
-• **TP1:** ${tp1:,.4f} (1:1 RR)
-• **TP2:** ${tp2:,.4f} (Extended)
-• **Stop Loss:** ${stop_loss:,.4f}
-• **Risk/Reward:** {rr_ratio:.1f}:1
-
-🔍 **Enhanced Analysis:**
-• Supply/Demand Integration: ✅
-• Futures Premium Analysis: ✅
-• AI Momentum Detection: ✅
-• Multi-API Validation: {"✅ CoinAPI" if is_deployment else "✅ Multi-Source"}
-
-⚠️ **Risk Management:**
-- Position size: 1-2% of portfolio
-- Use stop loss immediately
-- Take partial profits at TP1
-- Monitor funding rate changes
-
-🕐 **Timeframe:** {timeframe} | 📡 **Source:** AI Enhanced + SnD Analysis"""
-                
-            else:
-                # Fallback analysis without SnD
-                if change_24h > 2:
-                    return f"""🤖 **AI Futures Recommendation - {symbol}** 🟡
-
-💰 **Current Price:** ${current_price:,.4f} ({change_24h:+.1f}%)
-📊 **Long/Short Ratio:** {long_ratio:.1f}% / {100-long_ratio:.1f}%
-
-🎯 **AI Signal:** MODERATE BUY (65% confidence)
-📝 **Reasoning:** Positive momentum without strong SnD confirmation
-
-📈 **Conservative Entry:**
-• **Entry:** ${current_price * 0.999:,.4f}
-• **TP:** ${current_price * 1.02:,.4f}
-• **Stop Loss:** ${current_price * 0.985:,.4f}
-
-⚠️ **Note:** Limited data available, use smaller position size."""
-                elif change_24h < -2:
-                    return f"""🤖 **AI Futures Recommendation - {symbol}** 🟡
-
-💰 **Current Price:** ${current_price:,.4f} ({change_24h:+.1f}%)
-📊 **Long/Short Ratio:** {long_ratio:.1f}% / {100-long_ratio:.1f}%
-
-🎯 **AI Signal:** MODERATE SHORT (65% confidence)
-📝 **Reasoning:** Negative momentum without strong SnD confirmation
-
-📉 **Conservative Entry:**
-• **Entry:** ${current_price * 1.001:,.4f}
-• **TP:** ${current_price * 0.98:,.4f}
-• **Stop Loss:** ${current_price * 1.015:,.4f}
-
-⚠️ **Note:** Limited data available, use smaller position size."""
-                else:
-                    return f"""🤖 **AI Futures Recommendation - {symbol}** ⚪
-
-💰 **Current Price:** ${current_price:,.4f} ({change_24h:+.1f}%)
-📊 **Long/Short Ratio:** {long_ratio:.1f}% / {100-long_ratio:.1f}%
-
-🎯 **AI Signal:** HOLD/WAIT (50% confidence)
-📝 **Reasoning:** Insufficient momentum and SnD signals
-
-💡 **Recommendation:** Wait for clearer market direction or stronger signals.
-
-⚠️ **Risk Management:** Avoid FOMO, wait for high-probability setups."""
-                
-        except Exception as e:
-            return f"""❌ **AI Analysis Error for {symbol}**
-
-Error: {str(e)}
-
-⚠️ Please try again or use manual analysis."""
-
     def generate_futures_signals(self, language='id', crypto_api=None):
         """Generate enhanced futures trading signals with Supply & Demand integration"""
         # Major symbols to analyze
@@ -1511,17 +990,9 @@ Futures trading is high risk!
 Use proper risk management and don't FOMO!"""
 
         try:
-            # Check deployment mode for enhanced data sources
-            is_deployment = crypto_api.is_deployment_mode() if hasattr(crypto_api, 'is_deployment_mode') else False
-            
-            # Get global market sentiment using appropriate API based on deployment mode
-            print("📊 Getting global market data...")
-            if is_deployment:
-                print("🚀 DEPLOYMENT MODE: Using CoinAPI for market data")
-                global_data = crypto_api.get_market_overview()
-            else:
-                print("🔧 DEVELOPMENT MODE: Using Binance for market data")
-                global_data = crypto_api.get_binance_global_data()
+            # Get global market sentiment first using Binance data
+            print("📊 Getting global market data from Binance...")
+            global_data = crypto_api.get_binance_global_data()
             
             print("📰 Getting crypto news...")
             try:
@@ -1539,8 +1010,8 @@ Use proper risk management and don't FOMO!"""
                 try:
                     print(f"📈 Analyzing {symbol}...")
                     
-                    # Get price data with deployment optimization
-                    price_data = crypto_api.get_multi_api_price(symbol, force_refresh=is_deployment)
+                    # Get price data directly for better reliability in deployment
+                    binance_data = crypto_api.get_multi_api_price(symbol, force_refresh=True)
                     
                     # Get futures data
                     binance_futures = {}
@@ -1550,10 +1021,13 @@ Use proper risk management and don't FOMO!"""
                             binance_futures = futures_comprehensive
                     except Exception as e:
                         print(f"⚠️ Futures data error for {symbol}: {e}")
+                    
+                    # Skip CoinGecko in deployment mode for stability
+                    coingecko_market = {}
 
                     # Extract key metrics
-                    current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-                    change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+                    current_price = binance_data.get('price', 0) if 'error' not in binance_data else 0
+                    change_24h = binance_data.get('change_24h', 0) if 'error' not in binance_data else 0
 
                     # Futures metrics
                     long_ratio = 50
@@ -1564,11 +1038,18 @@ Use proper risk management and don't FOMO!"""
                         long_ratio = ls_data.get('long_ratio', 50)
                         funding_rate = funding_data.get('last_funding_rate', 0)
 
-                    # Enhanced SnD Analysis using AI assistant integration
+                    # CoinGecko fundamentals
+                    market_rank = 999
+                    ath_change = -50
+                    if coingecko_market and 'error' not in coingecko_market:
+                        market_rank = coingecko_market.get('market_cap_rank', 999)
+                        ath_change = coingecko_market.get('ath_change_percentage', -50)
+
+                    # Get Supply & Demand analysis
                     sd_analysis = None
                     entry_zones = None
                     try:
-                        sd_analysis = self.analyze_snd_for_auto_signals(symbol, crypto_api)
+                        sd_analysis = crypto_api.analyze_supply_demand(symbol)
                         if 'error' not in sd_analysis:
                             entry_zones = self._extract_entry_zones(sd_analysis, current_price)
                     except Exception as e:
@@ -1577,7 +1058,7 @@ Use proper risk management and don't FOMO!"""
                     # Generate enhanced multi-factor signal with S&D
                     signal_analysis = self._generate_enhanced_multi_factor_signal(
                         symbol, current_price, change_24h, long_ratio, 
-                        funding_rate, 999, -50, global_sentiment,
+                        funding_rate, market_rank, ath_change, global_sentiment,
                         sd_analysis, entry_zones
                     )
 
