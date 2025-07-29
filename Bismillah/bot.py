@@ -173,17 +173,21 @@ class TelegramBot:
                 print("🔄 Starting polling anyway...")
                 logger.warning(f"Bot connection test failed, but starting polling: {e}")
 
-            # Initialize and start auto signals system
+            # Initialize and start auto signals system for BOTH development and deployment
             try:
                 self.auto_signals = initialize_auto_signals(self)
-                if self.auto_signals and IS_DEPLOYMENT:
-                    # Start auto signals in deployment mode only
+                if self.auto_signals:
+                    # Start auto signals in BOTH modes for testing
                     asyncio.create_task(self.auto_signals.start_auto_scanner())
-                    print("🎯 Auto SnD signals scanner started for admin & lifetime users")
+                    mode_text = "DEPLOYMENT" if IS_DEPLOYMENT else "DEVELOPMENT"
+                    print(f"🎯 Auto SnD signals scanner started in {mode_text} mode")
+                    print("📊 Eligible users: Admin & Lifetime premium users")
                 else:
-                    print("🔧 Auto signals available but not started (development mode)")
+                    print("❌ Auto signals system failed to initialize")
             except Exception as e:
                 print(f"⚠️ Auto signals initialization failed: {e}")
+                import traceback
+                traceback.print_exc()
 
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
@@ -1743,8 +1747,9 @@ Gunakan `/subscribe` untuk upgrade!
         stats = self.db.get_bot_statistics()
         eligible_auto_users = self.db.get_eligible_auto_signal_users()
         auto_status = "🟢 RUNNING" if self.auto_signals and self.auto_signals.is_running else "🔴 STOPPED"
+        deployment_mode = "🚀 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
 
-        message = f"""👑 **CryptoMentor AI - Admin Panel**
+        message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
 
 📊 **Bot Statistics:**
 • Total Users: {stats['total_users']}
@@ -1754,8 +1759,10 @@ Gunakan `/subscribe` untuk upgrade!
 
 🎯 **Auto SnD Signals:**
 • Status: {auto_status}
+• Mode: Works in {deployment_mode} mode
 • Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
-• Target Coins: {len(self.auto_signals.target_symbols) if self.auto_signals else 0} altcoins
+• Target Coins: {len(self.auto_signals.target_symbols) if self.auto_signals else 0} top coins
+• Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
 🔧 **Admin Commands:**
 • `/grant_premium <user_id> [days]` - Grant premium
