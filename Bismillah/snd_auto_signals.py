@@ -618,3 +618,61 @@ def initialize_auto_signals(bot_instance):
             print(f"❌ Error sending auto signals: {e}")
             import traceback
             traceback.print_exc()
+
+async def send_signals_to_users(self, signals):
+        """Send signals to eligible users"""
+        try:
+            if not signals:
+                print("📊 No signals to send")
+                return
+
+            # Get eligible users (Admin + Lifetime premium)
+            eligible_users = self.db.get_eligible_auto_signal_users()
+
+            if not eligible_users:
+                print("👥 No eligible users for auto signals")
+                return
+
+            print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
+
+            # Format signals message
+            message = self._format_auto_signals_message(signals)
+
+            # Send to each eligible user
+            for user in eligible_users:
+                try:
+                    # Handle different user data formats
+                    if isinstance(user, dict):
+                        user_id = user.get('telegram_id')
+                        user_name = user.get('first_name', 'User')
+                    elif isinstance(user, (list, tuple)) and len(user) > 0:
+                        user_id = user[0]
+                        user_name = user[1] if len(user) > 1 else 'User'
+                    elif isinstance(user, int):
+                        user_id = user
+                        user_name = 'User'
+                    else:
+                        print(f"❌ Invalid user format: {user}")
+                        continue
+
+                    if not user_id:
+                        print(f"❌ No user_id found for user: {user}")
+                        continue
+
+                    await self.bot.application.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode='Markdown'
+                    )
+                    print(f"✅ Sent auto signals to user {user_id} ({user_name})")
+
+                    # Log the activity
+                    self.db.log_user_activity(user_id, "auto_signal_received", f"Received {len(signals)} auto SnD signals")
+
+                except Exception as e:
+                    print(f"❌ Failed to send signals to user {user_id}: {e}")
+
+        except Exception as e:
+            print(f"❌ Error sending auto signals: {e}")
+            import traceback
+            traceback.print_exc()
