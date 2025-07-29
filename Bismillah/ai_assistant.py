@@ -497,6 +497,16 @@ Try again in a few minutes."""
             overall_health = "🟢 SEHAT"
         elif health_score >= 5:
             overall_health = "🟡 STABIL"
+        elif health_score >= 3:
+            overall_health = "🟡 LEMAH"
+        else:
+            overall_health = "🔴 TIDAK SEHAT"
+
+        return {
+            'score': round(health_score, 1),
+            'status': overall_health,
+            'factors': health_factors
+        }
 
     def _format_cmc_market_sentiment_id(self, market_data, btc_futures, eth_futures, news_data):
         """Format market sentiment in Indonesian using CoinMarketCap data"""

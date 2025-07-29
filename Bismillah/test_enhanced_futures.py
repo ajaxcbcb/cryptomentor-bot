@@ -51,6 +51,36 @@ async def test_enhanced_futures():
             if analysis and len(analysis) > 100:
                 print(f"   ✅ {symbol}: Analysis generated ({len(analysis)} chars)")
             else:
+                print(f"   ❌ {symbol}: Analysis failed or too short")
+        except Exception as e:
+            print(f"   ❌ {symbol}: Error - {str(e)}")
+    
+    # Test 4: Futures signals generation
+    print("\n4️⃣ Testing futures signals generation...")
+    try:
+        signals = ai.generate_futures_signals('id', crypto_api)
+        if signals and len(signals) > 200:
+            print(f"   ✅ Signals generated successfully ({len(signals)} chars)")
+        else:
+            print(f"   ⚠️ Signals generated but short ({len(signals) if signals else 0} chars)")
+    except Exception as e:
+        print(f"   ❌ Signals generation error: {str(e)}")
+    
+    # Test 5: Database connectivity
+    print("\n5️⃣ Testing database connectivity...")
+    try:
+        db.cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = db.cursor.fetchone()[0]
+        print(f"   ✅ Database connected, {user_count} users found")
+    except Exception as e:
+        print(f"   ❌ Database error: {str(e)}")
+    
+    print("\n" + "=" * 50)
+    print("🎯 Test completed!")
+
+if __name__ == "__main__":
+    asyncio.run(test_enhanced_futures())} chars)")
+            else:
                 print(f"   ❌ {symbol}: Analysis too short or failed")
         except Exception as e:
             print(f"   ❌ {symbol}: Error - {e}")

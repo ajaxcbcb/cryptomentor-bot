@@ -10,7 +10,7 @@ class SnDAutoSignals:
         self.bot = bot_instance
         self.crypto_api = CryptoAPI()
         self.db = Database()
-        
+
         # Enhanced targeting for altcoins
         self.target_symbols = [
             # Major coins (backup)
@@ -28,12 +28,12 @@ class SnDAutoSignals:
             # Emerging Altcoins
             'APE', 'GMT', 'GST', 'LUNC', 'LUNA', 'FIL'
         ]
-        
+
         self.scan_interval = 7200  # 2 hours
         self.min_confidence = 65   # Higher confidence for auto signals
         self.is_running = False
         self.last_scan_time = 0
-        
+
         print(f"🎯 Auto SnD Signals initialized with {len(self.target_symbols)} altcoins")
         print(f"⏰ Scan interval: {self.scan_interval // 60} minutes")
         print(f"📈 Min confidence: {self.min_confidence}%")
@@ -42,7 +42,7 @@ class SnDAutoSignals:
         """Start the auto SnD scanner"""
         self.is_running = True
         print("🚀 Auto SnD signals scanner started")
-        
+
         while self.is_running:
             try:
                 await self.scan_and_send_signals()
@@ -61,49 +61,49 @@ class SnDAutoSignals:
         try:
             self.last_scan_time = int(time.time())
             print(f"🔄 Starting auto SnD scan at {datetime.now().strftime('%H:%M:%S')}")
-            
+
             # Get eligible users (admin + lifetime)
             eligible_users = self.db.get_eligible_auto_signal_users()
-            
+
             if not eligible_users:
                 print("👥 No eligible users for auto signals")
                 return
-            
+
             print(f"👥 Found {len(eligible_users)} eligible users (Admin + Lifetime)")
-            
+
             # Randomize target symbols for variety
             scan_symbols = random.sample(self.target_symbols, min(12, len(self.target_symbols)))
             print(f"🎯 Scanning {len(scan_symbols)} symbols: {scan_symbols}")
-            
+
             signals = []
             processed = 0
-            
+
             for symbol in scan_symbols:
                 try:
                     processed += 1
                     print(f"🔄 Processing {symbol} ({processed}/{len(scan_symbols)})")
-                    
+
                     # Get enhanced SnD signal
                     signal = await self._get_enhanced_signal(symbol)
-                    
+
                     if signal and signal.get('confidence', 0) >= self.min_confidence:
                         signals.append(signal)
                         print(f"✅ Signal generated for {symbol} (confidence: {signal.get('confidence')}%)")
-                    
+
                     # Rate limiting
                     await asyncio.sleep(2)
-                    
+
                 except Exception as e:
                     print(f"❌ Error processing {symbol}: {e}")
                     continue
-            
+
             if signals:
                 # Send signals to eligible users
                 await self._send_signals_to_users(signals, eligible_users)
                 print(f"📤 Sent {len(signals)} signals to {len(eligible_users)} users")
             else:
                 print("⚠️ No qualifying signals found in this scan")
-                
+
         except Exception as e:
             print(f"💥 Critical error in scan_and_send_signals: {e}")
             import traceback
@@ -114,12 +114,12 @@ class SnDAutoSignals:
         try:
             # Get price from CoinAPI
             price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            
+
             # Get futures data
             futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
             if 'error' in futures_data:
                 return None
-            
+
             # Check volume filter (only liquid coins)
             price_data_futures = futures_data.get('price_data', {})
             if 'error' not in price_data_futures:
@@ -127,17 +127,17 @@ class SnDAutoSignals:
                 if volume_24h < 500000:  # Minimum $500k volume
                     print(f"💧 {symbol} volume too low: ${volume_24h:,.0f}")
                     return None
-            
+
             # Analyze SnD
             snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
             if 'error' in snd_analysis:
                 return None
-            
+
             # Generate signal using AI assistant
             signal = self.bot.ai._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
-            
+
             return signal
-            
+
         except Exception as e:
             print(f"Error getting signal for {symbol}: {e}")
             return None
@@ -147,7 +147,7 @@ class SnDAutoSignals:
         try:
             # Format the signals message
             message = self._format_auto_signals_message(signals)
-            
+
             # Send to each eligible user
             sent_count = 0
             for user_id in eligible_users:
@@ -159,12 +159,12 @@ class SnDAutoSignals:
                     )
                     sent_count += 1
                     await asyncio.sleep(1)  # Rate limiting
-                    
+
                 except Exception as e:
                     print(f"❌ Failed to send to user {user_id}: {e}")
-            
+
             print(f"✅ Successfully sent auto signals to {sent_count}/{len(eligible_users)} users")
-            
+
         except Exception as e:
             print(f"Error sending signals to users: {e}")
 
@@ -172,7 +172,7 @@ class SnDAutoSignals:
         """Format auto signals message"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
+
             message = f"""🚨 **AUTO SnD SIGNALS ALERT**
 
 🎯 **Auto-Generated**: {current_time}
@@ -191,10 +191,10 @@ class SnDAutoSignals:
                 sl = signal['sl']
                 confidence = signal['confidence']
                 rr = signal['risk_reward']
-                
+
                 direction_emoji = "🟢" if direction == 'LONG' else "🔴"
                 confidence_emoji = "🔥" if confidence >= 80 else "⚡"
-                
+
                 # Smart price formatting
                 if entry < 1:
                     entry_fmt = f"${entry:.6f}"
@@ -230,7 +230,7 @@ SL: {sl_fmt} | R/R: {rr:.1f}:1 | Conf: {confidence:.0f}%
 ⚠️ Not financial advice - DYOR"""
 
             return message
-            
+
         except Exception as e:
             return f"❌ Error formatting auto signals: {str(e)}"
 

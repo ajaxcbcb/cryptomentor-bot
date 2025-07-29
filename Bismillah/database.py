@@ -5,9 +5,13 @@ from datetime import datetime, timedelta
 
 class Database:
     def __init__(self, db_path="cryptomentor.db"):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.create_tables()
+        try:
+            self.conn = sqlite3.connect(db_path, check_same_thread=False)
+            self.cursor = self.conn.cursor()
+            self.create_tables()
+        except Exception as e:
+            print(f"❌ Database initialization error: {e}")
+            raise
 
     def create_tables(self):
         # Check if tables exist and add missing columns if needed
@@ -856,7 +860,7 @@ class Database:
                 WHERE telegram_id IS NOT NULL AND telegram_id != 0
                 ORDER BY created_at DESC
             """)
-            
+
             results = []
             for row in self.cursor.fetchall():
                 results.append({
@@ -909,9 +913,9 @@ class Database:
                 FROM premium_referrals 
                 WHERE referrer_id = ? AND status = 'paid'
             """, (telegram_id,))
-            
+
             total_referrals, total_earnings = self.cursor.fetchone()
-            
+
             # Get recent premium referrals
             self.cursor.execute("""
                 SELECT pr.referred_id, u.first_name, pr.subscription_type, pr.earnings, pr.created_at
@@ -921,9 +925,9 @@ class Database:
                 ORDER BY pr.created_at DESC
                 LIMIT 5
             """, (telegram_id,))
-            
+
             recent_referrals = self.cursor.fetchall()
-            
+
             return {
                 'total_referrals': total_referrals or 0,
                 'total_earnings': total_earnings or 0,
@@ -939,11 +943,11 @@ class Database:
             self.cursor.execute("""
                 UPDATE users SET credits = credits + ? WHERE telegram_id = ?
             """, (amount, telegram_id))
-            
+
             success = self.cursor.rowcount > 0
             if success:
                 self.conn.commit()
-                
+
             return success
         except Exception as e:
             print(f"DB Error (add_credits): {e}")
@@ -992,11 +996,11 @@ class Database:
             self.cursor.execute("""
                 UPDATE users SET language_code = ? WHERE telegram_id = ?
             """, (language, telegram_id))
-            
+
             success = self.cursor.rowcount > 0
             if success:
                 self.conn.commit()
-                
+
             return success
         except Exception as e:
             print(f"DB Error (set_user_language): {e}")

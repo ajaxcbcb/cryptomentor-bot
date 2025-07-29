@@ -11,7 +11,7 @@ class CryptoAPI:
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.coinapi_key = os.getenv("COINAPI_KEY")
         self.cmc_provider = CoinMarketCapProvider()
-        
+
         if not self.coinapi_key:
             print("⚠️ COINAPI_KEY not found in environment variables")
             print("💡 Please set COINAPI_KEY in Replit Secrets")
@@ -727,7 +727,7 @@ class CryptoAPI:
             data = response.json()
 
             return {
-                'symbol': symbol,
+                'symbol: symbol,
                 'mark_price': float(data['markPrice']),
                 'index_price': float(data['indexPrice']),
                 'estimated_settle_price': float(data.get('estimatedSettlePrice', 0)),
@@ -1377,7 +1377,7 @@ class CryptoAPI:
 
             # Get global metrics
             global_data = self.cmc_provider.get_global_metrics()
-            
+
             if 'error' in global_data:
                 return global_data
 
@@ -1437,6 +1437,7 @@ class CryptoAPI:
             market_structure = self._analyze_market_structure(candlesticks)
 
             # Calculate trend score
+```python
             trend_score = self._calculate_trend_score(candlesticks)
 
             # Overall confidence assessment
@@ -1829,12 +1830,12 @@ class CryptoAPI:
         try:
             # Get global metrics from CoinMarketCap
             global_data = self.cmc_provider.get_global_metrics()
-            
+
             if 'error' not in global_data:
                 # Get BTC and ETH quotes for additional data
                 btc_quotes = self.cmc_provider.get_cryptocurrency_quotes('BTC')
                 eth_quotes = self.cmc_provider.get_cryptocurrency_quotes('ETH')
-                
+
                 # Get BTC futures data for additional insights
                 btc_futures = self.get_comprehensive_futures_data('BTC')
                 funding_rate = 0
@@ -1866,7 +1867,7 @@ class CryptoAPI:
             else:
                 # Fallback to Binance data if CMC fails
                 return self._get_binance_market_fallback()
-                
+
         except Exception as e:
             print(f"❌ CoinMarketCap market overview error: {e}")
             return self._get_binance_market_fallback()
@@ -1912,13 +1913,13 @@ class CryptoAPI:
         try:
             # Get comprehensive data from CoinMarketCap
             cmc_data = self.cmc_provider.get_comprehensive_data(symbol)
-            
+
             # Get real-time price from CoinAPI as backup
             coinapi_price = self.get_coinapi_price(symbol, force_refresh=True)
-            
+
             # Get futures data from Binance
             futures_data = self.get_comprehensive_futures_data(symbol)
-            
+
             # Combine all data
             analysis_data = {
                 'symbol': symbol.upper(),
@@ -1928,9 +1929,9 @@ class CryptoAPI:
                 'futures_data': futures_data,
                 'source': 'comprehensive_multi_api'
             }
-            
+
             return analysis_data
-            
+
         except Exception as e:
             return {'error': f"Comprehensive analysis error: {str(e)}"}
 

@@ -40,7 +40,7 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
-from snd_auto_signals import initialize_auto_signals
+from snd_auto_signals import initialize_auto_signalsto_signals
 
 class TelegramBot:
     def __init__(self):
