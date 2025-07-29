@@ -655,7 +655,7 @@ class TelegramBot:
             # Get comprehensive data from CoinMarketCap and other sources
             analysis_data = self.crypto_api.get_comprehensive_crypto_analysis(symbol)
             futures_data = self.crypto_api.get_futures_data(symbol)
-            
+
             # Get CoinAPI price as backup
             price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
 
@@ -667,14 +667,14 @@ class TelegramBot:
                 cmc_data = analysis_data.get('cmc_data', {})
                 if 'error' not in cmc_data and cmc_data.get('description'):
                     description = cmc_data.get('description', '')[:200] + '...' if len(cmc_data.get('description', '')) > 200 else cmc_data.get('description', '')
-                    
+
                     analysis += f"""
 
 📋 **Informasi Fundamental:**
 • **Nama**: {cmc_data.get('name', symbol)}
 • **Rank**: #{cmc_data.get('cmc_rank', 'N/A')}
 • **Deskripsi**: {description}"""
-                    
+
                     if cmc_data.get('website'):
                         website = cmc_data['website'][0] if cmc_data['website'] else 'N/A'
                         analysis += f"\n• **Website**: {website}"
@@ -810,7 +810,7 @@ class TelegramBot:
                 print("🎯 Calling AI generate_futures_signals...")
                 signals = self.ai.generate_futures_signals('id', self.crypto_api)
                 print(f"📊 Signals generated: {len(signals) if signals else 0} characters")
-                
+
                 if not signals:
                     print("❌ AI returned None/empty signals")
                     error_reason = "AI tidak dapat menghasilkan sinyal - kemungkinan data pasar tidak mencukupi"
@@ -820,7 +820,7 @@ class TelegramBot:
                 else:
                     print("✅ Signals generated successfully")
                     error_reason = None
-                    
+
             except Exception as signal_error:
                 print(f"❌ Error in generate_futures_signals: {signal_error}")
                 error_reason = f"Error dalam proses AI: {str(signal_error)[:100]}"
@@ -1950,7 +1950,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
         try:
             stats = self.db.get_bot_statistics()
-            
+
             message = f"""📊 **Recovery & Database Stats**
 
 👥 **User Stats:**
@@ -1982,9 +1982,9 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
     async def check_admin_command(self, update: Update, context: CallbackContext):
         """Handle /check_admin command"""
         user_id = update.message.from_user.id
-        
+
         is_admin = user_id == self.admin_id
-        
+
         message = f"""🔍 **Admin Check**
 
 👤 **Your Info:**
@@ -2076,7 +2076,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         try:
             # Get premium referral earnings
             premium_stats = self.db.get_premium_referral_stats(user_id)
-            
+
             message = f"""💎 **Premium Earnings Dashboard**
 
 💰 **Total Earnings**: Rp {premium_stats['total_earnings']:,}

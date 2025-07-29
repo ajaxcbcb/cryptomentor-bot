@@ -727,7 +727,7 @@ class CryptoAPI:
             data = response.json()
 
             return {
-                'symbol: symbol,
+                'symbol': symbol,
                 'mark_price': float(data['markPrice']),
                 'index_price': float(data['indexPrice']),
                 'estimated_settle_price': float(data.get('estimatedSettlePrice', 0)),
@@ -1437,7 +1437,6 @@ class CryptoAPI:
             market_structure = self._analyze_market_structure(candlesticks)
 
             # Calculate trend score
-```python
             trend_score = self._calculate_trend_score(candlesticks)
 
             # Overall confidence assessment
