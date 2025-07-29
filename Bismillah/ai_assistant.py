@@ -52,7 +52,7 @@ class AIAssistant:
 🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
     def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate comprehensive futures analysis with GUARANTEED clear LONG/SHORT trading recommendations for ALL timeframes"""
+        """Generate comprehensive futures analysis with GUARANTEED clear LONG/SHORT trading recommendations using CoinAPI real-time prices"""
         try:
             print(f"🎯 Generating MANDATORY futures trading signal for {symbol} {timeframe}")
             
@@ -60,38 +60,43 @@ class AIAssistant:
                 print(f"⚠️ No crypto_api provided, using offline signal for {symbol}")
                 return self._generate_offline_futures_signal(symbol, timeframe, language)
             
-            # Get real-time data from CoinAPI
+            # FORCE real-time data refresh from CoinAPI for deployment
             coinapi_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
             
             # Get Binance futures data for additional context
             futures_data = crypto_api.get_comprehensive_futures_data(symbol)
             
-            # Use CoinAPI as primary, Binance as fallback, estimation as final fallback
+            # PRIORITY: CoinAPI real-time > Binance Futures > Estimation
             primary_price = 0
             price_source = "Unknown"
+            price_source_emoji = "❓"
             
             if 'error' not in coinapi_data and coinapi_data.get('price', 0) > 0:
                 primary_price = coinapi_data.get('price', 0)
                 price_source = "CoinAPI Real-time"
-                print(f"✅ Using CoinAPI price: ${primary_price}")
+                price_source_emoji = "🟢"
+                print(f"✅ Using CoinAPI real-time price: ${primary_price}")
             elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
                 primary_price = futures_data.get('price_data', {}).get('price', 0)
                 price_source = "Binance Futures"
+                price_source_emoji = "🟡"
                 print(f"✅ Using Binance Futures price: ${primary_price}")
             else:
                 # Price estimation fallback for major coins
                 primary_price = self._get_estimated_price(symbol)
                 price_source = "Estimated Price"
+                price_source_emoji = "🔴"
                 print(f"⚠️ Using estimated price: ${primary_price}")
             
             if primary_price <= 0:
                 primary_price = self._get_estimated_price(symbol)
                 price_source = "Emergency Fallback"
+                price_source_emoji = "🔴"
                 print(f"🔧 Emergency price fallback: ${primary_price}")
             
-            print(f"✅ Final price for signal generation: ${primary_price:,.6f} from {price_source}")
+            print(f"✅ Final price for signal generation: ${primary_price:,.8f} from {price_source}")
             
-            # FORCE MANDATORY signal generation - NEVER return without LONG/SHORT with Entry/TP/SL
+            # FORCE MANDATORY signal generation with real-time price
             signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(symbol, timeframe, coinapi_data, futures_data, primary_price, language)
             
             # VALIDATE that signal contains MANDATORY elements
@@ -99,19 +104,19 @@ class AIAssistant:
                 print(f"❌ Signal validation FAILED for {symbol} {timeframe}, forcing emergency signal")
                 signal_analysis = self._generate_emergency_trading_signal(symbol, timeframe, primary_price, language)
             
-            # Smart price formatting for better readability
+            # Enhanced price formatting for better readability
             if primary_price < 1:
                 price_display = f"${primary_price:.8f}"
             elif primary_price < 100:
-                price_display = f"${primary_price:.4f}"
+                price_display = f"${primary_price:.6f}"
             else:
-                price_display = f"${primary_price:,.2f}"
+                price_display = f"${primary_price:,.4f}"
 
             if language == 'id':
                 message = f"""🎯 **REKOMENDASI TRADING FUTURES {symbol.upper()} ({timeframe})**
 
 💰 **HARGA REAL-TIME**: {price_display}
-📡 **SUMBER DATA**: {price_source}
+📡 **SUMBER DATA**: {price_source_emoji} {price_source}
 ⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 {signal_analysis}
@@ -127,7 +132,7 @@ class AIAssistant:
                 message = f"""🎯 **FUTURES TRADING RECOMMENDATION {symbol.upper()} ({timeframe})**
 
 💰 **REAL-TIME PRICE**: {price_display}
-📡 **DATA SOURCE**: {price_source}
+📡 **DATA SOURCE**: {price_source_emoji} {price_source}
 ⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S UTC')}
 
 {signal_analysis}
@@ -1622,40 +1627,42 @@ class AIAssistant:
             return "❌ Error dalam menghasilkan sinyal trading."
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate multiple futures signals with enhanced formatting"""
+        """Generate multiple futures signals with clean, professional formatting and real-time CoinAPI prices"""
         try:
-            print(f"🎯 Generating multiple futures signals with enhanced formatting")
+            print(f"🎯 Generating multiple futures signals with clean formatting")
             
             # Target symbols for signals
             target_symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA']
-            timeframes = ['1h', '4h']
             
-            signals_text = ""
+            signals_generated = []
             
             for symbol in target_symbols:
                 try:
-                    # Get price data
+                    # FORCE real-time price refresh from CoinAPI
                     price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
                     futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
                     
-                    # Use primary price source
+                    # Priority: CoinAPI real-time > Binance Futures > Estimation
                     if 'error' not in price_data and price_data.get('price', 0) > 0:
                         current_price = price_data.get('price', 0)
-                        price_source = "CoinAPI"
+                        price_source = "CoinAPI Real-time"
+                        source_emoji = "🟢"
                     elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
                         current_price = futures_data.get('price_data', {}).get('price', 0)
-                        price_source = "Binance"
+                        price_source = "Binance Futures"
+                        source_emoji = "🟡"
                     else:
                         current_price = self._get_estimated_price(symbol)
                         price_source = "Estimated"
+                        source_emoji = "🔴"
                     
-                    # Smart price formatting
+                    # Enhanced price formatting
                     if current_price < 1:
-                        price_display = f"${current_price:.6f}"
+                        price_display = f"${current_price:.8f}"
                     elif current_price < 100:
-                        price_display = f"${current_price:.4f}"
+                        price_display = f"${current_price:.6f}"
                     else:
-                        price_display = f"${current_price:,.2f}"
+                        price_display = f"${current_price:,.4f}"
                     
                     # Generate signal for main timeframe (4h)
                     signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(
@@ -1666,91 +1673,100 @@ class AIAssistant:
                     signal_direction = "LONG" if "LONG" in signal_analysis else "SHORT"
                     signal_emoji = "🟢" if signal_direction == "LONG" else "🔴"
                     
-                    # Calculate simplified levels
+                    # Calculate trading levels with better precision
                     if signal_direction == "LONG":
-                        entry = current_price * 0.999
+                        entry = current_price * 0.9995
                         tp1 = current_price * 1.025
                         tp2 = current_price * 1.05
-                        sl = current_price * 0.98
+                        sl = current_price * 0.975
                     else:
-                        entry = current_price * 1.001
+                        entry = current_price * 1.0005
                         tp1 = current_price * 0.975
                         tp2 = current_price * 0.95
-                        sl = current_price * 1.02
+                        sl = current_price * 1.025
                     
-                    # Format individual signal
+                    # Smart level formatting
+                    def format_level(price):
+                        if price < 1:
+                            return f"${price:.8f}"
+                        elif price < 100:
+                            return f"${price:.6f}"
+                        else:
+                            return f"${price:,.4f}"
+                    
+                    # Clean signal formatting (reduced asterisks and visual noise)
                     if language == 'id':
-                        signals_text += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **{symbol}/USDT FUTURES SIGNAL** {signal_emoji}
+                        signal_text = f"""═══════════════════════════════════════════════
+🎯 {symbol}/USDT FUTURES SIGNAL {signal_emoji}
 
-💰 **HARGA SAAT INI**: {price_display} ({price_source})
-📊 **SIGNAL**: {signal_direction} | ⏰ **TIMEFRAME**: 4H
+💰 HARGA SAAT INI: {price_display}
+📊 SIGNAL: {signal_direction} | ⏰ TIMEFRAME: 4H
+📡 SUMBER: {source_emoji} {price_source}
 
-📈 **TRADING LEVELS:**
-┣━ 📍 **ENTRY**: {f'${entry:.6f}' if entry < 1 else f'${entry:.4f}' if entry < 100 else f'${entry:,.2f}'}
-┣━ 🎯 **TP 1**: {f'${tp1:.6f}' if tp1 < 1 else f'${tp1:.4f}' if tp1 < 100 else f'${tp1:,.2f}'} (50% profit)
-┣━ 🎯 **TP 2**: {f'${tp2:.6f}' if tp2 < 1 else f'${tp2:.4f}' if tp2 < 100 else f'${tp2:,.2f}'} (50% profit)
-┗━ 🛡️ **STOP LOSS**: {f'${sl:.6f}' if sl < 1 else f'${sl:.4f}' if sl < 100 else f'${sl:,.2f}'} (**WAJIB!**)
+📈 TRADING LEVELS:
+   📍 ENTRY: {format_level(entry)}
+   🎯 TP 1: {format_level(tp1)} (ambil 50% profit)
+   🎯 TP 2: {format_level(tp2)} (ambil 50% profit)
+   🛡️ STOP LOSS: {format_level(sl)} (WAJIB!)
 
-🔥 **RISK/REWARD**: {abs(tp2-entry)/abs(sl-entry):.1f}:1
-⚡ **CONFIDENCE**: 75%
-"""
+🔥 RISK/REWARD: {abs(tp2-entry)/abs(sl-entry):.1f}:1
+⚡ CONFIDENCE: 75%"""
                     else:
-                        signals_text += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **{symbol}/USDT FUTURES SIGNAL** {signal_emoji}
+                        signal_text = f"""═══════════════════════════════════════════════
+🎯 {symbol}/USDT FUTURES SIGNAL {signal_emoji}
 
-💰 **CURRENT PRICE**: {price_display} ({price_source})
-📊 **SIGNAL**: {signal_direction} | ⏰ **TIMEFRAME**: 4H
+💰 CURRENT PRICE: {price_display}
+📊 SIGNAL: {signal_direction} | ⏰ TIMEFRAME: 4H
+📡 SOURCE: {source_emoji} {price_source}
 
-📈 **TRADING LEVELS:**
-┣━ 📍 **ENTRY**: {f'${entry:.6f}' if entry < 1 else f'${entry:.4f}' if entry < 100 else f'${entry:,.2f}'}
-┣━ 🎯 **TP 1**: {f'${tp1:.6f}' if tp1 < 1 else f'${tp1:.4f}' if tp1 < 100 else f'${tp1:,.2f}'} (50% profit)
-┣━ 🎯 **TP 2**: {f'${tp2:.6f}' if tp2 < 1 else f'${tp2:.4f}' if tp2 < 100 else f'${tp2:,.2f}'} (50% profit)
-┗━ 🛡️ **STOP LOSS**: {f'${sl:.6f}' if sl < 1 else f'${sl:.4f}' if sl < 100 else f'${sl:,.2f}'} (**MANDATORY!**)
+📈 TRADING LEVELS:
+   📍 ENTRY: {format_level(entry)}
+   🎯 TP 1: {format_level(tp1)} (take 50% profit)
+   🎯 TP 2: {format_level(tp2)} (take 50% profit)
+   🛡️ STOP LOSS: {format_level(sl)} (MANDATORY!)
 
-🔥 **RISK/REWARD**: {abs(tp2-entry)/abs(sl-entry):.1f}:1
-⚡ **CONFIDENCE**: 75%
-"""
+🔥 RISK/REWARD: {abs(tp2-entry)/abs(sl-entry):.1f}:1
+⚡ CONFIDENCE: 75%"""
+                    
+                    signals_generated.append(signal_text)
                     
                 except Exception as e:
                     print(f"❌ Error generating signal for {symbol}: {e}")
                     continue
             
-            # Add header and footer
+            # Clean header and footer (minimal asterisks)
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             
             if language == 'id':
-                final_message = f"""🚨 **FUTURES SIGNALS HARIAN - SnD ANALYSIS**
-⏰ **UPDATE**: {current_time} | 📊 **TIMEFRAME**: 4H
+                final_message = f"""🚨 FUTURES SIGNALS HARIAN - SnD ANALYSIS
+⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
 
-{signals_text}
+{chr(10).join(signals_generated)}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛡️ **RISK MANAGEMENT WAJIB:**
+═══════════════════════════════════════════════
+🛡️ RISK MANAGEMENT WAJIB:
 • Position size maksimal 1-2% per trade
 • Set stop loss SEBELUM entry
-• Take profit bertahap: 50% di TP1, 50% di TP2
+• Take profit bertahap: 50% di TP1, 50% di TP2  
 • Move SL ke break-even setelah TP1 hit
 
-📊 **SUMBER DATA**: CoinAPI + Binance Futures Real-time
-⚠️ **DISCLAIMER**: High risk - gunakan proper risk management!"""
+📊 SUMBER DATA: CoinAPI + Binance Futures Real-time
+⚠️ DISCLAIMER: High risk - gunakan proper risk management!"""
             else:
-                final_message = f"""🚨 **DAILY FUTURES SIGNALS - SnD ANALYSIS**
-⏰ **UPDATE**: {current_time} | 📊 **TIMEFRAME**: 4H
+                final_message = f"""🚨 DAILY FUTURES SIGNALS - SnD ANALYSIS
+⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
 
-{signals_text}
+{chr(10).join(signals_generated)}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛡️ **MANDATORY RISK MANAGEMENT:**
+═══════════════════════════════════════════════
+🛡️ MANDATORY RISK MANAGEMENT:
 • Maximum position size 1-2% per trade
 • Set stop loss BEFORE entry
 • Take profit gradually: 50% at TP1, 50% at TP2
 • Move SL to break-even after TP1 hit
 
-📊 **DATA SOURCE**: CoinAPI + Binance Futures Real-time
-⚠️ **DISCLAIMER**: High risk - use proper risk management!"""
+📊 DATA SOURCE: CoinAPI + Binance Futures Real-time
+⚠️ DISCLAIMER: High risk - use proper risk management!"""
             
             return final_message
             
