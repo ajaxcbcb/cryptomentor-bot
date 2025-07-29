@@ -30,6 +30,37 @@ class CryptoAPI:
 
     # === BINANCE SPOT API METHODS ===
 
+    def get_binance_price(self, symbol):
+        """Get price from Binance Spot API"""
+        try:
+            if not symbol.endswith('USDT'):
+                symbol = symbol.upper() + 'USDT'
+
+            response = requests.get(
+                f"{self.binance_spot_url}/ticker/24hr",
+                params={'symbol': symbol},
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            return {
+                'symbol': symbol,
+                'price': float(data['lastPrice']),
+                'change_24h': float(data['priceChangePercent']),
+                'high_24h': float(data['highPrice']),
+                'low_24h': float(data['lowPrice']),
+                'volume_24h': float(data['volume']),
+                'quote_volume_24h': float(data['quoteVolume']),
+                'open_price': float(data['openPrice']),
+                'close_price': float(data['lastPrice']),
+                'price_change': float(data['priceChange']),
+                'count': int(data['count']),
+                'source': 'binance_spot'
+            }
+        except Exception as e:
+            return {'error': f"Binance spot price error: {str(e)}"}
+
     def get_binance_server_time(self):
         """Get Binance server time"""
         try:
@@ -1440,8 +1471,7 @@ class CryptoAPI:
     def analyze_supply_demand(self, symbol, timeframe='1h'):
         """Analyze Supply & Demand zones for trading signals"""
         try:
-            # Get candlestick data for```python
- SnD analysis
+            # Get candlestick data for SnD analysis
             candlestick_data = self.get_binance_candlestick(symbol, timeframe, 100)
             if 'error' in candlestick_data:
                 return {'error': f'Failed to get candlestick data: {candlestick_data["error"]}'}
@@ -2416,7 +2446,7 @@ class CryptoAPI:
         """Analyze market structure (Higher Highs, Higher Lows, etc.)"""
         try:
             structure = {
-                'pattern': 'consolidation',
+                'pattern': 'consolidation', 
                 'strength': 'medium',
                 'breakout_probability': 50
             }
