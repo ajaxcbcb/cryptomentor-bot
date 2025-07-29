@@ -559,17 +559,21 @@ class TelegramBot:
         loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol}... ({mode_text})")
 
         # Get comprehensive real-time data with API priority
-        print(f"🔄 Fetching real-time data for {symbol} from CoinAPI...")
+        print(f"🔄 Fetching real-time data for {symbol} from multiple sources...")
 
-        # Use CoinAPI as primary source in deployment mode
-        if self.crypto_api.is_deployment_mode():
-            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-        else:
-            price_data = self.crypto_api.get_price(symbol, force_refresh=True)
-        
+        # Primary: Binance API for most accurate real-time prices
+        # ALWAYS force refresh in deployment to ensure real-time data
+        price_data = self.crypto_api.get_multi_api_price(symbol, force_refresh=IS_DEPLOYMENT)
+        coingecko_data = None
         news_data = None
 
-        # Get relevant news for context
+        # Secondary: CoinGecko for additional market data
+        try:
+            coingecko_data = self.crypto_api.get_price(symbol, force_refresh=True)
+        except:
+            pass
+
+        # Tertiary: Get relevant news for context
         try:
             news_data = self.crypto_api.get_crypto_news(limit=1)
         except:
@@ -715,16 +719,13 @@ class TelegramBot:
         loading_msg = await update.message.reply_text("⏳ Menganalisis data komprehensif dari CoinAPI + berita crypto...")
 
         try:
-            # Get price data using CoinAPI in deployment mode
-            if self.crypto_api.is_deployment_mode():
-                price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            else:
-                price_data = self.crypto_api.get_price(symbol, force_refresh=True)
+            # Get price data from CoinAPI (primary source)
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
             
             # Get futures data from Binance for advanced analysis
             futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
 
-            # Use comprehensive analysis function with consistent parameters
+            # Use comprehensive analysis function with CoinAPI data
             analysis = self.ai.get_comprehensive_analysis(symbol, futures_data, price_data, 'id', self.crypto_api)
 
             # Deduct credit only for non-premium, non-admin users (20 credits for comprehensive analysis)
@@ -824,8 +825,8 @@ Contoh: `/add_coin btc 0.5`
                 await loading_msg.edit_text("❌ API tidak tersedia. Silakan coba lagi dalam beberapa menit.", parse_mode='Markdown')
                 return
 
-            # Get comprehensive market overview with CoinAPI integration
-            print("📊 Calling AI market sentiment analysis with CoinAPI...")
+            # Get comprehensive market overview with real-time data
+            print("📊 Calling AI market sentiment analysis...")
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
             
             if not market_data or len(market_data.strip()) < 50:
@@ -895,7 +896,7 @@ Contoh: `/add_coin btc 0.5`
 
             print(f"🔄 Generating futures signals for user {user_id}")
 
-            # Generate signals using CoinAPI integration
+            # Generate signals with proper error handling
             signals = self.ai.generate_futures_signals('id', self.crypto_api)
 
             if not signals or len(signals.strip()) < 50:
@@ -2988,11 +2989,8 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
                     # Show loading message
                     loading_msg = await update.message.reply_text(f"⏳ Mengecek harga {detected_symbol} real-time...")
 
-                    # Get price data using CoinAPI in deployment mode
-                    if self.crypto_api.is_deployment_mode():
-                        price_data = self.crypto_api.get_coinapi_price(detected_symbol, force_refresh=True)
-                    else:
-                        price_data = self.crypto_api.get_price(detected_symbol, force_refresh=True)
+                    # Get price data with deployment-aware force refresh
+                    price_data = self.crypto_api.get_price(detected_symbol, force_refresh=IS_DEPLOYMENT)
 
                     if price_data and 'error' not in price_data:
                         source = price_data.get('source', 'unknown')
@@ -3026,13 +3024,8 @@ Terima kasih telah setia menggunakan CryptoMentor AI! 🚀"""
                         loading_msg = await update.message.reply_text(f"⏳ Menganalisis {detected_symbol}...")
 
                         try:
-                            # Use CoinAPI in deployment mode
-                            if self.crypto_api.is_deployment_mode():
-                                price_data = self.crypto_api.get_coinapi_price(detected_symbol, force_refresh=True)
-                            else:
-                                price_data = self.crypto_api.get_price(detected_symbol, force_refresh=True)
-                            
-                            futures_data = self.crypto_api.get_comprehensive_futures_data(detected_symbol)
+                            price_data = self.crypto_api.get_price(detected_symbol)
+                            futures_data = self.crypto_api.get_futures_data(detected_symbol)
 
                             analysis = self.ai.get_comprehensive_analysis(detected_symbol, futures_data, price_data, 'id', self.crypto_api)
 
@@ -3138,8 +3131,8 @@ Atau gunakan command seperti `/price btc`, `/analyze eth`, `/futures sol`"""
         await query.edit_message_text(f"⏳ AI sedang menganalisis {symbol} pada timeframe {timeframe}...")
 
         try:
-            # Get AI recommendation for best trading setup using consistent method
-            analysis = self.ai.get_ai_futures_recommendation(symbol, timeframe, 'id', self.crypto_api)
+            # Get AI recommendation for best trading setup
+            analysis = self.ai.get_ai_futures_recommendation(symbol, timeframe, self.crypto_api)
 
             # Deduct credits for non-premium users
             if not is_premium and not is_admin:
