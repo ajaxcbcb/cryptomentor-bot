@@ -728,7 +728,8 @@ class CryptoAPI:
 
             return {
                 'symbol': symbol,
-                'mark price': float(data['markPrice']),
+                'mark price':```python
+ float(data['markPrice']),
                 'index_price': float(data['indexPrice']),
                 'estimated_settle_price': float(data.get('estimatedSettlePrice', 0)),
                 'last_funding_rate': float(data['lastFundingRate']),
@@ -1370,38 +1371,68 @@ class CryptoAPI:
     # === UTILITY METHODS ===
 
     def get_market_overview(self):
-        """Get market overview using CoinMarketCap global metrics"""
+        """Get market overview - enhanced with CoinMarketCap integration"""
         try:
-            if not self.cmc_provider or not self.cmc_provider.api_key:
-                return {'error': 'CoinMarketCap not available'}
+            # Get global market data from CoinMarketCap first
+            if self.cmc_provider.api_key:
+                cmc_global = self.cmc_provider.get_global_metrics()
+                if 'error' not in cmc_global:
+                    return {
+                        'total_market_cap': cmc_global.get('total_market_cap', 0),
+                        'market_cap_change_24h': cmc_global.get('market_cap_change_24h', 0),
+                        'total_volume_24h': cmc_global.get('total_volume_24h', 0),
+                        'btc_dominance': cmc_global.get('btc_dominance', 0),
+                        'eth_dominance': cmc_global.get('eth_dominance', 0),
+                        'active_cryptocurrencies': cmc_global.get('active_cryptocurrencies', 0),
+                        'active_exchanges': cmc_global.get('active_exchanges', 0),
+                        'source': 'coinmarketcap'
+                    }
 
-            # Get global metrics
-            global_data = self.cmc_provider.get_global_metrics()
+            # Fallback to CoinGecko if CoinMarketCap fails
+            url = "https://api.coingecko.com/api/v3/global"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
 
-            if 'error' in global_data:
-                return global_data
+            data = response.json()
+            global_data = data.get('data', {})
 
-            # Get BTC and ETH quotes for additional data
-            btc_data = self.cmc_provider.get_cryptocurrency_quotes('BTC')
-            eth_data = self.cmc_provider.get_cryptocurrency_quotes('ETH')
+            total_market_cap = global_data.get('total_market_cap', {}).get('usd', 0)
+            market_cap_change = global_data.get('market_cap_change_percentage_24h_usd', 0)
+            btc_dominance = global_data.get('market_cap_percentage', {}).get('btc', 0)
+            eth_dominance = global_data.get('market_cap_percentage', {}).get('eth', 0)
+            active_cryptos = global_data.get('active_cryptocurrencies', 0)
 
             return {
-                'total_market_cap': global_data.get('total_market_cap', 0),
-                'total_volume_24h': global_data.get('total_volume_24h', 0),
-                'market_cap_change_24h': global_data.get('market_cap_change_24h', 0),
-                'btc_dominance': global_data.get('btc_dominance', 0),
-                'eth_dominance': global_data.get('eth_dominance', 0),
-                'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
-                'active_exchanges': global_data.get('active_exchanges', 0),
-                'btc_price': btc_data.get('price', 0) if 'error' not in btc_data else 0,
-                'btc_change_24h': btc_data.get('percent_change_24h', 0) if 'error' not in btc_data else 0,
-                'eth_price': eth_data.get('price', 0) if 'error' not in eth_data else 0,
-                'eth_change_24h': eth_data.get('percent_change_24h', 0) if 'error' not in eth_data else 0,
-                'source': 'coinmarketcap_global'
+                'total_market_cap': total_market_cap,
+                'market_cap_change_24h': market_cap_change,
+                'btc_dominance': btc_dominance,
+                'eth_dominance': eth_dominance,
+                'active_cryptocurrencies': active_cryptos,
+                'source': 'coingecko_fallback'
             }
 
         except Exception as e:
-            return {'error': f'Market overview error: {str(e)}'}
+            print(f"Error getting market overview: {e}")
+            return {
+                'error': f'Market overview error: {str(e)}',
+                'total_market_cap': 2400000000000,  # Fallback values
+                'market_cap_change_24h': 1.5,
+                'btc_dominance': 52.3,
+                'eth_dominance': 17.2,
+                'active_cryptocurrencies': 12000
+            }
+
+    def get_enhanced_market_overview(self):
+        """Get enhanced market overview with CoinMarketCap Startup Plan features"""
+        try:
+            if not self.cmc_provider.api_key:
+                return {'error': 'CoinMarketCap API key not available'}
+
+            return self.cmc_provider.get_enhanced_market_overview()
+
+        except Exception as e:
+            print(f"Error getting enhanced market overview: {e}")
+            return {'error': f'Enhanced market overview error: {str(e)}'}
 
     def get_futures_tickers(self):
         """Get all available futures symbols"""
@@ -1410,7 +1441,8 @@ class CryptoAPI:
     def analyze_supply_demand(self, symbol, timeframe='1h'):
         """Analyze Supply & Demand zones for trading signals"""
         try:
-            # Get candlestick data for SnD analysis
+            # Get candlestick data for```python
+ SnD analysis
             candlestick_data = self.get_binance_candlestick(symbol, timeframe, 100)
             if 'error' in candlestick_data:
                 return {'error': f'Failed to get candlestick data: {candlestick_data["error"]}'}
@@ -1462,7 +1494,7 @@ class CryptoAPI:
     def _identify_supply_zones(self, candlesticks, current_price):
         """Identify supply zones from candlestick data with safety checks"""
         supply_zones = []
-        
+
         # Safety check for minimum data
         if len(candlesticks) < 5:
             return supply_zones
@@ -1472,15 +1504,15 @@ class CryptoAPI:
                 candle = candlesticks[i]
                 prev_candle = candlesticks[i-1]
                 next_candle = candlesticks[i+1]
-                
+
                 # Validate candle data
                 required_fields = ['high', 'low', 'open', 'close']
                 if not all(field in candle and candle[field] is not None for field in required_fields):
                     continue
-                
+
                 if not all(field in prev_candle and prev_candle[field] is not None for field in required_fields):
                     continue
-                    
+
                 if not all(field in next_candle and next_candle[field] is not None for field in required_fields):
                     continue
 
@@ -1517,7 +1549,7 @@ class CryptoAPI:
     def _identify_demand_zones(self, candlesticks, current_price):
         """Identify demand zones from candlestick data with safety checks"""
         demand_zones = []
-        
+
         # Safety check for minimum data
         if len(candlesticks) < 5:
             return demand_zones
@@ -1527,15 +1559,15 @@ class CryptoAPI:
                 candle = candlesticks[i]
                 prev_candle = candlesticks[i-1]
                 next_candle = candlesticks[i+1]
-                
+
                 # Validate candle data
                 required_fields = ['high', 'low', 'open', 'close']
                 if not all(field in candle and candle[field] is not None for field in required_fields):
                     continue
-                
+
                 if not all(field in prev_candle and prev_candle[field] is not None for field in required_fields):
                     continue
-                    
+
                 if not all(field in next_candle and next_candle[field] is not None for field in required_fields):
                     continue
 
@@ -1572,7 +1604,7 @@ class CryptoAPI:
     def _calculate_zone_strength(self, candlesticks, index, zone_type):
         """Calculate the strength of a supply/demand zone with safety checks"""
         strength = 50  # Base strength
-        
+
         # Validate input parameters
         if not candlesticks or index < 0 or index >= len(candlesticks):
             return strength
@@ -1581,12 +1613,12 @@ class CryptoAPI:
         try:
             if 'volume' in candlesticks[index] and candlesticks[index]['volume'] > 0:
                 volume = candlesticks[index]['volume']
-                
+
                 # Calculate average volume with bounds checking
                 start_idx = max(0, index-10)
                 end_idx = min(len(candlesticks), index+11)
                 volume_slice = candlesticks[start_idx:end_idx]
-                
+
                 if volume_slice:  # Ensure slice is not empty
                     volumes = [c.get('volume', 0) for c in volume_slice if c.get('volume', 0) > 0]
                     if volumes:  # Ensure volumes list is not empty
@@ -2129,6 +2161,7 @@ class CryptoAPI:
             os.getenv('REPLIT_ENVIRONMENT') == 'deployment' or
             os.path.exists('/tmp/repl_deployment_flag') or
             bool(os.getenv('REPL_SLUG')) or
+            bool(os.getenv('REPL_DB_URL')) or
             bool(os.getenv('REPL_OWNER'))
         )
 
@@ -2209,20 +2242,20 @@ class CryptoAPI:
 
             # Calculate enhanced SnD analysis with safety checks
             recent_candles = candlesticks[-50:] if len(candlesticks) >= 50 else candlesticks
-            
+
             if len(recent_candles) < 10:
                 return {
                     'error': f'Insufficient data for SnD analysis: only {len(recent_candles)} candles available',
                     'symbol': symbol,
                     'analysis_successful': False
                 }
-            
+
             highs = [c['high'] for c in recent_candles]
             lows = [c['low'] for c in recent_candles]
             closes = [c['close'] for c in recent_candles]
             opens = [c['open'] for c in recent_candles]
             volumes = [c['volume'] for c in recent_candles]
-            
+
             # Validate data is not empty
             if not highs or not lows or not closes:
                 return {

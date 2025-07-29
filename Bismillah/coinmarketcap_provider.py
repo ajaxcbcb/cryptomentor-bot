@@ -185,6 +185,103 @@ class CoinMarketCapProvider:
         except Exception as e:
             return {'error': f'CMC comprehensive data error: {str(e)}'}
 
+    def get_top_cryptocurrencies(self, limit=5):
+        """Get top cryptocurrencies by market cap using /v1/cryptocurrency/listings/latest"""
+        try:
+            if not self.api_key:
+                return {'error': 'CMC API key not found'}
+
+            url = f"{self.base_url}/v1/cryptocurrency/listings/latest"
+            params = {
+                'limit': limit,
+                'sort': 'market_cap',
+                'convert': 'USD'
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data.get('status', {}).get('error_code') == 0:
+                cryptocurrencies = []
+                for crypto in data.get('data', []):
+                    quote = crypto.get('quote', {}).get('USD', {})
+                    cryptocurrencies.append({
+                        'name': crypto.get('name', ''),
+                        'symbol': crypto.get('symbol', ''),
+                        'cmc_rank': crypto.get('cmc_rank', 0),
+                        'price': quote.get('price', 0),
+                        'percent_change_24h': quote.get('percent_change_24h', 0),
+                        'market_cap': quote.get('market_cap', 0),
+                        'volume_24h': quote.get('volume_24h', 0)
+                    })
+                
+                return {
+                    'data': cryptocurrencies,
+                    'source': 'coinmarketcap_listings'
+                }
+            else:
+                error_msg = data.get('status', {}).get('error_message', 'Unknown error')
+                return {'error': f'CMC listings API error: {error_msg}'}
+                
+        except requests.exceptions.RequestException as e:
+            return {'error': f'CMC listings request failed: {str(e)}'}
+        except Exception as e:
+            return {'error': f'CMC listings error: {str(e)}'}
+
+    def get_fear_greed_index(self):
+        """Get Fear & Greed Index from alternative.me API (free alternative)"""
+        try:
+            url = "https://api.alternative.me/fng/"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data.get('data') and len(data['data']) > 0:
+                fng_data = data['data'][0]
+                return {
+                    'value': int(fng_data.get('value', 50)),
+                    'value_classification': fng_data.get('value_classification', 'Neutral'),
+                    'timestamp': fng_data.get('timestamp', ''),
+                    'source': 'alternative.me'
+                }
+            else:
+                return {'error': 'No Fear & Greed data available'}
+                
+        except Exception as e:
+            # Fallback estimation based on market conditions
+            return {
+                'value': 50,
+                'value_classification': 'Neutral',
+                'timestamp': str(int(time.time())),
+                'source': 'estimated',
+                'error': f'FNG API failed: {str(e)}'
+            }
+
+    def get_enhanced_market_overview(self):
+        """Get comprehensive market overview combining multiple endpoints"""
+        try:
+            # Get global metrics
+            global_data = self.get_global_metrics()
+            
+            # Get top 5 cryptocurrencies
+            top_cryptos = self.get_top_cryptocurrencies(5)
+            
+            # Get Fear & Greed Index
+            fng_data = self.get_fear_greed_index()
+            
+            return {
+                'global_metrics': global_data,
+                'top_cryptocurrencies': top_cryptos,
+                'fear_greed_index': fng_data,
+                'source': 'coinmarketcap_enhanced'
+            }
+            
+        except Exception as e:
+            return {'error': f'Enhanced market overview error: {str(e)}'}
+
     def check_api_status(self):
         """Check CoinMarketCap API status"""
         try:

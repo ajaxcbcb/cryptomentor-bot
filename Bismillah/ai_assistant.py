@@ -219,8 +219,8 @@ Ask me anything about crypto! 🚀"""
 
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market sentiment analysis using CoinMarketCap and crypto news"""
-        if not crypto_api:
+        """Get enhanced market sentiment analysis using CoinMarketCap Startup Plan"""
+        if not crypto_api or not crypto_api.cmc_provider.api_key:
             # Return static response when API is not available
             if language == 'id':
                 return """🌍 **OVERVIEW PASAR CRYPTO** (Mode Offline)
@@ -250,32 +250,430 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
         try:
-            # Get market overview from CoinMarketCap
-            market_overview = crypto_api.get_market_overview()
-
-            # Get futures data for additional insights
-            btc_futures = crypto_api.get_comprehensive_futures_data('BTC')
-            eth_futures = crypto_api.get_comprehensive_futures_data('ETH')
-
-            # Get multiple price data
-            major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
-            prices_data = crypto_api.get_multiple_prices(major_symbols)
-
-            # Get crypto news
-            news_data = crypto_api.get_crypto_news(5)
+            # Get enhanced market overview from CoinMarketCap
+            enhanced_data = crypto_api.cmc_provider.get_enhanced_market_overview()
 
             # Format message based on language
             if language == 'id':
-                return self._format_market_overview_id(market_overview, prices_data, news_data, btc_futures, eth_futures)
+                return self._format_enhanced_market_overview_id(enhanced_data)
             else:
-                return self._format_market_overview_en(market_overview, prices_data, news_data, btc_futures, eth_futures)
+                return self._format_enhanced_market_overview_en(enhanced_data)
 
         except Exception as e:
-            print(f"❌ Market sentiment error: {e}")
+            print(f"❌ Enhanced market sentiment error: {e}")
             if language == 'id':
                 return f"❌ Error mengambil data pasar: {str(e)}"
             else:
                 return f"❌ Error fetching market data: {str(e)}"
+
+    def _format_enhanced_market_overview_id(self, enhanced_data):
+        """Format enhanced market overview in Indonesian with CoinMarketCap data"""
+        try:
+            if 'error' in enhanced_data:
+                return f"❌ Error mengambil data CoinMarketCap: {enhanced_data.get('error')}"
+
+            global_data = enhanced_data.get('global_metrics', {})
+            top_cryptos = enhanced_data.get('top_cryptocurrencies', {})
+            fng_data = enhanced_data.get('fear_greed_index', {})
+
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+            message = f"""🌍 **OVERVIEW PASAR CRYPTO ADVANCED** (CoinMarketCap Real-time)
+
+⏰ **Update**: {current_time}
+
+"""
+
+            # Global Market Stats
+            if 'error' not in global_data:
+                total_mcap = global_data.get('total_market_cap', 0)
+                mcap_change = global_data.get('market_cap_change_24h', 0)
+                total_volume = global_data.get('total_volume_24h', 0)
+                btc_dominance = global_data.get('btc_dominance', 0)
+                eth_dominance = global_data.get('eth_dominance', 0)
+                active_cryptos = global_data.get('active_cryptocurrencies', 0)
+
+                # Format large numbers
+                mcap_str = f"${total_mcap/1e12:.2f}T" if total_mcap > 1e12 else f"${total_mcap/1e9:.1f}B"
+                vol_str = f"${total_volume/1e12:.2f}T" if total_volume > 1e12 else f"${total_volume/1e9:.1f}B"
+
+                change_emoji = "📈" if mcap_change >= 0 else "📉"
+                change_color = "+" if mcap_change >= 0 else ""
+
+                message += f"""💰 **DATA GLOBAL MARKET:**
+• **Total Market Cap**: {mcap_str} {change_emoji} {change_color}{mcap_change:.2f}%
+• **Volume 24j**: {vol_str}
+• **BTC Dominance**: {btc_dominance:.1f}%
+• **ETH Dominance**: {eth_dominance:.1f}%
+• **Altcoin Dominance**: {100 - btc_dominance - eth_dominance:.1f}%
+• **Crypto Aktif**: {active_cryptos:,}
+
+"""
+
+                # ASCII Chart for BTC Dominance
+                dominance_bar = self._create_dominance_chart(btc_dominance, eth_dominance)
+                message += f"""📊 **DOMINANCE CHART:**
+```
+{dominance_bar}
+```
+
+"""
+
+            # Top 5 Cryptocurrencies
+            if 'error' not in top_cryptos and top_cryptos.get('data'):
+                message += "🔝 **TOP 5 KOIN (MARKET CAP):**\n"
+                
+                gainers = 0
+                losers = 0
+                
+                for i, crypto in enumerate(top_cryptos['data'][:5], 1):
+                    name = crypto.get('name', '')
+                    symbol = crypto.get('symbol', '')
+                    price = crypto.get('price', 0)
+                    change_24h = crypto.get('percent_change_24h', 0)
+                    
+                    # Count gainers/losers
+                    if change_24h > 0:
+                        gainers += 1
+                    elif change_24h < 0:
+                        losers += 1
+                    
+                    # Format price
+                    if price < 1:
+                        price_str = f"${price:.6f}"
+                    elif price < 1000:
+                        price_str = f"${price:.2f}"
+                    else:
+                        price_str = f"${price:,.0f}"
+                    
+                    change_emoji = "📈" if change_24h >= 0 else "📉"
+                    change_color = "+" if change_24h >= 0 else ""
+                    
+                    message += f"**{i}.** {name} ({symbol}): {price_str} {change_emoji} {change_color}{change_24h:.1f}%\n"
+
+                message += "\n"
+
+                # Market Sentiment Summary
+                total_analyzed = len(top_cryptos['data'])
+                neutral = total_analyzed - gainers - losers
+                
+                if gainers > losers:
+                    market_sentiment = "🟢 BULLISH"
+                elif losers > gainers:
+                    market_sentiment = "🔴 BEARISH"
+                else:
+                    market_sentiment = "🟡 NEUTRAL"
+
+                message += f"""📉 **RANGKUMAN PASAR:**
+• **Naik**: {gainers} koin 📈
+• **Turun**: {losers} koin 📉  
+• **Netral**: {neutral} koin 📊
+• **Sentimen**: {market_sentiment}
+
+"""
+
+            # Fear & Greed Index
+            if 'error' not in fng_data:
+                fng_value = fng_data.get('value', 50)
+                fng_classification = fng_data.get('value_classification', 'Neutral')
+                fng_source = fng_data.get('source', 'estimated')
+                
+                # Get emoji for FNG
+                if fng_value >= 75:
+                    fng_emoji = "🔥"
+                elif fng_value >= 50:
+                    fng_emoji = "😊"
+                elif fng_value >= 25:
+                    fng_emoji = "😐"
+                else:
+                    fng_emoji = "😨"
+                
+                # Create FNG bar
+                fng_bar = self._create_fng_bar(fng_value)
+                
+                message += f"""🌡️ **FEAR & GREED INDEX:**
+**{fng_value}/100** - {fng_classification} {fng_emoji}
+```
+{fng_bar}
+```
+*Source: {fng_source}*
+
+"""
+
+            message += f"""📡 **DATA SOURCES:**
+• **Market Data**: CoinMarketCap Startup Plan
+• **Fear & Greed**: Alternative.me API
+• **Real-time**: Live exchange rates
+
+💡 **TRADING INSIGHTS:**
+{self._get_trading_insights_id(enhanced_data)}
+
+⏰ **Update**: {current_time} | 🔄 **Auto-refresh**: Real-time"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting enhanced market overview: {str(e)}"
+
+    def _format_enhanced_market_overview_en(self, enhanced_data):
+        """Format enhanced market overview in English with CoinMarketCap data"""
+        try:
+            if 'error' in enhanced_data:
+                return f"❌ Error fetching CoinMarketCap data: {enhanced_data.get('error')}"
+
+            global_data = enhanced_data.get('global_metrics', {})
+            top_cryptos = enhanced_data.get('top_cryptocurrencies', {})
+            fng_data = enhanced_data.get('fear_greed_index', {})
+
+            current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+            message = f"""🌍 **ADVANCED CRYPTO MARKET OVERVIEW** (CoinMarketCap Real-time)
+
+⏰ **Update**: {current_time}
+
+"""
+
+            # Global Market Stats
+            if 'error' not in global_data:
+                total_mcap = global_data.get('total_market_cap', 0)
+                mcap_change = global_data.get('market_cap_change_24h', 0)
+                total_volume = global_data.get('total_volume_24h', 0)
+                btc_dominance = global_data.get('btc_dominance', 0)
+                eth_dominance = global_data.get('eth_dominance', 0)
+                active_cryptos = global_data.get('active_cryptocurrencies', 0)
+
+                # Format large numbers
+                mcap_str = f"${total_mcap/1e12:.2f}T" if total_mcap > 1e12 else f"${total_mcap/1e9:.1f}B"
+                vol_str = f"${total_volume/1e12:.2f}T" if total_volume > 1e12 else f"${total_volume/1e9:.1f}B"
+
+                change_emoji = "📈" if mcap_change >= 0 else "📉"
+                change_color = "+" if mcap_change >= 0 else ""
+
+                message += f"""💰 **GLOBAL MARKET DATA:**
+• **Total Market Cap**: {mcap_str} {change_emoji} {change_color}{mcap_change:.2f}%
+• **24h Volume**: {vol_str}
+• **BTC Dominance**: {btc_dominance:.1f}%
+• **ETH Dominance**: {eth_dominance:.1f}%
+• **Altcoin Dominance**: {100 - btc_dominance - eth_dominance:.1f}%
+• **Active Cryptos**: {active_cryptos:,}
+
+"""
+
+                # ASCII Chart for BTC Dominance
+                dominance_bar = self._create_dominance_chart(btc_dominance, eth_dominance)
+                message += f"""📊 **DOMINANCE CHART:**
+```
+{dominance_bar}
+```
+
+"""
+
+            # Top 5 Cryptocurrencies
+            if 'error' not in top_cryptos and top_cryptos.get('data'):
+                message += "🔝 **TOP 5 COINS (MARKET CAP):**\n"
+                
+                gainers = 0
+                losers = 0
+                
+                for i, crypto in enumerate(top_cryptos['data'][:5], 1):
+                    name = crypto.get('name', '')
+                    symbol = crypto.get('symbol', '')
+                    price = crypto.get('price', 0)
+                    change_24h = crypto.get('percent_change_24h', 0)
+                    
+                    # Count gainers/losers
+                    if change_24h > 0:
+                        gainers += 1
+                    elif change_24h < 0:
+                        losers += 1
+                    
+                    # Format price
+                    if price < 1:
+                        price_str = f"${price:.6f}"
+                    elif price < 1000:
+                        price_str = f"${price:.2f}"
+                    else:
+                        price_str = f"${price:,.0f}"
+                    
+                    change_emoji = "📈" if change_24h >= 0 else "📉"
+                    change_color = "+" if change_24h >= 0 else ""
+                    
+                    message += f"**{i}.** {name} ({symbol}): {price_str} {change_emoji} {change_color}{change_24h:.1f}%\n"
+
+                message += "\n"
+
+                # Market Sentiment Summary
+                total_analyzed = len(top_cryptos['data'])
+                neutral = total_analyzed - gainers - losers
+                
+                if gainers > losers:
+                    market_sentiment = "🟢 BULLISH"
+                elif losers > gainers:
+                    market_sentiment = "🔴 BEARISH"
+                else:
+                    market_sentiment = "🟡 NEUTRAL"
+
+                message += f"""📉 **MARKET SUMMARY:**
+• **Up**: {gainers} coins 📈
+• **Down**: {losers} coins 📉  
+• **Neutral**: {neutral} coins 📊
+• **Sentiment**: {market_sentiment}
+
+"""
+
+            # Fear & Greed Index
+            if 'error' not in fng_data:
+                fng_value = fng_data.get('value', 50)
+                fng_classification = fng_data.get('value_classification', 'Neutral')
+                fng_source = fng_data.get('source', 'estimated')
+                
+                # Get emoji for FNG
+                if fng_value >= 75:
+                    fng_emoji = "🔥"
+                elif fng_value >= 50:
+                    fng_emoji = "😊"
+                elif fng_value >= 25:
+                    fng_emoji = "😐"
+                else:
+                    fng_emoji = "😨"
+                
+                # Create FNG bar
+                fng_bar = self._create_fng_bar(fng_value)
+                
+                message += f"""🌡️ **FEAR & GREED INDEX:**
+**{fng_value}/100** - {fng_classification} {fng_emoji}
+```
+{fng_bar}
+```
+*Source: {fng_source}*
+
+"""
+
+            message += f"""📡 **DATA SOURCES:**
+• **Market Data**: CoinMarketCap Startup Plan  
+• **Fear & Greed**: Alternative.me API
+• **Real-time**: Live exchange rates
+
+💡 **TRADING INSIGHTS:**
+{self._get_trading_insights_en(enhanced_data)}
+
+⏰ **Update**: {current_time} | 🔄 **Auto-refresh**: Real-time"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting enhanced market overview: {str(e)}"
+
+    def _create_dominance_chart(self, btc_dom, eth_dom):
+        """Create ASCII chart for market dominance"""
+        try:
+            alt_dom = 100 - btc_dom - eth_dom
+            
+            # Create 20-character bar
+            btc_chars = int((btc_dom / 100) * 20)
+            eth_chars = int((eth_dom / 100) * 20)  
+            alt_chars = 20 - btc_chars - eth_chars
+            
+            btc_bar = "█" * btc_chars
+            eth_bar = "▓" * eth_chars
+            alt_bar = "░" * alt_chars
+            
+            chart = f"""BTC: {btc_bar}{' ' * max(0, 8 - btc_chars)} {btc_dom:.1f}%
+ETH: {eth_bar}{' ' * max(0, 8 - eth_chars)} {eth_dom:.1f}%
+ALT: {alt_bar}{' ' * max(0, 8 - alt_chars)} {alt_dom:.1f}%"""
+            
+            return chart
+        except:
+            return "Chart unavailable"
+
+    def _create_fng_bar(self, value):
+        """Create ASCII bar for Fear & Greed Index"""
+        try:
+            # Create 50-character bar
+            filled_chars = int((value / 100) * 50)
+            empty_chars = 50 - filled_chars
+            
+            if value >= 75:
+                char = "█"  # Extreme Greed
+            elif value >= 50:
+                char = "▓"  # Greed
+            elif value >= 25:
+                char = "▒"  # Neutral
+            else:
+                char = "░"  # Fear
+                
+            bar = char * filled_chars + "·" * empty_chars
+            labels = "Fear    |    Neutral    |    Greed"
+            
+            return f"{bar}\n{labels}"
+        except:
+            return "Bar unavailable"
+
+    def _get_trading_insights_id(self, enhanced_data):
+        """Generate trading insights in Indonesian"""
+        try:
+            global_data = enhanced_data.get('global_metrics', {})
+            fng_data = enhanced_data.get('fear_greed_index', {})
+            
+            insights = []
+            
+            # Market cap change insight
+            if 'error' not in global_data:
+                mcap_change = global_data.get('market_cap_change_24h', 0)
+                if mcap_change > 3:
+                    insights.append("🚀 Market cap naik signifikan - momentum bullish")
+                elif mcap_change < -3:
+                    insights.append("📉 Market cap turun signifikan - hati-hati koreksi")
+                else:
+                    insights.append("📊 Market cap stabil - sideways market")
+            
+            # Fear & Greed insight  
+            if 'error' not in fng_data:
+                fng_value = fng_data.get('value', 50)
+                if fng_value >= 75:
+                    insights.append("⚠️ Extreme Greed - pertimbangkan take profit")
+                elif fng_value <= 25:
+                    insights.append("💎 Extreme Fear - opportunity untuk DCA")
+                else:
+                    insights.append("⚖️ Sentiment seimbang - tunggu konfirmasi")
+            
+            return "\n".join([f"• {insight}" for insight in insights]) if insights else "• Data insight tidak tersedia"
+            
+        except:
+            return "• Insight generation error"
+
+    def _get_trading_insights_en(self, enhanced_data):
+        """Generate trading insights in English"""  
+        try:
+            global_data = enhanced_data.get('global_metrics', {})
+            fng_data = enhanced_data.get('fear_greed_index', {})
+            
+            insights = []
+            
+            # Market cap change insight
+            if 'error' not in global_data:
+                mcap_change = global_data.get('market_cap_change_24h', 0)
+                if mcap_change > 3:
+                    insights.append("🚀 Significant market cap increase - bullish momentum")
+                elif mcap_change < -3:
+                    insights.append("📉 Significant market cap decrease - correction alert")
+                else:
+                    insights.append("📊 Stable market cap - sideways market")
+            
+            # Fear & Greed insight
+            if 'error' not in fng_data:
+                fng_value = fng_data.get('value', 50)
+                if fng_value >= 75:
+                    insights.append("⚠️ Extreme Greed - consider taking profits")
+                elif fng_value <= 25:
+                    insights.append("💎 Extreme Fear - DCA opportunity")
+                else:
+                    insights.append("⚖️ Balanced sentiment - wait for confirmation")
+            
+            return "\n".join([f"• {insight}" for insight in insights]) if insights else "• Insight data unavailable"
+            
+        except:
+            return "• Insight generation error"
 
     def _format_market_sentiment_id(self, market_data, btc_futures, eth_futures, news_data):
         """Format market sentiment in Indonesian"""
