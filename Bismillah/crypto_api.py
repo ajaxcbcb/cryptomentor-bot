@@ -728,8 +728,7 @@ class CryptoAPI:
 
             return {
                 'symbol': symbol,
-                'mark price':```python
- float(data['markPrice']),
+                'mark_price': float(data['markPrice']),
                 'index_price': float(data['indexPrice']),
                 'estimated_settle_price': float(data.get('estimatedSettlePrice', 0)),
                 'last_funding_rate': float(data['lastFundingRate']),
