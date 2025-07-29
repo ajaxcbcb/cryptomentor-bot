@@ -120,135 +120,7 @@ Cryptocurrency adalah mata uang digital yang menggunakan kriptografi untuk keama
 Gunakan `/price <symbol>` untuk cek harga crypto!"""
 
             elif any(keyword in text_lower for keyword in ['harga', 'price', 'berapa']):
-                return "💰 Untuk cek harga crypto, gunakan command `/price <symbol>`."
-
-    def _format_market_overview_id(self, market_data, prices_data, news_data, btc_futures, eth_futures):
-        """Format market overview in Indonesian"""
-        from datetime import datetime
-
-        # Market cap and basic data
-        if 'error' not in market_data:
-            total_market_cap = market_data.get('total_market_cap', 0)
-            market_cap_change = market_data.get('market_cap_change_24h', 0)
-            btc_dominance = market_data.get('btc_dominance', 0)
-            active_cryptos = market_data.get('active_cryptocurrencies', 0)
-        else:
-            total_market_cap = 2400000000000
-            market_cap_change = 2.5
-            btc_dominance = 52.3
-            active_cryptos = 12000
-
-        # Analyze top movers
-        gainers, losers = self._analyze_top_movers(prices_data)
-
-        message = f"""🌍 **OVERVIEW PASAR CRYPTO REAL-TIME**
-
-💰 **Data Global:**
-- Total Market Cap: ${total_market_cap:,.0f} ({market_cap_change:+.1f}%)
-- Dominasi BTC: {btc_dominance:.1f}%
-- Crypto Aktif: {active_cryptos:,} koin
-
-📈 **Top Movers (24H):**
-**Gainers:**
-{gainers}
-
-**Losers:**
-{losers}
-
-📊 **Futures Sentiment:**
-- BTC Long/Short: {btc_futures.get('long_ratio', 50):.1f}% / {btc_futures.get('short_ratio', 50):.1f}%
-- ETH Long/Short: {eth_futures.get('long_ratio', 50):.1f}% / {eth_futures.get('short_ratio', 50):.1f}%
-
-🕐 **Update:** {datetime.now().strftime('%H:%M:%S')} | 📡 **Source:** CoinMarketCap + CoinAPI
-
-🔄 **Refresh:** Gunakan `/market` untuk update terbaru"""
-
-        return message
-
-    def _format_market_overview_en(self, market_data, prices_data, news_data, btc_futures, eth_futures):
-        """Format market overview in English"""
-        from datetime import datetime
-
-        # Market cap and basic data
-        if 'error' not in market_data:
-            total_market_cap = market_data.get('total_market_cap', 0)
-            market_cap_change = market_data.get('market_cap_change_24h', 0)
-            btc_dominance = market_data.get('btc_dominance', 0)
-            active_cryptos = market_data.get('active_cryptocurrencies', 0)
-        else:
-            total_market_cap = 2400000000000
-            market_cap_change = 2.5
-            btc_dominance = 52.3
-            active_cryptos = 12000
-
-        # Analyze top movers
-        gainers, losers = self._analyze_top_movers(prices_data)
-
-        message = f"""🌍 **CRYPTO MARKET OVERVIEW REAL-TIME**
-
-💰 **Global Data:**
-- Total Market Cap: ${total_market_cap:,.0f} ({market_cap_change:+.1f}%)
-- BTC Dominance: {btc_dominance:.1f}%
-- Active Cryptos: {active_cryptos:,} coins
-
-📈 **Top Movers (24H):**
-**Gainers:**
-{gainers}
-
-**Losers:**
-{losers}
-
-📊 **Futures Sentiment:**
-- BTC Long/Short: {btc_futures.get('long_ratio', 50):.1f}% / {btc_futures.get('short_ratio', 50):.1f}%
-- ETH Long/Short: {eth_futures.get('long_ratio', 50):.1f}% / {eth_futures.get('short_ratio', 50):.1f}%
-
-🕐 **Update:** {datetime.now().strftime('%H:%M:%S')} | 📡 **Source:** CoinMarketCap + CoinAPI
-
-🔄 **Refresh:** Use `/market` for latest update"""
-
-        return message
-
-    def _analyze_top_movers(self, prices_data):
-        """Analyze top gainers and losers"""
-        if 'error' in prices_data:
-            # Fallback mock data
-            gainers = """- SOL: +12.5% ($98.50)
-- AVAX: +8.3% ($42.10)
-- MATIC: +6.7% ($0.85)"""
-            losers = """- DOGE: -4.2% ($0.075)
-- ADA: -3.1% ($0.48)
-- DOT: -2.8% ($6.90)"""
-            return gainers, losers
-
-        # Real data analysis
-        movers = []
-        for symbol, data in prices_data.items():
-            if 'price' in data and 'change_24h' in data:
-                movers.append({
-                    'symbol': symbol.upper(),
-                    'price': data['price'],
-                    'change': data['change_24h']
-                })
-
-        # Sort by change percentage
-        movers.sort(key=lambda x: x['change'], reverse=True)
-
-        # Top 3 gainers
-        gainers_list = []
-        for mover in movers[:3]:
-            if mover['change'] > 0:
-                gainers_list.append(f"- {mover['symbol']}: +{mover['change']:.1f}% (${mover['price']:,.2f})")
-
-        # Top 3 losers
-        losers_list = []
-        for mover in movers[-3:]:
-            if mover['change'] < 0:
-                losers_list.append(f"- {mover['symbol']}: {mover['change']:.1f}% (${mover['price']:,.2f})")
-
-        gainers = '\n'.join(gainers_list) if gainers_list else "- No significant gainers"
-        losers = '\n'.join(losers_list) if losers_list else "- No significant losers"
-
-        return gainers, losers Contoh: `/price btc`\n\nUntuk analisis lengkap dengan prediksi: `/analyze <symbol>`"
+                return "💰 Untuk cek harga crypto, gunakan command `/price <symbol>`.\nContoh: `/price btc`\n\nUntuk analisis lengkap dengan prediksi: `/analyze <symbol>`"
 
             elif any(keyword in text_lower for keyword in ['analisis', 'analyze', 'sinyal']):
                 return "📊 Untuk analisis mendalam, gunakan `/analyze <symbol>` atau `/futures_signals` untuk sinyal futures harian.\n\n💡 **Tips**: Analisis mencakup technical analysis, sentiment, dan rekomendasi trading."
@@ -404,43 +276,7 @@ Try again in a few minutes for real-time data."""
             if language == 'id':
                 return f"❌ Error mengambil data pasar: {str(e)}"
             else:
-                return f"❌ Error fetching market data: {str(e)}"es_data('BTC')
-            eth_futures = crypto_api.get_comprehensive_futures_data('ETH')
-
-            # Get crypto news
-            news_data = crypto_api.get_crypto_news(3)
-
-            if language == 'id':
-                return self._format_cmc_market_sentiment_id(market_overview, btc_futures, eth_futures, news_data)
-            else:
-                return self._format_cmc_market_sentiment_en(market_overview, btc_futures, eth_futures, news_data)
-
-        except Exception as e:
-            print(f"Error in market sentiment analysis: {e}")
-            if language == 'id':
-                return f"""❌ **Error dalam analisis pasar**
-
-Gagal mengambil data real-time dari CoinMarketCap.
-Error: {str(e)[:100]}
-
-💡 **Alternatif:**
-• `/price btc` - Cek harga Bitcoin
-• `/analyze eth` - Analisis Ethereum mendalam
-• `/futures btc` - Sinyal futures Bitcoin
-
-Coba lagi dalam beberapa menit."""
-            else:
-                return f"""❌ **Error in market analysis**
-
-Failed to fetch real-time data from CoinMarketCap.
-Error: {str(e)[:100]}
-
-💡 **Alternatives:**
-• `/price btc` - Check Bitcoin price
-• `/analyze eth` - Deep Ethereum analysis  
-• `/futures btc` - Bitcoin futures signals
-
-Try again in a few minutes."""
+                return f"❌ Error fetching market data: {str(e)}"
 
     def _format_market_sentiment_id(self, market_data, btc_futures, eth_futures, news_data):
         """Format market sentiment in Indonesian"""
@@ -869,10 +705,9 @@ Try again in a few minutes."""
             message += f"""
 
 🏥 **2. Kesehatan Pasar:** {market_health['status']}
-{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
+{chr(10).join(['• ' + factor for factor in market_health['factors']])]}"""
 
-            # Top movers```python
-from multi-API data
+            # Top movers from multi-API data
             message += f"""
 
 📈 **3. Top Movers (Multi-API):**"""
@@ -1525,7 +1360,7 @@ Try again in a few minutes for real-time data."""
 
     def _get_comprehensive_analysis_en(self, symbol, futures_data, price_data, crypto_api):
         """English comprehensive analysis"""
-        current_time = datetime.now().strftime('%H:%M:%S UTC')
+        current_time = datetime.now.strftime('%H:%M:%S UTC')
 
         # Get current price from CoinAPI
         if price_data and 'error' not in price_data:
@@ -1833,7 +1668,7 @@ Try again in a few minutes for real-time data."""
     def _format_enhanced_futures_signals_id(self, signals):
         """Format enhanced futures signals in Indonesian"""
         try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            current_time = datetime.now.strftime('%H:%M:%S WIB')
 
             message = f"""🚨 **FUTURES SIGNALS ENHANCED (CoinAPI + SnD)**
 
@@ -1870,15 +1705,15 @@ Try again in a few minutes for real-time data."""
                 elif entry < 100:
                     entry_fmt = f"${entry:.4f}"
                     tp1_fmt = f"${tp1:.4f}"
-                    tp2_fmt = f"${tp2:.4f}"
+                    tp2_fmt = f"${tp1:.4f}"
                     sl_fmt = f"${sl:.4f}"
                     current_fmt = f"${current_price:.4f}"
                 else:
                     entry_fmt = f"${entry:,.2f}"
                     tp1_fmt = f"${tp1:,.2f}"
-                    tp2_fmt = f"${tp2:,.2f}"
+                    tp2_fmt = f"${tp2:.2f}"
                     sl_fmt = f"${sl:.2f}"
-                    current_fmt = f"${current_price:,.2f}"
+                    current_fmt = f"${current_price:.2f}"
 
                 message += f"""**{i}. {symbol} {direction} {direction_emoji}**
 **Harga**: {current_fmt} ({price_source})
@@ -1917,7 +1752,7 @@ Try again in a few minutes for real-time data."""
     def _format_enhanced_futures_signals_en(self, signals):
         """Format enhanced futures signals in English"""
         try:
-            current_time = datetime.now().strftime('%H:%M:%S UTC')
+            current_time = datetime.now.strftime('%H:%M:%S UTC')
 
             message = f"""🚨 **ENHANCED FUTURES SIGNALS (CoinAPI + SnD)**
 
@@ -1959,10 +1794,10 @@ Try again in a few minutes for real-time data."""
                     current_fmt = f"${current_price:.4f}"
                 else:
                     entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:,.2f}"
+                    tp1_fmt = f"${tp1:.2f}"
                     tp2_fmt = f"${tp2:.2f}"
                     sl_fmt = f"${sl:.2f}"
-                    current_fmt = f"${current_price:,.2f}"
+                    current_fmt = f"${current_price:.2f}"
 
                 message += f"""**{i}. {symbol} {direction} {direction_emoji}**
 **Price**: {current_fmt} ({price_source})
@@ -2066,7 +1901,7 @@ Try again in a few minutes for real-time data."""
             else:
                 price_fmt = f"${current_price:,.2f}"
 
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            current_time = datetime.now.strftime('%H:%M:%S WIB')
 
             message = f"""📊 **ANALISIS FUTURES {symbol} - {timeframe.upper()} (SnD Enhanced)**
 
@@ -2100,8 +1935,8 @@ Try again in a few minutes for real-time data."""
                     sl_fmt = f"${sl:.4f}"
                 else:
                     entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:,.2f}"
-                    tp2_fmt = f"${tp2:,.2f}"
+                    tp1_fmt = f"${tp1:.2f}"
+                    tp2_fmt = f"${tp2:.2f}"
                     sl_fmt = f"${sl:.2f}"
 
                 message += f"""🎯 **SINYAL SnD {direction}** {direction_emoji}
@@ -2174,7 +2009,7 @@ Try again in a few minutes for real-time data."""
             else:
                 price_fmt = f"${current_price:,.2f}"
 
-            current_time = datetime.now().strftime('%H:%M:%S UTC')
+            current_time = datetime.now.strftime('%H:%M:%S UTC')
 
             message = f"""📊 **FUTURES ANALYSIS {symbol} - {timeframe.upper()} (SnD Enhanced)**
 
@@ -2208,8 +2043,8 @@ Try again in a few minutes for real-time data."""
                     sl_fmt = f"${sl:.4f}"
                 else:
                     entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:,.2f}"
-                    tp2_fmt = f"${tp2:,.2f}"
+                    tp1_fmt = f"${tp1:.2f}"
+                    tp2_fmt = f"${tp2:.2f}"
                     sl_fmt = f"${sl:.2f}"
 
                 message += f"""🎯 **SnD {direction} SIGNAL** {direction_emoji}
