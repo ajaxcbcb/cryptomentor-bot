@@ -1735,6 +1735,402 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def revoke_premium_command(self, update: Update, context: CallbackContext):
+        """Handle /revoke_premium command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Gunakan format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        # Check if user exists
+        existing_user = self.db.get_user(target_user_id)
+        if not existing_user:
+            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+            return
+
+        # Revoke premium status
+        try:
+            success = self.db.revoke_premium(target_user_id)
+
+            if success:
+                user_info = self.db.get_user(target_user_id)
+                username = user_info.get('username', 'No username')
+                first_name = user_info.get('first_name', 'Unknown')
+
+                message = f"""✅ **Premium berhasil dicabut!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+❌ **Status**: Premium access removed
+💳 **Credits**: User akan menggunakan sistem credit normal
+
+🔄 User sekarang kembali ke akun free dengan sistem credit."""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id, 
+                    "admin_revoke_premium", 
+                    f"Revoked premium from user {target_user_id}"
+                )
+            else:
+                message = f"❌ **Gagal mencabut premium!** User mungkin sudah tidak premium."
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat mencabut premium!**\n\n**Error**: {str(e)}"
+            print(f"Error in revoke_premium_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def fix_all_credits_command(self, update: Update, context: CallbackContext):
+        """Handle /fix_all_credits command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            # Fix NULL and negative credits
+            fixed_count = self.db.fix_all_user_credits()
+
+            message = f"""✅ **Mass Credit Fix Completed!**
+
+🔧 **Fixed Issues:**
+• **Users Fixed**: {fixed_count}
+• **Actions**: NULL credits → 100, Negative credits → 10
+
+📊 **Database Health**: All users now have valid credits
+
+💡 **Next Steps**: Monitor for any remaining issues."""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id, 
+                "admin_fix_all_credits", 
+                f"Fixed credits for {fixed_count} users"
+            )
+
+        except Exception as e:
+            message = f"❌ **Error dalam mass credit fix!**\n\n**Error**: {str(e)}"
+            print(f"Error in fix_all_credits_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def broadcast_welcome_command(self, update: Update, context: CallbackContext):
+        """Handle /broadcast_welcome command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        welcome_message = """🎉 **CryptoMentor AI Update - CoinAPI Integration!**
+
+🚀 **New Features:**
+• ✅ Real-time data dari CoinAPI (bukan simulasi)
+• 📊 Supply & Demand (SnD) analysis untuk futures
+• 🎯 Auto SnD signals untuk Admin & Lifetime users
+• 📈 Enhanced technical analysis
+
+💰 **Quick Start:**
+• `/price btc` - GRATIS harga real-time CoinAPI
+• `/analyze btc` - 20 credit analisis CoinAPI
+• `/futures btc` - 20 credit SnD futures signals
+
+🎁 **Special Offer:**
+Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
+
+**Selamat trading dengan data real-time! 📈**"""
+
+        self.pending_broadcast = welcome_message
+
+        await update.message.reply_text(
+            f"📢 **Preview Welcome Broadcast:**\n\n{welcome_message}\n\n"
+            "Gunakan `/confirm_broadcast` untuk mengirim atau `/cancel_broadcast` untuk membatalkan.",
+            parse_mode='Markdown'
+        )
+
+    async def recovery_stats_command(self, update: Update, context: CallbackContext):
+        """Handle /recovery_stats command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            stats = self.db.get_bot_statistics()
+            
+            message = f"""📊 **Recovery & Database Stats**
+
+👥 **User Stats:**
+• Total Users: {stats['total_users']}
+• Premium Users: {stats['premium_users']}
+• Active Today: {stats['active_today']}
+
+💳 **Credit Stats:**
+• Total Credits: {stats['total_credits']:,}
+• Average Credits/User: {stats['avg_credits']:.1f}
+
+📈 **Activity Stats:**
+• Commands Today: {stats['commands_today']}
+• Total Analyses: {stats['analyses_count']}
+
+🔧 **System Health:**
+• Database: ✅ Online
+• CoinAPI: {'✅' if self.crypto_api.coinapi_key else '❌'} {'Active' if self.crypto_api.coinapi_key else 'No Key'}
+• Auto Signals: {'🟢 Running' if self.auto_signals and self.auto_signals.is_running else '🔴 Stopped'}
+
+⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+        except Exception as e:
+            message = f"❌ **Error getting recovery stats!**\n\n**Error**: {str(e)}"
+            print(f"Error in recovery_stats_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def check_admin_command(self, update: Update, context: CallbackContext):
+        """Handle /check_admin command"""
+        user_id = update.message.from_user.id
+        
+        is_admin = user_id == self.admin_id
+        
+        message = f"""🔍 **Admin Check**
+
+👤 **Your Info:**
+• **User ID**: {user_id}
+• **Admin Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
+• **Configured Admin ID**: {self.admin_id}
+
+{'👑 You have full admin access!' if is_admin else '⚠️ You do not have admin privileges.'}"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def restart_command(self, update: Update, context: CallbackContext):
+        """Handle /restart command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        await update.message.reply_text(
+            "🔄 **Bot Restart Initiated**\n\n"
+            "Bot akan restart dalam 5 detik...\n"
+            "Semua user akan perlu menggunakan `/start` lagi setelah restart.",
+            parse_mode='Markdown'
+        )
+
+        # Mark all users as needing restart
+        self.db.mark_all_users_for_restart()
+
+        # Log admin action
+        self.db.log_user_activity(user_id, "admin_restart", "Bot restart initiated")
+
+        # Exit to trigger restart (in deployment, this will auto-restart)
+        import sys
+        sys.exit(0)
+
+    async def refresh_credits_command(self, update: Update, context: CallbackContext):
+        """Handle /refresh_credits command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            # Give all free users 50 bonus credits
+            refreshed_count = self.db.refresh_all_free_user_credits()
+
+            message = f"""✅ **Credit Refresh Completed!**
+
+🎁 **Bonus Credits Distributed:**
+• **Users Updated**: {refreshed_count}
+• **Bonus Given**: +50 credits to all free users
+• **Premium Users**: Unaffected (unlimited access)
+
+💡 **Purpose**: Help free users try CoinAPI features
+
+📊 **Next**: Monitor usage and engagement"""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id, 
+                "admin_refresh_credits", 
+                f"Gave +50 credits to {refreshed_count} free users"
+            )
+
+        except Exception as e:
+            message = f"❌ **Error in credit refresh!**\n\n**Error**: {str(e)}"
+            print(f"Error in refresh_credits_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def premium_earnings_command(self, update: Update, context: CallbackContext):
+        """Handle /premium_earnings command"""
+        user_id = update.message.from_user.id
+        is_premium = self.db.is_user_premium(user_id)
+
+        if not is_premium:
+            await update.message.reply_text(
+                "❌ **Command ini hanya untuk Premium users!**\n\n"
+                "Upgrade ke Premium untuk akses:\n"
+                "• Dashboard earnings dari referral premium\n"
+                "• Withdrawal ke rekening/e-wallet\n\n"
+                "Gunakan `/subscribe` untuk upgrade!",
+                parse_mode='Markdown'
+            )
+            return
+
+        try:
+            # Get premium referral earnings
+            premium_stats = self.db.get_premium_referral_stats(user_id)
+            
+            message = f"""💎 **Premium Earnings Dashboard**
+
+💰 **Total Earnings**: Rp {premium_stats['total_earnings']:,}
+👥 **Total Premium Referrals**: {premium_stats['total_referrals']}
+📈 **Average per Referral**: Rp {premium_stats['total_earnings'] // max(premium_stats['total_referrals'], 1):,}
+
+📊 **Recent Premium Referrals:**"""
+
+            if premium_stats['recent_referrals']:
+                for ref in premium_stats['recent_referrals'][:5]:
+                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
+                    subscription_type = ref[2]
+                    earnings = ref[3]
+                    date = ref[4][:10]
+                    message += f"\n• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})"
+            else:
+                message += "\n• Belum ada referral premium"
+
+            message += f"""
+
+💳 **Withdrawal Info:**
+• Minimum withdrawal: Rp 50.000
+• Available: {'✅ Ready' if premium_stats['total_earnings'] >= 50000 else '❌ Below minimum'}
+• Contact: Admin @Billfarr untuk withdrawal
+
+🔗 **Premium Referral Link:**
+Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
+
+        except Exception as e:
+            message = f"❌ **Error getting earnings data!**\n\n**Error**: {str(e)}"
+            print(f"Error in premium_earnings_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def grant_package_command(self, update: Update, context: CallbackContext):
+        """Handle /grant_package command"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/grant_package <user_id> <package>`\n\n"
+                "**Available Packages:**\n"
+                "• `1month` - Premium 1 bulan\n"
+                "• `2month` - Premium 2 bulan\n"
+                "• `6month` - Premium 6 bulan\n"
+                "• `1year` - Premium 1 tahun\n"
+                "• `lifetime` - Premium lifetime (Auto signals)\n"
+                "• `credits_100` - 100 credits\n"
+                "• `credits_500` - 500 credits\n\n"
+                "**Contoh:** `/grant_package 123456789 lifetime`",
+                parse_mode='Markdown'
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            package = context.args[1].lower()
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        # Check if user exists
+        existing_user = self.db.get_user(target_user_id)
+        if not existing_user:
+            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+            return
+
+        try:
+            user_info = self.db.get_user(target_user_id)
+            username = user_info.get('username', 'No username')
+            first_name = user_info.get('first_name', 'Unknown')
+
+            if package == 'lifetime':
+                success = self.db.grant_permanent_premium(target_user_id)
+                package_name = "Premium Lifetime (Auto Signals)"
+            elif package == '1month':
+                success = self.db.grant_premium(target_user_id, 30)
+                package_name = "Premium 1 Bulan"
+            elif package == '2month':
+                success = self.db.grant_premium(target_user_id, 60)
+                package_name = "Premium 2 Bulan"
+            elif package == '6month':
+                success = self.db.grant_premium(target_user_id, 180)
+                package_name = "Premium 6 Bulan"
+            elif package == '1year':
+                success = self.db.grant_premium(target_user_id, 365)
+                package_name = "Premium 1 Tahun"
+            elif package == 'credits_100':
+                success = self.db.add_credits(target_user_id, 100)
+                package_name = "100 Credits"
+            elif package == 'credits_500':
+                success = self.db.add_credits(target_user_id, 500)
+                package_name = "500 Credits"
+            else:
+                await update.message.reply_text(f"❌ Package '{package}' tidak dikenali!")
+                return
+
+            if success:
+                message = f"""✅ **Package berhasil diberikan!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+📦 **Package**: {package_name}
+🎉 **Status**: Activated
+
+💡 User sekarang dapat menikmati benefit package ini!"""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id, 
+                    "admin_grant_package", 
+                    f"Granted package '{package_name}' to user {target_user_id}"
+                )
+            else:
+                message = f"❌ **Gagal memberikan package!** Terjadi kesalahan dalam proses."
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat memberikan package!**\n\n**Error**: {str(e)}"
+            print(f"Error in grant_package_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
     async def broadcast_command(self, update: Update, context: CallbackContext):
         """Handle /broadcast command"""
         user_id = update.message.from_user.id

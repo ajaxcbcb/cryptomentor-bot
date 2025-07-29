@@ -695,6 +695,113 @@ class Database:
             print(f"Error getting recent activity: {e}")
             return []
 
+    def revoke_premium(self, user_id):
+        """Revoke premium status from user"""
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET is_premium = 0, subscription_end = NULL 
+                WHERE telegram_id = ?
+            """, (user_id,))
+            
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
+                print(f"✅ Premium revoked for user {user_id}")
+            
+            return success
+        except Exception as e:
+            print(f"Error revoking premium for user {user_id}: {e}")
+            return False
+
+    def fix_all_user_credits(self):
+        """Fix all users with NULL or negative credits"""
+        try:
+            # Fix NULL credits
+            self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
+            null_fixed = self.cursor.rowcount
+            
+            # Fix negative credits
+            self.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
+            negative_fixed = self.cursor.rowcount
+            
+            self.conn.commit()
+            
+            total_fixed = null_fixed + negative_fixed
+            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
+            
+            return total_fixed
+        except Exception as e:
+            print(f"Error fixing all user credits: {e}")
+            return 0
+
+    def mark_all_users_for_restart(self):
+        """Mark all users as needing restart"""
+        try:
+            # Add a restart flag to user activity
+            current_time = datetime.now().isoformat()
+            
+            # Get all users
+            self.cursor.execute("SELECT telegram_id FROM users")
+            users = self.cursor.fetchall()
+            
+            for user in users:
+                user_id = user[0]
+                self.log_user_activity(user_id, "restart_required", f"Bot restart at {current_time}")
+            
+            print(f"✅ Marked {len(users)} users for restart")
+            return len(users)
+        except Exception as e:
+            print(f"Error marking users for restart: {e}")
+            return 0
+
+    def user_needs_restart(self, user_id):
+        """Check if user needs to restart after admin restart"""
+        try:
+            # Check if user has restart_required flag and hasn't cleared it
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE telegram_id = ? AND action = 'restart_required' 
+                AND timestamp > (
+                    SELECT COALESCE(MAX(timestamp), '1970-01-01') 
+                    FROM user_activity 
+                    WHERE telegram_id = ? AND action = 'user_reactivated'
+                )
+            """, (user_id, user_id))
+            
+            needs_restart = self.cursor.fetchone()[0] > 0
+            return needs_restart
+        except Exception as e:
+            print(f"Error checking restart status for user {user_id}: {e}")
+            return False
+
+    def clear_restart_flag(self, user_id):
+        """Clear restart flag for user"""
+        try:
+            # This is handled by logging the reactivation
+            return True
+        except Exception as e:
+            print(f"Error clearing restart flag for user {user_id}: {e}")
+            return False
+
+    def refresh_all_free_user_credits(self):
+        """Give bonus credits to all free users"""
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET credits = credits + 50 
+                WHERE is_premium = 0
+            """)
+            
+            refreshed_count = self.cursor.rowcount
+            self.conn.commit()
+            
+            print(f"✅ Gave +50 credits to {refreshed_count} free users")
+            return refreshed_count
+        except Exception as e:
+            print(f"Error refreshing free user credits: {e}")
+            return 0
+
     def get_eligible_auto_signal_users(self):
         """Get users eligible for auto signals (admin and lifetime)"""
         try:
