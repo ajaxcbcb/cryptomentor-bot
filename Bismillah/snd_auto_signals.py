@@ -331,12 +331,12 @@ class SnDAutoSignals:
 
             change_24h = price_data.get('change_24h', 0)
             long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
-            
+
             # FORCED DECISION LOGIC - Always choose LONG or SHORT
             direction = "LONG"  # Default
             base_confidence = 70  # Auto signals need higher confidence
             reason = "Auto signal analysis"
-            
+
             # Primary logic: 24h price change
             if change_24h > 3:
                 direction = "LONG"
@@ -376,7 +376,7 @@ class SnDAutoSignals:
                 # Final fallback based on sentiment
                 direction = "SHORT" if long_ratio > 50 else "LONG"
                 reason = f"Sentiment-based {direction}"
-            
+
             # Calculate entry, TP, SL with better risk management
             if direction == "LONG":
                 entry_price = current_price * 0.997  # Better entry
@@ -388,15 +388,15 @@ class SnDAutoSignals:
                 tp1 = current_price * 0.97   # 3% profit
                 tp2 = current_price * 0.945  # 5.5% profit
                 sl = current_price * 1.03    # 3% loss
-            
+
             # Risk/Reward calculation
             risk = abs(entry_price - sl)
             reward = abs(tp2 - entry_price)
             rr_ratio = reward / risk if risk > 0 else 2.0
-            
+
             # Final confidence (auto signals need minimum 70%)
             final_confidence = min(88, max(70, base_confidence))
-            
+
             return {
                 'symbol': symbol,
                 'direction': direction,  
@@ -568,3 +568,53 @@ def initialize_auto_signals(bot_instance):
     except Exception as e:
         print(f"❌ Failed to initialize auto signals: {e}")
         return None
+
+    async def send_auto_signals_to_users(self, signals):
+        """Send signals to eligible users (Admin + Lifetime)"""
+        try:
+            eligible_users = self.db.get_eligible_auto_signal_users()
+
+            if not eligible_users:
+                print("📊 No eligible users for auto signals")
+                return
+
+            print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
+
+            # Format signals message
+            message = self._format_auto_signals_message(signals)
+
+            # Send to each eligible user
+            for user in eligible_users:
+                try:
+                    # Handle different user data formats
+                    if isinstance(user, dict):
+                        user_id = user.get('telegram_id') or user.get('id')
+                    elif isinstance(user, (list, tuple)) and len(user) > 0:
+                        user_id = user[0]  # First element should be telegram_id
+                    elif isinstance(user, (int, str)):
+                        user_id = int(user)
+                    else:
+                        print(f"⚠️ Unknown user format: {user} (type: {type(user)})")
+                        continue
+
+                    if not user_id:
+                        print(f"⚠️ No user_id found for user: {user}")
+                        continue
+
+                    await self.bot.application.bot.send_message(
+                        chat_id=int(user_id),
+                        text=message,
+                        parse_mode='Markdown'
+                    )
+
+                    print(f"✅ Sent auto signals to user {user_id}")
+                    await asyncio.sleep(0.5)  # Rate limiting
+
+                except Exception as e:
+                    print(f"❌ Failed to send to user {user_id}: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"❌ Error sending auto signals: {e}")
+            import traceback
+            traceback.print_exc()
