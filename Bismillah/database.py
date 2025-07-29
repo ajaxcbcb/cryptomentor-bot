@@ -855,3 +855,157 @@ class Database:
                 FROM users 
                 WHERE telegram_id IS NOT NULL AND telegram_id != 0
                 ORDER BY created_at DESC
+            """)
+            
+            results = []
+            for row in self.cursor.fetchall():
+                results.append({
+                    'user_id': row[0],
+                    'first_name': row[1],
+                    'username': row[2],
+                    'is_premium': row[3],
+                    'created_at': row[4]
+                })
+            return results
+        except Exception as e:
+            print(f"Error getting all users: {e}")
+            return []
+
+    def get_user_by_premium_referral_code(self, premium_code):
+        """Get user ID by premium referral code"""
+        try:
+            self.cursor.execute("""
+                SELECT telegram_id FROM users WHERE premium_referral_code = ?
+            """, (premium_code,))
+            row = self.cursor.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            print(f"DB Error (get_user_by_premium_referral_code): {e}")
+            return None
+
+    def get_user_referral_codes(self, telegram_id):
+        """Get both referral codes for a user"""
+        try:
+            self.cursor.execute("""
+                SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'free_referral_code': row[0],
+                    'premium_referral_code': row[1]
+                }
+            return None
+        except Exception as e:
+            print(f"DB Error (get_user_referral_codes): {e}")
+            return None
+
+    def get_premium_referral_stats(self, telegram_id):
+        """Get premium referral statistics for a user"""
+        try:
+            # Get total premium referrals and earnings
+            self.cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(earnings), 0) 
+                FROM premium_referrals 
+                WHERE referrer_id = ? AND status = 'paid'
+            """, (telegram_id,))
+            
+            total_referrals, total_earnings = self.cursor.fetchone()
+            
+            # Get recent premium referrals
+            self.cursor.execute("""
+                SELECT pr.referred_id, u.first_name, pr.subscription_type, pr.earnings, pr.created_at
+                FROM premium_referrals pr
+                JOIN users u ON pr.referred_id = u.telegram_id
+                WHERE pr.referrer_id = ? AND pr.status = 'paid'
+                ORDER BY pr.created_at DESC
+                LIMIT 5
+            """, (telegram_id,))
+            
+            recent_referrals = self.cursor.fetchall()
+            
+            return {
+                'total_referrals': total_referrals or 0,
+                'total_earnings': total_earnings or 0,
+                'recent_referrals': recent_referrals
+            }
+        except Exception as e:
+            print(f"Error getting premium referral stats: {e}")
+            return {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
+
+    def add_credits(self, telegram_id, amount):
+        """Add credits to user account"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET credits = credits + ? WHERE telegram_id = ?
+            """, (amount, telegram_id))
+            
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
+                
+            return success
+        except Exception as e:
+            print(f"DB Error (add_credits): {e}")
+            return False
+
+    def ensure_user_persistence(self, telegram_id, username, first_name, last_name, language_code):
+        """Ensure user data persists correctly"""
+        try:
+            existing_user = self.get_user(telegram_id)
+            if existing_user:
+                # Update existing user info
+                return self.update_user_info(telegram_id, username, first_name, last_name, language_code)
+            else:
+                # Create new user
+                return self.create_user(telegram_id, username, first_name, last_name, language_code)
+        except Exception as e:
+            print(f"Error ensuring user persistence: {e}")
+            return False
+
+    def backup_user_data(self, telegram_id):
+        """Create backup of user data for recovery"""
+        try:
+            user = self.get_user(telegram_id)
+            if user:
+                backup_data = f"User backup: {user}"
+                self.log_user_activity(telegram_id, "user_backup", backup_data[:200])
+                return True
+            return False
+        except Exception as e:
+            print(f"Error backing up user data: {e}")
+            return False
+
+    def recover_user_from_backup(self, telegram_id):
+        """Attempt to recover user from backup logs"""
+        try:
+            # This is a placeholder - implement based on your backup strategy
+            self.log_user_activity(telegram_id, "recovery_attempted", f"Recovery attempted for user {telegram_id}")
+            return True
+        except Exception as e:
+            print(f"Error recovering user from backup: {e}")
+            return False
+
+    def set_user_language(self, telegram_id, language):
+        """Set user language preference"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET language_code = ? WHERE telegram_id = ?
+            """, (language, telegram_id))
+            
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
+                
+            return success
+        except Exception as e:
+            print(f"DB Error (set_user_language): {e}")
+            return False
+
+    def close(self):
+        """Close database connection"""
+        try:
+            if self.conn:
+                self.conn.close()
+        except Exception as e:
+            print(f"Error closing database: {e}")

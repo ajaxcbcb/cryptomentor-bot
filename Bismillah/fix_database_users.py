@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Fix database user issues for CryptoMentor AI Bot"""
 
@@ -13,140 +12,101 @@ try:
     from database import Database
 except ImportError as e:
     print(f"❌ Cannot import Database: {e}")
-    sys.exit(1)1)
+    sys.exit(1)
+
 
 def fix_database_users():
     """Fix common database user issues"""
     print("🔧 CryptoMentor AI - Database User Fix")
     print("=" * 50)
-    
+
     try:
         # Initialize database
         db = Database()
         print("✅ Database connection established")
-        
+
         # Check current status
         print("\n📊 Current Database Status:")
-        
+
         # Total users
         db.cursor.execute("SELECT COUNT(*) FROM users")
         total_users = db.cursor.fetchone()[0]
         print(f"👥 Total users: {total_users}")
-        
+
         # Users with NULL telegram_id
         db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
         null_telegram_id = db.cursor.fetchone()[0]
         print(f"❌ NULL telegram_id: {null_telegram_id}")
-        
+
         # Users with NULL credits
         db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits IS NULL")
         null_credits = db.cursor.fetchone()[0]
         print(f"💳 NULL credits: {null_credits}")
-        
+
         # Users with negative credits
         db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
         negative_credits = db.cursor.fetchone()[0]
         print(f"➖ Negative credits: {negative_credits}")
-        
+
         # Start fixing issues
         print("\n🔧 Fixing Issues:")
-        
+
         # Fix NULL credits
         if null_credits > 0:
             db.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
             fixed_null_credits = db.cursor.rowcount
             db.conn.commit()
             print(f"✅ Fixed {fixed_null_credits} users with NULL credits")
-        
+
         # Fix negative credits
         if negative_credits > 0:
             db.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
             fixed_negative_credits = db.cursor.rowcount
             db.conn.commit()
             print(f"✅ Fixed {fixed_negative_credits} users with negative credits")
-        
+
         # Delete users with NULL telegram_id
         if null_telegram_id > 0:
             db.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
             deleted_null_users = db.cursor.rowcount
             db.conn.commit()
             print(f"✅ Deleted {deleted_null_users} users with NULL telegram_id")
-        
+
         print("\n✅ Database fixes completed!")
-        
+
         # Show final status
         db.cursor.execute("SELECT COUNT(*) FROM users")
         final_total = db.cursor.fetchone()[0]
-        print(f"📊 Final total users: {final_total}")
-        
-        db.close()
-        
-    except Exception as e:
-        print(f"❌ Error fixing database: {e}")
-        import traceback
-        traceback.print_exc()ts = db.cursor.rowcount
-            print(f"✅ Fixed NULL credits: {fixed_null_credits} users given 10 credits")
-        
-        # Fix negative credits
-        if negative_credits > 0:
-            db.cursor.execute("UPDATE users SET credits = 0 WHERE credits < 0")
-            fixed_negative_credits = db.cursor.rowcount
-            print(f"✅ Fixed negative credits: {fixed_negative_credits} users set to 0 credits")
-        
-        # Remove users with NULL telegram_id (invalid entries)
-        if null_telegram_id > 0:
-            db.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
-            removed_invalid = db.cursor.rowcount
-            print(f"🗑️ Removed invalid users: {removed_invalid} users")
-        
-        # Fix expired premium users
-        db.cursor.execute("""
-            UPDATE users SET is_premium = 0 
-            WHERE is_premium = 1 
-            AND subscription_end IS NOT NULL 
-            AND datetime(subscription_end) < datetime('now')
-        """)
-        expired_premium_fixed = db.cursor.rowcount
-        if expired_premium_fixed > 0:
-            print(f"⏰ Fixed expired premium: {expired_premium_fixed} users")
-        
-        # Commit all changes
-        db.conn.commit()
-        
-        # Final status check
-        print("\n📊 Final Database Status:")
-        
-        # Recount after fixes
-        db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
-        final_users = db.cursor.fetchone()[0]
-        
+
         db.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
         premium_users = db.cursor.fetchone()[0]
-        
+
         db.cursor.execute("SELECT COALESCE(SUM(credits), 0) FROM users")
         total_credits = db.cursor.fetchone()[0]
-        
-        print(f"👥 Valid users: {final_users}")
+
+        print(f"📊 Final total users: {final_total}")
+        print(f"👥 Valid users: {final_total}")
         print(f"⭐ Premium users: {premium_users}")
         print(f"💰 Total credits: {total_credits}")
-        
+
         print("\n✅ Database user issues fixed successfully!")
-        
+
         # Close database connection
         db.close()
-        
+
     except Exception as e:
         print(f"❌ Error fixing database: {e}")
         import traceback
         traceback.print_exc()
 
+
 def create_test_user():
     """Create a test user to verify database functionality"""
     print("\n🧪 Creating test user...")
-    
+
     try:
         db = Database()
-        
+
         # Create test user
         test_telegram_id = 123456789
         success = db.create_user(
@@ -156,10 +116,10 @@ def create_test_user():
             last_name="User",
             language_code="id"
         )
-        
+
         if success:
             print(f"✅ Test user created: {test_telegram_id}")
-            
+
             # Verify user was created
             user = db.get_user(test_telegram_id)
             if user:
@@ -171,20 +131,19 @@ def create_test_user():
                 print("❌ User verification failed")
         else:
             print("❌ Failed to create test user")
-        
+
         db.close()
-        
+
     except Exception as e:
         print(f"❌ Error creating test user: {e}")
 
+
 if __name__ == "__main__":
     fix_database_users()
-    
+
     print("\n" + "="*50)
-    
+
     # Ask if user wants to create test user
     create_test = input("Create a test user to verify functionality? (y/n): ").lower().strip()
     if create_test == 'y':
-        create_test_user()t_user()
-    
-    print("\n🎉 Database maintenance completed!")
+        create_test_user()
