@@ -499,39 +499,79 @@ class AIAssistant:
             risk_reward = reward / risk if risk > 0 else 2.5
 
 
-    def _generate_realtime_snd_futures_signal(self, symbol, timeframe, coinapi_data, futures_data, price, language='id'):
-        """Generate REAL-TIME Supply & Demand futures signal with precise Entry, TP1, TP2, SL levels"""
+    def _generate_realtime_snd_futures_signal(self, symbol, timeframe, coinapi_data, futures_data, price, language='id', crypto_api=None):
+        """Generate REAL-TIME Supply & Demand futures signal with advanced SnD analysis"""
         try:
-            print(f"🔧 Generating REAL-TIME SnD signal for {symbol} {timeframe} at price ${price}")
+            print(f"🔧 Generating ADVANCED REAL-TIME SnD signal for {symbol} {timeframe} at price ${price}")
             
-            # Enhanced SnD zone calculation based on real-time price
-            snd_zones = self._calculate_realtime_snd_zones(symbol, price, timeframe)
+            # STEP 1: Calculate advanced SnD zones using historical data
+            advanced_snd_zones = self._calculate_advanced_snd_zones(symbol, price, timeframe, crypto_api)
             
-            # Initialize signal parameters
+            # STEP 2: Enhanced market structure analysis
+            market_structure = self._analyze_enhanced_market_structure(symbol, price, advanced_snd_zones, timeframe, crypto_api)
+            
+            # STEP 3: Analyze current position relative to advanced SnD zones
+            position_analysis = self._analyze_advanced_snd_position(price, advanced_snd_zones, timeframe)
+            
+            # STEP 4: Analyze breakout patterns
+            breakout_analysis = self._analyze_breakout_patterns(advanced_snd_zones, price)
+            
+            # STEP 5: Calculate precise entry levels
+            initial_direction = 'LONG'  # Default, will be determined by analysis
+            if market_structure['trading_bias'] == 'short_bias':
+                initial_direction = 'SHORT'
+            elif position_analysis['expected_reaction'] == 'rejection':
+                initial_direction = 'SHORT'
+            elif position_analysis['expected_reaction'] == 'bounce':
+                initial_direction = 'LONG'
+            
+            precise_entry = self._calculate_precise_entry_levels(symbol, price, advanced_snd_zones, initial_direction, crypto_api)
+            
+            # Initialize advanced signal parameters
             signal_factors = []
             long_score = 0
             short_score = 0
             
-            # Factor 1: Real-time SnD Zone Position Analysis
-            current_zone_analysis = self._analyze_current_snd_position(price, snd_zones, timeframe)
-            if current_zone_analysis['direction'] == 'LONG':
-                long_score += current_zone_analysis['strength']
-                signal_factors.append(current_zone_analysis['reason'])
+            # Factor 1: Enhanced Market Structure Analysis
+            if market_structure['trading_bias'] == 'long_bias':
+                long_score += market_structure['confidence'] * 0.05
+                signal_factors.append(f"📊 Market structure: {market_structure['phase']} - bullish bias")
+            elif market_structure['trading_bias'] == 'short_bias':
+                short_score += market_structure['confidence'] * 0.05
+                signal_factors.append(f"📊 Market structure: {market_structure['phase']} - bearish bias")
             else:
-                short_score += current_zone_analysis['strength']
-                signal_factors.append(current_zone_analysis['reason'])
+                signal_factors.append(f"📊 Market structure: {market_structure['phase']} - neutral")
             
-            print(f"🎯 Current SnD position: {current_zone_analysis['direction']} (strength: {current_zone_analysis['strength']})")
-            
-            # Factor 2: Timeframe-specific SnD momentum
-            timeframe_snd_bias = self._get_snd_timeframe_bias(symbol, timeframe, price)
-            if timeframe_snd_bias['direction'] == 'LONG':
-                long_score += timeframe_snd_bias['strength']
+            # Factor 2: Advanced Position Analysis
+            if position_analysis['expected_reaction'] == 'bounce':
+                long_score += 4 if position_analysis['entry_quality'] == 'excellent' else 2
+                signal_factors.append(f"🎯 Price near demand zone - bounce expected ({position_analysis['entry_quality']} quality)")
+            elif position_analysis['expected_reaction'] == 'rejection':
+                short_score += 4 if position_analysis['entry_quality'] == 'excellent' else 2
+                signal_factors.append(f"🎯 Price near supply zone - rejection expected ({position_analysis['entry_quality']} quality)")
             else:
-                short_score += timeframe_snd_bias['strength']
-            signal_factors.append(timeframe_snd_bias['reason'])
+                signal_factors.append(f"⚖️ Price in neutral zone - {position_analysis['zone_position']}")
             
-            # Factor 3: Binance futures sentiment (if available)
+            # Factor 3: Breakout Pattern Analysis
+            if breakout_analysis['breakout_detected']:
+                if breakout_analysis['breakout_direction'] == 'bullish':
+                    long_score += 3 if breakout_analysis['volume_confirmation'] else 1
+                    signal_factors.append(f"🚀 Bullish breakout detected - {breakout_analysis['follow_through_potential']} follow-through")
+                else:
+                    short_score += 3 if breakout_analysis['volume_confirmation'] else 1
+                    signal_factors.append(f"📉 Bearish breakout detected - {breakout_analysis['follow_through_potential']} follow-through")
+            
+            # Factor 4: Consolidation Zone Analysis
+            consolidation_zones = advanced_snd_zones.get('consolidation_zones', [])
+            if consolidation_zones:
+                strongest_consolidation = max(consolidation_zones, key=lambda x: x['strength'])
+                if strongest_consolidation['low'] <= price <= strongest_consolidation['high']:
+                    signal_factors.append(f"📊 Price in consolidation zone - breakout setup ({strongest_consolidation['strength']:.0f}% strength)")
+                    # Neutral bias in consolidation - wait for breakout
+                    if long_score == short_score:
+                        long_score += 0.5  # Slight long bias as default
+                
+            # Factor 5: Futures sentiment (if available)
             if 'error' not in futures_data:
                 ls_data = futures_data.get('long_short_ratio_data', {})
                 funding_data = futures_data.get('funding_rate_data', {})
@@ -540,61 +580,68 @@ class AIAssistant:
                     long_ratio = ls_data.get('long_ratio', 50)
                     if long_ratio > 70:
                         short_score += 2
-                        signal_factors.append(f"⚠️ Overleveraged longs ({long_ratio:.1f}%) - SnD contrarian SHORT")
+                        signal_factors.append(f"⚠️ Overleveraged longs ({long_ratio:.1f}%) - contrarian SHORT signal")
                     elif long_ratio < 30:
                         long_score += 2
-                        signal_factors.append(f"💎 Oversold conditions ({long_ratio:.1f}% long) - SnD bounce LONG")
+                        signal_factors.append(f"💎 Oversold conditions ({long_ratio:.1f}% long) - reversal LONG signal")
                     else:
-                        long_score += 1
-                        signal_factors.append(f"⚖️ Balanced futures sentiment ({long_ratio:.1f}%)")
+                        signal_factors.append(f"⚖️ Balanced sentiment ({long_ratio:.1f}%)")
                 
                 if 'error' not in funding_data:
                     funding_rate = funding_data.get('last_funding_rate', 0)
                     if funding_rate > 0.01:
                         short_score += 1
-                        signal_factors.append(f"📉 High funding ({funding_rate*100:.3f}%) supports SHORT")
+                        signal_factors.append(f"📉 High funding ({funding_rate*100:.3f}%) favors SHORT")
                     elif funding_rate < -0.005:
                         long_score += 1
-                        signal_factors.append(f"📈 Negative funding ({funding_rate*100:.3f}%) supports LONG")
+                        signal_factors.append(f"📈 Negative funding ({funding_rate*100:.3f}%) favors LONG")
             
-            # Factor 4: Volume-weighted SnD strength (simulated)
-            volume_factor = self._calculate_snd_volume_factor(symbol, timeframe, price)
-            if volume_factor['direction'] == 'LONG':
-                long_score += volume_factor['strength']
-            else:
-                short_score += volume_factor['strength']
-            signal_factors.append(volume_factor['reason'])
+            print(f"📊 Advanced SnD scores: LONG={long_score:.1f}, SHORT={short_score:.1f}")
             
-            print(f"📊 Final SnD scores: LONG={long_score:.1f}, SHORT={short_score:.1f}")
-            
-            # FORCE decision with SnD-optimized levels
+            # DECISION MAKING with Advanced SnD Logic
             if short_score > long_score:
                 signal_direction = "SHORT"
                 signal_emoji = "🔴"
-                confidence = min(95, 70 + (short_score - long_score) * 6)
+                base_confidence = 70 + (short_score - long_score) * 4
                 
-                # SnD SHORT levels with real-time precision
-                entry_price = price * 1.001      # Entry at supply zone test
-                tp1 = snd_zones['nearest_demand'] * 1.005  # First demand zone
-                tp2 = snd_zones['strong_demand']   # Strong demand zone
-                sl = snd_zones['supply_invalidation']  # Above supply invalidation
+                # Use precise entry calculation for SHORT
+                entry_price = precise_entry['entry_price']
+                tp1 = precise_entry['target_support'] * 1.005  # Slightly above target support
+                tp2 = advanced_snd_zones['strong_demand'] * 1.01  # Strong demand zone
+                sl = precise_entry['nearest_resistance'] * 1.005  # Above resistance
                 
-                zone_info = f"Supply Zone Rejection (${snd_zones['nearest_supply']:,.2f})"
+                zone_info = f"Supply Zone: {precise_entry['entry_type'].replace('_', ' ').title()}"
                 
-            else:  # Default to LONG with SnD optimization
+            else:  # LONG bias (default)
                 signal_direction = "LONG"
                 signal_emoji = "🟢"
-                confidence = min(95, 70 + max(1, long_score - short_score) * 6)
+                base_confidence = 70 + max(1, long_score - short_score) * 4
                 
-                # SnD LONG levels with real-time precision
-                entry_price = price * 0.999      # Entry at demand zone test
-                tp1 = snd_zones['nearest_supply'] * 0.995  # First supply zone
-                tp2 = snd_zones['strong_supply']   # Strong supply zone
-                sl = snd_zones['demand_invalidation']  # Below demand invalidation
+                # Use precise entry calculation for LONG
+                entry_price = precise_entry['entry_price']
+                tp1 = precise_entry['target_resistance'] * 0.995  # Slightly below target resistance
+                tp2 = advanced_snd_zones['strong_supply'] * 0.99  # Strong supply zone
+                sl = precise_entry['nearest_support'] * 0.995  # Below support
                 
-                zone_info = f"Demand Zone Bounce (${snd_zones['nearest_demand']:,.2f})"
+                zone_info = f"Demand Zone: {precise_entry['entry_type'].replace('_', ' ').title()}"
             
-            # Calculate risk/reward with SnD optimization
+            # Adjust confidence based on entry quality and market structure
+            confidence_adjustments = 0
+            if position_analysis['entry_quality'] == 'excellent':
+                confidence_adjustments += 15
+            elif position_analysis['entry_quality'] == 'good':
+                confidence_adjustments += 10
+            elif position_analysis['entry_quality'] == 'fair':
+                confidence_adjustments += 5
+            
+            if market_structure['confidence'] > 80:
+                confidence_adjustments += 10
+            elif market_structure['confidence'] > 70:
+                confidence_adjustments += 5
+            
+            final_confidence = min(95, base_confidence + confidence_adjustments)
+            
+            # Calculate advanced risk/reward with SnD optimization
             if signal_direction == "LONG":
                 risk = abs(entry_price - sl)
                 reward = abs(tp2 - entry_price)
@@ -603,7 +650,7 @@ class AIAssistant:
                 reward = abs(entry_price - tp2)
             
             risk_reward = reward / risk if risk > 0 else 3.0
-            print(f"📊 SnD Risk/Reward: {risk_reward:.1f}:1")
+            print(f"📊 Advanced SnD Risk/Reward: {risk_reward:.1f}:1")
 
             # Smart price formatting for trading levels
             def format_snd_price(price_val):
@@ -870,6 +917,389 @@ SL: {format_snd_price(sl)}"""
                 'strength': 1,
                 'reason': "📊 Default volume analysis"
             }
+
+    def _calculate_advanced_snd_zones(self, symbol, current_price, timeframe, crypto_api=None):
+        """Calculate advanced Supply & Demand zones using historical OHLCV data"""
+        try:
+            print(f"🔍 Calculating advanced SnD zones for {symbol} on {timeframe}")
+            
+            # Get historical candlestick data if crypto_api is available
+            historical_data = []
+            if crypto_api:
+                try:
+                    candle_data = crypto_api.get_binance_candlestick(symbol, timeframe, 100)
+                    if 'error' not in candle_data:
+                        historical_data = candle_data.get('candlesticks', [])
+                        print(f"✅ Retrieved {len(historical_data)} historical candles")
+                except Exception as e:
+                    print(f"⚠️ Failed to get historical data: {e}")
+            
+            # If no historical data available, use fallback calculation
+            if len(historical_data) < 20:
+                return self._calculate_fallback_snd_zones(current_price, timeframe)
+            
+            # Extract OHLCV data
+            highs = [float(candle.get('high', 0)) for candle in historical_data]
+            lows = [float(candle.get('low', 0)) for candle in historical_data]
+            closes = [float(candle.get('close', 0)) for candle in historical_data]
+            opens = [float(candle.get('open', 0)) for candle in historical_data]
+            volumes = [float(candle.get('volume', 0)) for candle in historical_data]
+            
+            # Find consolidation zones (low volatility areas)
+            consolidation_zones = self._identify_consolidation_zones(highs, lows, closes, volumes)
+            
+            # Find breakout zones
+            breakout_zones = self._identify_breakout_zones(opens, highs, lows, closes, volumes)
+            
+            # Calculate supply zones (resistance areas)
+            supply_zones = []
+            for i in range(2, len(highs) - 2):
+                if (highs[i] > highs[i-1] and highs[i] > highs[i-2] and 
+                    highs[i] > highs[i+1] and highs[i] > highs[i+2]):
+                    
+                    # Check volume confirmation
+                    avg_volume = sum(volumes[max(0, i-5):i+1]) / min(6, i+1)
+                    volume_strength = volumes[i] / avg_volume if avg_volume > 0 else 1
+                    
+                    supply_zones.append({
+                        'level': highs[i],
+                        'strength': min(100, 60 + volume_strength * 20),
+                        'type': 'supply',
+                        'index': i,
+                        'volume_confirmation': volume_strength > 1.2
+                    })
+            
+            # Calculate demand zones (support areas)
+            demand_zones = []
+            for i in range(2, len(lows) - 2):
+                if (lows[i] < lows[i-1] and lows[i] < lows[i-2] and 
+                    lows[i] < lows[i+1] and lows[i] < lows[i+2]):
+                    
+                    # Check volume confirmation
+                    avg_volume = sum(volumes[max(0, i-5):i+1]) / min(6, i+1)
+                    volume_strength = volumes[i] / avg_volume if avg_volume > 0 else 1
+                    
+                    demand_zones.append({
+                        'level': lows[i],
+                        'strength': min(100, 60 + volume_strength * 20),
+                        'type': 'demand',
+                        'index': i,
+                        'volume_confirmation': volume_strength > 1.2
+                    })
+            
+            # Sort zones by strength and proximity to current price
+            supply_zones.sort(key=lambda x: (abs(x['level'] - current_price), -x['strength']))
+            demand_zones.sort(key=lambda x: (abs(x['level'] - current_price), -x['strength']))
+            
+            # Find nearest significant zones
+            nearest_supply = next((zone for zone in supply_zones if zone['level'] > current_price), None)
+            nearest_demand = next((zone for zone in demand_zones if zone['level'] < current_price), None)
+            
+            zones = {
+                'nearest_supply': nearest_supply['level'] if nearest_supply else current_price * 1.05,
+                'nearest_demand': nearest_demand['level'] if nearest_demand else current_price * 0.95,
+                'strong_supply': supply_zones[0]['level'] if supply_zones else current_price * 1.08,
+                'strong_demand': demand_zones[0]['level'] if demand_zones else current_price * 0.92,
+                'supply_invalidation': current_price * 1.12,
+                'demand_invalidation': current_price * 0.88,
+                'consolidation_zones': consolidation_zones[:3],
+                'breakout_zones': breakout_zones[:3],
+                'analysis_quality': 'advanced' if len(historical_data) >= 50 else 'standard'
+            }
+            
+            print(f"✅ Advanced SnD zones calculated:")
+            print(f"   Supply: ${zones['nearest_supply']:,.6f} | Demand: ${zones['nearest_demand']:,.6f}")
+            
+            return zones
+            
+        except Exception as e:
+            print(f"❌ Error in advanced SnD calculation: {e}")
+            return self._calculate_fallback_snd_zones(current_price, timeframe)
+
+    def _identify_consolidation_zones(self, highs, lows, closes, volumes):
+        """Identify consolidation zones (low volatility areas)"""
+        try:
+            consolidation_zones = []
+            window_size = 10
+            
+            for i in range(window_size, len(closes) - window_size):
+                # Calculate volatility in the window
+                window_highs = highs[i-window_size:i+window_size]
+                window_lows = lows[i-window_size:i+window_size]
+                window_closes = closes[i-window_size:i+window_size]
+                
+                price_range = max(window_highs) - min(window_lows)
+                avg_price = sum(window_closes) / len(window_closes)
+                volatility = (price_range / avg_price) * 100 if avg_price > 0 else 0
+                
+                # Low volatility indicates consolidation
+                if volatility < 3.0:  # Less than 3% range
+                    avg_volume = sum(volumes[i-window_size:i+window_size]) / (window_size * 2)
+                    
+                    consolidation_zones.append({
+                        'center_price': avg_price,
+                        'high': max(window_highs),
+                        'low': min(window_lows),
+                        'volatility': volatility,
+                        'strength': max(50, 100 - volatility * 10),
+                        'avg_volume': avg_volume,
+                        'index': i
+                    })
+            
+            # Remove overlapping zones, keep strongest
+            filtered_zones = []
+            for zone in consolidation_zones:
+                is_unique = True
+                for existing in filtered_zones:
+                    if abs(zone['center_price'] - existing['center_price']) / zone['center_price'] < 0.02:  # Within 2%
+                        if zone['strength'] > existing['strength']:
+                            filtered_zones.remove(existing)
+                        else:
+                            is_unique = False
+                        break
+                
+                if is_unique:
+                    filtered_zones.append(zone)
+            
+            return sorted(filtered_zones, key=lambda x: x['strength'], reverse=True)
+            
+        except Exception as e:
+            print(f"❌ Error identifying consolidation zones: {e}")
+            return []
+
+    def _identify_breakout_zones(self, opens, highs, lows, closes, volumes):
+        """Identify breakout zones with volume confirmation"""
+        try:
+            breakout_zones = []
+            
+            for i in range(5, len(closes) - 1):
+                # Calculate recent average volume
+                avg_volume = sum(volumes[max(0, i-10):i]) / min(10, i)
+                current_volume = volumes[i]
+                
+                # Check for volume spike (breakout confirmation)
+                volume_multiplier = current_volume / avg_volume if avg_volume > 0 else 1
+                
+                if volume_multiplier > 1.5:  # 50% above average volume
+                    # Calculate price movement
+                    prev_close = closes[i-1]
+                    current_close = closes[i]
+                    price_change = abs(current_close - prev_close) / prev_close * 100
+                    
+                    # Significant price movement with volume = potential breakout
+                    if price_change > 2.0:  # More than 2% movement
+                        # Determine breakout direction
+                        direction = 'bullish' if current_close > prev_close else 'bearish'
+                        
+                        # Check if it breaks recent high/low
+                        recent_highs = highs[max(0, i-10):i]
+                        recent_lows = lows[max(0, i-10):i]
+                        max_recent_high = max(recent_highs) if recent_highs else current_close
+                        min_recent_low = min(recent_lows) if recent_lows else current_close
+                        
+                        is_breakout = False
+                        if direction == 'bullish' and highs[i] > max_recent_high:
+                            is_breakout = True
+                        elif direction == 'bearish' and lows[i] < min_recent_low:
+                            is_breakout = True
+                        
+                        if is_breakout:
+                            breakout_zones.append({
+                                'price': closes[i],
+                                'direction': direction,
+                                'volume_multiplier': volume_multiplier,
+                                'price_change': price_change,
+                                'strength': min(100, 50 + volume_multiplier * 10 + price_change * 5),
+                                'index': i,
+                                'confirmation_level': 'strong' if volume_multiplier > 2.0 else 'moderate'
+                            })
+            
+            return sorted(breakout_zones, key=lambda x: x['strength'], reverse=True)
+            
+        except Exception as e:
+            print(f"❌ Error identifying breakout zones: {e}")
+            return []
+
+    def _calculate_precise_entry_levels(self, symbol, current_price, snd_zones, direction, crypto_api=None):
+        """Calculate precise entry levels based on support/resistance analysis"""
+        try:
+            print(f"🎯 Calculating precise entry levels for {symbol} {direction}")
+            
+            # Get resistance and support levels
+            resistance_levels = self._find_resistance_levels(current_price, snd_zones)
+            support_levels = self._find_support_levels(current_price, snd_zones)
+            
+            if direction == 'LONG':
+                # For LONG positions, look for entry near demand zones
+                nearest_demand = snd_zones.get('nearest_demand', current_price * 0.97)
+                
+                # Check consolidation zones for better entry
+                consolidation_entries = []
+                for zone in snd_zones.get('consolidation_zones', []):
+                    if zone['low'] < current_price < zone['high']:
+                        consolidation_entries.append({
+                            'price': zone['low'] * 1.002,  # Slightly above consolidation low
+                            'type': 'consolidation_breakout',
+                            'strength': zone['strength']
+                        })
+                
+                # Choose best entry based on strength and proximity
+                entry_options = [
+                    {'price': nearest_demand * 1.001, 'type': 'demand_zone', 'strength': 75},
+                    {'price': current_price * 0.995, 'type': 'current_pullback', 'strength': 65}
+                ] + consolidation_entries
+                
+                best_entry = max(entry_options, key=lambda x: x['strength'])
+                
+                return {
+                    'entry_price': best_entry['price'],
+                    'entry_type': best_entry['type'],
+                    'strength': best_entry['strength'],
+                    'nearest_support': min(support_levels) if support_levels else nearest_demand,
+                    'target_resistance': min([r for r in resistance_levels if r > current_price], default=current_price * 1.05)
+                }
+                
+            else:  # SHORT
+                # For SHORT positions, look for entry near supply zones
+                nearest_supply = snd_zones.get('nearest_supply', current_price * 1.03)
+                
+                # Check consolidation zones for better entry
+                consolidation_entries = []
+                for zone in snd_zones.get('consolidation_zones', []):
+                    if zone['low'] < current_price < zone['high']:
+                        consolidation_entries.append({
+                            'price': zone['high'] * 0.998,  # Slightly below consolidation high
+                            'type': 'consolidation_breakdown',
+                            'strength': zone['strength']
+                        })
+                
+                # Choose best entry based on strength and proximity
+                entry_options = [
+                    {'price': nearest_supply * 0.999, 'type': 'supply_zone', 'strength': 75},
+                    {'price': current_price * 1.005, 'type': 'current_rally', 'strength': 65}
+                ] + consolidation_entries
+                
+                best_entry = max(entry_options, key=lambda x: x['strength'])
+                
+                return {
+                    'entry_price': best_entry['price'],
+                    'entry_type': best_entry['type'],
+                    'strength': best_entry['strength'],
+                    'nearest_resistance': max(resistance_levels) if resistance_levels else nearest_supply,
+                    'target_support': max([s for s in support_levels if s < current_price], default=current_price * 0.95)
+                }
+            
+        except Exception as e:
+            print(f"❌ Error calculating precise entry levels: {e}")
+            # Fallback to simple calculation
+            if direction == 'LONG':
+                return {
+                    'entry_price': current_price * 0.998,
+                    'entry_type': 'simple_pullback',
+                    'strength': 60,
+                    'nearest_support': current_price * 0.95,
+                    'target_resistance': current_price * 1.05
+                }
+            else:
+                return {
+                    'entry_price': current_price * 1.002,
+                    'entry_type': 'simple_rally',
+                    'strength': 60,
+                    'nearest_resistance': current_price * 1.05,
+                    'target_support': current_price * 0.95
+                }
+
+    def _find_resistance_levels(self, current_price, snd_zones):
+        """Find key resistance levels for entry and SL calculations"""
+        try:
+            resistance_levels = []
+            
+            # Add supply zones as resistance
+            if 'nearest_supply' in snd_zones:
+                resistance_levels.append(snd_zones['nearest_supply'])
+            if 'strong_supply' in snd_zones:
+                resistance_levels.append(snd_zones['strong_supply'])
+            
+            # Add consolidation zone highs as resistance
+            for zone in snd_zones.get('consolidation_zones', []):
+                resistance_levels.append(zone['high'])
+            
+            # Add psychological levels (round numbers)
+            psychological_levels = []
+            if current_price > 1:
+                base = int(current_price)
+                for i in range(base, base + 10):
+                    if i % 5 == 0 or i % 10 == 0:  # Every 5 or 10 units
+                        if i > current_price:
+                            psychological_levels.append(float(i))
+            else:
+                # For prices under $1, use different logic
+                increments = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+                for inc in increments:
+                    level = ((int(current_price / inc) + 1) * inc)
+                    if level > current_price:
+                        psychological_levels.append(level)
+            
+            resistance_levels.extend(psychological_levels[:3])  # Top 3 psychological levels
+            
+            # Remove duplicates and sort
+            resistance_levels = sorted(list(set(resistance_levels)))
+            
+            # Filter levels within reasonable range (up to 20% above current price)
+            max_resistance = current_price * 1.20
+            resistance_levels = [level for level in resistance_levels if current_price < level <= max_resistance]
+            
+            return resistance_levels[:5]  # Return top 5 resistance levels
+            
+        except Exception as e:
+            print(f"❌ Error finding resistance levels: {e}")
+            return [current_price * 1.03, current_price * 1.05, current_price * 1.08]
+
+    def _find_support_levels(self, current_price, snd_zones):
+        """Find key support levels for entry and SL calculations"""
+        try:
+            support_levels = []
+            
+            # Add demand zones as support
+            if 'nearest_demand' in snd_zones:
+                support_levels.append(snd_zones['nearest_demand'])
+            if 'strong_demand' in snd_zones:
+                support_levels.append(snd_zones['strong_demand'])
+            
+            # Add consolidation zone lows as support
+            for zone in snd_zones.get('consolidation_zones', []):
+                support_levels.append(zone['low'])
+            
+            # Add psychological levels (round numbers)
+            psychological_levels = []
+            if current_price > 1:
+                base = int(current_price)
+                for i in range(base, base - 10, -1):
+                    if i % 5 == 0 or i % 10 == 0:  # Every 5 or 10 units
+                        if i < current_price and i > 0:
+                            psychological_levels.append(float(i))
+            else:
+                # For prices under $1, use different logic
+                increments = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
+                for inc in increments:
+                    level = (int(current_price / inc) * inc)
+                    if level < current_price and level > 0:
+                        psychological_levels.append(level)
+            
+            support_levels.extend(psychological_levels[:3])  # Top 3 psychological levels
+            
+            # Remove duplicates and sort (descending)
+            support_levels = sorted(list(set(support_levels)), reverse=True)
+            
+            # Filter levels within reasonable range (down to 20% below current price)
+            min_support = current_price * 0.80
+            support_levels = [level for level in support_levels if min_support <= level < current_price]
+            
+            return support_levels[:5]  # Return top 5 support levels
+            
+        except Exception as e:
+            print(f"❌ Error finding support levels: {e}")
+            return [current_price * 0.97, current_price * 0.95, current_price * 0.92]
 
             print(f"📊 SnD Risk/Reward: {risk_reward:.1f}:1")
 
@@ -1686,6 +2116,363 @@ SL: {format_snd_price(sl)}"""
 • **🛡️ STOP LOSS**: ${emergency_price * 0.985:,.6f}
 
 ⚠️ **USE STRICT SnD RISK MANAGEMENT!**"""
+
+    def _analyze_enhanced_market_structure(self, symbol, price, snd_zones, timeframe, crypto_api=None):
+        """Enhanced market structure analysis considering trends, consolidation, and breakouts"""
+        try:
+            print(f"📊 Analyzing enhanced market structure for {symbol}")
+            
+            structure = {
+                'trend': 'neutral',
+                'trend_strength': 50,
+                'phase': 'consolidation',
+                'breakout_potential': 'low',
+                'consolidation_strength': 0,
+                'key_levels': {
+                    'immediate_support': price * 0.97,
+                    'immediate_resistance': price * 1.03,
+                    'major_support': price * 0.92,
+                    'major_resistance': price * 1.08
+                },
+                'trading_bias': 'neutral',
+                'confidence': 60
+            }
+            
+            # Analyze consolidation zones for market phase
+            consolidation_zones = snd_zones.get('consolidation_zones', [])
+            if consolidation_zones:
+                # Check if current price is in consolidation
+                current_in_consolidation = False
+                strongest_consolidation = None
+                
+                for zone in consolidation_zones:
+                    if zone['low'] <= price <= zone['high']:
+                        current_in_consolidation = True
+                        strongest_consolidation = zone
+                        break
+                
+                if current_in_consolidation and strongest_consolidation:
+                    structure['phase'] = 'consolidation'
+                    structure['consolidation_strength'] = strongest_consolidation['strength']
+                    
+                    # Update key levels based on consolidation
+                    structure['key_levels']['immediate_support'] = strongest_consolidation['low']
+                    structure['key_levels']['immediate_resistance'] = strongest_consolidation['high']
+                    
+                    # Determine breakout potential
+                    consolidation_range = (strongest_consolidation['high'] - strongest_consolidation['low']) / price * 100
+                    if consolidation_range < 2:  # Tight consolidation
+                        structure['breakout_potential'] = 'high'
+                        structure['confidence'] += 15
+                    elif consolidation_range < 5:
+                        structure['breakout_potential'] = 'medium'
+                        structure['confidence'] += 10
+                    else:
+                        structure['breakout_potential'] = 'low'
+                        structure['confidence'] += 5
+            
+            # Analyze breakout zones for trend determination
+            breakout_zones = snd_zones.get('breakout_zones', [])
+            if breakout_zones:
+                recent_breakouts = [bo for bo in breakout_zones if bo.get('confirmation_level') == 'strong']
+                
+                if recent_breakouts:
+                    latest_breakout = recent_breakouts[0]  # Strongest breakout
+                    
+                    if latest_breakout['direction'] == 'bullish':
+                        structure['trend'] = 'bullish'
+                        structure['trend_strength'] = min(90, 60 + latest_breakout['strength'] * 0.3)
+                        structure['trading_bias'] = 'long_bias'
+                        structure['phase'] = 'trending'
+                    else:
+                        structure['trend'] = 'bearish'
+                        structure['trend_strength'] = min(90, 60 + latest_breakout['strength'] * 0.3)
+                        structure['trading_bias'] = 'short_bias'
+                        structure['phase'] = 'trending'
+                    
+                    structure['confidence'] += 20
+            
+            # Analyze supply/demand imbalance
+            nearest_supply = snd_zones.get('nearest_supply', price * 1.05)
+            nearest_demand = snd_zones.get('nearest_demand', price * 0.95)
+            
+            supply_distance = abs(nearest_supply - price) / price * 100
+            demand_distance = abs(price - nearest_demand) / price * 100
+            
+            if supply_distance < demand_distance:
+                # Closer to supply = potential resistance
+                structure['trading_bias'] = 'short_bias' if structure['trading_bias'] == 'neutral' else structure['trading_bias']
+                structure['key_levels']['immediate_resistance'] = nearest_supply
+            else:
+                # Closer to demand = potential support
+                structure['trading_bias'] = 'long_bias' if structure['trading_bias'] == 'neutral' else structure['trading_bias']
+                structure['key_levels']['immediate_support'] = nearest_demand
+            
+            # Determine optimal trading strategy
+            if structure['phase'] == 'consolidation' and structure['breakout_potential'] == 'high':
+                structure['strategy'] = 'breakout_anticipation'
+                structure['entry_method'] = 'pending_orders_at_boundaries'
+            elif structure['phase'] == 'trending' and structure['trend_strength'] > 70:
+                structure['strategy'] = 'trend_following'
+                structure['entry_method'] = 'pullback_entries'
+            elif structure['consolidation_strength'] > 70:
+                structure['strategy'] = 'range_trading'
+                structure['entry_method'] = 'bounce_reversal'
+            else:
+                structure['strategy'] = 'wait_for_clarity'
+                structure['entry_method'] = 'patience_required'
+            
+            return structure
+            
+        except Exception as e:
+            print(f"❌ Error in enhanced market structure analysis: {e}")
+            return {
+                'trend': 'neutral',
+                'trend_strength': 50,
+                'phase': 'unknown',
+                'breakout_potential': 'low',
+                'consolidation_strength': 0,
+                'key_levels': {
+                    'immediate_support': price * 0.97,
+                    'immediate_resistance': price * 1.03,
+                    'major_support': price * 0.92,
+                    'major_resistance': price * 1.08
+                },
+                'trading_bias': 'neutral',
+                'confidence': 40,
+                'strategy': 'basic_analysis',
+                'entry_method': 'standard_levels'
+            }
+
+    def _analyze_market_structure_for_snd(self, price, snd_zones, timeframe):
+        """Analyze market structure specifically for SnD trading decisions"""
+        try:
+            structure = {
+                'primary_bias': 'neutral',
+                'structure_strength': 50,
+                'key_zone_type': 'none',
+                'zone_proximity': 'medium',
+                'action_required': 'wait'
+            }
+            
+            # Check proximity to key zones
+            nearest_supply = snd_zones.get('nearest_supply', price * 1.05)
+            nearest_demand = snd_zones.get('nearest_demand', price * 0.95)
+            
+            supply_distance = abs(nearest_supply - price) / price * 100
+            demand_distance = abs(price - nearest_demand) / price * 100
+            
+            # Determine proximity and bias
+            if supply_distance < 1.5:  # Very close to supply
+                structure['primary_bias'] = 'bearish'
+                structure['key_zone_type'] = 'supply'
+                structure['zone_proximity'] = 'very_close'
+                structure['action_required'] = 'prepare_short'
+                structure['structure_strength'] = 80
+                
+            elif demand_distance < 1.5:  # Very close to demand
+                structure['primary_bias'] = 'bullish'
+                structure['key_zone_type'] = 'demand'
+                structure['zone_proximity'] = 'very_close'
+                structure['action_required'] = 'prepare_long'
+                structure['structure_strength'] = 80
+                
+            elif supply_distance < demand_distance:  # Closer to supply
+                structure['primary_bias'] = 'bearish'
+                structure['key_zone_type'] = 'supply'
+                structure['zone_proximity'] = 'close' if supply_distance < 3 else 'medium'
+                structure['action_required'] = 'monitor_rejection'
+                structure['structure_strength'] = 65
+                
+            else:  # Closer to demand
+                structure['primary_bias'] = 'bullish'
+                structure['key_zone_type'] = 'demand'
+                structure['zone_proximity'] = 'close' if demand_distance < 3 else 'medium'
+                structure['action_required'] = 'monitor_bounce'
+                structure['structure_strength'] = 65
+            
+            # Analyze consolidation impact
+            consolidation_zones = snd_zones.get('consolidation_zones', [])
+            for zone in consolidation_zones:
+                if zone['low'] <= price <= zone['high']:
+                    structure['primary_bias'] = 'neutral'
+                    structure['key_zone_type'] = 'consolidation'
+                    structure['action_required'] = 'wait_breakout'
+                    structure['structure_strength'] = zone['strength']
+                    break
+            
+            return structure
+            
+        except Exception as e:
+            print(f"❌ Error in market structure for SnD: {e}")
+            return {
+                'primary_bias': 'neutral',
+                'structure_strength': 50,
+                'key_zone_type': 'none',
+                'zone_proximity': 'medium',
+                'action_required': 'wait'
+            }
+
+    def _analyze_breakout_patterns(self, snd_zones, current_price):
+        """Analyze breakout patterns from SnD zones"""
+        try:
+            breakout_analysis = {
+                'breakout_detected': False,
+                'breakout_direction': 'none',
+                'breakout_strength': 0,
+                'volume_confirmation': False,
+                'follow_through_potential': 'low'
+            }
+            
+            breakout_zones = snd_zones.get('breakout_zones', [])
+            if not breakout_zones:
+                return breakout_analysis
+            
+            # Find most recent and strongest breakouts
+            recent_breakouts = sorted(breakout_zones, key=lambda x: x['strength'], reverse=True)
+            
+            if recent_breakouts:
+                strongest_breakout = recent_breakouts[0]
+                
+                breakout_analysis['breakout_detected'] = True
+                breakout_analysis['breakout_direction'] = strongest_breakout['direction']
+                breakout_analysis['breakout_strength'] = strongest_breakout['strength']
+                breakout_analysis['volume_confirmation'] = strongest_breakout['volume_multiplier'] > 1.5
+                
+                # Assess follow-through potential
+                if strongest_breakout['volume_multiplier'] > 2.0 and strongest_breakout['strength'] > 75:
+                    breakout_analysis['follow_through_potential'] = 'high'
+                elif strongest_breakout['volume_multiplier'] > 1.5 and strongest_breakout['strength'] > 60:
+                    breakout_analysis['follow_through_potential'] = 'medium'
+                else:
+                    breakout_analysis['follow_through_potential'] = 'low'
+            
+            return breakout_analysis
+            
+        except Exception as e:
+            print(f"❌ Error analyzing breakout patterns: {e}")
+            return {
+                'breakout_detected': False,
+                'breakout_direction': 'none',
+                'breakout_strength': 0,
+                'volume_confirmation': False,
+                'follow_through_potential': 'low'
+            }
+
+    def _analyze_advanced_snd_position(self, price, snd_zones, timeframe):
+        """Advanced analysis of current price position relative to SnD zones"""
+        try:
+            position_analysis = {
+                'zone_position': 'between_zones',
+                'distance_to_nearest_zone': 0,
+                'zone_strength': 0,
+                'expected_reaction': 'neutral',
+                'entry_quality': 'poor',
+                'risk_level': 'high'
+            }
+            
+            nearest_supply = snd_zones.get('nearest_supply', price * 1.05)
+            nearest_demand = snd_zones.get('nearest_demand', price * 0.95)
+            
+            supply_distance = abs(nearest_supply - price) / price * 100
+            demand_distance = abs(price - nearest_demand) / price * 100
+            
+            if supply_distance < demand_distance:
+                # Closer to supply zone
+                position_analysis['zone_position'] = 'near_supply'
+                position_analysis['distance_to_nearest_zone'] = supply_distance
+                position_analysis['expected_reaction'] = 'rejection'
+                
+                if supply_distance < 0.5:
+                    position_analysis['entry_quality'] = 'excellent'
+                    position_analysis['risk_level'] = 'low'
+                elif supply_distance < 1.5:
+                    position_analysis['entry_quality'] = 'good'
+                    position_analysis['risk_level'] = 'medium'
+                else:
+                    position_analysis['entry_quality'] = 'fair'
+                    position_analysis['risk_level'] = 'medium'
+                    
+            else:
+                # Closer to demand zone
+                position_analysis['zone_position'] = 'near_demand'
+                position_analysis['distance_to_nearest_zone'] = demand_distance
+                position_analysis['expected_reaction'] = 'bounce'
+                
+                if demand_distance < 0.5:
+                    position_analysis['entry_quality'] = 'excellent'
+                    position_analysis['risk_level'] = 'low'
+                elif demand_distance < 1.5:
+                    position_analysis['entry_quality'] = 'good'
+                    position_analysis['risk_level'] = 'medium'
+                else:
+                    position_analysis['entry_quality'] = 'fair'
+                    position_analysis['risk_level'] = 'medium'
+            
+            # Check if in consolidation zone
+            consolidation_zones = snd_zones.get('consolidation_zones', [])
+            for zone in consolidation_zones:
+                if zone['low'] <= price <= zone['high']:
+                    position_analysis['zone_position'] = 'in_consolidation'
+                    position_analysis['zone_strength'] = zone['strength']
+                    position_analysis['expected_reaction'] = 'range_bound'
+                    position_analysis['entry_quality'] = 'poor'
+                    position_analysis['risk_level'] = 'high'
+                    break
+            
+            return position_analysis
+            
+        except Exception as e:
+            print(f"❌ Error in advanced SnD position analysis: {e}")
+            return {
+                'zone_position': 'unknown',
+                'distance_to_nearest_zone': 5,
+                'zone_strength': 50,
+                'expected_reaction': 'neutral',
+                'entry_quality': 'poor',
+                'risk_level': 'high'
+            }
+
+    def _calculate_fallback_snd_zones(self, current_price, timeframe):
+        """Calculate fallback SnD zones when historical data is not available"""
+        try:
+            # Dynamic calculation based on timeframe volatility
+            volatility_map = {
+                '15m': 0.015,  # 1.5%
+                '30m': 0.025,  # 2.5%
+                '1h': 0.035,   # 3.5%
+                '4h': 0.05,    # 5%
+                '1d': 0.08,    # 8%
+                '1w': 0.12     # 12%
+            }
+            
+            volatility = volatility_map.get(timeframe, 0.035)
+            
+            return {
+                'nearest_supply': current_price * (1 + volatility),
+                'nearest_demand': current_price * (1 - volatility),
+                'strong_supply': current_price * (1 + volatility * 2),
+                'strong_demand': current_price * (1 - volatility * 2),
+                'supply_invalidation': current_price * (1 + volatility * 3),
+                'demand_invalidation': current_price * (1 - volatility * 3),
+                'consolidation_zones': [],
+                'breakout_zones': [],
+                'analysis_quality': 'fallback'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error in fallback SnD zones: {e}")
+            return {
+                'nearest_supply': current_price * 1.03,
+                'nearest_demand': current_price * 0.97,
+                'strong_supply': current_price * 1.06,
+                'strong_demand': current_price * 0.94,
+                'supply_invalidation': current_price * 1.08,
+                'demand_invalidation': current_price * 0.92,
+                'consolidation_zones': [],
+                'breakout_zones': [],
+                'analysis_quality': 'emergency_fallback'
+            }
 
     def _generate_emergency_trading_signal(self, symbol, timeframe, price, language='id'):
         """Generate emergency trading signal with MANDATORY levels when all else fails"""
