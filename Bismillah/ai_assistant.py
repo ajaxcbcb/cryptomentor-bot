@@ -704,7 +704,6 @@ Try again in a few minutes for real-time data."""
             if prices_data:
                 sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
 
-```python
                 gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
                 losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
 
@@ -1355,7 +1354,7 @@ Try again in a few minutes for real-time data."""
         # Get current price from CoinAPI
         if price_data and 'error' not in price_data:
             current_price = price_data.get('price', 0)
-            change_24h = price_data.get('change_24h', 0)```python
+            change_24h = price_data.get('change_24h', 0)
 
             if current_price < 1:
                 price_format = f"${current_price:.8f}"
