@@ -665,17 +665,6 @@ Try again in a few minutes for real-time data."""
         except Exception as e:
             return f"❌ Error formatting CoinMarketCap market sentiment: {str(e)}"
 
-        elif health_score >= 3:
-            overall_health = "🟡 LEMAH"
-        else:
-            overall_health = "🔴 TIDAK SEHAT"
-
-        return {
-            'score': round(health_score, 1),
-            'status': overall_health,
-            'factors': health_factors
-        }
-
     def _format_safe_market_overview_id(self, global_data, market_data, prices_data, news_data, futures_btc, futures_eth, market_health):
         """Format comprehensive market overview in Indonesian using multiple APIs with safe formatting"""
         from datetime import datetime
@@ -705,7 +694,7 @@ Try again in a few minutes for real-time data."""
             message += f"""
 
 🏥 **2. Kesehatan Pasar:** {market_health['status']}
-{chr(10).join(['• ' + factor for factor in market_health['factors']])]}"""
+{chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
 
             # Top movers from multi-API data
             message += f"""
@@ -715,6 +704,7 @@ Try again in a few minutes for real-time data."""
             if prices_data:
                 sorted_symbols = sorted(prices_data.items(), key=lambda x: x[1].get('change_24h', 0), reverse=True)
 
+```python
                 gainers = [s for s in sorted_symbols if s[1].get('change_24h', 0) > 0][:3]
                 losers = [s for s in sorted_symbols if s[1].get('change_24h', 0) < 0][-3:]
 
@@ -1365,7 +1355,7 @@ Try again in a few minutes for real-time data."""
         # Get current price from CoinAPI
         if price_data and 'error' not in price_data:
             current_price = price_data.get('price', 0)
-            change_24h = price_data.get('change_24h', 0)
+            change_24h = price_data.get('change_24h', 0)```python
 
             if current_price < 1:
                 price_format = f"${current_price:.8f}"
@@ -1705,12 +1695,12 @@ Try again in a few minutes for real-time data."""
                 elif entry < 100:
                     entry_fmt = f"${entry:.4f}"
                     tp1_fmt = f"${tp1:.4f}"
-                    tp2_fmt = f"${tp1:.4f}"
+                    tp2_fmt = f"${tp2:.4f}"
                     sl_fmt = f"${sl:.4f}"
                     current_fmt = f"${current_price:.4f}"
                 else:
                     entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:,.2f}"
+                    tp1_fmt = f"${tp1:.2f}"
                     tp2_fmt = f"${tp2:.2f}"
                     sl_fmt = f"${sl:.2f}"
                     current_fmt = f"${current_price:.2f}"
