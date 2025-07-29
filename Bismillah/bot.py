@@ -1107,8 +1107,15 @@ class TelegramBot:
                     )
 
                     try:
-                        # Get enhanced futures analysis using AI
+                        # Get enhanced futures analysis using AI with clear recommendations
                         analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+
+                        # Ensure analysis contains clear signal
+                        if analysis_text and ('LONG' in analysis_text or 'SHORT' in analysis_text):
+                            print(f"✅ Clear signal generated for {symbol} {timeframe}")
+                        else:
+                            print(f"⚠️ No clear signal in analysis for {symbol} {timeframe}")
+                            analysis_text += f"\n\n⚠️ **Note**: Analisis dihasilkan berdasarkan data CoinAPI real-time dan Binance futures."
 
                         # Deduct credits
                         if not is_premium and not is_admin:
@@ -1123,8 +1130,9 @@ class TelegramBot:
                         await query.edit_message_text(analysis_text, parse_mode='Markdown')
 
                     except Exception as e:
-                        await query.edit_message_text(f"❌ Error dalam analisis SnD: {str(e)}")
-                        print(f"Error in SnD callback: {e}")
+                        error_msg = f"❌ Error dalam analisis futures: {str(e)}\n\n💡 Coba command `/price {symbol}` untuk cek harga CoinAPI terlebih dahulu."
+                        await query.edit_message_text(error_msg)
+                        print(f"Error in futures callback: {e}")
 
             # Handle other callback queries (existing logic)
             elif callback_data.startswith('futures_analysis_'):
