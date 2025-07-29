@@ -2293,8 +2293,8 @@ Try again in a few minutes for real-time data."""
 
 🎯 **SUPPLY & DEMAND FEATURES:**
 • Entry based on S&D zones
-• TP/SL calculation with optimal risk/reward
-• Volume confirmation for breakout validation
+• TP/SL calculation dengan risk/reward optimal
+• Volume confirmation untuk validasi breakout
 • Multi-timeframe analysis
 
 📡 **Data Sources**: CoinAPI Real-time + Binance Futures + Advanced SnD Algorithm
@@ -2373,6 +2373,9 @@ Try again in a few minutes for real-time data."""
 💡Disclaimer: Not investment advice, do your own research"""
 
             return message
+
+        except Exception as e:
+            return f"❌ Error formatting individual analysis: {str(e)}"
 
     def _analyze_market_condition(self, candlestick_data, futures_data):
         """Analyze market condition based on candlestick patterns and futures data"""
