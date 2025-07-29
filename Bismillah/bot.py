@@ -209,7 +209,7 @@ class TelegramBot:
                     allowed_updates=['message', 'callback_query']
                 )
                 print("🚀 Bot polling started successfully!")
-                
+
                 # Wait for polling to be ready
                 await asyncio.sleep(2)
 
@@ -228,17 +228,17 @@ class TelegramBot:
                     # Use a different approach for keeping bot alive
                     import signal
                     stop_event = asyncio.Event()
-                    
+
                     def signal_handler(signum, frame):
                         print(f"\n🛑 Received signal {signum}, stopping bot...")
                         stop_event.set()
-                    
+
                     signal.signal(signal.SIGINT, signal_handler)
                     signal.signal(signal.SIGTERM, signal_handler)
-                    
+
                     # Wait indefinitely until stop signal
                     await stop_event.wait()
-                    
+
                 except KeyboardInterrupt:
                     print("🛑 Bot stopped by interrupt signal")
 
@@ -309,20 +309,20 @@ class TelegramBot:
             try:
                 if self.application:
                     print("🛑 Stopping application...")
-                    
+
                     # Stop updater first
                     if hasattr(self.application, 'updater') and self.application.updater.running:
                         await self.application.updater.stop()
                         print("✅ Updater stopped")
-                    
+
                     # Stop application
                     await self.application.stop()
                     print("✅ Application stopped")
-                    
+
                     # Shutdown application
                     await self.application.shutdown()
                     print("✅ Application shutdown complete")
-                    
+
                 print("🛑 Bot stopped gracefully")
             except Exception as e:
                 logger.error(f"Error during bot shutdown: {e}")
@@ -333,7 +333,7 @@ class TelegramBot:
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
-        
+
         # Debug: Show that command handler is working
         print(f"📞 Start command handler called successfully")
 
@@ -644,7 +644,7 @@ class TelegramBot:
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
         print(f"🎯 /price command received from user {update.effective_user.id}")
-        
+
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -1102,18 +1102,20 @@ class TelegramBot:
 
                     # Show loading with enhanced message
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Binance futures...\n\n"
-                        "🔍 Sedang memproses:\n"
-                        "• CoinAPI real-time price\n"
-                        "• Binance futures sentiment\n"
-                        "• Supply & Demand zones\n"
-                        "• Entry/TP/SL calculation",
-                        parse_mode='Markdown'
-                    )
+                            f"⏳ Menganalisis {symbol} {timeframe} dengan SnD + Real-time Price...\n\n"
+                            "🎯 **Sedang memproses:**\n"
+                            "• 💰 CoinAPI real-time price\n"
+                            "• 📊 Binance futures sentiment\n"
+                            "• 🎯 Supply & Demand zones analysis\n"
+                            "• 📋 Entry/TP1/TP2/SL calculation\n"
+                            "• ⚡ Risk/Reward optimization\n\n"
+                            "📈 **Menunggu sinyal trading yang jelas...**",
+                            parse_mode='Markdown'
+                        )
 
                     try:
                         print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
-                        
+
                         # Get enhanced futures analysis using AI with GUARANTEED recommendations
                         analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
 
@@ -1123,7 +1125,7 @@ class TelegramBot:
                             # Get current price for calculations
                             price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
                             current_price = price_data.get('price', 0) if price_data and 'error' not in price_data else self.ai._get_estimated_price(symbol)
-                            
+
                             # Smart price formatting
                             def format_price_clear(price):
                                 if price < 1:
@@ -1132,12 +1134,12 @@ class TelegramBot:
                                     return f"${price:.4f}"
                                 else:
                                     return f"${price:,.2f}"
-                            
+
                             entry_price = current_price * 0.999
                             tp1_price = current_price * 1.025
                             tp2_price = current_price * 1.05
                             sl_price = current_price * 0.985
-                            
+
                             analysis_text = f"""🎯 **ANALISIS FUTURES {symbol.upper()} ({timeframe})**
 
 💰 **HARGA REAL-TIME**: {format_price_clear(current_price)}
@@ -1171,7 +1173,7 @@ class TelegramBot:
 • Exit jika market structure berubah"""
 
                         # Double-check that signal is clear
-                        if not ('LONG' in analysis_text or 'SHORT' in analysis_text):
+                        if not ('LONG' in analysis_text or 'SHORT' in analysis_text'):
                             print(f"⚠️ Still no clear signal, adding MANDATORY recommendation")
                             analysis_text += f"""
 
@@ -1182,7 +1184,7 @@ class TelegramBot:
 🛡️ **Stop**: -2% loss
 
 ⚠️ **Note**: Trading signal dipaksa generate untuk memastikan output yang jelas."""
-                        
+
                         print(f"✅ Clear signal confirmed for {symbol} {timeframe}")
 
                         # Import datetime if needed
@@ -1758,7 +1760,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle regular text messages"""
         text = update.message.text.lower().strip()
         user_id = update.message.from_user.id
-        
+
         print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
         logger.info(f"Message from user {user_id}: {text[:50]}")
 
