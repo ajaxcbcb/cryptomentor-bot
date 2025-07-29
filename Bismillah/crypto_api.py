@@ -1460,17 +1460,35 @@ class CryptoAPI:
             return {'error': f'SnD analysis failed: {str(e)}'}
 
     def _identify_supply_zones(self, candlesticks, current_price):
-        """Identify supply zones from candlestick data"""
+        """Identify supply zones from candlestick data with safety checks"""
         supply_zones = []
+        
+        # Safety check for minimum data
+        if len(candlesticks) < 5:
+            return supply_zones
 
         for i in range(2, len(candlesticks) - 2):
-            candle = candlesticks[i]
-            prev_candle = candlesticks[i-1]
-            next_candle = candlesticks[i+1]
+            try:
+                candle = candlesticks[i]
+                prev_candle = candlesticks[i-1]
+                next_candle = candlesticks[i+1]
+                
+                # Validate candle data
+                required_fields = ['high', 'low', 'open', 'close']
+                if not all(field in candle and candle[field] is not None for field in required_fields):
+                    continue
+                
+                if not all(field in prev_candle and prev_candle[field] is not None for field in required_fields):
+                    continue
+                    
+                if not all(field in next_candle and next_candle[field] is not None for field in required_fields):
+                    continue
 
-            # Look for rejection patterns (long upper wicks)
-            body_size = abs(candle['close'] - candle['open'])
-            upper_wick = candle['high'] - max(candle['open'], candle['close'])
+                # Look for rejection patterns (long upper wicks)
+                body_size = abs(candle['close'] - candle['open'])
+                upper_wick = candle['high'] - max(candle['open'], candle['close'])
+            except (KeyError, TypeError, ValueError):
+                continue  # Skip malformed candles
 
             # Supply zone criteria
             if (upper_wick > body_size * 1.5 and 
@@ -1497,17 +1515,35 @@ class CryptoAPI:
         return supply_zones[:5]  # Return top 5
 
     def _identify_demand_zones(self, candlesticks, current_price):
-        """Identify demand zones from candlestick data"""
+        """Identify demand zones from candlestick data with safety checks"""
         demand_zones = []
+        
+        # Safety check for minimum data
+        if len(candlesticks) < 5:
+            return demand_zones
 
         for i in range(2, len(candlesticks) - 2):
-            candle = candlesticks[i]
-            prev_candle = candlesticks[i-1]
-            next_candle = candlesticks[i+1]
+            try:
+                candle = candlesticks[i]
+                prev_candle = candlesticks[i-1]
+                next_candle = candlesticks[i+1]
+                
+                # Validate candle data
+                required_fields = ['high', 'low', 'open', 'close']
+                if not all(field in candle and candle[field] is not None for field in required_fields):
+                    continue
+                
+                if not all(field in prev_candle and prev_candle[field] is not None for field in required_fields):
+                    continue
+                    
+                if not all(field in next_candle and next_candle[field] is not None for field in required_fields):
+                    continue
 
-            # Look for bounce patterns (long lower wicks)
-            body_size = abs(candle['close'] - candle['open'])
-            lower_wick = min(candle['open'], candle['close']) - candle['low']
+                # Look for bounce patterns (long lower wicks)
+                body_size = abs(candle['close'] - candle['open'])
+                lower_wick = min(candle['open'], candle['close']) - candle['low']
+            except (KeyError, TypeError, ValueError):
+                continue  # Skip malformed candles
 
             # Demand zone criteria
             if (lower_wick > body_size * 1.5 and 
@@ -1534,15 +1570,31 @@ class CryptoAPI:
         return demand_zones[:5]  # Return top 5
 
     def _calculate_zone_strength(self, candlesticks, index, zone_type):
-        """Calculate the strength of a supply/demand zone"""
+        """Calculate the strength of a supply/demand zone with safety checks"""
         strength = 50  # Base strength
+        
+        # Validate input parameters
+        if not candlesticks or index < 0 or index >= len(candlesticks):
+            return strength
 
-        # Volume factor (if available)
-        if 'volume' in candlesticks[index]:
-            volume = candlesticks[index]['volume']
-            avg_volume = sum(c.get('volume', 0) for c in candlesticks[max(0, index-10):index+10]) / 20
-            if volume > avg_volume * 1.5:
-                strength += 20
+        # Volume factor (if available) with safety checks
+        try:
+            if 'volume' in candlesticks[index] and candlesticks[index]['volume'] > 0:
+                volume = candlesticks[index]['volume']
+                
+                # Calculate average volume with bounds checking
+                start_idx = max(0, index-10)
+                end_idx = min(len(candlesticks), index+11)
+                volume_slice = candlesticks[start_idx:end_idx]
+                
+                if volume_slice:  # Ensure slice is not empty
+                    volumes = [c.get('volume', 0) for c in volume_slice if c.get('volume', 0) > 0]
+                    if volumes:  # Ensure volumes list is not empty
+                        avg_volume = sum(volumes) / len(volumes)
+                        if avg_volume > 0 and volume > avg_volume * 1.5:
+                            strength += 20
+        except (KeyError, IndexError, ZeroDivisionError):
+            pass  # Skip volume analysis if data is incomplete
 
         # Confluence with moving averages
         closes = [c['close'] for c in candlesticks[max(0, index-20):index+1]]
@@ -2155,12 +2207,29 @@ class CryptoAPI:
                     'analysis_successful': False
                 }
 
-            # Calculate enhanced SnD analysis
-            highs = [c['high'] for c in candlesticks[-50:]]
-            lows = [c['low'] for c in candlesticks[-50:]]
-            closes = [c['close'] for c in candlesticks[-50:]]
-            opens = [c['open'] for c in candlesticks[-50:]]
-            volumes = [c['volume'] for c in candlesticks[-50:]]
+            # Calculate enhanced SnD analysis with safety checks
+            recent_candles = candlesticks[-50:] if len(candlesticks) >= 50 else candlesticks
+            
+            if len(recent_candles) < 10:
+                return {
+                    'error': f'Insufficient data for SnD analysis: only {len(recent_candles)} candles available',
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
+            
+            highs = [c['high'] for c in recent_candles]
+            lows = [c['low'] for c in recent_candles]
+            closes = [c['close'] for c in recent_candles]
+            opens = [c['open'] for c in recent_candles]
+            volumes = [c['volume'] for c in recent_candles]
+            
+            # Validate data is not empty
+            if not highs or not lows or not closes:
+                return {
+                    'error': 'Empty price data arrays',
+                    'symbol': symbol,
+                    'analysis_successful': False
+                }
 
             current_price = closes[-1]
 

@@ -190,22 +190,24 @@ class TelegramBot:
             print("🎯 Waiting for Telegram messages...")
 
             try:
-                # Initialize the application
+                # Proper initialization sequence for telegram-bot v22.x
                 await self.application.initialize()
                 print("✅ Application initialized")
 
-                # Start the application
                 await self.application.start()
                 print("✅ Application started")
 
-                # Start polling with compatible settings for deployment
+                # Start polling with proper error handling
                 await self.application.updater.start_polling(
-                    poll_interval=1.0,         # Poll every 1 second
-                    timeout=20,                # Request timeout
-                    drop_pending_updates=True, # Drop old updates
-                    allowed_updates=['message', 'callback_query']  # Only handle these updates
+                    poll_interval=1.0,
+                    timeout=20,
+                    drop_pending_updates=True,
+                    allowed_updates=['message', 'callback_query']
                 )
                 print("🚀 Bot polling started successfully!")
+                
+                # Wait for polling to be ready
+                await asyncio.sleep(2)
 
                 # Keep the bot running
                 import signal
@@ -217,9 +219,22 @@ class TelegramBot:
                 signal.signal(signal.SIGINT, signal_handler)
                 signal.signal(signal.SIGTERM, signal_handler)
 
-                # Keep running until interrupted
+                # Keep running until interrupted - fix for telegram-bot v22.x
                 try:
-                    await self.application.updater.idle()
+                    # Use a different approach for keeping bot alive
+                    import signal
+                    stop_event = asyncio.Event()
+                    
+                    def signal_handler(signum, frame):
+                        print(f"\n🛑 Received signal {signum}, stopping bot...")
+                        stop_event.set()
+                    
+                    signal.signal(signal.SIGINT, signal_handler)
+                    signal.signal(signal.SIGTERM, signal_handler)
+                    
+                    # Wait indefinitely until stop signal
+                    await stop_event.wait()
+                    
                 except KeyboardInterrupt:
                     print("🛑 Bot stopped by interrupt signal")
 
@@ -286,14 +301,28 @@ class TelegramBot:
                 logger.error(f"❌ Error running bot: {e}")
                 raise
         finally:
-            # Cleanup
+            # Proper cleanup sequence
             try:
                 if self.application:
+                    print("🛑 Stopping application...")
+                    
+                    # Stop updater first
+                    if hasattr(self.application, 'updater') and self.application.updater.running:
+                        await self.application.updater.stop()
+                        print("✅ Updater stopped")
+                    
+                    # Stop application
                     await self.application.stop()
+                    print("✅ Application stopped")
+                    
+                    # Shutdown application
                     await self.application.shutdown()
+                    print("✅ Application shutdown complete")
+                    
                 print("🛑 Bot stopped gracefully")
             except Exception as e:
                 logger.error(f"Error during bot shutdown: {e}")
+                print(f"⚠️ Cleanup error: {e}")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with enhanced user persistence"""
