@@ -1,3 +1,4 @@
+# Adding the get_eligible_auto_signal_users method to the Database class.
 import sqlite3
 import os
 from datetime import datetime, timedelta
@@ -492,16 +493,43 @@ class Database:
             return {'total_users': 0, 'premium_users': 0, 'free_users': 0}
 
     def get_user_credits(self, telegram_id):
-        """Get user's remaining credits"""
+        """Get user's current credits"""
         try:
-            self.cursor.execute("""
-                SELECT credits FROM users WHERE telegram_id = ?
-            """, (telegram_id,))
-            row = self.cursor.fetchone()
-            return row[0] if row else 0
+            user = self.get_user(telegram_id)
+            return user.get('credits', 0) if user else 0
         except Exception as e:
-            print(f"DB Error (get_user_credits): {e}")
+            print(f"Error getting user credits: {e}")
             return 0
+
+    def get_eligible_auto_signal_users(self):
+        """Get list of users eligible for auto signals (admin + lifetime premium)"""
+        try:
+            # Get admin ID from environment
+            admin_id = int(os.getenv('ADMIN_USER_ID', 0))
+
+            eligible_users = []
+
+            # Add admin
+            if admin_id > 0:
+                eligible_users.append(admin_id)
+
+            # Get lifetime premium users (subscription_end is NULL)
+            self.cursor.execute("""
+                SELECT telegram_id FROM users 
+                WHERE is_premium = 1 AND subscription_end IS NULL
+                AND telegram_id != ?
+            """, (admin_id,))
+
+            lifetime_users = [row[0] for row in self.cursor.fetchall()]
+            eligible_users.extend(lifetime_users)
+
+            print(f"👥 Eligible auto signal users: Admin({admin_id}) + {len(lifetime_users)} Lifetime users")
+
+            return eligible_users
+
+        except Exception as e:
+            print(f"Error getting eligible auto signal users: {e}")
+            return []
 
     def deduct_credit(self, telegram_id, amount):
         """Deduct credits from user (only for non-premium, non-admin users)"""
@@ -703,12 +731,12 @@ class Database:
                 SET is_premium = 0, subscription_end = NULL 
                 WHERE telegram_id = ?
             """, (user_id,))
-            
+
             success = self.cursor.rowcount > 0
             if success:
                 self.conn.commit()
                 print(f"✅ Premium revoked for user {user_id}")
-            
+
             return success
         except Exception as e:
             print(f"Error revoking premium for user {user_id}: {e}")
@@ -720,16 +748,16 @@ class Database:
             # Fix NULL credits
             self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
             null_fixed = self.cursor.rowcount
-            
+
             # Fix negative credits
             self.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
             negative_fixed = self.cursor.rowcount
-            
+
             self.conn.commit()
-            
+
             total_fixed = null_fixed + negative_fixed
             print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
-            
+
             return total_fixed
         except Exception as e:
             print(f"Error fixing all user credits: {e}")
@@ -740,15 +768,15 @@ class Database:
         try:
             # Add a restart flag to user activity
             current_time = datetime.now().isoformat()
-            
+
             # Get all users
             self.cursor.execute("SELECT telegram_id FROM users")
             users = self.cursor.fetchall()
-            
+
             for user in users:
                 user_id = user[0]
                 self.log_user_activity(user_id, "restart_required", f"Bot restart at {current_time}")
-            
+
             print(f"✅ Marked {len(users)} users for restart")
             return len(users)
         except Exception as e:
@@ -768,7 +796,7 @@ class Database:
                     WHERE telegram_id = ? AND action = 'user_reactivated'
                 )
             """, (user_id, user_id))
-            
+
             needs_restart = self.cursor.fetchone()[0] > 0
             return needs_restart
         except Exception as e:
@@ -792,41 +820,15 @@ class Database:
                 SET credits = credits + 50 
                 WHERE is_premium = 0
             """)
-            
+
             refreshed_count = self.cursor.rowcount
             self.conn.commit()
-            
+
             print(f"✅ Gave +50 credits to {refreshed_count} free users")
             return refreshed_count
         except Exception as e:
             print(f"Error refreshing free user credits: {e}")
             return 0
-
-    def get_eligible_auto_signal_users(self):
-        """Get users eligible for auto signals (admin and lifetime)"""
-        try:
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
-
-            self.cursor.execute("""
-                SELECT telegram_id, username, first_name, is_premium, subscription_end
-                FROM users 
-                WHERE telegram_id = ? OR subscription_end IS NULL
-                ORDER BY telegram_id
-            """, (admin_id,))
-
-            results = []
-            for row in self.cursor.fetchall():
-                results.append({
-                    'user_id': row[0],
-                    'username': row[1],
-                    'first_name': row[2],
-                    'is_premium': row[3],
-                    'premium_expires': row[4]
-                })
-            return results
-        except Exception as e:
-            print(f"Error getting eligible auto signal users: {e}")
-            return []
 
     def log_auto_signals_broadcast(self, signals_count, success_count, total_eligible):
         """Log auto signals broadcast for tracking"""
@@ -853,383 +855,3 @@ class Database:
                 FROM users 
                 WHERE telegram_id IS NOT NULL AND telegram_id != 0
                 ORDER BY created_at DESC
-            """)
-            rows = self.cursor.fetchall()
-
-            users = []
-            for row in rows:
-                users.append({
-                    'user_id': row[0],
-                    'first_name': row[1],
-                    'username': row[2],
-                    'is_premium': row[3],
-                    'created_at': row[4]
-                })
-            return users
-        except Exception as e:
-            print(f"Error getting all users: {e}")
-            return []
-
-    def add_credits(self, telegram_id, amount):
-        """Add credits to user account"""
-        try:
-            # Check if user exists first
-            user = self.get_user(telegram_id)
-            if not user:
-                print(f"User {telegram_id} not found for adding credits")
-                return False
-
-            self.cursor.execute("""
-                UPDATE users SET credits = credits + ? WHERE telegram_id = ?
-            """, (amount, telegram_id))
-
-            if self.cursor.rowcount > 0:
-                self.conn.commit()
-                # Log the credit addition
-                self.log_user_activity(telegram_id, "credits_added", f"Added {amount} credits by admin")
-                print(f"✅ Added {amount} credits to user {telegram_id}")
-                return True
-            else:
-                print(f"❌ Failed to add credits to user {telegram_id}")
-                return False
-        except Exception as e:
-            print(f"DB Error (add_credits): {e}")
-            return False
-
-    def fix_user_credits(self):
-        """Fix users with 0 or negative credits"""
-        try:
-            # Update users with 0 or negative credits to 10
-            self.cursor.execute("""
-                UPDATE users SET credits = 10 
-                WHERE credits <= 0 AND telegram_id IS NOT NULL
-            """)
-
-            fixed_count = self.cursor.rowcount
-            self.conn.commit()
-            print(f"✅ Fixed credits for {fixed_count} users")
-            return fixed_count
-        except Exception as e:
-            print(f"DB Error (fix_user_credits): {e}")
-            return 0
-
-    def set_user_language(self, telegram_id, language):
-        """Set user's language preference"""
-        try:
-            self.cursor.execute("""
-                UPDATE users SET language_code = ? WHERE telegram_id = ?
-            """, (language, telegram_id))
-            self.conn.commit()
-            return self.cursor.rowcount > 0
-        except Exception as e:
-            print(f"DB Error (set_user_language): {e}")
-            return False
-
-    def mark_all_users_for_restart(self):
-        """Mark all users to require /start again (for admin restart)"""
-        try:
-            # Check if restart_required column exists
-            self.cursor.execute("PRAGMA table_info(users)")
-            columns = [column[1] for column in self.cursor.fetchall()]
-
-            # Add restart_required column if it doesn't exist
-            if 'restart_required' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
-                print("✅ Added restart_required column to users table")
-
-            # Mark all users as requiring restart
-            self.cursor.execute("""
-                UPDATE users SET restart_required = 1 
-                WHERE telegram_id IS NOT NULL AND telegram_id != 0
-            """)
-
-            restart_count = self.cursor.rowcount
-            self.conn.commit()
-            print(f"✅ Marked {restart_count} users for restart")
-            return restart_count
-        except Exception as e:
-            print(f"DB Error (mark_all_users_for_restart): {e}")
-            return 0
-
-    def user_needs_restart(self, telegram_id):
-        """Check if user needs to /start again after admin restart"""
-        try:
-            # Check if restart_required column exists first
-            self.cursor.execute("PRAGMA table_info(users)")
-            columns = [column[1] for column in self.cursor.fetchall()]
-
-            if 'restart_required' not in columns:
-                # Column doesn't exist, add it
-                self.cursor.execute("ALTER TABLE users ADD COLUMN restart_required INTEGER DEFAULT 0")
-                self.conn.commit()
-                return False  # New column, user doesn't need restart
-
-            self.cursor.execute("""
-                SELECT restart_required FROM users WHERE telegram_id = ?
-            """, (telegram_id,))
-            row = self.cursor.fetchone()
-            return row[0] == 1 if row else False
-        except Exception as e:
-            print(f"DB Error (user_needs_restart): {e}")
-            return False
-
-    def clear_restart_flag(self, telegram_id):
-        """Clear restart flag when user uses /start"""
-        try:
-            self.cursor.execute("""
-                UPDATE users SET restart_required = 0 WHERE telegram_id = ?
-            """, (telegram_id,))
-            self.conn.commit()
-            return True
-        except Exception as e:
-            print(f"DB Error (clear_restart_flag): {e}")
-            return False
-
-    def backup_user_data(self, telegram_id):
-        """Create backup of user data"""
-        try:
-            user = self.get_user(telegram_id)
-            if user:
-                backup_data = {
-                    'telegram_id': user['telegram_id'],
-                    'first_name': user['first_name'],
-                    'username': user['username'],
-                    'credits': user['credits'],
-                    'is_premium': user['is_premium'],
-                    'created_at': user['created_at']
-                }
-
-                # Store in activity log as backup
-                self.log_user_activity(telegram_id, "user_data_backup", f"Backup: {backup_data}")
-                return True
-        except Exception as e:
-            print(f"Error backing up user data: {e}")
-        return False
-
-    def recover_user_from_backup(self, telegram_id):
-        """Attempt to recover user from backup in activity logs"""
-        try:
-            self.cursor.execute("""
-                SELECT details FROM user_activity 
-                WHERE telegram_id = ? AND action = 'user_data_backup' 
-                ORDER BY timestamp DESC LIMIT 1
-            """, (telegram_id,))
-
-            backup_row = self.cursor.fetchone()
-            if backup_row:
-                print(f"✅ Found backup for user {telegram_id}")
-                return True
-            return False
-        except Exception as e:
-            print(f"Error recovering user backup: {e}")
-            return False
-
-    def ensure_user_persistence(self, telegram_id, username, first_name, last_name=None, language_code='id'):
-        """Ensure user data is persistent - create if not exists, update if exists"""
-        try:
-            existing_user = self.get_user(telegram_id)
-            if existing_user:
-                # Update existing user info
-                self.update_user_info(telegram_id, username, first_name, last_name, language_code)
-                # Create fresh backup
-                self.backup_user_data(telegram_id)
-                return True
-            else:
-                # Create new user
-                return self.create_user(telegram_id, username, first_name, last_name, language_code)
-        except Exception as e:
-            print(f"Error ensuring user persistence: {e}")
-            return False
-
-    def get_all_user_backups(self):
-        """Get all users who have backup data (for recovery purposes)"""
-        try:
-            self.cursor.execute("""
-                SELECT DISTINCT telegram_id, details, timestamp 
-                FROM user_activity 
-                WHERE action IN ('user_created', 'user_backup_created', 'user_data_backup')
-                ORDER BY timestamp DESC
-            """)
-            return self.cursor.fetchall()
-        except Exception as e:
-            print(f"Error getting user backups: {e}")
-            return []
-
-    def database_health_check(self):
-        """Check database health and integrity"""
-        try:
-            # Check if main tables exist
-            tables = ['users', 'user_activity', 'portfolio', 'subscriptions']
-            for table in tables:
-                self.cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                count = self.cursor.fetchone()[0]
-                print(f"✅ Table {table}: {count} records")
-
-            # Check for corrupted data
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
-            invalid_users = self.cursor.fetchone()[0]
-
-            if invalid_users > 0:
-                print(f"⚠️ Found {invalid_users} users with invalid telegram_id")
-                # Clean up invalid users
-                self.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
-                self.conn.commit()
-                print(f"✅ Cleaned up {invalid_users} invalid users")
-
-            print("✅ Database health check completed")
-            return True
-        except Exception as e:
-            print(f"❌ Database health check failed: {e}")
-            return False
-
-    def close(self):
-        """Close database connection with final backup"""
-        try:
-            # Create final database state backup
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
-            total_users = self.cursor.fetchone()[0]
-            print(f"💾 Closing database with {total_users} users safely stored")
-            self.conn.close()
-        except Exception as e:
-            print(f"Error during database close: {e}")
-            try:
-                self.conn.close()
-            except:
-                pass
-    def get_user_by_premium_referral_code(self, premium_referral_code):
-        """Get user ID by premium referral code"""
-        try:
-            self.cursor.execute("""
-                SELECT telegram_id FROM users WHERE premium_referral_code = ?
-            """, (premium_referral_code,))
-            row = self.cursor.fetchone()
-            return row[0] if row else None
-        except Exception as e:
-            print(f"DB Error (get_user_by_premium_referral_code): {e}")
-            return None
-
-    def create_premium_referral(self, referrer_id, referred_id, subscription_type, subscription_amount):
-        """Create premium referral entry"""
-        try:
-            # Calculate earnings (10k rupiah for each premium subscription)
-            earnings = 10000  # 10k rupiah
-
-            self.cursor.execute("""
-                INSERT INTO premium_referrals 
-                (referrer_id, referred_id, subscription_type, subscription_amount, earnings, status)
-                VALUES (?, ?, ?, ?, ?, 'confirmed')
-            """, (referrer_id, referred_id, subscription_type, subscription_amount, earnings))
-
-            # Update referrer's premium earnings
-            self.cursor.execute("""
-                UPDATE users SET premium_earnings = premium_earnings + ? WHERE telegram_id = ?
-            """, (earnings, referrer_id))
-
-            self.conn.commit()
-
-            # Log the premium referral
-            self.log_user_activity(referrer_id, "premium_referral_reward", 
-                                 f"Earned Rp{earnings:,} from premium referral {referred_id}")
-            self.log_user_activity(referred_id, "premium_subscription_via_referral", 
-                                 f"Subscribed via premium referral from {referrer_id}")
-
-            print(f"✅ Premium referral created: {referrer_id} -> {referred_id}, earnings: Rp{earnings:,}")
-            return True
-        except Exception as e:
-            print(f"DB Error (create_premium_referral): {e}")
-            return False
-
-    def get_premium_earnings(self, telegram_id):
-        """Get user's total premium referral earnings"""
-        try:
-            self.cursor.execute("""
-                SELECT premium_earnings FROM users WHERE telegram_id = ?
-            """, (telegram_id,))
-            row = self.cursor.fetchone()
-            return row[0] if row else 0
-        except Exception as e:
-            print(f"DB Error (get_premium_earnings): {e}")
-            return 0
-
-    def get_premium_referral_stats(self, telegram_id):
-        """Get user's premium referral statistics"""
-        try:
-            # Get total referrals made
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM premium_referrals WHERE referrer_id = ?
-            """, (telegram_id,))
-            total_referrals = self.cursor.fetchone()[0]
-
-            # Get total earnings
-            earnings = self.get_premium_earnings(telegram_id)
-
-            # Get recent referrals
-            self.cursor.execute("""
-                SELECT pr.referred_id, u.first_name, pr.subscription_type, pr.earnings, pr.created_at
-                FROM premium_referrals pr
-                JOIN users u ON pr.referred_id = u.telegram_id
-                WHERE pr.referrer_id = ?
-                ORDER BY pr.created_at DESC
-                LIMIT 5
-            """, (telegram_id,))
-            recent_referrals = self.cursor.fetchall()
-
-            return {
-                'total_referrals': total_referrals,
-                'total_earnings': earnings,
-                'recent_referrals': recent_referrals
-            }
-        except Exception as e:
-            print(f"DB Error (get_premium_referral_stats): {e}")
-            return {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
-
-    def get_user_referral_codes(self, telegram_id):
-        """Get both free and premium referral codes for user"""
-        try:
-            self.cursor.execute("""
-                SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?
-            """, (telegram_id,))
-            row = self.cursor.fetchone()
-            if row:
-                free_code = row[0]
-                premium_code = row[1]
-
-                # Generate codes if they don't exist
-                if not free_code:
-                    free_code = self._generate_referral_code('F')
-                    self.cursor.execute("""
-                        UPDATE users SET referral_code = ? WHERE telegram_id = ?
-                    """, (free_code, telegram_id))
-
-                if not premium_code:
-                    premium_code = self._generate_referral_code('P')
-                    self.cursor.execute("""
-                        UPDATE users SET premium_referral_code = ? WHERE telegram_id = ?
-                    """, (premium_code, telegram_id))
-
-                self.conn.commit()
-
-                return {
-                    'free_referral_code': free_code,
-                    'premium_referral_code': premium_code
-                }
-            return None
-        except Exception as e:
-            print(f"DB Error (get_user_referral_codes): {e}")
-            return None
-
-    def _generate_referral_code(self, prefix):
-        """Generate unique referral code with prefix"""
-        import random
-        import string
-
-        while True:
-            code = prefix + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-
-            # Check if code already exists
-            if prefix == 'F':
-                if not self.get_user_by_referral_code(code):
-                    return code
-            else:  # prefix == 'P'
-                if not self.get_user_by_premium_referral_code(code):
-                    return code

@@ -1223,6 +1223,54 @@ class CryptoAPI:
 
         return combined_data
 
+    def get_comprehensive_crypto_analysis(self, symbol):
+        """Get comprehensive crypto analysis combining CoinMarketCap and other sources"""
+        try:
+            analysis_data = {
+                'symbol': symbol.upper(),
+                'timestamp': datetime.now().isoformat(),
+                'cmc_data': {},
+                'coinapi_data': {},
+                'binance_data': {},
+                'data_quality': 'partial'
+            }
+
+            # Try CoinMarketCap first for fundamental data
+            if self.cmc_provider and self.cmc_provider.api_key:
+                try:
+                    cmc_comprehensive = self.cmc_provider.get_comprehensive_data(symbol)
+                    if 'error' not in cmc_comprehensive:
+                        analysis_data['cmc_data'] = cmc_comprehensive
+                        analysis_data['data_quality'] = 'good'
+                        print(f"✅ Got CoinMarketCap data for {symbol}")
+                except Exception as e:
+                    print(f"⚠️ CoinMarketCap failed for {symbol}: {e}")
+
+            # Try CoinAPI for real-time price
+            try:
+                coinapi_price = self.get_coinapi_price(symbol, force_refresh=True)
+                if 'error' not in coinapi_price:
+                    analysis_data['coinapi_data'] = coinapi_price
+                    print(f"✅ Got CoinAPI price for {symbol}")
+            except Exception as e:
+                print(f"⚠️ CoinAPI failed for {symbol}: {e}")
+
+            # Try Binance for trading data
+            try:
+                binance_futures = self.get_comprehensive_futures_data(symbol)
+                if 'error' not in binance_futures:
+                    analysis_data['binance_data'] = binance_futures
+                    analysis_data['data_quality'] = 'excellent'
+                    print(f"✅ Got Binance futures data for {symbol}")
+            except Exception as e:
+                print(f"⚠️ Binance failed for {symbol}: {e}")
+
+            return analysis_data
+
+        except Exception as e:
+            print(f"Error in comprehensive crypto analysis: {e}")
+            return {'error': f'Analysis failed: {str(e)}'}
+
     def get_comprehensive_analysis_data(self, symbol):
         """Get comprehensive data from Binance APIs only for analysis"""
         analysis_data = {
@@ -1320,6 +1368,40 @@ class CryptoAPI:
         return self.get_binance_liquidation_orders(symbol)
 
     # === UTILITY METHODS ===
+
+    def get_market_overview(self):
+        """Get market overview using CoinMarketCap global metrics"""
+        try:
+            if not self.cmc_provider or not self.cmc_provider.api_key:
+                return {'error': 'CoinMarketCap not available'}
+
+            # Get global metrics
+            global_data = self.cmc_provider.get_global_metrics()
+            
+            if 'error' in global_data:
+                return global_data
+
+            # Get BTC and ETH quotes for additional data
+            btc_data = self.cmc_provider.get_cryptocurrency_quotes('BTC')
+            eth_data = self.cmc_provider.get_cryptocurrency_quotes('ETH')
+
+            return {
+                'total_market_cap': global_data.get('total_market_cap', 0),
+                'total_volume_24h': global_data.get('total_volume_24h', 0),
+                'market_cap_change_24h': global_data.get('market_cap_change_24h', 0),
+                'btc_dominance': global_data.get('btc_dominance', 0),
+                'eth_dominance': global_data.get('eth_dominance', 0),
+                'active_cryptocurrencies': global_data.get('active_cryptocurrencies', 0),
+                'active_exchanges': global_data.get('active_exchanges', 0),
+                'btc_price': btc_data.get('price', 0) if 'error' not in btc_data else 0,
+                'btc_change_24h': btc_data.get('percent_change_24h', 0) if 'error' not in btc_data else 0,
+                'eth_price': eth_data.get('price', 0) if 'error' not in eth_data else 0,
+                'eth_change_24h': eth_data.get('percent_change_24h', 0) if 'error' not in eth_data else 0,
+                'source': 'coinmarketcap_global'
+            }
+
+        except Exception as e:
+            return {'error': f'Market overview error: {str(e)}'}
 
     def get_futures_tickers(self):
         """Get all available futures symbols"""

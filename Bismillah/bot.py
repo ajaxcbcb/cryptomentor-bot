@@ -1000,16 +1000,8 @@ class TelegramBot:
                     )
 
                     try:
-                        # Get SnD analysis
-                        snd_analysis = self.crypto_api.analyze_supply_demand(symbol, timeframe)
-                        price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-
-                        if 'error' in snd_analysis:
-                            await query.edit_message_text(f"❌ Error analisis SnD: {snd_analysis['error']}")
-                            return
-
-                        # Format SnD results
-                        analysis_text = self._format_snd_analysis(symbol, timeframe, snd_analysis, price_data)
+                        # Get enhanced futures analysis using AI
+                        analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
 
                         # Deduct credits
                         if not is_premium and not is_admin:

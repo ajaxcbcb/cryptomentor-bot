@@ -253,7 +253,7 @@ Try again in a few minutes for real-time data."""
         try:
             # Get market overview from CoinMarketCap
             market_overview = crypto_api.get_market_overview()
-            
+
             # Get futures data for additional insights
             btc_futures = crypto_api.get_comprehensive_futures_data('BTC')
             eth_futures = crypto_api.get_comprehensive_futures_data('ETH')
@@ -508,12 +508,12 @@ Try again in a few minutes."""
             total_mcap = market_data.get('total_market_cap', 0)
             mcap_change = market_data.get('market_cap_change_24h', 0)
             total_volume = market_data.get('total_volume_24h', 0)
-            
+
             if total_mcap > 1e12:
                 mcap_str = f"${total_mcap/1e12:.2f}T"
             else:
                 mcap_str = f"${total_mcap/1e9:.1f}B"
-                
+
             if total_volume > 1e12:
                 volume_str = f"${total_volume/1e12:.2f}T"
             else:
@@ -594,12 +594,12 @@ Try again in a few minutes."""
             total_mcap = market_data.get('total_market_cap', 0)
             mcap_change = market_data.get('market_cap_change_24h', 0)
             total_volume = market_data.get('total_volume_24h', 0)
-            
+
             if total_mcap > 1e12:
                 mcap_str = f"${total_mcap/1e12:.2f}T"
             else:
                 mcap_str = f"${total_mcap/1e9:.1f}B"
-                
+
             if total_volume > 1e12:
                 volume_str = f"${total_volume/1e12:.2f}T"
             else:
@@ -712,7 +712,8 @@ Try again in a few minutes."""
 🏥 **2. Kesehatan Pasar:** {market_health['status']}
 {chr(10).join(['• ' + factor for factor in market_health['factors']])}"""
 
-            # Top movers from multi-API data
+            # Top movers```python
+from multi-API data
             message += f"""
 
 📈 **3. Top Movers (Multi-API):**"""
@@ -1460,324 +1461,653 @@ Try again in a few minutes for real-time data."""
         return analysis
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate futures trading signals with SnD analysis"""
+        """Generate enhanced futures signals with CoinAPI integration and altcoin focus"""
         try:
             if not crypto_api:
-                return "❌ Crypto API not available"
+                return "❌ CryptoAPI tidak tersedia untuk analisis futures"
 
-            # Get data for major trading pairs
-            symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
-            signals_data = {}
+            # Enhanced target symbols - mix of top coins and promising altcoins
+            major_coins = ['BTC', 'ETH', 'BNB', 'SOL']
+            trending_altcoins = ['MATIC', 'DOT', 'AVAX', 'LINK', 'UNI', 'ATOM', 'FTM', 'NEAR', 'ALGO', 'MANA', 'SAND', 'AXS']
 
-            for symbol in symbols:
+            # Prioritize altcoins for more diverse signals
+            target_symbols = major_coins[:2] + trending_altcoins[:8]  # 2 major + 8 altcoins
+
+            signals = []
+            processed_count = 0
+
+            for symbol in target_symbols:
                 try:
-                    # Get price and SnD data
+                    processed_count += 1
+                    print(f"🔄 Processing {symbol} ({processed_count}/{len(target_symbols)})")
+
+                    # Get price from CoinAPI first, fallback to CoinGecko
                     price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
-                    snd_data = crypto_api.analyze_supply_demand(symbol, '4h')
+                    if 'error' in price_data:
+                        print(f"⚠️ CoinAPI failed for {symbol}, trying fallback...")
+                        # Silent fallback to other sources if needed
+                        price_data = {'price': 0, 'error': 'CoinAPI unavailable'}
 
-                    if 'error' not in price_data and 'error' not in snd_data:
-                        signals_data[symbol] = {
-                            'price_data': price_data,
-                            'snd_data': snd_data
-                        }
+                    # Get futures data from Binance
+                    futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+                    if 'error' in futures_data:
+                        print(f"❌ Futures data failed for {symbol}")
+                        continue
 
-                    time.sleep(0.3)  # Rate limiting
-                except:
+                    # Analyze SnD with enhanced logic
+                    snd_analysis = crypto_api.analyze_supply_demand(symbol, '1h')
+                    if 'error' in snd_analysis:
+                        print(f"❌ SnD analysis failed for {symbol}")
+                        continue
+
+                    # Generate enhanced signal
+                    signal = self._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
+                    if signal and signal.get('confidence', 0) >= 60:  # Only high confidence signals
+                        signals.append(signal)
+                        print(f"✅ Generated signal for {symbol} (confidence: {signal.get('confidence', 0)}%)")
+
+                except Exception as e:
+                    print(f"❌ Error generating signal for {symbol}: {e}")
                     continue
 
+            if not signals:
+                if language == 'id':
+                    return """❌ **Tidak dapat menghasilkan sinyal futures saat ini**
+
+🔍 **Kemungkinan Penyebab:**
+• Market dalam kondisi sideways (no clear SnD zones)
+• Volume trading rendah pada altcoins
+• Tidak ada setup entry yang aman (confidence < 60%)
+• CoinAPI rate limit atau gangguan sementara
+
+💡 **Saran:**
+• Coba lagi dalam 30-60 menit
+• Gunakan `/futures BTC` untuk analisis spesifik
+• Check market volatility dengan `/market`
+
+⚠️ **Note**: SnD signals hanya muncul saat ada zone Supply/Demand yang kuat."""
+                else:
+                    return """❌ **Cannot generate futures signals currently**
+
+🔍 **Possible Causes:**
+• Market in sideways condition (no clear SnD zones)
+• Low trading volume on altcoins
+• No safe entry setups (confidence < 60%)
+• CoinAPI rate limit or temporary issues
+
+💡 **Suggestions:**
+• Try again in 30-60 minutes
+• Use `/futures BTC` for specific analysis
+• Check market volatility with `/market`
+
+⚠️ **Note**: SnD signals only appear when strong Supply/Demand zones exist."""
+
+            # Format enhanced signals
             if language == 'id':
-                return self._format_futures_signals_id(signals_data)
+                return self._format_enhanced_futures_signals_id(signals)
             else:
-                return self._format_futures_signals_en(signals_data)
+                return self._format_enhanced_futures_signals_en(signals)
 
         except Exception as e:
-            error_msg = f"Error generating futures signals: {str(e)}"
-            print(error_msg)
+            print(f"💥 Critical error in generate_futures_signals: {e}")
+            import traceback
+            traceback.print_exc()
+
+            error_msg = f"Error dalam sistem AI futures: {str(e)[:100]}"
             if language == 'id':
-                return f"❌ Gagal generate sinyal futures: {error_msg[:100]}"
+                return f"❌ {error_msg}\n\n💡 Coba `/futures BTC` untuk analisis spesifik."
             else:
-                return f"❌ Failed to generate futures signals: {error_msg[:100]}"
+                return f"❌ {error_msg}\n\n💡 Try `/futures BTC` for specific analysis."
 
-    def _format_futures_signals_id(self, signals_data):
-        """Format futures signals in Indonesian"""
-        if not signals_data:
-            return "❌ Tidak ada data sinyal tersedia saat ini"
+    def _generate_enhanced_snd_signal(self, symbol, price_data, futures_data, snd_analysis):
+        """Generate enhanced SnD signal with CoinAPI price integration"""
+        try:
+            # Get current price from CoinAPI or futures data
+            current_price = 0
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_source = "CoinAPI"
+            elif 'error' not in futures_data:
+                price_data_futures = futures_data.get('price_data', {})
+                if 'error' not in price_data_futures:
+                    current_price = price_data_futures.get('price', 0)
+                    price_source = "Binance Futures"
 
-        message = "🚨 **SINYAL FUTURES HARIAN** (Supply & Demand Analysis)\n\n"
+            if current_price <= 0:
+                return None
 
-        signal_count = 0
-        for symbol, data in signals_data.items():
-            if signal_count >= 3:  # Limit to top 3 signals
-                break
+            # Analyze market structure from futures data
+            ls_ratio_data = futures_data.get('long_short_ratio_data', {})
+            long_ratio = ls_ratio_data.get('long_ratio', 50) if 'error' not in ls_ratio_data else 50
 
-            price_data = data['price_data']
-            snd_data = data['snd_data']
+            # Funding rate analysis
+            funding_data = futures_data.get('funding_rate_data', {})
+            funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
 
-            current_price = price_data.get('price', 0)
-            signals = snd_data.get('signals', [])
+            # Volume analysis
+            volume_24h = price_data_futures.get('volume_24h', 0) if 'price_data_futures' in locals() else 0
 
-            if signals:
-                signal = signals[0]  # Take first signal
-                direction = signal.get('direction', 'HOLD')
-                entry = signal.get('entry_price', current_price)
-                sl = signal.get('stop_loss', current_price * 0.97)
-                tp1 = signal.get('take_profit_1', current_price * 1.02)
-                tp2 = signal.get('take_profit_2', current_price * 1.05)
-                confidence = signal.get('confidence', 50)
+            # SnD zone analysis
+            snd_signals = snd_analysis.get('signals', [])
+            confidence_score = snd_analysis.get('confidence_score', 0)
 
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
+            if not snd_signals or confidence_score < 60:
+                return None
 
-                message += f"""**{signal_count + 1}. {symbol} {direction} Signal {direction_emoji}**
+            # Take best signal
+            best_signal = max(snd_signals, key=lambda x: x.get('confidence', 0))
 
-💰 **Current Price**: ${current_price:.4f}
-🎯 **Entry**: ${entry:.4f}
-🛑 **Stop Loss**: ${sl:.4f}
-🎉 **Take Profit 1**: ${tp1:.4f}
-🚀 **Take Profit 2**: ${tp2:.4f}
-📊 **Confidence**: {confidence:.1f}%
+            # Enhanced signal generation
+            direction = best_signal.get('direction', 'UNKNOWN')
+            entry_price = best_signal.get('entry_price', current_price)
+
+            # Dynamic TP/SL calculation based on volatility
+            volatility_multiplier = 1.0
+            if symbol in ['BTC', 'ETH']:
+                volatility_multiplier = 0.8  # Lower for major coins
+            else:
+                volatility_multiplier = 1.2  # Higher for altcoins
+
+            if direction == 'LONG':
+                tp1 = entry_price * (1 + 0.025 * volatility_multiplier)  # 2.5% for majors, 3% for alts
+                tp2 = entry_price * (1 + 0.05 * volatility_multiplier)   # 5% for majors, 6% for alts
+                sl = entry_price * (1 - 0.015 * volatility_multiplier)   # 1.5% for majors, 1.8% for alts
+            else:  # SHORT
+                tp1 = entry_price * (1 - 0.025 * volatility_multiplier)
+                tp2 = entry_price * (1 - 0.05 * volatility_multiplier)
+                sl = entry_price * (1 + 0.015 * volatility_multiplier)
+
+            # Calculate confidence based on multiple factors
+            final_confidence = confidence_score
+
+            # Boost confidence for good conditions
+            if direction == 'LONG' and long_ratio < 40:  # Contrarian
+                final_confidence += 5
+            elif direction == 'SHORT' and long_ratio > 70:  # Contrarian
+                final_confidence += 5
+
+            # Funding rate confirmation
+            if direction == 'LONG' and funding_rate < -0.01:  # Negative funding favors longs
+                final_confidence += 3
+            elif direction == 'SHORT' and funding_rate > 0.01:  # Positive funding favors shorts
+                final_confidence += 3
+
+            # Volume confirmation
+            if volume_24h > 1000000:  # Good volume
+                final_confidence += 2
+
+            # Cap confidence at 95%
+            final_confidence = min(final_confidence, 95)
+
+            # Risk/Reward calculation
+            if direction == 'LONG':
+                risk = abs(entry_price - sl)
+                reward = abs(tp2 - entry_price)
+            else:
+                risk = abs(sl - entry_price)
+                reward = abs(entry_price - tp2)
+
+            risk_reward = reward / risk if risk > 0 else 0
+
+            return {
+                'symbol': symbol,
+                'direction': direction,
+                'entry_price': entry_price,
+                'tp1': tp1,
+                'tp2': tp2,
+                'sl': sl,
+                'confidence': final_confidence,
+                'risk_reward': risk_reward,
+                'current_price': current_price,
+                'price_source': price_source,
+                'long_ratio': long_ratio,
+                'funding_rate': funding_rate * 100,  # Convert to percentage
+                'volume_24h': volume_24h,
+                'reason': best_signal.get('reason', 'SnD zone detected'),
+                'timeframe': '1h'
+            }
+
+        except Exception as e:
+            print(f"Error generating enhanced SnD signal for {symbol}: {e}")
+            return None
+
+    def _format_enhanced_futures_signals_id(self, signals):
+        """Format enhanced futures signals in Indonesian"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+            message = f"""🚨 **FUTURES SIGNALS ENHANCED (CoinAPI + SnD)**
+
+📅 **Generated**: {current_time}
+🎯 **Total Signals**: {len(signals)} high-confidence setups
+📊 **Source**: CoinAPI Real-time + Binance Futures + SnD Analysis
 
 """
-                signal_count += 1
 
-        if signal_count == 0:
-            message += "⚠️ Tidak ada sinyal kuat terdeteksi saat ini\n"
+            for i, signal in enumerate(signals[:6], 1):  # Max 6 signals
+                symbol = signal['symbol']
+                direction = signal['direction']
+                entry = signal['entry_price']
+                tp1 = signal['tp1']
+                tp2 = signal['tp2']
+                sl = signal['sl']
+                confidence = signal['confidence']
+                rr = signal['risk_reward']
+                current_price = signal['current_price']
+                price_source = signal['price_source']
+                long_ratio = signal['long_ratio']
+                funding_rate = signal['funding_rate']
 
-        message += f"""📋 **Trading Rules:**
-• Gunakan proper position sizing (1-3% risk)
-• Wait for price action confirmation
-• Exit partial di TP1, hold untuk TP2
-• Monitor market structure changes
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+                confidence_emoji = "🔥" if confidence >= 80 else "⚡" if confidence >= 70 else "💡"
 
-⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}
-📡 **Source**: CoinAPI + SnD Analysis"""
+                # Smart price formatting
+                if entry < 1:
+                    entry_fmt = f"${entry:.6f}"
+                    tp1_fmt = f"${tp1:.6f}"
+                    tp2_fmt = f"${tp2:.6f}"
+                    sl_fmt = f"${sl:.6f}"
+                    current_fmt = f"${current_price:.6f}"
+                elif entry < 100:
+                    entry_fmt = f"${entry:.4f}"
+                    tp1_fmt = f"${tp1:.4f}"
+                    tp2_fmt = f"${tp2:.4f}"
+                    sl_fmt = f"${sl:.4f}"
+                    current_fmt = f"${current_price:.4f}"
+                else:
+                    entry_fmt = f"${entry:,.2f}"
+                    tp1_fmt = f"${tp1:,.2f}"
+                    tp2_fmt = f"${tp2:,.2f}"
+                    sl_fmt = f"${sl:.2f}"
+                    current_fmt = f"${current_price:,.2f}"
 
-        return message
+                message += f"""**{i}. {symbol} {direction} {direction_emoji}**
+**Harga**: {current_fmt} ({price_source})
+**Entry sesuai SnD**: {entry_fmt}
+**TP 1**: {tp1_fmt}
+**TP 2**: {tp2_fmt}
+**SL**: {sl_fmt}
 
-    def _format_futures_signals_en(self, signals_data):
-        """Format futures signals in English"""
-        if not signals_data:
-            return "❌ No signal data available at the moment"
-
-        message = "🚨 **DAILY FUTURES SIGNALS** (Supply & Demand Analysis)\n\n"
-
-        signal_count = 0
-        for symbol, data in signals_data.items():
-            if signal_count >= 3:  # Limit to top 3 signals
-                break
-
-            price_data = data['price_data']
-            snd_data = data['snd_data']
-
-            current_price = price_data.get('price', 0)
-            signals = snd_data.get('signals', [])
-
-            if signals:
-                signal = signals[0]  # Take first signal
-                direction = signal.get('direction', 'HOLD')
-                entry = signal.get('entry_price', current_price)
-                sl = signal.get('stop_loss', current_price * 0.97)
-                tp1 = signal.get('take_profit_1', current_price * 1.02)
-                tp2 = signal.get('take_profit_2', current_price * 1.05)
-                confidence = signal.get('confidence', 50)
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
-
-                message += f"""**{signal_count + 1}. {symbol} {direction} Signal {direction_emoji}**
-
-💰 **Current Price**: ${current_price:.4f}
-🎯 **Entry**: ${entry:.4f}
-🛑 **Stop Loss**: ${sl:.4f}
-🎉 **Take Profit 1**: ${tp1:.4f}
-🚀 **Take Profit 2**: ${tp2:.4f}
-📊 **Confidence**: {confidence:.1f}%
+**Analisis**:
+• Confidence: {confidence:.0f}% {confidence_emoji}
+• Risk/Reward: {rr:.1f}:1
+• Long Ratio: {long_ratio:.0f}%
+• Funding: {funding_rate:.3f}%
 
 """
-                signal_count += 1
 
-        if signal_count == 0:
-            message += "⚠️ No strong signals detected at the moment\n"
+            message += f"""📋 **SnD Trading Rules:**
+• Wait for price action confirmation at entry zones
+• Use 1-3% position sizing per trade
+• Exit 50% at TP1, hold remainder for TP2
+• Monitor volume for breakout/rejection confirmation
 
-        message += f"""📋 **Trading Rules:**
-• Use proper position sizing (1-3% risk)
-• Wait for price action confirmation
-• Exit partial at TP1, hold for TP2
-• Monitor market structure changes
+⚠️ **Risk Management:**
+• Max 2-3 positions simultaneously
+• Always set stop loss before entry
+• Don't FOMO if you miss the entry point
 
-⏰ **Generated**: {datetime.now().strftime('%H:%M:%S UTC')}
-📡 **Source**: CoinAPI + SnD Analysis"""
+🎯 **Auto Signals**: Khusus Admin & Lifetime users
+📡 **Next Update**: Setiap 2-4 jam (market dependent)"""
 
-        return message
+            return message
 
-    def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Get futures analysis for specific symbol and timeframe"""
+        except Exception as e:
+            return f"❌ Error formatting signals: {str(e)}"
+
+    def _format_enhanced_futures_signals_en(self, signals):
+        """Format enhanced futures signals in English"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+            message = f"""🚨 **ENHANCED FUTURES SIGNALS (CoinAPI + SnD)**
+
+📅 **Generated**: {current_time}
+🎯 **Total Signals**: {len(signals)} high-confidence setups
+📊 **Source**: CoinAPI Real-time + Binance Futures + SnD Analysis
+
+"""
+
+            for i, signal in enumerate(signals[:6], 1):  # Max 6 signals
+                symbol = signal['symbol']
+                direction = signal['direction']
+                entry = signal['entry_price']
+                tp1 = signal['tp1']
+                tp2 = signal['tp2']
+                sl = signal['sl']
+                confidence = signal['confidence']
+                rr = signal['risk_reward']
+                current_price = signal['current_price']
+                price_source = signal['price_source']
+                long_ratio = signal['long_ratio']
+                funding_rate = signal['funding_rate']
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+                confidence_emoji = "🔥" if confidence >= 80 else "⚡" if confidence >= 70 else "💡"
+
+                # Smart price formatting
+                if entry < 1:
+                    entry_fmt = f"${entry:.6f}"
+                    tp1_fmt = f"${tp1:.6f}"
+                    tp2_fmt = f"${tp2:.6f}"
+                    sl_fmt = f"${sl:.6f}"
+                    current_fmt = f"${current_price:.6f}"
+                elif entry < 100:
+                    entry_fmt = f"${entry:.4f}"
+                    tp1_fmt = f"${tp1:.4f}"
+                    tp2_fmt = f"${tp2:.4f}"
+                    sl_fmt = f"${sl:.4f}"
+                    current_fmt = f"${current_price:.4f}"
+                else:
+                    entry_fmt = f"${entry:,.2f}"
+                    tp1_fmt = f"${tp1:,.2f}"
+                    tp2_fmt = f"${tp2:.2f}"
+                    sl_fmt = f"${sl:.2f}"
+                    current_fmt = f"${current_price:,.2f}"
+
+                message += f"""**{i}. {symbol} {direction} {direction_emoji}**
+**Price**: {current_fmt} ({price_source})
+**Entry sesuai SnD**: {entry_fmt}
+**TP 1**: {tp1_fmt}
+**TP 2**: {tp2_fmt}
+**SL**: {sl_fmt}
+
+**Analysis**:
+• Confidence: {confidence:.0f}% {confidence_emoji}
+• Risk/Reward: {rr:.1f}:1
+• Long Ratio: {long_ratio:.0f}%
+• Funding: {funding_rate:.3f}%
+
+"""
+
+            message += f"""📋 **SnD Trading Rules:**
+• Wait for price action confirmation at entry zones
+• Use 1-3% position sizing per trade
+• Exit 50% at TP1, hold remainder for TP2
+• Monitor volume for breakout/rejection confirmation
+
+⚠️ **Risk Management:**
+• Max 2-3 positions simultaneously
+• Always set stop loss before entry
+• Don't FOMO if you miss the entry point
+
+🎯 **Auto Signals**: Admin & Lifetime users only
+📡 **Next Update**: Every 2-4 hours (market dependent)"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting signals: {str(e)}"
+
+    def get_futures_analysis(self, symbol, timeframe='1h', language='id', crypto_api=None):
+        """Get individual futures analysis with enhanced SnD integration"""
         try:
             if not crypto_api:
-                return "❌ Crypto API not available"
+                if language == 'id':
+                    return "❌ CryptoAPI tidak tersedia untuk analisis futures"
+                else:
+                    return "❌ CryptoAPI not available for futures analysis"
 
-            # Get comprehensive data
+            print(f"🔄 Starting futures analysis for {symbol} ({timeframe})")
+
+            # Get price from CoinAPI first
             price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            current_price = 0
+            price_source = "Unknown"
+
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_source = "CoinAPI Real-time"
+                print(f"✅ Got price from CoinAPI: ${current_price}")
+            else:
+                print(f"⚠️ CoinAPI failed, trying Binance fallback...")
+                # Fallback to Binance futures
+                futures_price = crypto_api.get_binance_futures_price(symbol)
+                if 'error' not in futures_price:
+                    current_price = futures_price.get('price', 0)
+                    price_source = "Binance Futures (Fallback)"
+                    print(f"✅ Got price from Binance: ${current_price}")
+
+            if current_price <= 0:
+                if language == 'id':
+                    return f"❌ Tidak dapat mengambil harga untuk {symbol}. Coin mungkin tidak tersedia atau delisted."
+                else:
+                    return f"❌ Cannot fetch price for {symbol}. Coin may be unavailable or delisted."
+
+            # Get comprehensive futures data
             futures_data = crypto_api.get_comprehensive_futures_data(symbol)
 
+            # Analyze SnD
+            snd_analysis = crypto_api.analyze_supply_demand(symbol, timeframe)
+
+            # Generate signal
+            signal = self._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
+
             if language == 'id':
-                return self._format_futures_analysis_id(symbol, timeframe, price_data, snd_data, futures_data)
+                return self._format_individual_futures_analysis_id(symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis)
             else:
-                return self._format_futures_analysis_en(symbol, timeframe, price_data, snd_data, futures_data)
+                return self._format_individual_futures_analysis_en(symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis)
 
         except Exception as e:
-            error_msg = f"Error in futures analysis: {str(e)}"
-            print(error_msg)
+            print(f"Error in get_futures_analysis: {e}")
+            error_msg = f"Error dalam analisis futures {symbol}: {str(e)[:100]}"
             if language == 'id':
-                return f"❌ Gagal menganalisis futures {symbol}: {error_msg[:100]}"
+                return f"❌ {error_msg}"
             else:
-                return f"❌ Failed to analyze futures {symbol}: {error_msg[:100]}"
+                return f"❌ Futures analysis error for {symbol}: {str(e)[:100]}"
 
-    def _format_futures_analysis_id(self, symbol, timeframe, price_data, snd_data, futures_data):
-        """Format futures analysis in Indonesian"""
-        current_time = datetime.now().strftime('%H:%M:%S WIB')
+    def _format_individual_futures_analysis_id(self, symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis):
+        """Format individual futures analysis in Indonesian"""
+        try:
+            # Smart price formatting
+            if current_price < 1:
+                price_fmt = f"${current_price:.6f}"
+            elif current_price < 100:
+                price_fmt = f"${current_price:.4f}"
+            else:
+                price_fmt = f"${current_price:,.2f}"
 
-        # Price information
-        if 'error' not in price_data:
-            current_price = price_data.get('price', 0)
-            price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
-        else:
-            price_format = "Data tidak tersedia"
-            current_price = 0
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-        message = f"""📊 **ANALISIS FUTURES {symbol} ({timeframe})**
+            message = f"""📊 **ANALISIS FUTURES {symbol} - {timeframe.upper()} (SnD Enhanced)**
 
-💰 **Harga Real-time**: {price_format} (CoinAPI)
-
-🎯 **Supply & Demand Analysis:**"""
-
-        # SnD Analysis
-        if 'error' not in snd_data:
-            signals = snd_data.get('signals', [])
-            confidence = snd_data.get('confidence_score', 0)
-
-            message += f"""
-📈 **Overall Confidence**: {confidence:.1f}%"""
-
-            if signals:
-                signal = signals[0]  # Primary signal
-                direction = signal.get('direction', 'HOLD')
-                entry = signal.get('entry_price', current_price)
-                sl = signal.get('stop_loss', current_price * 0.97)
-                tp1 = signal.get('take_profit_1', current_price * 1.02)
-                tp2 = signal.get('take_profit_2', current_price * 1.05)
-                rr_ratio = signal.get('risk_reward_ratio', 1.0)
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
-
-                message += f"""
-
-**Primary Signal {direction_emoji}**:
-• **Direction**: {direction}
-• **Entry**: ${entry:.4f}
-• **Stop Loss**: ${sl:.4f}
-• **Take Profit 1**: ${tp1:.4f}
-• **Take Profit 2**: ${tp2:.4f}
-• **Risk/Reward**: {rr_ratio:.1f}:1"""
-
-        # Futures data
-        if 'error' not in futures_data:
-            mark_price = futures_data.get('mark_price_data', {}).get('mark_price', current_price)
-            funding_rate = futures_data.get('funding_rate_data', {}).get('last_funding_rate', 0)
-            open_interest = futures_data.get('open_interest_data', {}).get('sum_open_interest', 0)
-
-            message += f"""
-
-⚡ **Futures Data**:
-• **Mark Price**: ${mark_price:.4f}
-• **Funding Rate**: {funding_rate:.4f}%
-• **Open Interest**: ${open_interest:,.0f}"""
-
-        message += f"""
-
-📋 **Trading Strategy ({timeframe})**:
-• Tunggu konfirmasi price action di zone
-• Gunakan position sizing 1-3% dari portfolio
-• Monitor volume untuk validasi breakout
-• Exit partial di TP1, trail stop untuk TP2
-
+💰 **Harga**: {price_fmt}
+📡 **Source**: {price_source}
 ⏰ **Update**: {current_time}
-📡 **Data**: CoinAPI + Binance Futures + SnD Analysis
 
-⚠️ **Risk Warning**: Futures trading berisiko tinggi, gunakan proper risk management."""
+"""
 
-        return message
+            if signal and signal.get('confidence', 0) >= 50:
+                direction = signal['direction']
+                entry = signal['entry_price']
+                tp1 = signal['tp1']
+                tp2 = signal['tp2']
+                sl = signal['sl']
+                confidence = signal['confidence']
+                rr = signal['risk_reward']
 
-    def _format_futures_analysis_en(self, symbol, timeframe, price_data, snd_data, futures_data):
-        """Format futures analysis in English"""
-        current_time = datetime.now().strftime('%H:%M:%S UTC')
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
 
-        # Price information
-        if 'error' not in price_data:
-            current_price = price_data.get('price', 0)
-            price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
-        else:
-            price_format = "Data unavailable"
-            current_price = 0
+                # Format signal prices
+                if entry < 1:
+                    entry_fmt = f"${entry:.6f}"
+                    tp1_fmt = f"${tp1:.6f}"
+                    tp2_fmt = f"${tp2:.6f}"
+                    sl_fmt = f"${sl:.6f}"
+                elif entry < 100:
+                    entry_fmt = f"${entry:.4f}"
+                    tp1_fmt = f"${tp1:.4f}"
+                    tp2_fmt = f"${tp2:.4f}"
+                    sl_fmt = f"${sl:.4f}"
+                else:
+                    entry_fmt = f"${entry:,.2f}"
+                    tp1_fmt = f"${tp1:,.2f}"
+                    tp2_fmt = f"${tp2:,.2f}"
+                    sl_fmt = f"${sl:.2f}"
 
-        message = f"""📊 **FUTURES ANALYSIS {symbol} ({timeframe})**
+                message += f"""🎯 **SINYAL SnD {direction}** {direction_emoji}
+**Entry sesuai SnD**: {entry_fmt}
+**TP 1**: {tp1_fmt}
+**TP 2**: {tp2_fmt}
+**SL**: {sl_fmt}
 
-💰 **Real-time Price**: {price_format} (CoinAPI)
+**Analisis**:
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward**: {rr:.1f}:1
+• **Direction**: {direction} berdasarkan SnD zones
+• **Timeframe**: {timeframe}
 
-🎯 **Supply & Demand Analysis:**"""
+"""
+            else:
+                message += f"""⚠️ **TIDAK ADA SINYAL JELAS**
+• Market dalam kondisi sideways
+• Tidak ada SnD zone yang kuat
+• Confidence level terlalu rendah (< 50%)
+• Tunggu setup yang lebih baik
 
-        # SnD Analysis
-        if 'error' not in snd_data:
-            signals = snd_data.get('signals', [])
-            confidence = snd_data.get('confidence_score', 0)
+"""
+
+            # Add futures market data if available
+            if 'error' not in futures_data:
+                ls_data = futures_data.get('long_short_ratio_data', {})
+                funding_data = futures_data.get('funding_rate_data', {})
+                oi_data = futures_data.get('open_interest_data', {})
+
+                if 'error' not in ls_data:
+                    long_ratio = ls_data.get('long_ratio', 50)
+                    message += f"📊 **Long/Short Ratio**: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
+
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"💰 **Funding Rate**: {funding_rate:.3f}%\n"
+
+                if 'error' not in oi_data:
+                    oi = oi_data.get('open_interest', 0)
+                    if oi > 1000000:
+                        oi_fmt = f"${oi/1000000:.1f}M"
+                    else:
+                        oi_fmt = f"${oi:,.0f}"
+                    message += f"🔍 **Open Interest**: {oi_fmt}\n"
 
             message += f"""
-📈 **Overall Confidence**: {confidence:.1f}%"""
-
-            if signals:
-                signal = signals[0]  # Primary signal
-                direction = signal.get('direction', 'HOLD')
-                entry = signal.get('entry_price', current_price)
-                sl = signal.get('stop_loss', current_price * 0.97)
-                tp1 = signal.get('take_profit_1', current_price * 1.02)
-                tp2 = signal.get('take_profit_2', current_price * 1.05)
-                rr_ratio = signal.get('risk_reward_ratio', 1.0)
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "🟡"
-
-                message += f"""
-
-**Primary Signal {direction_emoji}**:
-• **Direction**: {direction}
-• **Entry**: ${entry:.4f}
-• **Stop Loss**: ${sl:.4f}
-• **Take Profit 1**: ${tp1:.4f}
-• **Take Profit 2**: ${tp2:.4f}
-• **Risk/Reward**: {rr_ratio:.1f}:1"""
-
-        # Futures data
-        if 'error' not in futures_data:
-            mark_price = futures_data.get('mark_price_data', {}).get('mark_price', current_price)
-            funding_rate = futures_data.get('funding_rate_data', {}).get('last_funding_rate', 0)
-            open_interest = futures_data.get('open_interest_data', {}).get('sum_open_interest', 0)
-
-            message += f"""
-
-⚡ **Futures Data**:
-• **Mark Price**: ${mark_price:.4f}
-• **Funding Rate**: {funding_rate:.4f}%
-• **Open Interest**: ${open_interest:,.0f}"""
-
-        message += f"""
-
-📋 **Trading Strategy ({timeframe})**:
+🎯 **SnD Trading Tips:**
 • Wait for price action confirmation at zones
-• Use 1-3% position sizing of portfolio
-• Monitor volume for breakout validation
-• Exit partial at TP1, trail stop for TP2
+• Use 1-3% position sizing per trade
+• Set stop loss BEFORE entry
+• Monitor volume for zone validation
 
+📡 **Data Sources**: CoinAPI + Binance Futures + SnD Algorithm
+⚠️ **Disclaimer**: Bukan saran investasi, lakukan riset sendiri"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting individual analysis: {str(e)}"
+
+    def _format_individual_futures_analysis_en(self, symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis):
+        """Format individual futures analysis in English"""
+        try:
+            # Smart price formatting
+            if current_price < 1:
+                price_fmt = f"${current_price:.6f}"
+            elif current_price < 100:
+                price_fmt = f"${current_price:.4f}"
+            else:
+                price_fmt = f"${current_price:,.2f}"
+
+            current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+            message = f"""📊 **FUTURES ANALYSIS {symbol} - {timeframe.upper()} (SnD Enhanced)**
+
+💰 **Price**: {price_fmt}
+📡 **Source**: {price_source}
 ⏰ **Update**: {current_time}
-📡 **Data**: CoinAPI + Binance Futures + SnD Analysis
 
-⚠️ **Risk Warning**: Futures trading is high risk, use proper risk management."""
+"""
 
-        return message
+            if signal and signal.get('confidence', 0) >= 50:
+                direction = signal['direction']
+                entry = signal['entry_price']
+                tp1 = signal['tp1']
+                tp2 = signal['tp2']
+                sl = signal['sl']
+                confidence = signal['confidence']
+                rr = signal['risk_reward']
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+
+                # Format signal prices
+                if entry < 1:
+                    entry_fmt = f"${entry:.6f}"
+                    tp1_fmt = f"${tp1:.6f}"
+                    tp2_fmt = f"${tp2:.6f}"
+                    sl_fmt = f"${sl:.6f}"
+                elif entry < 100:
+                    entry_fmt = f"${entry:.4f}"
+                    tp1_fmt = f"${tp1:.4f}"
+                    tp2_fmt = f"${tp2:.4f}"
+                    sl_fmt = f"${sl:.4f}"
+                else:
+                    entry_fmt = f"${entry:,.2f}"
+                    tp1_fmt = f"${tp1:,.2f}"
+                    tp2_fmt = f"${tp2:,.2f}"
+                    sl_fmt = f"${sl:.2f}"
+
+                message += f"""🎯 **SnD {direction} SIGNAL** {direction_emoji}
+**Entry sesuai SnD**: {entry_fmt}
+**TP 1**: {tp1_fmt}
+**TP 2**: {tp2_fmt}
+**SL**: {sl_fmt}
+
+**Analysis**:
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward**: {rr:.1f}:1
+• **Direction**: {direction} based on SnD zones
+• **Timeframe**: {timeframe}
+
+"""
+            else:
+                message += f"""⚠️ **NO CLEAR SIGNAL**
+• Market in sideways condition
+• No strong SnD zones detected
+• Confidence level too low (< 50%)
+• Wait for better setup
+
+"""
+
+            # Add futures market data if available
+            if 'error' not in futures_data:
+                ls_data = futures_data.get('long_short_ratio_data', {})
+                funding_data = futures_data.get('funding_rate_data', {})
+                oi_data = futures_data.get('open_interest_data', {})
+
+                if 'error' not in ls_data:
+                    long_ratio = ls_data.get('long_ratio', 50)
+                    message += f"📊 **Long/Short Ratio**: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
+
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"💰 **Funding Rate**: {funding_rate:.3f}%\n"
+
+                if 'error' not in oi_data:
+                    oi = oi_data.get('open_interest', 0)
+                    if oi > 1000000:
+                        oi_fmt = f"${oi/1000000:.1f}M"
+                    else:
+                        oi_fmt = f"${oi:,.0f}"
+                    message += f"🔍 **Open Interest**: {oi_fmt}\n"
+
+            message += f"""
+🎯 **SnD Trading Tips:**
+• Wait for price action confirmation at zones
+• Use 1-3% position sizing per trade
+• Set stop loss BEFORE entry
+• Monitor volume for zone validation
+
+📡 **Data Sources**: CoinAPI + Binance Futures + SnD Algorithm
+⚠️ **Disclaimer**: Not investment advice, do your own research"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting individual analysis: {str(e)}"
