@@ -11,22 +11,14 @@ class SnDAutoSignals:
         self.crypto_api = CryptoAPI()
         self.db = Database()
 
-        # Enhanced targeting for altcoins
+        # Top market cap coins only (Top 25 by market cap excluding stablecoins)
         self.target_symbols = [
-            # Major coins (backup)
-            'BTC', 'ETH', 
-            # DeFi Altcoins
-            'UNI', 'SUSHI', 'COMP', 'AAVE', 'MKR', 'SNX',
-            # Layer 1 Altcoins  
-            'SOL', 'AVAX', 'NEAR', 'ATOM', 'DOT', 'ALGO',
-            # Gaming/Metaverse
-            'MANA', 'SAND', 'AXS', 'GALA', 'ENJ', 'ALICE',
-            # Infrastructure
-            'LINK', 'FTM', 'MATIC', 'LRC', 'CRV', 'BAL',
-            # Exchange Tokens
-            'BNB', 'CRO', 'FTT', 'LEO', 'HT',
-            # Emerging Altcoins
-            'APE', 'GMT', 'GST', 'LUNC', 'LUNA', 'FIL'
+            # Top 10 
+            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
+            # Top 11-20
+            'LINK', 'TRX', 'MATIC', 'TON', 'ICP', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
+            # Top 21-25
+            'LEO', 'CRO', 'ATOM', 'FIL', 'ETC'
         ]
 
         self.scan_interval = 7200  # 2 hours
@@ -250,17 +242,14 @@ class SnDAutoSignals:
         self.is_running = False
         self.scan_interval = 1800  # 30 minutes
 
-        # Enhanced altcoin list with high volume potential
+        # Top market cap coins only (Top 25 by market cap excluding stablecoins)
         self.target_symbols = [
-            # Small/Medium cap with high volatility
-            'ONDO', 'SEI', 'PEPE', 'MOODENG', 'SHIB', 'FLOKI', 
-            'WIF', 'BONK', 'JUP', 'PYTH', 'RENDER', 'INJ', 
-            'SUI', 'APT', 'OP', 'ARB', 'TIA', 'POPCAT', 
-            'PENDLE', 'EIGEN', 'DOGE', 'MATIC', 'FET', 'AGIX',
-            'GALA', 'SAND', 'MANA', 'AXS', 'CHZ', 'ENJ',
-            # Additional promising altcoins
-            'RUNE', 'KAVA', 'ALPHA', 'DYDX', 'GMX', 'PERP',
-            'CRV', 'CVX', 'LDO', 'RPL', 'FXS', 'FRAX'
+            # Top 10 
+            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
+            # Top 11-20
+            'LINK', 'TRX', 'MATIC', 'TON', 'ICP', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
+            # Top 21-25
+            'LEO', 'CRO', 'ATOM', 'FIL', 'ETC'
         ]
 
         self.min_confidence = 70  # Minimum confidence level
