@@ -729,7 +729,7 @@ class TelegramBot:
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /analyze command - comprehensive analysis with CoinMarketCap integration"""
+        """Handle /analyze command - comprehensive analysis with CoinMarketCap integration and short bias detection"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -781,6 +781,90 @@ class TelegramBot:
                         website = cmc_data['website'][0] if cmc_data['website'] else 'N/A'
                         analysis += f"\n• **Website**: {website}"
 
+            # Add short bias analysis and entry recommendations
+            if 'error' not in futures_data:
+                price_info = futures_data.get('price_data', {})
+                ls_info = futures_data.get('long_short_ratio_data', {})
+                funding_info = futures_data.get('funding_rate_data', {})
+                
+                # Analyze bearish market conditions
+                bearish_score = 0
+                bearish_reasons = []
+                
+                # Price action analysis
+                if 'error' not in price_info:
+                    change_24h = price_info.get('change_24h', 0)
+                    if change_24h < -3:
+                        bearish_score += 2
+                        bearish_reasons.append(f"📉 Strong bearish momentum: {change_24h:.1f}%")
+                    elif change_24h < -1:
+                        bearish_score += 1
+                        bearish_reasons.append(f"📉 Negative price action: {change_24h:.1f}%")
+                
+                # Sentiment analysis
+                if 'error' not in ls_info:
+                    short_ratio = ls_info.get('short_ratio', 50)
+                    if short_ratio > 65:
+                        bearish_score += 2
+                        bearish_reasons.append(f"🔴 Heavy short positioning: {short_ratio:.1f}%")
+                    elif short_ratio > 55:
+                        bearish_score += 1
+                        bearish_reasons.append(f"🔴 Short bias: {short_ratio:.1f}%")
+                
+                # Funding rate analysis
+                if 'error' not in funding_info:
+                    funding_rate = funding_info.get('last_funding_rate', 0)
+                    if funding_rate < -0.0002:
+                        bearish_score += 2
+                        bearish_reasons.append(f"💸 Strong negative funding: {funding_rate*100:.4f}%")
+                    elif funding_rate < 0:
+                        bearish_score += 1
+                        bearish_reasons.append(f"💸 Negative funding: {funding_rate*100:.4f}%")
+                
+                # Generate short entry recommendation if conditions are met
+                if bearish_score >= 3:
+                    current_price = price_info.get('price', 0) if 'error' not in price_info else price_data.get('price', 0)
+                    
+                    if current_price > 0:
+                        # Calculate short entry strategy
+                        entry_zone_high = current_price * 1.002  # Entry slightly above current
+                        entry_zone_low = current_price * 0.997   # Entry slightly below current
+                        stop_loss = current_price * 1.02        # 2% stop loss
+                        take_profit_1 = current_price * 0.96    # 4% profit target
+                        take_profit_2 = current_price * 0.92    # 8% profit target
+                        
+                        rr_ratio = (current_price - take_profit_1) / (stop_loss - current_price)
+                        confidence = min(90, 50 + bearish_score * 8)
+                        
+                        short_strategy = f"""
+
+🔴 **REKOMENDASI SHORT STRATEGY**
+
+📊 **Kondisi Bearish Terdeteksi:**
+{chr(10).join(['• ' + reason for reason in bearish_reasons])}
+
+💰 **Short Entry Setup:**
+• **Entry Zone**: ${entry_zone_low:.4f} - ${entry_zone_high:.4f}
+• **Stop Loss**: ${stop_loss:.4f} (+2%)
+• **Take Profit 1**: ${take_profit_1:.4f} (-4%)
+• **Take Profit 2**: ${take_profit_2:.4f} (-8%)
+• **Risk/Reward**: 1:{rr_ratio:.1f}
+• **Confidence**: {confidence}%
+
+⚠️ **Risk Management:**
+• Maksimal 2% dari portfolio untuk short position
+• Set stop loss sebelum entry
+• Exit 50% position di TP1
+• Monitor funding rate untuk konfirmasi trend
+• Hindari short pada support kuat
+
+🎯 **Entry Strategy:**
+• Tunggu pullback ke entry zone
+• Konfirmasi dengan volume selling
+• Watch rejection pada resistance level"""
+                        
+                        analysis += short_strategy
+
             # Deduct credit only for non-premium, non-admin users (20 credits for comprehensive analysis)
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
@@ -805,7 +889,7 @@ class TelegramBot:
             print(f"Error in analyze command: {e}")
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /market command with CoinMarketCap integration"""
+        """Handle /market command with CoinMarketCap integration and short bias detection"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -847,6 +931,90 @@ class TelegramBot:
 • `/analyze btc` - Analisis mendalam Bitcoin dengan CoinMarketCap data
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
+
+            # Add market-wide short bias analysis
+            try:
+                # Get BTC and ETH futures data for market sentiment
+                btc_futures = self.crypto_api.get_comprehensive_futures_data('BTC')
+                eth_futures = self.crypto_api.get_comprehensive_futures_data('ETH')
+                
+                bearish_market_factors = []
+                bearish_market_score = 0
+                
+                # Analyze BTC sentiment (market leader)
+                if 'error' not in btc_futures:
+                    btc_price = btc_futures.get('price_data', {})
+                    btc_ls = btc_futures.get('long_short_ratio_data', {})
+                    btc_funding = btc_futures.get('funding_rate_data', {})
+                    
+                    if 'error' not in btc_price:
+                        btc_change = btc_price.get('change_24h', 0)
+                        if btc_change < -3:
+                            bearish_market_score += 2
+                            bearish_market_factors.append(f"📉 BTC turun {btc_change:.1f}% (market leader bearish)")
+                    
+                    if 'error' not in btc_ls:
+                        btc_short_ratio = btc_ls.get('short_ratio', 50)
+                        if btc_short_ratio > 60:
+                            bearish_market_score += 1
+                            bearish_market_factors.append(f"🔴 BTC short dominance: {btc_short_ratio:.1f}%")
+                    
+                    if 'error' not in btc_funding:
+                        btc_funding_rate = btc_funding.get('last_funding_rate', 0)
+                        if btc_funding_rate < -0.0001:
+                            bearish_market_score += 1
+                            bearish_market_factors.append(f"💸 BTC funding negatif: {btc_funding_rate*100:.4f}%")
+                
+                # Analyze ETH sentiment
+                if 'error' not in eth_futures:
+                    eth_price = eth_futures.get('price_data', {})
+                    if 'error' not in eth_price:
+                        eth_change = eth_price.get('change_24h', 0)
+                        if eth_change < -3:
+                            bearish_market_score += 1
+                            bearish_market_factors.append(f"📉 ETH turun {eth_change:.1f}% (mendukung bearish sentiment)")
+                
+                # If market shows strong bearish bias, add short strategy recommendations
+                if bearish_market_score >= 3:
+                    market_short_strategy = f"""
+
+🔴 **MARKET BEARISH BIAS TERDETEKSI**
+
+📊 **Faktor Bearish Market:**
+{chr(10).join(['• ' + factor for factor in bearish_market_factors])}
+
+💰 **STRATEGI SHORT MARKET-WIDE:**
+
+🎯 **Target Utama untuk Short:**
+• **BTC/USDT** - Market leader, high liquidity
+• **ETH/USDT** - Second largest, good volume
+• **Altcoin majors** - Higher volatility untuk profit
+
+⚠️ **Short Strategy Guidelines:**
+• Diversifikasi short positions (jangan all-in 1 coin)
+• Size total short maksimal 10% portfolio
+• Set stop loss ketat (2-3% per position)
+• Monitor funding rate untuk timing exit
+• Take profit bertahap (25%, 50%, 75%)
+
+📈 **Entry Timing:**
+• Tunggu bounce/pullback ke resistance
+• Entry pada rejection dari moving average
+• Konfirmasi dengan volume selling
+• Avoid short pada support major
+
+🛡️ **Risk Management:**
+• Maksimal 3 short position simultan
+• Gunakan trailing stop jika profit
+• Exit semua short jika market reverse strong
+• Monitor news yang bisa trigger pump
+
+💡 **Current Market Bias**: BEARISH (Score: {bearish_market_score}/6)"""
+                    
+                    market_data += market_short_strategy
+
+            except Exception as e:
+                print(f"Error in market short analysis: {e}")
 
             # Deduct credit only for non-premium, non-admin users (20 credits for market overview)
             if not is_premium and not is_admin:
@@ -1103,8 +1271,77 @@ class TelegramBot:
                     )
 
                     try:
-                        # Get enhanced futures analysis using AI
+                        # Get enhanced futures analysis using AI with short bias detection
                         analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+                        
+                        # Enhance with short entry recommendations if market is bearish
+                        futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
+                        if 'error' not in futures_data:
+                            # Check for bearish market conditions
+                            price_data = futures_data.get('price_data', {})
+                            ls_data = futures_data.get('long_short_ratio_data', {})
+                            funding_data = futures_data.get('funding_rate_data', {})
+                            
+                            bearish_signals = 0
+                            bearish_factors = []
+                            
+                            # Price trend analysis
+                            if 'error' not in price_data:
+                                change_24h = price_data.get('change_24h', 0)
+                                if change_24h < -2:
+                                    bearish_signals += 1
+                                    bearish_factors.append(f"📉 Harga turun {change_24h:.1f}% (24h)")
+                            
+                            # Long/Short ratio analysis
+                            if 'error' not in ls_data:
+                                short_ratio = ls_data.get('short_ratio', 50)
+                                if short_ratio > 60:
+                                    bearish_signals += 1
+                                    bearish_factors.append(f"🔴 Short dominance: {short_ratio:.1f}%")
+                            
+                            # Funding rate analysis (negative = bearish)
+                            if 'error' not in funding_data:
+                                funding_rate = funding_data.get('last_funding_rate', 0)
+                                if funding_rate < -0.0001:
+                                    bearish_signals += 1
+                                    bearish_factors.append(f"💸 Funding rate negatif: {funding_rate*100:.4f}%")
+                            
+                            # If bearish conditions detected, add short entry recommendations
+                            if bearish_signals >= 2:
+                                current_price = price_data.get('price', 0)
+                                if current_price > 0:
+                                    # Calculate short entry levels
+                                    entry_short = current_price * 0.998  # Entry slightly below current
+                                    sl_short = current_price * 1.015     # Stop loss 1.5% above
+                                    tp1_short = current_price * 0.97     # TP1 3% below
+                                    tp2_short = current_price * 0.94     # TP2 6% below
+                                    
+                                    risk_reward = (current_price - tp1_short) / (sl_short - current_price)
+                                    
+                                    short_recommendation = f"""
+
+🔴 **REKOMENDASI SHORT ENTRY TERDETEKSI**
+
+📊 **Analisis Bearish:**
+{chr(10).join(['• ' + factor for factor in bearish_factors])}
+
+💰 **Setup Short Entry:**
+• **Entry Zone**: ${entry_short:.4f} - ${current_price:.4f}
+• **Stop Loss**: ${sl_short:.4f} (+1.5%)
+• **Take Profit 1**: ${tp1_short:.4f} (-3%)
+• **Take Profit 2**: ${tp2_short:.4f} (-6%)
+• **Risk/Reward**: 1:{risk_reward:.1f}
+
+⚠️ **Short Trading Rules:**
+• Tunggu konfirmasi rejection di resistance
+• Entry dengan size kecil (1-2% portfolio)
+• Set stop loss sebelum entry
+• Monitor funding rate untuk konfirmasi
+• Exit partial di TP1 jika tercapai
+
+🎯 **Confidence Level**: {min(85, 60 + bearish_signals * 10)}%"""
+                                    
+                                    analysis_text += short_recommendation
 
                         # Deduct credits
                         if not is_premium and not is_admin:
