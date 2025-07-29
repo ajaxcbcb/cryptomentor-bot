@@ -205,7 +205,7 @@ class TelegramBot:
                     allowed_updates=['message', 'callback_query']
                 )
                 print("🚀 Bot polling started successfully!")
-
+                
                 # Wait for polling to be ready
                 await asyncio.sleep(2)
 
@@ -224,17 +224,17 @@ class TelegramBot:
                     # Use a different approach for keeping bot alive
                     import signal
                     stop_event = asyncio.Event()
-
+                    
                     def signal_handler(signum, frame):
                         print(f"\n🛑 Received signal {signum}, stopping bot...")
                         stop_event.set()
-
+                    
                     signal.signal(signal.SIGINT, signal_handler)
                     signal.signal(signal.SIGTERM, signal_handler)
-
+                    
                     # Wait indefinitely until stop signal
                     await stop_event.wait()
-
+                    
                 except KeyboardInterrupt:
                     print("🛑 Bot stopped by interrupt signal")
 
@@ -305,20 +305,20 @@ class TelegramBot:
             try:
                 if self.application:
                     print("🛑 Stopping application...")
-
+                    
                     # Stop updater first
                     if hasattr(self.application, 'updater') and self.application.updater.running:
                         await self.application.updater.stop()
                         print("✅ Updater stopped")
-
+                    
                     # Stop application
                     await self.application.stop()
                     print("✅ Application stopped")
-
+                    
                     # Shutdown application
                     await self.application.shutdown()
                     print("✅ Application shutdown complete")
-
+                    
                 print("🛑 Bot stopped gracefully")
             except Exception as e:
                 logger.error(f"Error during bot shutdown: {e}")
@@ -329,7 +329,7 @@ class TelegramBot:
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
-
+        
         # Debug: Show that command handler is working
         print(f"📞 Start command handler called successfully")
 
@@ -640,7 +640,7 @@ class TelegramBot:
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
         print(f"🎯 /price command received from user {update.effective_user.id}")
-
+        
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -1081,8 +1081,7 @@ class TelegramBot:
             user_id = query.from_user.id
 
             # Handle SnD futures analysis callbacks
-            
-            elif callback_data.startswith('snd_futures_'):
+            if callback_data.startswith('snd_futures_'):
                 parts = callback_data.split('_')
                 if len(parts) >= 4:
                     symbol = parts[2]
@@ -1099,35 +1098,13 @@ class TelegramBot:
 
                     # Show loading
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan Supply & Demand (Long/Short)...",
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan Supply & Demand...",
                         parse_mode='Markdown'
                     )
 
                     try:
-                        # Get enhanced futures analysis using AI with short logic
+                        # Get enhanced futures analysis using AI
                         analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
-
-                        # Ensure short signals are included
-                        if "SHORT" not in analysis_text and "SELL" not in analysis_text:
-                            # Get comprehensive futures data to check for short opportunities
-                            futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
-                            if 'error' not in futures_data:
-                                # Add short signal analysis
-                                ls_data = futures_data.get('long_short_ratio_data', {})
-                                funding_data = futures_data.get('funding_rate_data', {})
-
-                                if 'error' not in ls_data:
-                                    short_ratio = ls_data.get('short_ratio', 50)
-                                    if short_ratio > 60:  # High short ratio indicates bearish sentiment
-                                        analysis_text += f"\n\n🔴 **SHORT OPPORTUNITY DETECTED**\n"
-                                        analysis_text += f"• Short ratio: {short_ratio:.1f}% (Bearish sentiment)\n"
-                                        analysis_text += f"• Confidence: High untuk SHORT entry\n"
-                                        analysis_text += f"• Strategy: Consider SHORT position pada resistance levels\n"
-
-                                if 'error' not in funding_data:
-                                    funding_rate = funding_data.get('last_funding_rate', 0)
-                                    if funding_rate > 0.01:  # Positive funding rate favors shorts
-                                        analysis_text += f"• Funding rate: {funding_rate*100:.4f}% (Favorable untuk SHORT)\n"
 
                         # Deduct credits
                         if not is_premium and not is_admin:
@@ -1418,7 +1395,7 @@ Harga akan diambil real-time dari CoinAPI."""
                     total_value += value
 
                     price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
-                    value_format = f"${value:,.22f}"
+                    value_format = f"${value:,.2f}"
                     message += f"• {symbol}: {amount} koin ({price_format} = {value_format})\n"
                 else:
                     message += f"• {symbol}: {amount} koin (Price unavailable)\n"
@@ -1687,7 +1664,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle regular text messages"""
         text = update.message.text.lower().strip()
         user_id = update.message.from_user.id
-
+        
         print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
         logger.info(f"Message from user {user_id}: {text[:50]}")
 
