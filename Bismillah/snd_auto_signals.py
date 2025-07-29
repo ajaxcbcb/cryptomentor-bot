@@ -314,57 +314,108 @@ class SnDAutoSignals:
         self.last_scan_time = time.time()
 
     async def analyze_enhanced_snd_signal(self, symbol):
-        """Analyze enhanced SnD for a single symbol"""
+        """Analyze enhanced SnD for a single symbol with FORCED entry logic"""
         try:
             # Get comprehensive data
             snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
             price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
             futures_data = self.crypto_api.get_binance_long_short_ratio(symbol)
 
-            if 'error' in snd_analysis or 'error' in price_data:
+            if 'error' in price_data:
+                print(f"❌ Price data error for {symbol}")
                 return None
 
             current_price = price_data.get('price', 0)
-            signals = snd_analysis.get('signals', [])
-            confidence_score = snd_analysis.get('confidence_score', 50)
-
-            if not signals or confidence_score < self.min_confidence:
+            if current_price <= 0:
                 return None
 
-            # Get the best signal
-            best_signal = max(signals, key=lambda x: x.get('confidence', 0))
-
-            # Enhanced confidence calculation
-            enhanced_confidence = self._calculate_enhanced_confidence(
-                best_signal, snd_analysis, futures_data, current_price
-            )
-
-            if enhanced_confidence < self.min_confidence:
-                return None
-
-            # Get market structure
-            market_structure = snd_analysis.get('market_structure', {})
-
-            # Calculate position sizing recommendation
-            risk_level = self._calculate_risk_level(enhanced_confidence, market_structure)
-
+            change_24h = price_data.get('change_24h', 0)
+            long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
+            
+            # FORCED DECISION LOGIC - Always choose LONG or SHORT
+            direction = "LONG"  # Default
+            base_confidence = 70  # Auto signals need higher confidence
+            reason = "Auto signal analysis"
+            
+            # Primary logic: 24h price change
+            if change_24h > 3:
+                direction = "LONG"
+                base_confidence += 10
+                reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
+            elif change_24h < -3:
+                direction = "SHORT" 
+                base_confidence += 10
+                reason = f"Strong bearish momentum ({change_24h:.1f}%)"
+            # Secondary logic: Long/Short ratio (contrarian approach)
+            elif long_ratio > 75:
+                direction = "SHORT"
+                base_confidence += 8
+                reason = f"Extremely overcrowded longs ({long_ratio:.1f}%)"
+            elif long_ratio < 25:
+                direction = "LONG"
+                base_confidence += 8
+                reason = f"Extremely oversold positions ({long_ratio:.1f}%)"
+            # Use SnD analysis if available
+            elif 'error' not in snd_analysis:
+                signals = snd_analysis.get('signals', [])
+                if signals:
+                    best_signal = max(signals, key=lambda x: x.get('confidence', 0))
+                    direction = best_signal.get('direction', 'LONG')
+                    base_confidence = max(base_confidence, best_signal.get('confidence', 70))
+                    reason = f"SnD {direction.lower()} zone confirmed"
+                else:
+                    # Use trend score
+                    trend_score = snd_analysis.get('trend_score', 0)
+                    if trend_score > 0:
+                        direction = "LONG"
+                        reason = "Positive trend detected"
+                    else:
+                        direction = "SHORT"
+                        reason = "Negative trend detected"
+            else:
+                # Final fallback based on sentiment
+                direction = "SHORT" if long_ratio > 50 else "LONG"
+                reason = f"Sentiment-based {direction}"
+            
+            # Calculate entry, TP, SL with better risk management
+            if direction == "LONG":
+                entry_price = current_price * 0.997  # Better entry
+                tp1 = current_price * 1.03   # 3% profit
+                tp2 = current_price * 1.055  # 5.5% profit  
+                sl = current_price * 0.97    # 3% loss
+            else:  # SHORT
+                entry_price = current_price * 1.003  # Better entry 
+                tp1 = current_price * 0.97   # 3% profit
+                tp2 = current_price * 0.945  # 5.5% profit
+                sl = current_price * 1.03    # 3% loss
+            
+            # Risk/Reward calculation
+            risk = abs(entry_price - sl)
+            reward = abs(tp2 - entry_price)
+            rr_ratio = reward / risk if risk > 0 else 2.0
+            
+            # Final confidence (auto signals need minimum 70%)
+            final_confidence = min(88, max(70, base_confidence))
+            
             return {
                 'symbol': symbol,
-                'direction': best_signal['direction'],
-                'entry_price': best_signal['entry_price'],
-                'stop_loss': best_signal['stop_loss'],
-                'take_profit_1': best_signal['take_profit_1'],
-                'take_profit_2': best_signal['take_profit_2'],
-                'confidence': enhanced_confidence,
-                'risk_reward_ratio': best_signal['risk_reward_ratio'],
+                'direction': direction,  
+                'entry_price': round(entry_price, 6),
+                'tp1': round(tp1, 6),
+                'tp2': round(tp2, 6),
+                'sl': round(sl, 6),
+                'confidence': final_confidence,
+                'risk_reward': round(rr_ratio, 1),
                 'current_price': current_price,
-                'trend': snd_analysis.get('trend', 'neutral'),
-                'market_structure': market_structure['pattern'],
-                'risk_level': risk_level,
+                'trend': 'bullish' if direction == 'LONG' else 'bearish',
+                'market_structure': f"{direction.lower()}_bias",
+                'risk_level': 'medium',
                 'timeframe': '1h',
                 'scan_time': datetime.now().strftime('%H:%M:%S'),
-                'reason': best_signal['reason'],
-                'zone_strength': best_signal.get('zone_strength', 50)
+                'reason': reason,
+                'zone_strength': 75,
+                'long_ratio': long_ratio,
+                'change_24h': change_24h
             }
 
         except Exception as e:
@@ -482,16 +533,17 @@ class SnDAutoSignals:
             direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
             confidence_emoji = "🔥" if signal['confidence'] >= 85 else "⭐" if signal['confidence'] >= 75 else "💡"
 
-            message += f"""**{i}. {signal['symbol']} {direction_emoji}**
+            message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
 {confidence_emoji} **Confidence**: {signal['confidence']:.1f}%
-📈 **Direction**: {signal['direction']}
-💰 **Entry**: ${signal['entry_price']:.4f}
-🛑 **Stop Loss**: ${signal['stop_loss']:.4f}
-🎯 **TP1**: ${signal['take_profit_1']:.4f}
-🎯 **TP2**: ${signal['take_profit_2']:.4f}
-📊 **R/R**: {signal['risk_reward_ratio']:.1f}:1
-🔄 **Trend**: {signal['trend'].title()}
+💰 **Entry sesuai Market Bias**: ${signal['entry_price']:.6f}
+🛑 **Stop Loss**: ${signal['sl']:.6f}
+🎯 **TP1**: ${signal['tp1']:.6f}
+🎯 **TP2**: ${signal['tp2']:.6f}
+📊 **R/R Ratio**: {signal['risk_reward']:.1f}:1
+🔄 **Market Trend**: {signal['trend'].title()}
 ⚡ **Structure**: {signal['market_structure'].replace('_', ' ').title()}
+🧠 **Reasoning**: {signal['reason']}
+📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
 
 """
 
