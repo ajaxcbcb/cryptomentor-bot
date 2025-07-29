@@ -1356,8 +1356,7 @@ Try again in a few minutes for real-time data."""
             change_24h = price_data.get('change_24h', 0)
 
             if current_price < 1:
-                price_format = f```python
-"${current_price:.8f}"
+                price_format = f"${current_price:.8f}"
             elif current_price < 100:
                 price_format = f"${current_price:.4f}"
             else:
