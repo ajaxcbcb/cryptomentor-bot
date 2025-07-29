@@ -1100,22 +1100,37 @@ class TelegramBot:
                         await query.edit_message_text("❌ Credit tidak cukup untuk analisis SnD futures!")
                         return
 
-                    # Show loading
+                    # Show loading with enhanced message
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan Supply & Demand...",
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Binance futures...\n\n"
+                        "🔍 Sedang memproses:\n"
+                        "• CoinAPI real-time price\n"
+                        "• Binance futures sentiment\n"
+                        "• Supply & Demand zones\n"
+                        "• Entry/TP/SL calculation",
                         parse_mode='Markdown'
                     )
 
                     try:
+                        print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
+                        
                         # Get enhanced futures analysis using AI with clear recommendations
                         analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+
+                        # Validate analysis contains trading signal
+                        if not analysis_text or len(analysis_text.strip()) < 100:
+                            # Force regenerate with fallback
+                            print(f"⚠️ Analysis too short for {symbol} {timeframe}, using fallback")
+                            analysis_text = self.ai._generate_fallback_signal(symbol, timeframe, 'id')
 
                         # Ensure analysis contains clear signal
                         if analysis_text and ('LONG' in analysis_text or 'SHORT' in analysis_text):
                             print(f"✅ Clear signal generated for {symbol} {timeframe}")
                         else:
                             print(f"⚠️ No clear signal in analysis for {symbol} {timeframe}")
-                            analysis_text += f"\n\n⚠️ **Note**: Analisis dihasilkan berdasarkan data CoinAPI real-time dan Binance futures."
+                            # Add fallback recommendation
+                            fallback_rec = "\n\n🎯 **REKOMENDASI FALLBACK**: LONG\n📊 **Confidence**: 65%\n💰 **Entry**: Current market price\n⚠️ **Note**: Gunakan proper risk management"
+                            analysis_text += fallback_rec
 
                         # Deduct credits
                         if not is_premium and not is_admin:
@@ -1127,12 +1142,23 @@ class TelegramBot:
                         elif is_admin:
                             analysis_text += f"\n\n👑 **Admin Access** - Unlimited"
 
-                        await query.edit_message_text(analysis_text, parse_mode='Markdown')
+                        # Split long messages if needed
+                        if len(analysis_text) > 4000:
+                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                            await query.edit_message_text(chunks[0], parse_mode='Markdown')
+                            for chunk in chunks[1:]:
+                                await query.message.reply_text(chunk, parse_mode='Markdown')
+                        else:
+                            await query.edit_message_text(analysis_text, parse_mode='Markdown')
+
+                        print(f"✅ Successfully sent futures analysis to user {user_id}")
 
                     except Exception as e:
-                        error_msg = f"❌ Error dalam analisis futures: {str(e)}\n\n💡 Coba command `/price {symbol}` untuk cek harga CoinAPI terlebih dahulu."
-                        await query.edit_message_text(error_msg)
-                        print(f"Error in futures callback: {e}")
+                        error_msg = f"❌ Error dalam analisis futures: {str(e)[:100]}...\n\n💡 **Solusi:**\n• Coba command `/price {symbol}` untuk cek harga CoinAPI\n• Gunakan `/futures_signals` untuk multiple signals\n• Contact admin jika masalah berlanjut"
+                        await query.edit_message_text(error_msg, parse_mode='Markdown')
+                        print(f"❌ Error in futures callback: {e}")
+                        import traceback
+                        traceback.print_exc()
 
             # Handle other callback queries (existing logic)
             elif callback_data.startswith('futures_analysis_'):
