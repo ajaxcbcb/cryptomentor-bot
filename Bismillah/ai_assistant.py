@@ -52,9 +52,9 @@ class AIAssistant:
 🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
     def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate comprehensive futures analysis with GUARANTEED clear LONG/SHORT recommendations for ALL timeframes"""
+        """Generate comprehensive futures analysis with GUARANTEED clear LONG/SHORT trading recommendations for ALL timeframes"""
         try:
-            print(f"🎯 Generating futures analysis for {symbol} {timeframe}")
+            print(f"🎯 Generating futures trading analysis for {symbol} {timeframe}")
             
             if not crypto_api:
                 return self._generate_offline_futures_signal(symbol, timeframe, language)
@@ -90,7 +90,7 @@ class AIAssistant:
             signal_analysis = self._generate_guaranteed_futures_signal_with_levels(symbol, timeframe, coinapi_data, futures_data, primary_price, language)
             
             if language == 'id':
-                message = f"""🎯 **ANALISIS FUTURES {symbol.upper()} ({timeframe})**
+                message = f"""🎯 **ANALISIS FUTURES & TRADING SIGNALS {symbol.upper()} ({timeframe})**
 
 💰 **Harga Saat Ini**: ${primary_price:,.6f}
 📡 **Sumber Data**: {price_source}
@@ -100,9 +100,14 @@ class AIAssistant:
 ⏰ **Timeframe**: {timeframe}
 🔄 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
 
-⚠️ **Disclaimer**: Analisis ini berdasarkan data real-time dan tidak menjamin hasil trading. Selalu gunakan risk management yang baik."""
+🎯 **Catatan Penting**: 
+• Ini adalah analisis TRADING FUTURES dengan rekomendasi lengkap
+• Gunakan `/analyze {symbol.lower()}` untuk analisis fundamental saja
+• Selalu gunakan proper risk management
+
+⚠️ **Disclaimer**: Analisis trading ini berdasarkan data real-time dan tidak menjamin hasil. Trading futures berisiko tinggi."""
             else:
-                message = f"""🎯 **FUTURES ANALYSIS {symbol.upper()} ({timeframe})**
+                message = f"""🎯 **FUTURES & TRADING SIGNALS ANALYSIS {symbol.upper()} ({timeframe})**
 
 💰 **Current Price**: ${primary_price:,.6f}
 📡 **Data Source**: {price_source}
@@ -112,9 +117,14 @@ class AIAssistant:
 ⏰ **Timeframe**: {timeframe}
 🔄 **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
 
-⚠️ **Disclaimer**: This analysis is based on real-time data and does not guarantee trading results. Always use proper risk management."""
+🎯 **Important Note**: 
+• This is FUTURES TRADING analysis with complete recommendations
+• Use `/analyze {symbol.lower()}` for fundamental analysis only
+• Always use proper risk management
+
+⚠️ **Disclaimer**: This trading analysis is based on real-time data and does not guarantee results. Futures trading is high risk."""
             
-            print(f"✅ Futures analysis generated successfully for {symbol} {timeframe}")
+            print(f"✅ Futures trading analysis generated successfully for {symbol} {timeframe}")
             return message
             
         except Exception as e:
@@ -2620,17 +2630,27 @@ Coba lagi dalam beberapa menit untuk data real-time."""
 Try again in a few minutes for real-time data."""
 
     def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Get comprehensive analysis with enhanced CoinAPI integration and clear trading signals"""
+        """Get comprehensive FUNDAMENTAL analysis with CoinMarketCap data - NO TRADING RECOMMENDATIONS"""
         try:
-            print(f"🔄 Generating comprehensive analysis for {symbol}...")
+            print(f"🔄 Generating fundamental analysis for {symbol}...")
             
             if not crypto_api:
-                return "❌ CryptoAPI tidak tersedia untuk analisis komprehensif."
+                return "❌ CryptoAPI tidak tersedia untuk analisis fundamental."
             
-            # Get real-time data from CoinAPI
+            # Get CoinMarketCap fundamental data
+            cmc_data = {}
+            if hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider:
+                try:
+                    cmc_response = crypto_api.cmc_provider.get_cryptocurrency_info(symbol)
+                    if 'error' not in cmc_response:
+                        cmc_data = cmc_response
+                except Exception as e:
+                    print(f"⚠️ CoinMarketCap data unavailable: {e}")
+            
+            # Get real-time price data from CoinAPI
             coinapi_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
             
-            # Determine primary data source
+            # Determine primary price source
             primary_price = 0
             primary_source = "Unknown"
             
@@ -2649,25 +2669,19 @@ Try again in a few minutes for real-time data."""
             if primary_price <= 0:
                 return f"❌ Tidak dapat mengambil data harga valid untuk {symbol}."
             
-            # Generate comprehensive analysis based on available data
+            # Generate FUNDAMENTAL analysis only
             if language == 'id':
-                analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol.upper()}**
+                analysis = f"""📊 **ANALISIS FUNDAMENTAL {symbol.upper()}**
 
 💰 **Data Harga Real-time:**
 • **Current Price**: ${primary_price:,.4f}
 • **Data Source**: {primary_source}"""
             else:
-                analysis = f"""📊 **COMPREHENSIVE ANALYSIS {symbol.upper()}**
+                analysis = f"""📊 **FUNDAMENTAL ANALYSIS {symbol.upper()}**
 
 💰 **Real-time Price Data:**
 • **Current Price**: ${primary_price:,.4f}
 • **Data Source**: {primary_source}"""
-            
-            # Add CoinAPI specific data if available
-            if 'error' not in coinapi_data:
-                analysis += f"""
-• **CoinAPI Status**: ✅ Active
-• **Last Updated**: {coinapi_data.get('last_updated', 'Real-time')}"""
             
             # Add 24h change if available
             change_24h = 0
@@ -2684,7 +2698,70 @@ Try again in a few minutes for real-time data."""
                 analysis += f"""
 • **24h Change**: {change_emoji} {change_sign}{change_24h:.2f}%"""
             
-            # Add futures sentiment analysis
+            # Add CoinMarketCap fundamental data if available
+            if 'error' not in cmc_data and cmc_data:
+                if language == 'id':
+                    analysis += f"""
+
+📋 **Data Fundamental (CoinMarketCap):**"""
+                else:
+                    analysis += f"""
+
+📋 **Fundamental Data (CoinMarketCap):**"""
+                
+                # Market cap and rank
+                market_cap = cmc_data.get('market_cap', 0)
+                cmc_rank = cmc_data.get('cmc_rank', 0)
+                if market_cap > 0:
+                    if market_cap > 1e9:
+                        mcap_formatted = f"${market_cap/1e9:.2f}B"
+                    elif market_cap > 1e6:
+                        mcap_formatted = f"${market_cap/1e6:.2f}M"
+                    else:
+                        mcap_formatted = f"${market_cap:,.0f}"
+                    
+                    analysis += f"""
+• **Market Cap**: {mcap_formatted}"""
+                    
+                    if cmc_rank > 0:
+                        analysis += f" (Rank #{cmc_rank})"
+                
+                # Volume and supply data
+                volume_24h = cmc_data.get('volume_24h', 0)
+                if volume_24h > 0:
+                    if volume_24h > 1e9:
+                        vol_formatted = f"${volume_24h/1e9:.2f}B"
+                    elif volume_24h > 1e6:
+                        vol_formatted = f"${volume_24h/1e6:.2f}M"
+                    else:
+                        vol_formatted = f"${volume_24h:,.0f}"
+                    analysis += f"""
+• **Volume 24h**: {vol_formatted}"""
+                
+                circulating_supply = cmc_data.get('circulating_supply', 0)
+                total_supply = cmc_data.get('total_supply', 0)
+                max_supply = cmc_data.get('max_supply', 0)
+                
+                if circulating_supply > 0:
+                    analysis += f"""
+• **Circulating Supply**: {circulating_supply:,.0f} {symbol.upper()}"""
+                
+                if max_supply > 0:
+                    analysis += f"""
+• **Max Supply**: {max_supply:,.0f} {symbol.upper()}"""
+                    
+                    # Calculate supply inflation
+                    supply_inflation = (circulating_supply / max_supply * 100) if max_supply > 0 else 0
+                    analysis += f"""
+• **Supply Inflation**: {supply_inflation:.1f}% of max supply"""
+                
+                # Additional CoinMarketCap metrics
+                if 'tags' in cmc_data and cmc_data['tags']:
+                    tags = cmc_data['tags'][:3]  # First 3 tags
+                    analysis += f"""
+• **Categories**: {', '.join(tags)}"""
+            
+            # Add futures sentiment analysis (informational only, NOT trading signals)
             if 'error' not in futures_data:
                 ls_data = futures_data.get('long_short_ratio_data', {})
                 funding_data = futures_data.get('funding_rate_data', {})
@@ -2692,11 +2769,11 @@ Try again in a few minutes for real-time data."""
                 if language == 'id':
                     analysis += f"""
 
-⚡ **Analisis Futures Sentiment:**"""
+⚡ **Sentiment Futures (Informasi Saja):**"""
                 else:
                     analysis += f"""
 
-⚡ **Futures Sentiment Analysis:**"""
+⚡ **Futures Sentiment (Information Only):**"""
                 
                 if 'error' not in ls_data:
                     long_ratio = ls_data.get('long_ratio', 50)
@@ -2707,7 +2784,7 @@ Try again in a few minutes for real-time data."""
                     
                     analysis += f"""
 • **Long/Short Ratio**: {long_ratio:.1f}% / {short_ratio:.1f}%
-• **Sentiment**: {sentiment_emoji} {sentiment}"""
+• **Market Sentiment**: {sentiment_emoji} {sentiment}"""
                 
                 if 'error' not in funding_data:
                     funding_rate = funding_data.get('last_funding_rate', 0) * 100
@@ -2715,39 +2792,33 @@ Try again in a few minutes for real-time data."""
                     analysis += f"""
 • **Funding Rate**: {funding_emoji} {funding_rate:.4f}%"""
             
-            # Generate CLEAR trading recommendation
-            trading_signal = self._generate_clear_analysis_signal(symbol, primary_price, futures_data, coinapi_data, language)
-            analysis += f"""
-
-{trading_signal}"""
-            
-            # Add technical levels (basic support/resistance)
+            # Add price levels (informational only)
             if language == 'id':
                 analysis += f"""
 
-📈 **Level Teknikal:**"""
+📈 **Level Harga (Referensi):**"""
             else:
                 analysis += f"""
 
-📈 **Technical Levels:**"""
+📈 **Price Levels (Reference):**"""
             
             # Calculate basic support/resistance levels
             support_level = primary_price * 0.95
             resistance_level = primary_price * 1.05
             
             analysis += f"""
-• **Support**: ${support_level:,.4f}
-• **Resistance**: ${resistance_level:,.4f}
+• **Support Level**: ${support_level:,.4f}
+• **Resistance Level**: ${resistance_level:,.4f}
 • **Current Position**: {"Above mid-range" if primary_price > (support_level + resistance_level) / 2 else "Below mid-range"}"""
             
             # Add data quality assessment
             data_sources = []
             if 'error' not in coinapi_data:
                 data_sources.append("CoinAPI ✅")
+            if 'error' not in cmc_data and cmc_data:
+                data_sources.append("CoinMarketCap ✅")
             if 'error' not in futures_data:
                 data_sources.append("Binance Futures ✅")
-            if 'error' not in price_data:
-                data_sources.append("Alternative API ✅")
             
             if language == 'id':
                 analysis += f"""
@@ -2758,7 +2829,9 @@ Try again in a few minutes for real-time data."""
 • **Analysis Quality**: {"Excellent" if len(data_sources) >= 2 else "Good" if len(data_sources) == 1 else "Limited"}
 
 ⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Real-time**: Data ter-update otomatis dari CoinAPI"""
+🔄 **Real-time**: Data fundamental ter-update otomatis
+
+💡 **Untuk Trading Signals**: Gunakan command `/futures {symbol.lower()}` untuk mendapatkan rekomendasi trading lengkap dengan Entry/TP/SL"""
             else:
                 analysis += f"""
 
@@ -2768,13 +2841,15 @@ Try again in a few minutes for real-time data."""
 • **Analysis Quality**: {"Excellent" if len(data_sources) >= 2 else "Good" if len(data_sources) == 1 else "Limited"}
 
 ⏰ **Generated**: {datetime.now().strftime('%H:%M:%S UTC')}
-🔄 **Real-time**: Data auto-updated from CoinAPI"""
+🔄 **Real-time**: Fundamental data auto-updated
+
+💡 **For Trading Signals**: Use command `/futures {symbol.lower()}` to get complete trading recommendations with Entry/TP/SL"""
             
             return analysis
             
         except Exception as e:
-            print(f"❌ Error in comprehensive analysis: {e}")
-            return f"❌ Error dalam analisis komprehensif {symbol}: {str(e)}"
+            print(f"❌ Error in fundamental analysis: {e}")
+            return f"❌ Error dalam analisis fundamental {symbol}: {str(e)}"
     
     def _generate_clear_analysis_signal(self, symbol, price, futures_data, coinapi_data, language='id'):
         """Generate clear trading signal for comprehensive analysis"""
@@ -3152,14 +3227,14 @@ Try again in a few minutes for real-time data."""
         return analysis
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate comprehensive futures signals with clear LONG/SHORT recommendations"""
+        """Generate comprehensive futures TRADING signals with complete LONG/SHORT recommendations and Entry/TP/SL levels"""
         try:
             if not crypto_api:
-                return "❌ CryptoAPI tidak tersedia untuk generate signals."
+                return "❌ CryptoAPI tidak tersedia untuk generate trading signals."
             
-            print("🎯 Generating comprehensive futures signals...")
+            print("🎯 Generating comprehensive futures trading signals...")
             
-            # Target top market cap coins for clear signals
+            # Target top market cap coins for clear trading signals
             target_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA']
             signals_generated = []
             
@@ -3178,12 +3253,12 @@ Try again in a few minutes for real-time data."""
                         print(f"⚠️ Skipping {symbol} - no valid data")
                         continue
                     
-                    # Generate signal for this symbol
+                    # Generate TRADING signal for this symbol
                     signal = self._generate_individual_futures_signal(symbol, coinapi_data, futures_data, language)
                     
                     if signal:
                         signals_generated.append(signal)
-                        print(f"✅ Signal generated for {symbol}")
+                        print(f"✅ Trading signal generated for {symbol}")
                     
                 except Exception as e:
                     print(f"❌ Error analyzing {symbol}: {e}")
@@ -3191,82 +3266,98 @@ Try again in a few minutes for real-time data."""
             
             if not signals_generated:
                 if language == 'id':
-                    return """❌ **Tidak dapat generate sinyal futures saat ini**
+                    return """❌ **Tidak dapat generate sinyal trading futures saat ini**
 
 🔍 **Possible Causes:**
 • Data market sedang tidak stabil
 • API rate limiting
-• Kondisi market sideways (tidak ada setup yang jelas)
+• Kondisi market sideways (tidak ada setup trading yang jelas)
 
 💡 **Solusi:**
 • Coba lagi dalam 15-30 menit
-• Gunakan `/futures btc` untuk analisis spesifik
+• Gunakan `/futures btc` untuk analisis trading spesifik
+• Gunakan `/analyze btc` untuk analisis fundamental saja
 • Gunakan `/price btc` untuk cek harga real-time
 
-⚠️ **Note**: Sinyal futures hanya di-generate ketika ada setup trading yang jelas."""
+⚠️ **Note**: Sinyal trading futures hanya di-generate ketika ada setup trading yang jelas dengan Entry/TP/SL."""
                 else:
-                    return """❌ **Cannot generate futures signals currently**
+                    return """❌ **Cannot generate futures trading signals currently**
 
 🔍 **Possible Causes:**
 • Market data unstable
 • API rate limiting  
-• Sideways market conditions (no clear setups)
+• Sideways market conditions (no clear trading setups)
 
 💡 **Solutions:**
 • Try again in 15-30 minutes
-• Use `/futures btc` for specific analysis
+• Use `/futures btc` for specific trading analysis
+• Use `/analyze btc` for fundamental analysis only
 • Use `/price btc` for real-time price check
 
-⚠️ **Note**: Futures signals only generated when clear trading setups exist."""
+⚠️ **Note**: Futures trading signals only generated when clear trading setups exist with Entry/TP/SL."""
             
-            # Format comprehensive signals
+            # Format comprehensive trading signals
             if language == 'id':
-                header = f"""🚨 **SINYAL FUTURES HARIAN** ({len(signals_generated)} Coins)
+                header = f"""🚨 **SINYAL TRADING FUTURES HARIAN** ({len(signals_generated)} Coins)
 
 ⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}
 📡 **Data Source**: CoinAPI Real-time + Binance Futures
-🎯 **Target**: Top Market Cap Coins
+🎯 **Target**: Top Market Cap Coins dengan setup trading jelas
 
 """
                 
                 footer = f"""
 
-📊 **TRADING RULES:**
-• Maksimal 2-3 posisi simultan
-• Risk 1-2% per trade
-• Always set stop loss sebelum entry
+📊 **TRADING RULES WAJIB:**
+• Maksimal 2-3 posisi trading simultan
+• Risk 1-2% dari total modal per trade
+• ALWAYS set stop loss sebelum entry
 • Take profit partial di TP1 (50%), hold untuk TP2 (50%)
+• Move SL ke break-even setelah TP1 hit
 
-⚠️ **Risk Warning:**
-• Futures trading berisiko tinggi
-• Gunakan leverage dengan hati-hati
-• Tidak menjamin profit, bisa loss total modal
+⚠️ **FUTURES TRADING RISK WARNING:**
+• Futures trading berisiko tinggi - bisa loss 100% modal
+• Gunakan leverage dengan sangat hati-hati
+• Tidak menjamin profit - bisa rugi total
+• Hanya trade dengan modal yang bisa ditanggung jika hilang
 
-🔄 **Next Update**: Signals akan di-update setiap 4-6 jam atau ketika ada perubahan market signifikan."""
+🔄 **Next Update**: Trading signals akan di-update setiap 4-6 jam atau ketika ada perubahan market signifikan.
+
+💡 **Perbedaan Commands:**
+• `/futures_signals` = Sinyal trading lengkap dengan Entry/TP/SL
+• `/futures [coin]` = Analisis trading individual per coin  
+• `/analyze [coin]` = Analisis fundamental saja (bukan trading)"""
             
             else:
-                header = f"""🚨 **DAILY FUTURES SIGNALS** ({len(signals_generated)} Coins)
+                header = f"""🚨 **DAILY FUTURES TRADING SIGNALS** ({len(signals_generated)} Coins)
 
 ⏰ **Generated**: {datetime.now().strftime('%H:%M:%S UTC')}
 📡 **Data Source**: CoinAPI Real-time + Binance Futures
-🎯 **Target**: Top Market Cap Coins
+🎯 **Target**: Top Market Cap Coins with clear trading setups
 
 """
                 
                 footer = f"""
 
-📊 **TRADING RULES:**
-• Maximum 2-3 simultaneous positions
-• Risk 1-2% per trade
-• Always set stop loss before entry
+📊 **MANDATORY TRADING RULES:**
+• Maximum 2-3 trading positions simultaneously
+• Risk 1-2% of total capital per trade
+• ALWAYS set stop loss before entry
 • Take profit partial at TP1 (50%), hold for TP2 (50%)
+• Move SL to break-even after TP1 hit
 
-⚠️ **Risk Warning:**
-• Futures trading is high risk
-• Use leverage carefully
-• No guarantee of profit, can lose entire capital
+⚠️ **FUTURES TRADING RISK WARNING:**
+• Futures trading is extremely high risk - can lose 100% capital
+• Use leverage very carefully
+• No guarantee of profit - can lose everything
+• Only trade with money you can afford to lose
 
-🔄 **Next Update**: Signals updated every 4-6 hours or on significant market changes."""
+🔄 **Next Update**: Trading signals updated every 4-6 hours or on significant market changes.
+
+💡 **Command Differences:**
+• `/futures_signals` = Complete trading signals with Entry/TP/SL
+• `/futures [coin]` = Individual trading analysis per coin  
+• `/analyze [coin]` = Fundamental analysis only (not trading)"""
             
             # Format signals with proper numbering
             formatted_signals = []
@@ -3278,12 +3369,12 @@ Try again in a few minutes for real-time data."""
             # Combine all signals
             full_message = header + "\n\n".join(formatted_signals) + footer
             
-            print(f"✅ Generated {len(signals_generated)} futures signals")
+            print(f"✅ Generated {len(signals_generated)} futures trading signals")
             return full_message
             
         except Exception as e:
             print(f"❌ Error in generate_futures_signals: {e}")
-            return f"❌ Error generating futures signals: {str(e)}"
+            return f"❌ Error generating futures trading signals: {str(e)}"
     
     def _generate_individual_futures_signal(self, symbol, coinapi_data, futures_data, language='id'):
         """Generate individual futures signal for a symbol"""
