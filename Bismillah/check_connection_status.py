@@ -20,9 +20,26 @@ def check_telegram_bot_token():
     print("🤖 CHECKING TELEGRAM BOT TOKEN")
     print("=" * 40)
     
-    bot_token = os.getenv("BOT_TOKEN")
+    # Try both possible token environment variables
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
+    
     if not bot_token:
-        print("❌ BOT_TOKEN tidak ditemukan di environment variables")
+        print("❌ Bot token tidak ditemukan di environment variables")
+        print("🔍 Mencari di: TELEGRAM_BOT_TOKEN, BOT_TOKEN")
+        
+        # Show available bot-related env vars
+        found_vars = []
+        for key in os.environ.keys():
+            if 'BOT' in key.upper() or 'TELEGRAM' in key.upper():
+                found_vars.append(f"{key} = {'SET' if os.environ[key] else 'EMPTY'}")
+        
+        if found_vars:
+            print("📋 Environment variables yang ditemukan:")
+            for var in found_vars:
+                print(f"  {var}")
+        else:
+            print("📋 Tidak ada environment variables bot yang ditemukan")
+        
         return False
     
     # Mask token for security

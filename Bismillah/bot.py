@@ -36,17 +36,26 @@ for check, result in deployment_env_checks.items():
     print(f"  {'✅' if result else '❌'} {check}: {result}")
 print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
-# Setup logging
+# Setup logging with DEBUG level to catch hidden errors
 logging.basicConfig(
-    level=logging.WARNING,  # Reduced logging to save memory
+    level=logging.DEBUG,  # Enable debug logging to catch hidden errors
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(self):
-        # Get bot token from environment (Replit Secrets or .env)
-        self.token = os.getenv('TELEGRAM_BOT_TOKEN')
+        # Get bot token from environment - try multiple possible keys
+        self.token = os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
+        
+        if not self.token:
+            # Debug: Show what environment variables are available
+            logger.debug("Available environment variables:")
+            for key in os.environ.keys():
+                if 'BOT' in key.upper() or 'TELEGRAM' in key.upper():
+                    logger.debug(f"  {key} = {'SET' if os.environ[key] else 'EMPTY'}")
+        
+        logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
         # Get admin ID with better error handling
         admin_id_str = os.getenv('ADMIN_USER_ID', '0')
@@ -142,13 +151,34 @@ class TelegramBot:
             print(f"🔑 API Status: CN=✅, BIN=✅, NEWS=✅ (CoinAPI Primary + Binance Futures + CryptoNews)")
             print("🚀 Starting bot polling with CoinAPI integration...")
             
-            # Test bot connection before starting
+            # Test bot connection before starting with timeout
             try:
-                bot_info = await self.application.bot.get_me()
+                print("🔄 Testing bot connection...")
+                
+                # Create a timeout for the connection test
+                import asyncio
+                bot_info = await asyncio.wait_for(
+                    self.application.bot.get_me(), 
+                    timeout=10.0
+                )
+                
                 print(f"✅ Bot connected successfully: @{bot_info.username}")
+                print(f"📝 Bot ID: {bot_info.id}")
+                print(f"🤖 Bot can join groups: {bot_info.can_join_groups}")
+                
+            except asyncio.TimeoutError:
+                print("❌ Bot connection test timed out after 10 seconds")
+                print("💡 This might be a network issue or invalid token")
+                print("🔄 Continuing anyway - bot might work during polling...")
+                logger.warning("Bot connection test timed out, but continuing")
             except Exception as e:
                 print(f"❌ Bot connection test failed: {e}")
-                raise
+                print(f"🔍 Error type: {type(e).__name__}")
+                logger.error(f"Bot connection error: {e}")
+                
+                # Don't raise - let polling attempt continue
+                print("🔄 Continuing to polling despite connection test failure...")
+                logger.warning("Bot connection test failed, but attempting polling anyway")
 
             # Initialize and start auto signals system
             try:
@@ -165,14 +195,16 @@ class TelegramBot:
             # Start the bot with optimized polling for deployment
             print("✅ Bot is now running and polling for updates...")
             try:
+                # Use shorter timeouts to prevent hanging
                 await self.application.run_polling(
                     drop_pending_updates=True,  # Drop old updates on start
-                    pool_timeout=60,           # Longer pool timeout for deployment
-                    read_timeout=60,           # Longer read timeout 
-                    write_timeout=60,          # Longer write timeout
-                    connect_timeout=60,        # Longer connect timeout
-                    allowed_updates=['message', 'callback_query'],  # Only handle needed updates
-                    close_loop=False           # Don't close event loop
+                    pool_timeout=30,           # Shorter pool timeout to prevent hanging
+                    read_timeout=20,           # Shorter read timeout 
+                    write_timeout=20,          # Shorter write timeout
+                    connect_timeout=10,        # Much shorter connect timeout
+                    allowed_updates=['message', 'callback_query', 'inline_query'],  # Handle needed updates
+                    close_loop=False,          # Don't close event loop
+                    stop_signals=None          # Prevent signal handling conflicts
                 )
             except Exception as polling_error:
                 print(f"❌ Polling error: {polling_error}")
