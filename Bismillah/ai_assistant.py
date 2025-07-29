@@ -1841,17 +1841,13 @@ Try again in a few minutes for real-time data."""
         return analysis
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate enhanced futures signals with CoinAPI integration and altcoin focus"""
+        """Generate futures signals for top 5 market cap coins - accessible to all users"""
         try:
             if not crypto_api:
                 return "❌ CryptoAPI tidak tersedia untuk analisis futures"
 
-            # Enhanced target symbols - mix of top coins and promising altcoins
-            major_coins = ['BTC', 'ETH', 'BNB', 'SOL']
-            trending_altcoins = ['MATIC', 'DOT', 'AVAX', 'LINK', 'UNI', 'ATOM', 'FTM', 'NEAR', 'ALGO', 'MANA', 'SAND', 'AXS']
-
-            # Prioritize altcoins for more diverse signals
-            target_symbols = major_coins[:2] + trending_altcoins[:8]  # 2 major + 8 altcoins
+            # Top 5 market cap coins only for /futures_signals command
+            target_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
 
             signals = []
             processed_count = 0
@@ -1896,7 +1892,7 @@ Try again in a few minutes for real-time data."""
 
 🔍 **Kemungkinan Penyebab:**
 • Market dalam kondisi sideways (no clear SnD zones)
-• Volume trading rendah pada altcoins
+• Volume trading rendah pada top 5 coins
 • Tidak ada setup entry yang aman (confidence < 60%)
 • CoinAPI rate limit atau gangguan sementara
 
@@ -1905,13 +1901,14 @@ Try again in a few minutes for real-time data."""
 • Gunakan `/futures BTC` untuk analisis spesifik
 • Check market volatility dengan `/market`
 
+🎯 **Target**: Top 5 market cap (BTC, ETH, BNB, SOL, XRP)
 ⚠️ **Note**: SnD signals hanya muncul saat ada zone Supply/Demand yang kuat."""
                 else:
                     return """❌ **Cannot generate futures signals currently**
 
 🔍 **Possible Causes:**
 • Market in sideways condition (no clear SnD zones)
-• Low trading volume on altcoins
+• Low trading volume on top 5 coins
 • No safe entry setups (confidence < 60%)
 • CoinAPI rate limit or temporary issues
 
@@ -1920,6 +1917,7 @@ Try again in a few minutes for real-time data."""
 • Use `/futures BTC` for specific analysis
 • Check market volatility dengan `/market`
 
+🎯 **Target**: Top 5 market cap (BTC, ETH, BNB, SOL, XRP)
 ⚠️ **Note**: SnD signals only appear when strong Supply/Demand zones exist."""
 
             # Format enhanced signals
@@ -2129,10 +2127,11 @@ Try again in a few minutes for real-time data."""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-            message = f"""🚨 **FUTURES SIGNALS ENHANCED (CoinAPI + SnD)**
+            message = f"""🚨 **FUTURES SIGNALS TOP 5 COINS (CoinAPI + SnD)**
 
 📅 **Generated**: {current_time}
 🎯 **Total Signals**: {len(signals)} high-confidence setups
+🏆 **Target**: Top 5 Market Cap (BTC, ETH, BNB, SOL, XRP)
 📊 **Source**: CoinAPI Real-time + Binance Futures + SnD Analysis
 
 """
@@ -2200,8 +2199,9 @@ Try again in a few minutes for real-time data."""
 • Always set stop loss before entry
 • Don't FOMO if you miss the entry point
 
-🎯 **Auto Signals**: Khusus Admin & Lifetime users
-📡 **Next Update**: Setiap 2-4 jam (market dependent)"""
+🏆 **Focus**: Top 5 market cap coins untuk likuiditas optimal
+🎯 **Auto Signals**: Khusus Admin & Lifetime users (25 coins)
+📡 **Manual Update**: Command ini bisa digunakan semua user"""
 
             return message
 
@@ -2213,10 +2213,11 @@ Try again in a few minutes for real-time data."""
         try:
             current_time = datetime.now().strftime('%H:%M:%S UTC')
 
-            message = f"""🚨 **ENHANCED FUTURES SIGNALS (CoinAPI + SnD)**
+            message = f"""🚨 **FUTURES SIGNALS TOP 5 COINS (CoinAPI + SnD)**
 
 📅 **Generated**: {current_time}
 🎯 **Total Signals**: {len(signals)} high-confidence setups
+🏆 **Target**: Top 5 Market Cap (BTC, ETH, BNB, SOL, XRP)
 📊 **Source**: CoinAPI Real-time + Binance Futures + SnD Analysis
 
 """
@@ -2284,8 +2285,9 @@ Try again in a few minutes for real-time data."""
 • Always set stop loss before entry
 • Don't FOMO if you miss the entry point
 
-🎯 **Auto Signals**: Admin & Lifetime users only
-📡 **Next Update**: Every 2-4 hours (market dependent)"""
+🏆 **Focus**: Top 5 market cap coins for optimal liquidity
+🎯 **Auto Signals**: Admin & Lifetime users only (25 coins)
+📡 **Manual Update**: This command available to all users"""
 
             return message
 
