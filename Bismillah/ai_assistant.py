@@ -1356,7 +1356,8 @@ Try again in a few minutes for real-time data."""
             change_24h = price_data.get('change_24h', 0)
 
             if current_price < 1:
-                price_format = f"${current_price:.8f}"
+                price_format = f```python
+"${current_price:.8f}"
             elif current_price < 100:
                 price_format = f"${current_price:.4f}"
             else:
@@ -1520,7 +1521,7 @@ Try again in a few minutes for real-time data."""
 💡 **Suggestions:**
 • Try again in 30-60 minutes
 • Use `/futures BTC` for specific analysis
-• Check market volatility with `/market`
+• Check market volatility dengan `/market`
 
 ⚠️ **Note**: SnD signals only appear when strong Supply/Demand zones exist."""
 
@@ -1821,135 +1822,500 @@ Try again in a few minutes for real-time data."""
         except Exception as e:
             return f"❌ Error formatting signals: {str(e)}"
 
-    def get_futures_analysis(self, symbol, timeframe='1h', language='id', crypto_api=None):
-        """Get individual futures analysis with enhanced SnD integration"""
+    def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
+        """Get enhanced futures analysis with advanced SnD and market condition detection"""
         try:
             if not crypto_api:
-                if language == 'id':
-                    return "❌ CryptoAPI tidak tersedia untuk analisis futures"
-                else:
-                    return "❌ CryptoAPI not available for futures analysis"
+                return "❌ CryptoAPI tidak tersedia untuk analisis futures"
 
-            print(f"🔄 Starting futures analysis for {symbol} ({timeframe})")
-
-            # Get price from CoinAPI first
-            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            current_price = 0
-            price_source = "Unknown"
-
-            if 'error' not in price_data and price_data.get('price', 0) > 0:
-                current_price = price_data.get('price', 0)
-                price_source = "CoinAPI Real-time"
-                print(f"✅ Got price from CoinAPI: ${current_price}")
-            else:
-                print(f"⚠️ CoinAPI failed, trying Binance fallback...")
-                # Fallback to Binance futures
-                futures_price = crypto_api.get_binance_futures_price(symbol)
-                if 'error' not in futures_price:
-                    current_price = futures_price.get('price', 0)
-                    price_source = "Binance Futures (Fallback)"
-                    print(f"✅ Got price from Binance: ${current_price}")
-
-            if current_price <= 0:
-                if language == 'id':
-                    return f"❌ Tidak dapat mengambil harga untuk {symbol}. Coin mungkin tidak tersedia atau delisted."
-                else:
-                    return f"❌ Cannot fetch price for {symbol}. Coin may be unavailable or delisted."
-
-            # Get comprehensive futures data
+            # Get comprehensive data from multiple sources
             futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            candlestick_data = crypto_api.get_binance_candlestick(symbol, timeframe, 100)
 
-            # Analyze SnD
-            snd_analysis = crypto_api.analyze_supply_demand(symbol, timeframe)
-
-            # Generate signal
-            signal = self._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
+            # Enhanced market condition analysis
+            market_condition = self._analyze_market_condition(candlestick_data, futures_data)
 
             if language == 'id':
-                return self._format_individual_futures_analysis_id(symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis)
+                return self._format_advanced_futures_analysis_id(symbol, timeframe, futures_data, price_data, market_condition, candlestick_data)
             else:
-                return self._format_individual_futures_analysis_en(symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis)
+                return self._format_advanced_futures_analysis_en(symbol, timeframe, futures_data, price_data, market_condition, candlestick_data)
 
         except Exception as e:
-            print(f"Error in get_futures_analysis: {e}")
-            error_msg = f"Error dalam analisis futures {symbol}: {str(e)[:100]}"
             if language == 'id':
-                return f"❌ {error_msg}"
+                return f"❌ Error dalam analisis futures: {str(e)}"
             else:
-                return f"❌ Futures analysis error for {symbol}: {str(e)[:100]}"
+                return f"❌ Error in futures analysis: {str(e)}"
 
-    def _format_individual_futures_analysis_id(self, symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis):
+    def _generate_advanced_individual_signal(self, symbol, futures_data, price_data, market_condition):
+        """Generate advanced individual trading signal with market condition analysis"""
+        try:
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return None
+
+            # Market condition analysis
+            condition_type = market_condition.get('type', 'unknown')
+            condition_strength = market_condition.get('strength', 0)
+            volatility = market_condition.get('volatility', 0)
+            trend_direction = market_condition.get('trend_direction', 'neutral')
+
+            # Get futures metrics
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            funding_data = futures_data.get('funding_rate_data', {})
+            oi_data = futures_data.get('open_interest_data', {})
+
+            long_ratio = ls_data.get('long_ratio', 50) if 'error' not in ls_data else 50
+            funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
+            open_interest = oi_data.get('open_interest', 0) if 'error' not in oi_data else 0
+
+            signal = {
+                'symbol': symbol,
+                'price': current_price,
+                'condition': condition_type,
+                'strength': condition_strength,
+                'volatility': volatility,
+                'trend': trend_direction,
+                'long_ratio': long_ratio,
+                'funding_rate': funding_rate * 100,  # Convert to percentage
+                'open_interest': open_interest,
+                'recommendation': 'hold',
+                'confidence': 0,
+                'entry_price': 0,
+                'tp1': 0,
+                'tp2': 0,
+                'sl': 0,
+                'position_size': '1-2%',
+                'reasoning': []
+            }
+
+            # Determine trading signal based on conditions
+            if condition_type == 'sideways':
+                signal['recommendation'] = 'range_trading'
+                signal['confidence'] = max(0, 70 - volatility * 5)
+                signal['reasoning'].append(f"Market sideways dengan volatility {volatility:.2f}%")
+                signal['reasoning'].append("Range trading opportunity - buy support, sell resistance")
+
+                # Set range trading levels
+                sr_levels = market_condition.get('support_resistance', [])
+                if sr_levels:
+                    support = next((l['level'] for l in sr_levels if l['type'] == 'support'), current_price * 0.98)
+                    resistance = next((l['level'] for l in sr_levels if l['type'] == 'resistance'), current_price * 1.02)
+
+                    signal['entry_price'] = support
+                    signal['tp1'] = resistance
+                    signal['sl'] = support * 0.985
+
+            elif condition_type == 'trending' and condition_strength > 60:
+                if trend_direction == 'bullish':
+                    signal['recommendation'] = 'long'
+                    signal['confidence'] = min(90, condition_strength + (20 if long_ratio > 60 else 0))
+                    signal['entry_price'] = current_price * 0.998  # Slight pullback entry
+                    signal['tp1'] = current_price * 1.025
+                    signal['tp2'] = current_price * 1.045
+                    signal['sl'] = current_price * 0.985
+                    signal['reasoning'].append(f"Strong bullish trend ({condition_strength:.1f}%)")
+
+                elif trend_direction == 'bearish':
+                    signal['recommendation'] = 'short'
+                    signal['confidence'] = min(90, condition_strength + (20 if long_ratio < 40 else 0))
+                    signal['entry_price'] = current_price * 1.002  # Slight rally entry
+                    signal['tp1'] = current_price * 0.975
+                    signal['tp2'] = current_price * 0.955
+                    signal['sl'] = current_price * 1.015
+                    signal['reasoning'].append(f"Strong bearish trend ({condition_strength:.1f}%)")
+
+            elif volatility > 5:
+                signal['condition'] = 'volatile'
+                signal['recommendation'] = 'scalping'
+                signal['confidence'] = min(80, volatility * 10)
+                signal['reasoning'].append(f"High volatility ({volatility:.2f}%) - scalping opportunity")
+                signal['position_size'] = '0.5-1%'  # Smaller size for volatile markets
+
+            else:
+                signal['recommendation'] = 'wait'
+                signal['confidence'] = 30
+                signal['reasoning'].append("Tidak ada setup trading yang jelas")
+                signal['reasoning'].append("Tunggu konfirmasi trend atau breakout")
+
+            # Add funding rate analysis
+            if abs(funding_rate * 100) > 0.01:
+                if funding_rate > 0:
+                    signal['reasoning'].append(f"Funding rate positif ({funding_rate*100:.4f}%) - longs bayar shorts")
+                else:
+                    signal['reasoning'].append(f"Funding rate negatif ({funding_rate*100:.4f}%) - shorts bayar longs")
+
+            # Add long/short ratio analysis
+            if long_ratio > 70:
+                signal['reasoning'].append(f"Overcrowded long positions ({long_ratio:.1f}%) - potential reversal")
+            elif long_ratio < 30:
+                signal['reasoning'].append(f"Overcrowded short positions ({long_ratio:.1f}%) - potential bounce")
+
+            return signal
+
+        except Exception as e:
+            print(f"Error generating signal for {symbol}: {e}")
+            return None
+
+    def _generate_individual_signal(self, symbol, futures_data, price_data):
+        """Generate individual trading signal"""
+        try:
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return None
+
+            # Analyze market structure
+            ls_ratio_data = futures_data.get('long_short_ratio_data', {})
+            long_ratio = ls_ratio_data.get('long_ratio', 50) if 'error' not in ls_ratio_data else 50
+
+            # Funding rate analysis
+            funding_data = futures_data.get('funding_rate_data', {})
+            funding_rate = funding_data.get('last_funding_rate', 0) if 'error' not in funding_data else 0
+
+            # Generate very basic signal - improve this
+            if long_ratio > 60 and funding_rate > 0.001:
+                recommendation = "short"  # Overbought, potential reversal
+                confidence = 65
+            elif long_ratio < 40 and funding_rate < -0.001:
+                recommendation = "long"  # Oversold, potential bounce
+                confidence = 65
+            else:
+                recommendation = "wait"
+                confidence = 40
+
+            return {
+                'symbol': symbol,
+                'price': current_price,
+                'recommendation': recommendation,
+                'confidence': confidence,
+                'long_ratio': long_ratio,
+                'funding_rate': funding_rate * 100  # Convert to percentage
+            }
+
+        except Exception as e:
+            print(f"Error generating signal for {symbol}: {e}")
+            return None
+
+    def _format_advanced_signals_id(self, signals, sideways_markets, volatile_markets):
+        """Format advanced futures signals with detailed market condition analysis"""
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+        message = f"""🚨 **FUTURES SIGNALS ADVANCED - SUPPLY & DEMAND ANALYSIS**
+
+⏰ **Update**: {current_time}
+📊 **Total Markets Analyzed**: {len(signals) + len(sideways_markets) + len(volatile_markets)}
+"""
+
+        # Active trading signals
+        if signals:
+            message += f"""
+🎯 **ACTIVE TRADING SIGNALS** ({len(signals)} coins):
+
+"""
+            for i, signal in enumerate(signals[:5], 1):  # Top 5 signals
+                symbol = signal['symbol']
+                price = signal['price']
+                recommendation = signal['recommendation']
+                confidence = signal['confidence']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                # Direction emoji
+                direction_emoji = "🟢" if recommendation == 'long' else "🔴" if recommendation == 'short' else "🔄"
+
+                message += f"""**{i}. {symbol} {direction_emoji}**
+💰 **Price**: {price_format}
+📊 **Signal**: {recommendation.upper()}
+🎯 **Confidence**: {confidence:.1f}%"""
+
+                if signal['entry_price'] > 0:
+                    entry_format = f"${signal['entry_price']:.6f}" if signal['entry_price'] < 1 else f"${signal['entry_price']:,.4f}"
+                    message += f"""
+🎪 **Entry**: {entry_format}"""
+
+                    if signal['tp1'] > 0:
+                        tp1_format = f"${signal['tp1']:.6f}" if signal['tp1'] < 1 else f"${signal['tp1']:,.4f}"
+                        message += f"""
+🎯 **TP1**: {tp1_format}"""
+
+                    if signal['tp2'] > 0:
+                        tp2_format = f"${signal['tp2']:.6f}" if signal['tp2'] < 1 else f"${signal['tp2']:,.4f}"
+                        message += f"""
+🚀 **TP2**: {tp2_format}"""
+
+                    if signal['sl'] > 0:
+                        sl_format = f"${signal['sl']:.6f}" if signal['sl'] < 1 else f"${signal['sl']:,.4f}"
+                        message += f"""
+🛑 **SL**: {sl_format}"""
+
+                message += f"""
+📏 **Position Size**: {signal['position_size']}
+📈 **Long/Short Ratio**: {signal['long_ratio']:.1f}% / {100-signal['long_ratio']:.1f}%
+💸 **Funding Rate**: {signal['funding_rate']:.4f}%
+
+"""
+
+        # Sideways markets
+        if sideways_markets:
+            message += f"""
+🔄 **SIDEWAYS MARKETS** ({len(sideways_markets)} coins):
+
+⚠️ **KONDISI SIDEWAYS TERDETEKSI - TIDAK ADA SINYAL ENTRY YANG JELAS**
+
+"""
+            for signal in sideways_markets:
+                symbol = signal['symbol']
+                price = signal['price']
+                volatility = signal['volatility']
+                strength = signal['strength']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                message += f"""• **{symbol}**: {price_format}
+  📊 Sideways Strength: {strength:.1f}%
+  📈 Volatility: {volatility:.2f}%
+  🎯 Strategy: Range trading atau tunggu breakout
+
+"""
+
+        # Volatile markets  
+        if volatile_markets:
+            message += f"""
+⚡ **HIGH VOLATILITY MARKETS** ({len(volatile_markets)} coins):
+
+"""
+            for signal in volatile_markets:
+                symbol = signal['symbol']
+                price = signal['price']
+                volatility = signal['volatility']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                message += f"""• **{symbol}**: {price_format}
+  ⚡ Volatility: {volatility:.2f}%
+  🎯 Strategy: Scalping dengan position size kecil (0.5-1%)
+
+"""
+
+        # Market summary
+        total_markets = len(signals) + len(sideways_markets) + len(volatile_markets)
+        trending_percentage = (len(signals) / total_markets * 100) if total_markets > 0 else 0
+        sideways_percentage = (len(sideways_markets) / total_markets * 100) if total_markets > 0 else 0
+
+        message += f"""
+📊 **MARKET OVERVIEW:**
+• **Trending Markets**: {trending_percentage:.1f}% ({len(signals)}/{total_markets})
+• **Sideways Markets**: {sideways_percentage:.1f}% ({len(sideways_markets)}/{total_markets})
+• **Volatile Markets**: {(len(volatile_markets) / total_markets * 100) if total_markets > 0 else 0:.1f}% ({len(volatile_markets)}/{total_markets})
+
+💡 **MARKET SENTIMENT:**"""
+
+        if sideways_percentage > 50:
+            message += """
+🔄 **DOMINASI SIDEWAYS**: Mayoritas market dalam konsolidasi
+• Hindari trend following strategies
+• Focus pada range trading
+• Tunggu catalyst untuk breakout yang jelas
+• Risk management extra ketat"""
+        elif trending_percentage > 60:
+            message += """
+📈 **MARKET TRENDING**: Kondisi bagus untuk trend following
+• Manfaatkan momentum yang ada
+• Follow the trend dengan proper risk management
+• Watch for trend reversal signals"""
+        else:
+            message += """
+📊 **MARKET MIXED**: Kondisi market campuran
+• Selective trading - pilih setup terbaik
+• Avoid FOMO, tunggu konfirmasi yang jelas
+• Smaller position size recommended"""
+
+        message += f"""
+
+⚠️ **RISK MANAGEMENT RULES:**
+• Maximum 2-3% risk per trade
+• Jangan trade lebih dari 3 pairs simultan
+• Cut loss cepat jika salah arah
+• Take profit bertahap (50% di TP1, 50% di TP2)
+
+🎯 **SUPPLY & DEMAND FEATURES:**
+• Entry berdasarkan S&D zones
+• TP/SL calculation dengan risk/reward optimal
+• Volume confirmation untuk validasi breakout
+• Multi-timeframe analysis
+
+📡 **Data Sources**: CoinAPI Real-time + Binance Futures + Advanced SnD Algorithm
+
+💡 **Disclaimer**: Sinyal untuk edukasi, bukan financial advice. Always DYOR!"""
+
+        return message
+
+    def _format_advanced_signals_en(self, signals, sideways_markets, volatile_markets):
+        """Format advanced futures signals in English with detailed market condition analysis"""
+        current_time = datetime.now().strftime('%H:%M:%S UTC')
+
+        message = f"""🚨 **FUTURES SIGNALS ADVANCED - SUPPLY & DEMAND ANALYSIS**
+
+⏰ **Update**: {current_time}
+📊 **Total Markets Analyzed**: {len(signals) + len(sideways_markets) + len(volatile_markets)}
+"""
+
+        # Active trading signals
+        if signals:
+            message += f"""
+🎯 **ACTIVE TRADING SIGNALS** ({len(signals)} coins):
+
+"""
+            for i, signal in enumerate(signals[:5], 1):  # Top 5 signals
+                symbol = signal['symbol']
+                price = signal['price']
+                recommendation = signal['recommendation']
+                confidence = signal['confidence']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                # Direction emoji
+                direction_emoji = "🟢" if recommendation == 'long' else "🔴" if recommendation == 'short' else "🔄"
+
+                message += f"""**{i}. {symbol} {direction_emoji}**
+💰 **Price**: {price_format}
+📊 **Signal**: {recommendation.upper()}
+🎯 **Confidence**: {confidence:.1f}%"""
+
+                if signal['entry_price'] > 0:
+                    entry_format = f"${signal['entry_price']:.6f}" if signal['entry_price'] < 1 else f"${signal['entry_price']:,.4f}"
+                    message += f"""
+🎪 **Entry**: {entry_format}"""
+
+                    if signal['tp1'] > 0:
+                        tp1_format = f"${signal['tp1']:.6f}" if signal['tp1'] < 1 else f"${signal['tp1']:,.4f}"
+                        message += f"""
+🎯 **TP1**: {tp1_format}"""
+
+                    if signal['tp2'] > 0:
+                        tp2_format = f"${signal['tp2']:.6f}" if signal['tp2'] < 1 else f"${signal['tp2']:,.4f}"
+                        message += f"""
+🚀 **TP2**: {tp2_format}"""
+
+                    if signal['sl'] > 0:
+                        sl_format = f"${signal['sl']:.6f}" if signal['sl'] < 1 else f"${signal['sl']:,.4f}"
+                        message += f"""
+🛑 **SL**: {sl_format}"""
+
+                message += f"""
+📏 **Position Size**: {signal['position_size']}
+📈 **Long/Short Ratio**: {signal['long_ratio']:.1f}% / {100-signal['long_ratio']:.1f}%
+💸 **Funding Rate**: {signal['funding_rate']:.4f}%
+
+"""
+
+        # Sideways markets
+        if sideways_markets:
+            message += f"""
+🔄 **SIDEWAYS MARKETS** ({len(sideways_markets)} coins):
+
+⚠️ **SIDEWAYS CONDITION DETECTED - NO CLEAR ENTRY SIGNALS**
+
+"""
+            for signal in sideways_markets:
+                symbol = signal['symbol']
+                price = signal['price']
+                volatility = signal['volatility']
+                strength = signal['strength']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                message += f"""• **{symbol}**: {price_format}
+  📊 Sideways Strength: {strength:.1f}%
+  📈 Volatility: {volatility:.2f}%
+  🎯 Strategy: Range trading or wait for breakout
+
+"""
+
+        # Volatile markets  
+        if volatile_markets:
+            message += f"""
+⚡ **HIGH VOLATILITY MARKETS** ({len(volatile_markets)} coins):
+
+"""
+            for signal in volatile_markets:
+                symbol = signal['symbol']
+                price = signal['price']
+                volatility = signal['volatility']
+
+                price_format = f"${price:.6f}" if price < 1 else f"${price:,.4f}" if price < 1000 else f"${price:,.2f}"
+
+                message += f"""• **{symbol}**: {price_format}
+  ⚡ Volatility: {volatility:.2f}%
+  🎯 Strategy: Scalping with small position size (0.5-1%)
+
+"""
+
+        # Market summary
+        total_markets = len(signals) + len(sideways_markets) + len(volatile_markets)
+        trending_percentage = (len(signals) / total_markets * 100) if total_markets > 0 else 0
+        sideways_percentage = (len(sideways_markets) / total_markets * 100) if total_markets > 0 else 0
+
+        message += f"""
+📊 **MARKET OVERVIEW:**
+• **Trending Markets**: {trending_percentage:.1f}% ({len(signals)}/{total_markets})
+• **Sideways Markets**: {sideways_percentage:.1f}% ({len(sideways_markets)}/{total_markets})
+• **Volatile Markets**: {(len(volatile_markets) / total_markets * 100) if total_markets > 0 else 0:.1f}% ({len(volatile_markets)}/{total_markets})
+
+💡 **MARKET SENTIMENT:**"""
+
+        if sideways_percentage > 50:
+            message += """
+🔄 **SIDEWAYS DOMINANCE**: Majority of markets in consolidation
+• Avoid trend following strategies
+• Focus on range trading
+• Wait for catalyst for clear breakout
+• Extra strict risk management"""
+        elif trending_percentage > 60:
+            message += """
+📈 **MARKET TRENDING**: Good condition for trend following
+• Take advantage of existing momentum
+• Follow the trend with proper risk management
+• Watch for trend reversal signals"""
+        else:
+            message += """
+📊 **MARKET MIXED**: Mixed market condition
+• Selective trading - choose best setups
+• Avoid FOMO, wait for clear confirmation
+• Smaller position size recommended"""
+
+        message += f"""
+
+⚠️ **RISK MANAGEMENT RULES:**
+• Maximum 2-3% risk per trade
+• Do not trade more than 3 pairs simultaneously
+• Cut loss quickly if wrong direction
+• Take profit gradually (50% at TP1, 50% at TP2)
+
+🎯 **SUPPLY & DEMAND FEATURES:**
+• Entry based on S&D zones
+• TP/SL calculation with optimal risk/reward
+• Volume confirmation for breakout validation
+• Multi-timeframe analysis
+
+📡 **Data Sources**: CoinAPI Real-time + Binance Futures + Advanced SnD Algorithm
+
+💡 **Disclaimer**: Signals for education, not financial advice. Always DYOR!"""
+
+        return message
+
+    def _format_futures_analysis_id(self, symbol, timeframe, futures_data, price_data):
         """Format individual futures analysis in Indonesian"""
         try:
-            # Smart price formatting
-            if current_price < 1:
-                price_fmt = f"${current_price:.6f}"
-            elif current_price < 100:
-                price_fmt = f"${current_price:.4f}"
-            else:
-                price_fmt = f"${current_price:,.2f}"
-
             current_time = datetime.now().strftime('%H:%M:%S WIB')
+            current_price = price_data.get('price', 0)
 
-            message = f"""📊 **ANALISIS FUTURES {symbol} - {timeframe.upper()} (SnD Enhanced)**
+            message = f"""📊 **Analisis Futures {symbol} - {timeframe}**
 
-💰 **Harga**: {price_fmt}
-📡 **Source**: {price_source}
+💰 **Harga**: ${current_price:.4f}
 ⏰ **Update**: {current_time}
 
 """
-
-            if signal and signal.get('confidence', 0) >= 50:
-                direction = signal['direction']
-                entry = signal['entry_price']
-                tp1 = signal['tp1']
-                tp2 = signal['tp2']
-                sl = signal['sl']
-                confidence = signal['confidence']
-                rr = signal['risk_reward']
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-
-                # Format signal prices
-                if entry < 1:
-                    entry_fmt = f"${entry:.6f}"
-                    tp1_fmt = f"${tp1:.6f}"
-                    tp2_fmt = f"${tp2:.6f}"
-                    sl_fmt = f"${sl:.6f}"
-                elif entry < 100:
-                    entry_fmt = f"${entry:.4f}"
-                    tp1_fmt = f"${tp1:.4f}"
-                    tp2_fmt = f"${tp2:.4f}"
-                    sl_fmt = f"${sl:.4f}"
-                else:
-                    entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:.2f}"
-                    tp2_fmt = f"${tp2:.2f}"
-                    sl_fmt = f"${sl:.2f}"
-
-                message += f"""🎯 **SINYAL SnD {direction}** {direction_emoji}
-**Entry sesuai SnD**: {entry_fmt}
-**TP 1**: {tp1_fmt}
-**TP 2**: {tp2_fmt}
-**SL**: {sl_fmt}
-
-**Analisis**:
-• **Confidence**: {confidence:.0f}%
-• **Risk/Reward**: {rr:.1f}:1
-• **Direction**: {direction} berdasarkan SnD zones
-• **Timeframe**: {timeframe}
-
-"""
-            else:
-                message += f"""⚠️ **TIDAK ADA SINYAL JELAS**
-• Market dalam kondisi sideways
-• Tidak ada SnD zone yang kuat
-• Confidence level terlalu rendah (< 50%)
-• Tunggu setup yang lebih baik
-
-"""
-
-            # Add futures market data if available
             if 'error' not in futures_data:
                 ls_data = futures_data.get('long_short_ratio_data', {})
                 funding_data = futures_data.get('funding_rate_data', {})
@@ -1957,107 +2323,36 @@ Try again in a few minutes for real-time data."""
 
                 if 'error' not in ls_data:
                     long_ratio = ls_data.get('long_ratio', 50)
-                    message += f"📊 **Long/Short Ratio**: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
+                    message += f"📊 Long/Short Ratio: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
 
                 if 'error' not in funding_data:
                     funding_rate = funding_data.get('last_funding_rate', 0) * 100
-                    message += f"💰 **Funding Rate**: {funding_rate:.3f}%\n"
+                    message += f"💰 Funding Rate: {funding_rate:.3f}%\n"
 
                 if 'error' not in oi_data:
                     oi = oi_data.get('open_interest', 0)
-                    if oi > 1000000:
-                        oi_fmt = f"${oi/1000000:.1f}M"
-                    else:
-                        oi_fmt = f"${oi:,.0f}"
-                    message += f"🔍 **Open Interest**: {oi_fmt}\n"
+                    message += f"🔍 Open Interest: ${oi:,.0f}\n"
 
             message += f"""
-🎯 **SnD Trading Tips:**
-• Wait for price action confirmation at zones
-• Use 1-3% position sizing per trade
-• Set stop loss BEFORE entry
-• Monitor volume for zone validation
-
-📡 **Data Sources**: CoinAPI + Binance Futures + SnD Algorithm
-⚠️ **Disclaimer**: Bukan saran investasi, lakukan riset sendiri"""
+💡Disclaimer: Bukan saran investasi, lakukan riset sendiri"""
 
             return message
 
         except Exception as e:
             return f"❌ Error formatting individual analysis: {str(e)}"
 
-    def _format_individual_futures_analysis_en(self, symbol, timeframe, current_price, price_source, signal, futures_data, snd_analysis):
+    def _format_futures_analysis_en(self, symbol, timeframe, futures_data, price_data):
         """Format individual futures analysis in English"""
         try:
-            # Smart price formatting
-            if current_price < 1:
-                price_fmt = f"${current_price:.6f}"
-            elif current_price < 100:
-                price_fmt = f"${current_price:.4f}"
-            else:
-                price_fmt = f"${current_price:,.2f}"
-
             current_time = datetime.now().strftime('%H:%M:%S UTC')
+            current_price = price_data.get('price', 0)
 
-            message = f"""📊 **FUTURES ANALYSIS {symbol} - {timeframe.upper()} (SnD Enhanced)**
+            message = f"""📊 **Futures Analysis {symbol} - {timeframe}**
 
-💰 **Price**: {price_fmt}
-📡 **Source**: {price_source}
+💰 **Price**: ${current_price:.4f}
 ⏰ **Update**: {current_time}
 
 """
-
-            if signal and signal.get('confidence', 0) >= 50:
-                direction = signal['direction']
-                entry = signal['entry_price']
-                tp1 = signal['tp1']
-                tp2 = signal['tp2']
-                sl = signal['sl']
-                confidence = signal['confidence']
-                rr = signal['risk_reward']
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-
-                # Format signal prices
-                if entry < 1:
-                    entry_fmt = f"${entry:.6f}"
-                    tp1_fmt = f"${tp1:.6f}"
-                    tp2_fmt = f"${tp2:.6f}"
-                    sl_fmt = f"${sl:.6f}"
-                elif entry < 100:
-                    entry_fmt = f"${entry:.4f}"
-                    tp1_fmt = f"${tp1:.4f}"
-                    tp2_fmt = f"${tp2:.4f}"
-                    sl_fmt = f"${sl:.4f}"
-                else:
-                    entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:.2f}"
-                    tp2_fmt = f"${tp2:.2f}"
-                    sl_fmt = f"${sl:.2f}"
-
-                message += f"""🎯 **SnD {direction} SIGNAL** {direction_emoji}
-**Entry sesuai SnD**: {entry_fmt}
-**TP 1**: {tp1_fmt}
-**TP 2**: {tp2_fmt}
-**SL**: {sl_fmt}
-
-**Analysis**:
-• **Confidence**: {confidence:.0f}%
-• **Risk/Reward**: {rr:.1f}:1
-• **Direction**: {direction} based on SnD zones
-• **Timeframe**: {timeframe}
-
-"""
-            else:
-                message += f"""⚠️ **NO CLEAR SIGNAL**
-• Market in sideways condition
-• No strong SnD zones detected
-• Confidence level too low (< 50%)
-• Wait for better setup
-
-"""
-
-            # Add futures market data if available
             if 'error' not in futures_data:
                 ls_data = futures_data.get('long_short_ratio_data', {})
                 funding_data = futures_data.get('funding_rate_data', {})
@@ -2065,31 +2360,276 @@ Try again in a few minutes for real-time data."""
 
                 if 'error' not in ls_data:
                     long_ratio = ls_data.get('long_ratio', 50)
-                    message += f"📊 **Long/Short Ratio**: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
+                    message += f"📊 Long/Short Ratio: {long_ratio:.0f}% / {100-long_ratio:.0f}%\n"
 
                 if 'error' not in funding_data:
                     funding_rate = funding_data.get('last_funding_rate', 0) * 100
-                    message += f"💰 **Funding Rate**: {funding_rate:.3f}%\n"
+                    message += f"💰 Funding Rate: {funding_rate:.3f}%\n"
 
                 if 'error' not in oi_data:
                     oi = oi_data.get('open_interest', 0)
-                    if oi > 1000000:
-                        oi_fmt = f"${oi/1000000:.1f}M"
-                    else:
-                        oi_fmt = f"${oi:,.0f}"
-                    message += f"🔍 **Open Interest**: {oi_fmt}\n"
+                    message += f"🔍 Open Interest: ${oi:,.0f}\n"
 
             message += f"""
-🎯 **SnD Trading Tips:**
-• Wait for price action confirmation at zones
-• Use 1-3% position sizing per trade
-• Set stop loss BEFORE entry
-• Monitor volume for zone validation
+💡Disclaimer: Not investment advice, do your own research"""
 
-📡 **Data Sources**: CoinAPI + Binance Futures + SnD Algorithm
-⚠️ **Disclaimer**: Not investment advice, do your own research"""
+            return message
+
+    def _analyze_market_condition(self, candlestick_data, futures_data):
+        """Analyze market condition based on candlestick patterns and futures data"""
+        try:
+            # 1. Trend detection using moving averages
+            closes = [candle['close'] for candle in candlestick_data]
+            if len(closes) < 20:
+                return {'type': 'unclear', 'reason': 'Insufficient data'}
+
+            # Simple moving average
+            sma_short = sum(closes[-10:]) / 10
+            sma_long = sum(closes[-50:]) / 50
+
+            trend_strength = abs(sma_short - sma_long) / sma_long * 100
+
+            if sma_short > sma_long and trend_strength > 1:
+                trend_direction = "bullish"
+                condition_type = "trending"
+            elif sma_short < sma_long and trend_strength > 1:
+                trend_direction = "bearish"
+                condition_type = "trending"
+            else:
+                trend_direction = "neutral"
+                condition_type = "sideways"
+
+            # 2. Volatility calculation using ATR
+            high_low_ranges = [candle['high'] - candle['low'] for candle in candlestick_data]
+            average_range = sum(high_low_ranges[-14:]) / 14  # 14-period ATR
+
+            # 3. Sideways market detection
+            body_sizes = [abs(candle['close'] - candle['open']) for candle in candlestick_data]
+            avg_body_size = sum(body_sizes[-20:]) / 20
+
+            if condition_type == "sideways":
+                sideways_strength = avg_body_size / average_range * 100
+            else:
+                sideways_strength = 0
+
+            # 4. Support and resistance
+            supports = []
+            resistances = []
+
+            for i in range(2, len(candlestick_data) - 2):  # Skip first 2 and last 2
+                is_support = all([candlestick_data[i]['low'] < candlestick_data[i - j]['low'] for j in range(1, 3)]) and \
+                             all([candlestick_data[i]['low'] < candlestick_data[i + j]['low'] for j in range(1, 3)])
+
+                is_resistance = all([candlestick_data[i]['high'] > candlestick_data[i - j]['high'] for j in range(1, 3)]) and \
+                                all([candlestick_data[i]['high'] > candlestick_data[i + j]['high'] for j in range(1, 3)])
+
+                if is_support:
+                    supports.append({'level': candlestick_data[i]['low'], 'type': 'support'})
+                if is_resistance:
+                    resistances.append({'level': candlestick_data[i]['high'], 'type': 'resistance'})
+
+            # 5. Volume confirmation - implement later
+
+            # Combine analysis - improve this
+            market_condition = {
+                'type': condition_type,
+                'strength': trend_strength,
+                'volatility': average_range,
+                'trend_direction': trend_direction,
+                'sideways_strength': sideways_strength,
+                'support_resistance': supports + resistances
+            }
+
+            return market_condition
+
+        except Exception as e:
+            print(f"Error analyzing market condition: {e}")
+            return {'type': 'unknown', 'reason': str(e)}
+
+    def _format_advanced_futures_analysis_id(self, symbol, timeframe, futures_data, price_data, market_condition, candlestick_data):
+        """Format advanced futures analysis in Indonesian with market condition"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            current_price = price_data.get('price', 0)
+            price_format = f"${current_price:.6f}" if current_price < 1 else f"${current_price:,.4f}" if current_price < 1000 else f"${current_price:,.2f}"
+
+            message = f"""📊 **Analisis Futures {symbol} - {timeframe}**
+
+💰 **Harga**: {price_format}
+⏰ **Update**: {current_time}
+
+"""
+
+            # 1. Market Condition
+            condition_type = market_condition.get('type', 'unknown')
+            trend_direction = market_condition.get('trend_direction', 'neutral')
+            volatility = market_condition.get('volatility', 0)
+
+            message += f"""
+📈 **Kondisi Market**: {condition_type.upper()}"""
+
+            if condition_type == "trending":
+                message += f"""
+• **Trend**: {trend_direction.upper()}
+• **Strength**: {market_condition.get('strength', 0):.1f}%
+"""
+            elif condition_type == "sideways":
+                message += f"""
+• **Sideways Strength**: {market_condition.get('sideways_strength', 0):.1f}%
+• **Volatility**: {volatility:.2f}"""
+            elif condition_type == "volatile":
+                message += f"""
+• **Volatility**: {volatility:.2f}"""
+
+            # 2. Support and Resistance
+            supports_resistances = market_condition.get('support_resistance', [])
+            if supports_resistances:
+                message += """
+🎯 **Support/Resistance:**"""
+                for level in supports_resistances[:3]:
+                    message += f"""
+• {level['type'].capitalize()}: ${level['level']:.4f}"""
+
+            # 3. Futures Data
+            if 'error' not in futures_data:
+                ls_data = futures_data.get('long_short_ratio_data', {})
+                funding_data = futures_data.get('funding_rate_data', {})
+                oi_data = futures_data.get('open_interest_data', {})
+
+                if 'error' not in ls_data:
+                    long_ratio = ls_data.get('long_ratio', 50)
+                    message += f"""
+📊 Long/Short Ratio: {long_ratio:.0f}% / {100-long_ratio:.0f}%"""
+
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"""
+💰 Funding Rate: {funding_rate:.3f}%"""
+
+                if 'error' not in oi_data:
+                    oi = oi_data.get('open_interest', 0)
+                    oi_fmt = f"${oi/1000000:.1f}M" if oi > 1000000 else f"${oi:,.0f}"
+                    message += f"""
+🔍 Open Interest: {oi_fmt}"""
+
+            # 4. Trading Recommendations
+            if condition_type == "trending":
+                if trend_direction == "bullish":
+                    message += """
+💡 Rekomendasi: Long - Follow the trend, cari pullback
+🛑 Stop Loss: Bawah support terdekat"""
+                else:
+                    message += """
+💡 Rekomendasi: Short - Follow the trend, cari rally
+🛑 Stop Loss: Atas resistance terdekat"""
+            elif condition_type == "sideways":
+                message += """
+💡 Rekomendasi: Range Trading - Beli support, jual resistance
+🛑 Stop Loss: Luar range"""
+            else:
+                message += """
+💡 Rekomendasi: Tunggu - Market tidak jelas
+🛑 Hindari trading sampai ada konfirmasi"""
+
+            message += f"""
+
+⚠️Disclaimer: Bukan saran investasi, lakukan riset sendiri"""
 
             return message
 
         except Exception as e:
-            return f"❌ Error formatting individual analysis: {str(e)}"
+            return f"❌ Error formatting advanced individual analysis: {str(e)}"
+
+    def _format_advanced_futures_analysis_en(self, symbol, timeframe, futures_data, price_data, market_condition, candlestick_data):
+        """Format advanced futures analysis in English with market condition"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S UTC')
+            current_price = price_data.get('price', 0)
+            price_format = f"${current_price:.6f}" if current_price < 1 else f"${current_price:,.4f}" if current_price < 1000 else f"${current_price:,.2f}"
+
+            message = f"""📊 **Futures Analysis {symbol} - {timeframe}**
+
+💰 **Price**: {price_format}
+⏰ **Update**: {current_time}
+
+"""
+
+            # 1. Market Condition
+            condition_type = market_condition.get('type', 'unknown')
+            trend_direction = market_condition.get('trend_direction', 'neutral')
+            volatility = market_condition.get('volatility', 0)
+
+            message += f"""
+📈 **Market Condition**: {condition_type.upper()}"""
+
+            if condition_type == "trending":
+                message += f"""
+• **Trend**: {trend_direction.upper()}
+• **Strength**: {market_condition.get('strength', 0):.1f}%
+"""
+            elif condition_type == "sideways":
+                message += f"""
+• **Sideways Strength**: {market_condition.get('sideways_strength', 0):.1f}%
+• **Volatility**: {volatility:.2f}"""
+            elif condition_type == "volatile":
+                message += f"""
+• **Volatility**: {volatility:.2f}"""
+
+            # 2. Support and Resistance
+            supports_resistances = market_condition.get('support_resistance', [])
+            if supports_resistances:
+                message += """
+🎯 **Support/Resistance:**"""
+                for level in supports_resistances[:3]:
+                    message += f"""
+• {level['type'].capitalize()}: ${level['level']:.4f}"""
+
+            # 3. Futures Data
+            if 'error' not in futures_data:
+                ls_data = futures_data.get('long_short_ratio_data', {})
+                funding_data = futures_data.get('funding_rate_data', {})
+                oi_data = futures_data.get('open_interest_data', {})
+
+                if 'error' not in ls_data:
+                    long_ratio = ls_data.get('long_ratio', 50)
+                    message += f"""
+📊 Long/Short Ratio: {long_ratio:.0f}% / {100-long_ratio:.0f}%"""
+
+                if 'error' not in funding_data:
+                    funding_rate = funding_data.get('last_funding_rate', 0) * 100
+                    message += f"""
+💰 Funding Rate: {funding_rate:.3f}%"""
+
+                if 'error' not in oi_data:
+                    oi = oi_data.get('open_interest', 0)
+                    oi_fmt = f"${oi/1000000:.1f}M" if oi > 1000000 else f"${oi:,.0f}"
+                    message += f"""
+🔍 Open Interest: {oi_fmt}"""
+
+            # 4. Trading Recommendations
+            if condition_type == "trending":
+                if trend_direction == "bullish":
+                    message += """
+💡 Recommendation: Long - Follow the trend, look for pullbacks
+🛑 Stop Loss: Below nearest support"""
+                else:
+                    message += """
+💡 Recommendation: Short - Follow the trend, look for rallies
+🛑 Stop Loss: Above nearest resistance"""
+            elif condition_type == "sideways":
+                message += """
+💡 Recommendation: Range Trading - Buy support, sell resistance
+🛑 Stop Loss: Outside the range"""
+            else:
+                message += """
+💡 Recommendation: Wait - Market is unclear
+🛑 Avoid trading until there is confirmation"""
+
+            message += f"""
+
+⚠️Disclaimer: Not investment advice, do your own research"""
+
+            return message
+
+        except Exception as e:
+            return f"❌ Error formatting advanced individual analysis: {str(e)}"
