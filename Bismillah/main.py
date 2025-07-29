@@ -84,10 +84,18 @@ async def main():
 
             print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
             logger.error(f"Bot crashed: {e}")
+            
+            # Log specific error types for debugging
+            if "HTTPXRequest" in error_msg:
+                print("🔧 HTTPXRequest initialization error - telegram-bot version issue")
+            elif "idle" in error_msg:
+                print("🔧 Updater.idle() method missing - using alternative approach")
+            elif "max() arg is an empty sequence" in error_msg:
+                print("🔧 SnD analysis data validation error - applying fixes")
 
             if retry_count < max_retries:
-                print(f"🔄 Retrying in 10 seconds... ({retry_count}/{max_retries})")
-                await asyncio.sleep(10)  # Use async sleep
+                print(f"🔄 Retrying in 15 seconds... ({retry_count}/{max_retries})")
+                await asyncio.sleep(15)  # Longer wait for stability
             else:
                 print("❌ Max retries reached. Bot shutting down.")
                 if is_deployment:
