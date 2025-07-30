@@ -66,6 +66,9 @@ class AIAssistant:
             # Get Binance futures data for additional context
             futures_data = crypto_api.get_comprehensive_futures_data(symbol)
             
+            # Get SnD analysis for Entry/TP/SL extraction
+            snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            
             # PRIORITY: CoinAPI real-time > Binance Futures > Estimation
             primary_price = 0
             price_source = "Unknown"
@@ -96,6 +99,9 @@ class AIAssistant:
             
             print(f"✅ Final price for signal generation: ${primary_price:,.8f} from {price_source}")
             
+            # Extract simple Entry/TP/SL from SnD analysis
+            snd_levels = self._extract_simple_snd_levels(snd_data, primary_price, symbol)
+            
             # FORCE MANDATORY signal generation with real-time price
             signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(symbol, timeframe, coinapi_data, futures_data, primary_price, language)
             
@@ -119,6 +125,8 @@ class AIAssistant:
 📡 **SUMBER DATA**: {price_source_emoji} {price_source}
 ⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S WIB')}
 
+{snd_levels}
+
 {signal_analysis}
 
 🛡️ **WAJIB RISK MANAGEMENT:**
@@ -134,6 +142,8 @@ class AIAssistant:
 💰 **REAL-TIME PRICE**: {price_display}
 📡 **DATA SOURCE**: {price_source_emoji} {price_source}
 ⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S UTC')}
+
+{snd_levels}
 
 {signal_analysis}
 
@@ -1413,6 +1423,79 @@ class AIAssistant:
 • **SL**: ${emergency_price * 0.98:,.6f}
 
 ⚠️ **USE WITH EXTREME CAUTION!**"""
+
+    def _extract_simple_snd_levels(self, snd_data, current_price, symbol):
+        """Extract simple Entry/TP/SL levels from SnD analysis"""
+        try:
+            if 'error' in snd_data or not snd_data.get('signals'):
+                print(f"⚠️ No valid SnD signals for {symbol}, generating basic levels")
+                return self._generate_basic_snd_levels(current_price)
+            
+            # Get the best signal from SnD analysis
+            signals = snd_data.get('signals', [])
+            if not signals:
+                return self._generate_basic_snd_levels(current_price)
+            
+            # Pick the highest confidence signal
+            best_signal = max(signals, key=lambda x: x.get('confidence', 0))
+            
+            if best_signal.get('confidence', 0) < 50:
+                print(f"⚠️ Low confidence SnD signal for {symbol}, using basic levels")
+                return self._generate_basic_snd_levels(current_price)
+            
+            # Extract levels
+            entry = best_signal.get('entry_price', current_price)
+            tp = best_signal.get('take_profit_1', current_price * 1.02)
+            sl = best_signal.get('stop_loss', current_price * 0.98)
+            direction = best_signal.get('direction', 'LONG')
+            
+            # Format levels based on price range
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.6f}"
+                else:
+                    return f"${price:,.4f}"
+            
+            direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+            
+            return f"""🎯 **SnD LEVELS ({direction}) {direction_emoji}**
+📍 **Entry**: {format_price(entry)}
+🎯 **TP**: {format_price(tp)}
+🛡️ **SL**: {format_price(sl)}
+
+"""
+            
+        except Exception as e:
+            print(f"❌ Error extracting SnD levels: {e}")
+            return self._generate_basic_snd_levels(current_price)
+    
+    def _generate_basic_snd_levels(self, current_price):
+        """Generate basic Entry/TP/SL levels when SnD analysis fails"""
+        try:
+            # Simple levels based on current price
+            entry = current_price * 0.999
+            tp = current_price * 1.025
+            sl = current_price * 0.985
+            
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.6f}"
+                else:
+                    return f"${price:,.4f}"
+            
+            return f"""🎯 **BASIC LEVELS (LONG) 🟢**
+📍 **Entry**: {format_price(entry)}
+🎯 **TP**: {format_price(tp)}
+🛡️ **SL**: {format_price(sl)}
+
+"""
+            
+        except Exception:
+            return ""
 
     def _generate_emergency_futures_signal(self, symbol, timeframe, language, error_msg):
         """Emergency signal generation when everything fails"""
