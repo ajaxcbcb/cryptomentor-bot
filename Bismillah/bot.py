@@ -138,6 +138,8 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
             self.application.add_handler(CommandHandler("start_auto_signals", self.start_auto_signals_command))
             self.application.add_handler(CommandHandler("stop_auto_signals", self.stop_auto_signals_command))
+            self.application.add_handler(CommandHandler("test_auto_signals", self.test_auto_signals_command))
+            self.application.add_handler(CommandHandler("force_scan_signals", self.force_scan_signals_command))
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -996,6 +998,93 @@ class TelegramBot:
 
             print(f"✅ SnD futures signals enhanced and ready for user {user_id}")
 
+
+    async def test_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /test_auto_signals command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Command ini hanya untuk admin.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        loading_msg = await update.message.reply_text("🧪 Testing auto signals broadcast...")
+
+        try:
+            # Create test signal
+            test_signal = {
+                'symbol': 'TEST',
+                'direction': 'LONG',
+                'entry_price': 1000,
+                'tp1': 1030,
+                'tp2': 1060,
+                'sl': 970,
+                'confidence': 85,
+                'risk_reward': 2.0,
+                'current_price': 1000,
+                'trend': 'bullish',
+                'market_structure': 'test_bias',
+                'risk_level': 'medium',
+                'timeframe': '1h',
+                'scan_time': datetime.now().strftime('%H:%M:%S'),
+                'reason': 'Test signal untuk admin',
+                'zone_strength': 80,
+                'long_ratio': 50,
+                'change_24h': 2.5
+            }
+
+            # Get eligible users
+            eligible_users = self.db.get_eligible_auto_signal_users()
+            
+            # Send test signal
+            await self.auto_signals._send_signals_to_users([test_signal], eligible_users)
+
+            await loading_msg.edit_text(
+                f"✅ **Test Auto Signals Completed**\n\n"
+                f"📤 Test signal sent to {len(eligible_users)} eligible users\n"
+                f"🧪 Signal: TEST LONG @$1000\n"
+                f"📊 Check console output for delivery status",
+                parse_mode='Markdown'
+            )
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Test failed: {str(e)}")
+            print(f"Test auto signals error: {e}")
+
+    async def force_scan_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /force_scan_signals command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if user_id != self.admin_id:
+            await update.message.reply_text("❌ Command ini hanya untuk admin.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        loading_msg = await update.message.reply_text("⚡ Forcing immediate signals scan...")
+
+        try:
+            # Force immediate scan
+            await self.auto_signals.scan_and_send_signals()
+
+            await loading_msg.edit_text(
+                "✅ **Force Scan Completed**\n\n"
+                "📊 Immediate scan executed\n"
+                "📤 Check console output for results\n"
+                "⏰ Next regular scan as scheduled",
+                parse_mode='Markdown'
+            )
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Force scan failed: {str(e)}")
+            print(f"Force scan error: {e}")
+
+
             # Clean signals text to prevent markdown parsing errors
             def clean_markdown_text(text):
                 """Clean text to prevent Telegram markdown parsing errors"""
@@ -1398,6 +1487,21 @@ Gunakan credit dengan bijak!"""
         status = "🟢 RUNNING" if self.auto_signals.is_running else "🔴 STOPPED"
         eligible_users = self.db.get_eligible_auto_signal_users()
 
+        # Build user list details
+        user_details = ""
+        for i, user in enumerate(eligible_users[:5], 1):  # Show max 5 users
+            user_id_val = user.get('telegram_id', 'N/A')
+            user_name = user.get('first_name', 'Unknown')
+            user_type = user.get('type', 'unknown')
+            user_details += f"{i}. {user_id_val} ({user_name}) - {user_type}\n"
+        
+        if len(eligible_users) > 5:
+            user_details += f"... dan {len(eligible_users) - 5} user lainnya\n"
+
+        last_scan = "Never"
+        if self.auto_signals.last_scan_time > 0:
+            last_scan = datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S WIB')
+
         message = f"""🎯 **Auto SnD Signals Status**
 
 📊 **Status**: {status}
@@ -1405,11 +1509,17 @@ Gunakan credit dengan bijak!"""
 ⏰ **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
 🎯 **Target Coins**: {len(self.auto_signals.target_symbols)} altcoins
 📈 **Min Confidence**: {self.auto_signals.min_confidence}%
-🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S') if self.auto_signals.last_scan_time > 0 else 'Never'}
+🕐 **Last Scan**: {last_scan}
+🛡️ **Cooldown**: {self.auto_signals.signal_cooldown // 3600}h per coin/direction
+
+👥 **Eligible Users Detail:**
+{user_details}
 
 🔧 **Commands:**
 • `/start_auto_signals` - Start scanner
 • `/stop_auto_signals` - Stop scanner
+• `/test_auto_signals` - Test signal broadcast
+• `/force_scan_signals` - Force immediate scan
 
 💡 **Target**: Admin & Lifetime premium users only"""
 

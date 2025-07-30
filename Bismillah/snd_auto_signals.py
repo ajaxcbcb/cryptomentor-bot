@@ -154,52 +154,85 @@ class SnDAutoSignals:
         try:
             print(f"[AUTO-SIGNAL SND] Starting signal broadcast to {len(eligible_users)} eligible users")
             
+            # Debug user data format
+            for i, user_data in enumerate(eligible_users):
+                print(f"[AUTO-SIGNAL SND] User {i}: {user_data} (type: {type(user_data)})")
+            
             # Format the signals message
             message = self._format_auto_signals_message(signals)
+            print(f"[AUTO-SIGNAL SND] Message formatted, length: {len(message)} chars")
 
             # Send to each eligible user
             sent_count = 0
             for user_data in eligible_users:
                 try:
-                    # Handle different user data formats
+                    # Handle different user data formats - FIXED
+                    user_id = None
+                    user_name = 'User'
+                    
                     if isinstance(user_data, dict):
                         user_id = user_data.get('telegram_id') or user_data.get('user_id')
                         user_name = user_data.get('first_name', 'User')
+                        print(f"[AUTO-SIGNAL SND] Dict format: user_id={user_id}, name={user_name}")
                     elif isinstance(user_data, (list, tuple)) and len(user_data) > 0:
                         user_id = user_data[0]
                         user_name = user_data[1] if len(user_data) > 1 else 'User'
+                        print(f"[AUTO-SIGNAL SND] List format: user_id={user_id}, name={user_name}")
                     elif isinstance(user_data, int):
                         user_id = user_data
                         user_name = 'User'
+                        print(f"[AUTO-SIGNAL SND] Int format: user_id={user_id}")
                     else:
-                        print(f"[AUTO-SIGNAL SND] ❌ Invalid user format: {user_data}")
+                        print(f"[AUTO-SIGNAL SND] ❌ Invalid user format: {user_data} (type: {type(user_data)})")
                         continue
 
-                    if not user_id:
-                        print(f"[AUTO-SIGNAL SND] ❌ No user_id found for user: {user_data}")
+                    if not user_id or user_id <= 0:
+                        print(f"[AUTO-SIGNAL SND] ❌ Invalid user_id: {user_id} from data: {user_data}")
                         continue
 
-                    await self.bot.application.bot.send_message(
-                        chat_id=user_id,
-                        text=message,
-                        parse_mode='Markdown'
-                    )
-                    sent_count += 1
-                    print(f"[AUTO-SIGNAL SND] ✅ Signal sent to user {user_id} ({user_name})")
-                    
-                    # Log each signal sent
-                    for signal in signals:
-                        print(f"[AUTO-SIGNAL SND] Entry Detected on {signal['symbol']} - Direction: {signal['direction']} - Confidence: {signal['confidence']:.1f}%")
+                    print(f"[AUTO-SIGNAL SND] Attempting to send to user_id: {user_id}")
+
+                    # Send message with better error handling
+                    try:
+                        await self.bot.application.bot.send_message(
+                            chat_id=int(user_id),
+                            text=message,
+                            parse_mode='Markdown',
+                            disable_web_page_preview=True
+                        )
+                        sent_count += 1
+                        print(f"[AUTO-SIGNAL SND] ✅ Signal sent successfully to user {user_id} ({user_name})")
+                        
+                    except Exception as send_error:
+                        print(f"[AUTO-SIGNAL SND] ❌ Send error to user {user_id}: {send_error}")
+                        # Try without markdown if parsing failed
+                        try:
+                            await self.bot.application.bot.send_message(
+                                chat_id=int(user_id),
+                                text=message,
+                                parse_mode=None
+                            )
+                            sent_count += 1
+                            print(f"[AUTO-SIGNAL SND] ✅ Signal sent (plain text) to user {user_id}")
+                        except Exception as plain_error:
+                            print(f"[AUTO-SIGNAL SND] ❌ Plain text send also failed: {plain_error}")
                     
                     await asyncio.sleep(0.5)  # Rate limiting
 
                 except Exception as e:
-                    print(f"[AUTO-SIGNAL SND] ❌ Failed to send to user {user_id}: {e}")
+                    print(f"[AUTO-SIGNAL SND] ❌ Error processing user {user_data}: {e}")
+                    import traceback
+                    traceback.print_exc()
 
             print(f"[AUTO-SIGNAL SND] ✅ Successfully sent auto signals to {sent_count}/{len(eligible_users)} users")
 
+            # Log successful broadcast
+            if sent_count > 0:
+                for signal in signals:
+                    print(f"[AUTO-SIGNAL SND] 📊 Broadcasted signal: {signal['symbol']} {signal['direction']} (Confidence: {signal['confidence']:.1f}%)")
+
         except Exception as e:
-            print(f"[AUTO-SIGNAL SND] ❌ Error sending signals to users: {e}")
+            print(f"[AUTO-SIGNAL SND] ❌ Critical error in signal broadcast: {e}")
             import traceback
             traceback.print_exc()
 

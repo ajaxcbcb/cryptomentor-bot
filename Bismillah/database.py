@@ -529,6 +529,8 @@ class Database:
             admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
             eligible_users = []
 
+            print(f"🔍 Checking admin eligibility: admin_id = {admin_id}")
+
             if admin_id > 0:
                 # Check if admin exists in database
                 admin_user = self.get_user(admin_id)
@@ -538,29 +540,47 @@ class Database:
                         'first_name': admin_user.get('first_name', 'Admin'),
                         'type': 'admin'
                     })
+                    print(f"✅ Admin user {admin_id} added to eligible list")
                 else:
-                    print(f"⚠️ Admin user {admin_id} not found in database")
+                    print(f"⚠️ Admin user {admin_id} not found in database, attempting to add anyway")
+                    # Add admin even if not in database (they might not have started bot yet)
+                    eligible_users.append({
+                        'telegram_id': admin_id,
+                        'first_name': 'Admin',
+                        'type': 'admin'
+                    })
 
             # Get lifetime premium users (subscription_end IS NULL means lifetime)
             self.cursor.execute("""
                 SELECT telegram_id, first_name FROM users 
-                WHERE is_premium = 1 AND subscription_end IS NULL
+                WHERE is_premium = 1 AND subscription_end IS NULL AND telegram_id IS NOT NULL
             """)
             lifetime_users = self.cursor.fetchall()
 
+            print(f"🔍 Found {len(lifetime_users)} lifetime premium users")
+
             for user in lifetime_users:
-                if user[0] != admin_id:  # Don't duplicate admin
+                if user[0] and user[0] != admin_id:  # Don't duplicate admin
                     eligible_users.append({
                         'telegram_id': user[0],
                         'first_name': user[1] or 'User',
                         'type': 'lifetime'
                     })
+                    print(f"✅ Lifetime user {user[0]} ({user[1]}) added to eligible list")
 
-            print(f"👥 Auto signals eligible: Admin({admin_id}) + {len(lifetime_users)} Lifetime users")
+            print(f"👥 Auto signals eligible: {len(eligible_users)} total users")
+            print(f"📊 Details: Admin({admin_id}) + {len(lifetime_users)} Lifetime users")
+            
+            # Debug: show all eligible users
+            for i, user in enumerate(eligible_users):
+                print(f"  {i+1}. {user['telegram_id']} ({user['first_name']}) - {user['type']}")
+
             return eligible_users
 
         except Exception as e:
             print(f"❌ Error getting eligible auto signal users: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def deduct_credit(self, telegram_id, amount):
