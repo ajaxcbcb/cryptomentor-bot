@@ -1853,30 +1853,25 @@ class AIAssistant:
             return "❌ Error dalam menghasilkan sinyal trading."
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate optimized futures signals dengan SnD integration"""
+        """Generate optimized futures signals dengan SnD integration dan limit order recommendations"""
         try:
-            print(f"🎯 Generating optimized futures signals")
+            print(f"🎯 Generating optimized futures signals with SnD limit order recommendations")
             
             target_symbols = self._get_top_5_coins_by_market_cap(crypto_api)
-            clean_signals = []
+            snd_recommendations = []
             
             for symbol in target_symbols:
                 try:
-                    # Get basic data
-                    signal_data = self._get_clean_signal_data(symbol, crypto_api)
-                    if not signal_data:
-                        continue
-                    
-                    # Generate clean signal
-                    clean_signal = self._generate_clean_futures_signal(symbol, signal_data, language)
-                    if clean_signal:
-                        clean_signals.append(clean_signal)
+                    # Get comprehensive SnD analysis
+                    snd_analysis = self._get_snd_entry_recommendations(symbol, crypto_api, language)
+                    if snd_analysis:
+                        snd_recommendations.append(snd_analysis)
                         
                 except Exception as e:
-                    print(f"❌ Error processing {symbol}: {e}")
+                    print(f"❌ Error processing SnD for {symbol}: {e}")
                     continue
             
-            return self._format_final_signals_output(clean_signals, language)
+            return self._format_snd_limit_order_output(snd_recommendations, language)
             
         except Exception as e:
             print(f"❌ Error in generate_futures_signals: {e}")
@@ -2056,47 +2051,336 @@ class AIAssistant:
                 return f"🎯 SnD: Strong zones detected (strength: {snd_zones['strength']})"
             else:
                 return f"📊 SnD: Medium setup (strength: {snd_zones['strength']})"
+
+    def _get_snd_entry_recommendations(self, symbol, crypto_api, language='id'):
+        """Get comprehensive SnD analysis with limit order entry recommendations"""
+        try:
+            print(f"🔍 Analyzing SnD for {symbol} with limit order recommendations")
+            
+            # Get current price
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
+            if 'error' in price_data:
+                return None
+            
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return None
+            
+            # Get SnD analysis
+            snd_data = crypto_api.analyze_supply_demand(symbol, '4h') if crypto_api else {}
+            if 'error' in snd_data:
+                return None
+            
+            # Get signals from SnD analysis
+            signals = snd_data.get('signals', [])
+            if not signals:
+                return None
+            
+            # Get best signal for recommendations
+            best_signal = max(signals, key=lambda x: x.get('confidence', 0))
+            confidence = best_signal.get('confidence', 0)
+            
+            # Only proceed if confidence is reasonable
+            if confidence < 60:
+                return None
+            
+            # Generate limit order recommendations
+            limit_orders = self._generate_limit_order_recommendations(
+                symbol, current_price, best_signal, snd_data, language
+            )
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'signal': best_signal,
+                'limit_orders': limit_orders,
+                'confidence': confidence,
+                'snd_zones': {
+                    'supply_zones': snd_data.get('supply_zones', [])[:2],  # Top 2
+                    'demand_zones': snd_data.get('demand_zones', [])[:2]   # Top 2
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Error in SnD analysis for {symbol}: {e}")
+            return None
+
+    def _generate_limit_order_recommendations(self, symbol, current_price, signal, snd_data, language='id'):
+        """Generate specific limit order recommendations based on SnD zones"""
+        try:
+            direction = signal.get('direction', 'LONG')
+            entry_price = signal.get('entry_price', current_price)
+            
+            # Smart price formatting based on price range
+            def format_order_price(price):
+                if price < 0.001:
+                    return f"${price:.8f}"
+                elif price < 0.1:
+                    return f"${price:.6f}"
+                elif price < 100:
+                    return f"${price:.4f}"
+                else:
+                    return f"${price:,.2f}"
+            
+            limit_orders = []
+            
+            if direction == 'LONG':
+                # Generate multiple limit buy orders at different levels
+                supply_zones = snd_data.get('supply_zones', [])
+                demand_zones = snd_data.get('demand_zones', [])
+                
+                # Primary entry at best demand zone
+                if demand_zones:
+                    best_demand = demand_zones[0]
+                    primary_entry = best_demand.get('high', current_price * 0.98)
+                    
+                    limit_orders.append({
+                        'type': 'BUY_LIMIT',
+                        'price': primary_entry,
+                        'price_formatted': format_order_price(primary_entry),
+                        'quantity_percent': 60,  # 60% of position
+                        'reason': 'Primary entry at strong demand zone',
+                        'zone_strength': best_demand.get('strength', 0)
+                    })
+                
+                # Secondary entry for DCA
+                secondary_entry = current_price * 0.95  # 5% lower
+                limit_orders.append({
+                    'type': 'BUY_LIMIT', 
+                    'price': secondary_entry,
+                    'price_formatted': format_order_price(secondary_entry),
+                    'quantity_percent': 40,  # 40% of position
+                    'reason': 'DCA entry if price drops further',
+                    'zone_strength': 0
+                })
+                
+                # Take profit levels near supply zones
+                if supply_zones:
+                    best_supply = supply_zones[0]
+                    tp_price = best_supply.get('low', current_price * 1.05)
+                    
+                    limit_orders.append({
+                        'type': 'SELL_LIMIT',
+                        'price': tp_price,
+                        'price_formatted': format_order_price(tp_price),
+                        'quantity_percent': 100,
+                        'reason': 'Take profit near supply zone resistance',
+                        'zone_strength': best_supply.get('strength', 0)
+                    })
+            
+            else:  # SHORT
+                # Generate limit sell orders for short positions
+                supply_zones = snd_data.get('supply_zones', [])
+                demand_zones = snd_data.get('demand_zones', [])
+                
+                # Primary short entry at supply zone
+                if supply_zones:
+                    best_supply = supply_zones[0]
+                    primary_entry = best_supply.get('low', current_price * 1.02)
+                    
+                    limit_orders.append({
+                        'type': 'SELL_LIMIT',
+                        'price': primary_entry,
+                        'price_formatted': format_order_price(primary_entry),
+                        'quantity_percent': 60,
+                        'reason': 'Primary short entry at supply zone',
+                        'zone_strength': best_supply.get('strength', 0)
+                    })
+                
+                # Secondary short entry
+                secondary_entry = current_price * 1.05  # 5% higher
+                limit_orders.append({
+                    'type': 'SELL_LIMIT',
+                    'price': secondary_entry, 
+                    'price_formatted': format_order_price(secondary_entry),
+                    'quantity_percent': 40,
+                    'reason': 'Additional short if price pumps',
+                    'zone_strength': 0
+                })
+                
+                # Take profit near demand zones
+                if demand_zones:
+                    best_demand = demand_zones[0]
+                    tp_price = best_demand.get('high', current_price * 0.95)
+                    
+                    limit_orders.append({
+                        'type': 'BUY_LIMIT',  # Buy to close short
+                        'price': tp_price,
+                        'price_formatted': format_order_price(tp_price),
+                        'quantity_percent': 100,
+                        'reason': 'Take profit near demand zone support',
+                        'zone_strength': best_demand.get('strength', 0)
+                    })
+            
+            return limit_orders
+            
+        except Exception as e:
+            print(f"❌ Error generating limit orders for {symbol}: {e}")
+            return []
     
-    def _format_final_signals_output(self, signals, language='id'):
-        """Format final optimized output"""
-        if not signals:
-            return "❌ No signals generated. Try again later."
+    def _format_snd_limit_order_output(self, recommendations, language='id'):
+        """Format SnD limit order recommendations output"""
+        if not recommendations:
+            if language == 'id':
+                return "❌ Tidak ada rekomendasi SnD yang memenuhi kriteria. Coba lagi nanti."
+            else:
+                return "❌ No SnD recommendations meet criteria. Try again later."
         
         current_time = datetime.now().strftime('%H:%M:%S WIB')
         
         if language == 'id':
-            header = f"""🚨 FUTURES SIGNALS OPTIMIZED
-⏰ {current_time} | 📊 4H Timeframe | 🎯 Top {len(signals)} Coins
+            header = f"""🎯 REKOMENDASI ENTRY SnD + LIMIT ORDER
+⏰ {current_time} | 📊 TOP {len(recommendations)} COINS BY MARKET CAP
+
+💡 **STRATEGI**: Entry dengan limit order berdasarkan zona Supply & Demand
 
 """
-            footer = """
-══════════════════════════════════════════
-🛡️ RISK MANAGEMENT:
-• Max 2% position size per trade
-• Set SL before entry (WAJIB!)
-• Take profit: 50% at TP1, 50% at TP2
-• SnD zones = zona konfirmasi entry
+            
+            # Format each recommendation
+            formatted_recommendations = []
+            for i, rec in enumerate(recommendations, 1):
+                symbol = rec['symbol']
+                current_price = rec['current_price']
+                signal = rec['signal']
+                limit_orders = rec['limit_orders']
+                confidence = rec['confidence']
+                
+                # Smart price formatting
+                def format_price(price):
+                    if price < 0.001:
+                        return f"${price:.8f}"
+                    elif price < 0.1:
+                        return f"${price:.6f}"
+                    elif price < 100:
+                        return f"${price:.4f}"
+                    else:
+                        return f"${price:,.2f}"
+                
+                direction_emoji = "🟢" if signal.get('direction') == 'LONG' else "🔴"
+                
+                coin_analysis = f"""**{i}. {symbol} {direction_emoji} - {signal.get('direction')}**
+💰 Current: {format_price(current_price)} | Confidence: {confidence:.0f}%
 
-📊 Data: CoinAPI + Binance + SnD Analysis
-⚠️ High risk - gunakan proper risk management!"""
+📋 **LIMIT ORDER SETUP:**"""
+                
+                for order in limit_orders:
+                    order_type = order['type']
+                    price_formatted = order['price_formatted']
+                    quantity_percent = order['quantity_percent']
+                    reason = order['reason']
+                    zone_strength = order.get('zone_strength', 0)
+                    
+                    if order_type in ['BUY_LIMIT', 'SELL_LIMIT']:
+                        action = "🔵 BUY" if order_type == 'BUY_LIMIT' else "🔴 SELL" 
+                        coin_analysis += f"""
+• {action} LIMIT: {price_formatted} ({quantity_percent}% position)
+  📍 {reason}"""
+                        if zone_strength > 0:
+                            coin_analysis += f" (Zone: {zone_strength:.0f}%)"
+                
+                formatted_recommendations.append(coin_analysis)
+            
+            footer = """
+
+══════════════════════════════════════════
+🎯 **CARA MENGGUNAKAN LIMIT ORDER:**
+
+1️⃣ **Setup Entry Orders:**
+   • Pasang BUY/SELL LIMIT sesuai rekomendasi
+   • Bagi position size sesuai persentase
+   • Set order dengan harga yang tepat
+
+2️⃣ **Manajemen Risk:**
+   • Stop Loss: 2% dari entry price
+   • Position size maksimal: 2% dari total modal
+   • Cancel order jika tidak tereksekusi 24 jam
+
+3️⃣ **Take Profit Strategy:**
+   • TP bertahap sesuai zona SnD
+   • Monitor reaksi di zona supply/demand
+   • Trailing stop setelah TP1 tercapai
+
+📊 **Data Source**: CoinAPI + Binance + SnD Zones Analysis
+⚠️ **Risk Warning**: Trading futures berisiko tinggi, gunakan proper risk management!
+
+💡 **Pro Tip**: Tunggu konfirmasi di zona SnD sebelum entry manual"""
             
         else:
-            header = f"""🚨 OPTIMIZED FUTURES SIGNALS
-⏰ {current_time} | 📊 4H Timeframe | 🎯 Top {len(signals)} Coins
+            header = f"""🎯 SnD ENTRY RECOMMENDATIONS + LIMIT ORDERS
+⏰ {current_time} | 📊 TOP {len(recommendations)} COINS BY MARKET CAP
+
+💡 **STRATEGY**: Entry with limit orders based on Supply & Demand zones
 
 """
-            footer = """
-══════════════════════════════════════════
-🛡️ RISK MANAGEMENT:
-• Max 2% position size per trade  
-• Set SL before entry (MANDATORY!)
-• Take profit: 50% at TP1, 50% at TP2
-• SnD zones = entry confirmation areas
+            
+            formatted_recommendations = []
+            for i, rec in enumerate(recommendations, 1):
+                symbol = rec['symbol']
+                current_price = rec['current_price']
+                signal = rec['signal']
+                limit_orders = rec['limit_orders']
+                confidence = rec['confidence']
+                
+                def format_price(price):
+                    if price < 0.001:
+                        return f"${price:.8f}"
+                    elif price < 0.1:
+                        return f"${price:.6f}"
+                    elif price < 100:
+                        return f"${price:.4f}"
+                    else:
+                        return f"${price:,.2f}"
+                
+                direction_emoji = "🟢" if signal.get('direction') == 'LONG' else "🔴"
+                
+                coin_analysis = f"""**{i}. {symbol} {direction_emoji} - {signal.get('direction')}**
+💰 Current: {format_price(current_price)} | Confidence: {confidence:.0f}%
 
-📊 Data: CoinAPI + Binance + SnD Analysis
-⚠️ High risk - use proper risk management!"""
+📋 **LIMIT ORDER SETUP:**"""
+                
+                for order in limit_orders:
+                    order_type = order['type']
+                    price_formatted = order['price_formatted']
+                    quantity_percent = order['quantity_percent']
+                    reason = order['reason']
+                    zone_strength = order.get('zone_strength', 0)
+                    
+                    if order_type in ['BUY_LIMIT', 'SELL_LIMIT']:
+                        action = "🔵 BUY" if order_type == 'BUY_LIMIT' else "🔴 SELL"
+                        coin_analysis += f"""
+• {action} LIMIT: {price_formatted} ({quantity_percent}% position)
+  📍 {reason}"""
+                        if zone_strength > 0:
+                            coin_analysis += f" (Zone: {zone_strength:.0f}%)"
+                
+                formatted_recommendations.append(coin_analysis)
+            
+            footer = """
+
+══════════════════════════════════════════
+🎯 **HOW TO USE LIMIT ORDERS:**
+
+1️⃣ **Setup Entry Orders:**
+   • Place BUY/SELL LIMIT as recommended
+   • Split position size by percentages
+   • Set orders with precise prices
+
+2️⃣ **Risk Management:**
+   • Stop Loss: 2% from entry price
+   • Max position size: 2% of total capital
+   • Cancel orders if not filled within 24h
+
+3️⃣ **Take Profit Strategy:**
+   • Gradual TP according to SnD zones
+   • Monitor reactions at supply/demand zones
+   • Trailing stop after TP1 reached
+
+📊 **Data Source**: CoinAPI + Binance + SnD Zones Analysis
+⚠️ **Risk Warning**: Futures trading is high risk, use proper risk management!
+
+💡 **Pro Tip**: Wait for confirmation at SnD zones before manual entry"""
         
-        return header + "\n\n".join(signals) + footer
+        return header + "\n\n".join(formatted_recommendations) + footer
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
