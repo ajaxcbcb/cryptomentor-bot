@@ -52,116 +52,236 @@ class AIAssistant:
 🚀 **Semua analisis menggunakan data real-time dari multiple API!**"""
 
     def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate comprehensive futures analysis with GUARANTEED clear LONG/SHORT trading recommendations using CoinAPI real-time prices"""
+        """Generate clean and efficient futures analysis with SnD recommendations"""
         try:
-            print(f"🎯 Generating MANDATORY futures trading signal for {symbol} {timeframe}")
+            print(f"🎯 Generating futures analysis for {symbol} {timeframe}")
             
             if not crypto_api:
-                print(f"⚠️ No crypto_api provided, using offline signal for {symbol}")
                 return self._generate_offline_futures_signal(symbol, timeframe, language)
             
-            # FORCE real-time data refresh from CoinAPI for deployment
-            coinapi_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            # Get market data
+            market_data = self._get_market_data(symbol, timeframe, crypto_api)
             
-            # Get Binance futures data for additional context
-            futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+            # Analyze market structure
+            market_analysis = self._analyze_market_structure(symbol, market_data, timeframe)
             
-            # Get SnD analysis for Entry/TP/SL extraction
-            snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            # Generate trading levels
+            trading_levels = self._calculate_trading_levels(market_data['price'], market_analysis)
             
-            # PRIORITY: CoinAPI real-time > Binance Futures > Estimation
-            primary_price = 0
-            price_source = "Unknown"
-            price_source_emoji = "❓"
-            
-            if 'error' not in coinapi_data and coinapi_data.get('price', 0) > 0:
-                primary_price = coinapi_data.get('price', 0)
-                price_source = "CoinAPI Real-time"
-                price_source_emoji = "🟢"
-                print(f"✅ Using CoinAPI real-time price: ${primary_price}")
-            elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
-                primary_price = futures_data.get('price_data', {}).get('price', 0)
-                price_source = "Binance Futures"
-                price_source_emoji = "🟡"
-                print(f"✅ Using Binance Futures price: ${primary_price}")
-            else:
-                # Price estimation fallback for major coins
-                primary_price = self._get_estimated_price(symbol)
-                price_source = "Estimated Price"
-                price_source_emoji = "🔴"
-                print(f"⚠️ Using estimated price: ${primary_price}")
-            
-            if primary_price <= 0:
-                primary_price = self._get_estimated_price(symbol)
-                price_source = "Emergency Fallback"
-                price_source_emoji = "🔴"
-                print(f"🔧 Emergency price fallback: ${primary_price}")
-            
-            print(f"✅ Final price for signal generation: ${primary_price:,.8f} from {price_source}")
-            
-            # Extract simple Entry/TP/SL from SnD analysis
-            snd_levels = self._extract_simple_snd_levels(snd_data, primary_price, symbol)
-            
-            # FORCE MANDATORY signal generation with real-time price
-            signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(symbol, timeframe, coinapi_data, futures_data, primary_price, language)
-            
-            # VALIDATE that signal contains MANDATORY elements
-            if not signal_analysis or 'SIGNAL' not in signal_analysis or 'ENTRY' not in signal_analysis:
-                print(f"❌ Signal validation FAILED for {symbol} {timeframe}, forcing emergency signal")
-                signal_analysis = self._generate_emergency_trading_signal(symbol, timeframe, primary_price, language)
-            
-            # Enhanced price formatting for better readability
-            if primary_price < 1:
-                price_display = f"${primary_price:.8f}"
-            elif primary_price < 100:
-                price_display = f"${primary_price:.6f}"
-            else:
-                price_display = f"${primary_price:,.4f}"
-
-            if language == 'id':
-                message = f"""🎯 **REKOMENDASI TRADING FUTURES {symbol.upper()} ({timeframe})**
-
-💰 **HARGA REAL-TIME**: {price_display}
-📡 **SUMBER DATA**: {price_source_emoji} {price_source}
-⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S WIB')}
-
-{snd_levels}
-
-{signal_analysis}
-
-🛡️ **WAJIB RISK MANAGEMENT:**
-• Set stop loss SEBELUM entry (TIDAK BOLEH SKIP!)
-• Position size maksimal 1-2% dari total modal
-• Take profit bertahap sesuai target yang diberikan
-• Exit segera jika analisis berubah
-
-⚠️ **Disclaimer**: Trading futures berisiko tinggi, analisis ini bukan financial advice."""
-            else:
-                message = f"""🎯 **FUTURES TRADING RECOMMENDATION {symbol.upper()} ({timeframe})**
-
-💰 **REAL-TIME PRICE**: {price_display}
-📡 **DATA SOURCE**: {price_source_emoji} {price_source}
-⏰ **UPDATE**: {datetime.now().strftime('%H:%M:%S UTC')}
-
-{snd_levels}
-
-{signal_analysis}
-
-🛡️ **MANDATORY RISK MANAGEMENT:**
-• Set stop loss BEFORE entry (NEVER SKIP!)
-• Position size maximum 1-2% of total capital
-• Take profit gradually according to given targets
-• Exit immediately if analysis changes
-
-⚠️ **Disclaimer**: Futures trading is high risk, this analysis is not financial advice."""
-            
-            print(f"✅ MANDATORY futures trading signal generated successfully for {symbol} {timeframe}")
-            return message
+            # Format final output
+            return self._format_futures_output(symbol, timeframe, market_data, market_analysis, trading_levels, language)
             
         except Exception as e:
-            print(f"❌ CRITICAL ERROR in futures analysis: {e}")
-            # ABSOLUTE EMERGENCY fallback - ALWAYS return a trading signal
+            print(f"❌ Error in futures analysis: {e}")
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
+
+    def _get_market_data(self, symbol, timeframe, crypto_api):
+        """Centralized market data collection"""
+        # Get real-time price from CoinAPI
+        coinapi_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+        futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+        snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+        
+        # Determine best price source
+        if 'error' not in coinapi_data and coinapi_data.get('price', 0) > 0:
+            primary_price = coinapi_data.get('price', 0)
+            price_source = "CoinAPI Real-time"
+            price_emoji = "🟢"
+        elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+            primary_price = futures_data.get('price_data', {}).get('price', 0)
+            price_source = "Binance Futures"
+            price_emoji = "🟡"
+        else:
+            primary_price = self._get_estimated_price(symbol)
+            price_source = "Estimated"
+            price_emoji = "🔴"
+        
+        return {
+            'price': primary_price,
+            'price_source': price_source,
+            'price_emoji': price_emoji,
+            'coinapi_data': coinapi_data,
+            'futures_data': futures_data,
+            'snd_data': snd_data
+        }
+
+    def _analyze_market_structure(self, symbol, market_data, timeframe):
+        """Analyze market structure and determine trading direction"""
+        futures_data = market_data['futures_data']
+        snd_data = market_data['snd_data']
+        
+        # Calculate signal strength
+        signal_strength = 0
+        signal_factors = []
+        
+        # Factor 1: SnD Analysis
+        if 'error' not in snd_data and snd_data.get('signals'):
+            best_snd_signal = max(snd_data['signals'], key=lambda x: x.get('confidence', 0))
+            if best_snd_signal.get('confidence', 0) > 60:
+                signal_strength += 3
+                signal_factors.append(f"🎯 SnD {best_snd_signal.get('direction', 'LONG')} zone confirmed")
+                preferred_direction = best_snd_signal.get('direction', 'LONG')
+            else:
+                preferred_direction = 'LONG'
+        else:
+            preferred_direction = 'LONG'
+            
+        # Factor 2: Futures sentiment
+        if 'error' not in futures_data:
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                if long_ratio > 70:
+                    signal_strength += 2 if preferred_direction == 'SHORT' else -1
+                    signal_factors.append(f"⚠️ Overcrowded longs ({long_ratio:.1f}%)")
+                elif long_ratio < 30:
+                    signal_strength += 2 if preferred_direction == 'LONG' else -1
+                    signal_factors.append(f"💎 Oversold conditions ({long_ratio:.1f}%)")
+        
+        # Factor 3: Timeframe bias
+        timeframe_weight = {'15m': 1, '30m': 1.5, '1h': 2, '4h': 3, '1d': 4}.get(timeframe, 2)
+        signal_strength += timeframe_weight
+        signal_factors.append(f"📊 {timeframe} structure analysis")
+        
+        # Determine final direction and confidence
+        if signal_strength >= 4:
+            direction = preferred_direction
+            confidence = min(90, 65 + signal_strength * 5)
+        elif signal_strength <= 1:
+            direction = 'SHORT' if preferred_direction == 'LONG' else 'LONG'
+            confidence = min(85, 60 + abs(signal_strength) * 5)
+        else:
+            direction = preferred_direction
+            confidence = min(85, 60 + signal_strength * 5)
+        
+        return {
+            'direction': direction,
+            'confidence': confidence,
+            'signal_factors': signal_factors,
+            'signal_strength': signal_strength
+        }
+
+    def _calculate_trading_levels(self, current_price, market_analysis):
+        """Calculate precise entry, TP, and SL levels"""
+        direction = market_analysis['direction']
+        confidence = market_analysis['confidence']
+        
+        # Adjust risk based on confidence
+        risk_multiplier = 1.0 if confidence >= 80 else 1.2 if confidence >= 70 else 1.5
+        
+        if direction == 'LONG':
+            entry = current_price * 0.998  # Slight dip entry
+            tp1 = current_price * (1 + 0.025 / risk_multiplier)  # 2.5% adjusted for confidence
+            tp2 = current_price * (1 + 0.05 / risk_multiplier)   # 5% adjusted for confidence
+            sl = current_price * (1 - 0.02 * risk_multiplier)    # 2% SL adjusted for risk
+        else:  # SHORT
+            entry = current_price * 1.002  # Slight pump entry
+            tp1 = current_price * (1 - 0.025 / risk_multiplier)  # 2.5% down
+            tp2 = current_price * (1 - 0.05 / risk_multiplier)   # 5% down
+            sl = current_price * (1 + 0.02 * risk_multiplier)    # 2% SL up
+        
+        # Calculate risk/reward
+        risk = abs(entry - sl)
+        reward = abs(tp2 - entry)
+        rr_ratio = reward / risk if risk > 0 else 2.5
+        
+        return {
+            'entry': entry,
+            'tp1': tp1,
+            'tp2': tp2,
+            'sl': sl,
+            'rr_ratio': rr_ratio,
+            'risk_level': 'low' if confidence >= 80 else 'medium' if confidence >= 70 else 'high'
+        }
+
+    def _format_futures_output(self, symbol, timeframe, market_data, market_analysis, trading_levels, language='id'):
+        """Format the final clean output for Telegram"""
+        price = market_data['price']
+        direction = market_analysis['direction']
+        confidence = market_analysis['confidence']
+        factors = market_analysis['signal_factors']
+        
+        # Smart price formatting
+        def format_price(p):
+            if p < 1:
+                return f"${p:.8f}"
+            elif p < 100:
+                return f"${p:.4f}"
+            else:
+                return f"${p:,.2f}"
+        
+        direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+        confidence_emoji = "🔥" if confidence >= 85 else "⭐" if confidence >= 75 else "💡"
+        
+        if language == 'id':
+            message = f"""🎯 **FUTURES ANALYSIS {symbol.upper()} ({timeframe})**
+
+💰 **Harga**: {format_price(price)} {market_data['price_emoji']}
+📡 **Source**: {market_data['price_source']}
+
+{direction_emoji} **SIGNAL**: {direction} {confidence_emoji}
+📊 **Confidence**: {confidence:.0f}%
+
+💰 **TRADING LEVELS:**
+📍 **Entry**: {format_price(trading_levels['entry'])}
+🎯 **TP1**: {format_price(trading_levels['tp1'])} (50% profit)
+🎯 **TP2**: {format_price(trading_levels['tp2'])} (50% profit)  
+🛡️ **Stop Loss**: {format_price(trading_levels['sl'])}
+
+📈 **ANALISIS:**"""
+            
+            for factor in factors[:3]:  # Limit to 3 key factors
+                message += f"\n• {factor}"
+            
+            message += f"""
+
+⚡ **STRATEGY {timeframe.upper()}:**
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Risk Level: {trading_levels['risk_level'].title()}
+• Position size: 1-2% modal
+
+🛡️ **RISK MANAGEMENT:**
+• Set SL WAJIB sebelum entry
+• Take profit bertahap di TP1 & TP2
+• Exit jika struktur berubah
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+        
+        else:
+            message = f"""🎯 **FUTURES ANALYSIS {symbol.upper()} ({timeframe})**
+
+💰 **Price**: {format_price(price)} {market_data['price_emoji']}
+📡 **Source**: {market_data['price_source']}
+
+{direction_emoji} **SIGNAL**: {direction} {confidence_emoji}
+📊 **Confidence**: {confidence:.0f}%
+
+💰 **TRADING LEVELS:**
+📍 **Entry**: {format_price(trading_levels['entry'])}
+🎯 **TP1**: {format_price(trading_levels['tp1'])} (50% profit)
+🎯 **TP2**: {format_price(trading_levels['tp2'])} (50% profit)
+🛡️ **Stop Loss**: {format_price(trading_levels['sl'])}
+
+📈 **ANALYSIS:**"""
+            
+            for factor in factors[:3]:
+                message += f"\n• {factor}"
+            
+            message += f"""
+
+⚡ **STRATEGY {timeframe.upper()}:**
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1  
+• Risk Level: {trading_levels['risk_level'].title()}
+• Position size: 1-2% capital
+
+🛡️ **RISK MANAGEMENT:**
+• Set SL MANDATORY before entry
+• Take profit gradually at TP1 & TP2
+• Exit if structure changes
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S UTC')}"""
+        
+        return message
     
     def _get_estimated_price(self, symbol):
         """Get estimated price for major cryptocurrencies when APIs fail"""
@@ -234,546 +354,38 @@ class AIAssistant:
 • **Analysis**: Basic SnD setup based on current market structure
 • **Note**: Enter only with proper confirmation at zones"""
     
-    def _generate_MANDATORY_futures_signal_with_levels(self, symbol, timeframe, coinapi_data, futures_data, price, language='id'):
-        """Generate ABSOLUTELY MANDATORY LONG/SHORT signal with GUARANTEED Entry, TP1, TP2, SL - NEVER FAILS"""
-        try:
-            print(f"🔧 FORCING MANDATORY signal generation for {symbol} {timeframe} at price ${price}")
-            
-            # FORCE decision based on symbol hash + timeframe - ALWAYS gives LONG or SHORT
-            import time
-            signal_seed = (sum(ord(c) for c in symbol.upper()) + sum(ord(c) for c in timeframe) + int(time.time()) // 1800) % 100
-            
-            # Enhanced signal factors
-            signal_factors = []
-            long_score = 0
-            short_score = 0
-            
-            # Factor 1: Timeframe momentum (ALWAYS contributes)
-            if timeframe in ['15m', '30m']:
-                # Scalping timeframes favor momentum
-                if signal_seed > 45:
-                    long_score += 3
-                    signal_factors.append(f"📈 Scalping momentum bullish pada {timeframe}")
-                else:
-                    short_score += 3
-                    signal_factors.append(f"📉 Scalping momentum bearish pada {timeframe}")
-            elif timeframe in ['1h', '4h']:
-                # Swing timeframes - balanced approach
-                if signal_seed > 50:
-                    long_score += 2
-                    signal_factors.append(f"⚡ Swing structure bullish pada {timeframe}")
-                else:
-                    short_score += 2
-                    signal_factors.append(f"⚡ Swing structure bearish pada {timeframe}")
-            else:  # 1d, 1w
-                # Position timeframes favor mean reversion
-                if signal_seed < 55:
-                    long_score += 2
-                    signal_factors.append(f"📊 Position trading setup bullish pada {timeframe}")
-                else:
-                    short_score += 2
-                    signal_factors.append(f"📊 Position trading setup bearish pada {timeframe}")
-            
-            # Factor 2: Futures sentiment (if available)
-            if 'error' not in futures_data:
-                ls_data = futures_data.get('long_short_ratio_data', {})
-                if 'error' not in ls_data:
-                    long_ratio = ls_data.get('long_ratio', 50)
-                    if long_ratio > 70:
-                        short_score += 2
-                        signal_factors.append(f"⚠️ Overleveraged longs ({long_ratio:.1f}%) - contrarian SHORT")
-                    elif long_ratio < 30:
-                        long_score += 2
-                        signal_factors.append(f"💎 Oversold longs ({long_ratio:.1f}%) - reversal LONG")
-                    else:
-                        long_score += 1
-                        signal_factors.append(f"⚖️ Balanced sentiment ({long_ratio:.1f}%)")
-            
-            # Factor 3: Price action bias
-            price_mod = int(price) % 100
-            if price_mod > 60:
-                long_score += 1
-                signal_factors.append("📈 Price action mendukung continuation bullish")
-            elif price_mod < 40:
-                short_score += 1
-                signal_factors.append("📉 Price action mendukung continuation bearish")
-            else:
-                long_score += 0.5
-                signal_factors.append("📊 Price action netral - follow trend")
-            
-            print(f"📊 Signal calculation: LONG={long_score:.1f}, SHORT={short_score:.1f}")
-            
-            # ABSOLUTE DECISION - NEVER neutral, ALWAYS LONG or SHORT
-            if short_score > long_score:
-                signal_direction = "SHORT"
-                signal_emoji = "🔴"
-                confidence = min(95, 70 + (short_score - long_score) * 8)
-                
-                # Calculate SHORT levels with proper risk management
-                entry_price = price * 1.0015    # Slight rally entry for better fill
-                tp1 = price * 0.975            # 2.5% profit target 1
-                tp2 = price * 0.945            # 5.5% profit target 2
-                sl = price * 1.025             # 2.5% stop loss
-                
-                zone_info = "Supply zone rejection setup"
-                print(f"🔴 MANDATORY SHORT: Entry=${entry_price:.6f}, TP1=${tp1:.6f}, TP2=${tp2:.6f}, SL=${sl:.6f}")
-                
-            else:  # DEFAULT TO LONG (includes equal scores)
-                signal_direction = "LONG"
-                signal_emoji = "🟢"
-                confidence = min(95, 70 + max(1, long_score - short_score) * 8)
-                
-                # Calculate LONG levels with proper risk management
-                entry_price = price * 0.9985    # Slight dip entry for better fill
-                tp1 = price * 1.025            # 2.5% profit target 1
-                tp2 = price * 1.055            # 5.5% profit target 2
-                sl = price * 0.975             # 2.5% stop loss
-                
-                zone_info = "Demand zone bounce setup"
-                print(f"🟢 MANDATORY LONG: Entry=${entry_price:.6f}, TP1=${tp1:.6f}, TP2=${tp2:.6f}, SL=${sl:.6f}")
-            
-            # Calculate risk/reward
-            if signal_direction == "LONG":
-                risk = abs(entry_price - sl)
-                reward = abs(tp2 - entry_price)
-            else:
-                risk = abs(sl - entry_price)  
-                reward = abs(entry_price - tp2)
-            
-            risk_reward = reward / risk if risk > 0 else 2.5
-            print(f"📊 Risk/Reward calculated: {risk_reward:.1f}:1")
+    def _calculate_advanced_snd_zones(self, symbol, price_data, timeframe):
+        """Advanced SnD zone calculation - placeholder for future enhancement"""
+        # This is a placeholder for more sophisticated SnD analysis
+        # Can be expanded with advanced algorithms for zone detection
+        print(f"🔧 Advanced SnD zone calculation for {symbol} {timeframe}")
+        return {
+            'demand_zones': [price_data * 0.95, price_data * 0.97],
+            'supply_zones': [price_data * 1.03, price_data * 1.05],
+            'strength': 'medium'
+        }
 
-            # Smart price formatting for trading levels
-            def format_price(price):
-                if price < 1:
-                    return f"${price:.8f}"
-                elif price < 100:
-                    return f"${price:.4f}"
-                else:
-                    return f"${price:,.2f}"
+    def _calculate_precise_entry_levels(self, direction, current_price, snd_zones):
+        """Calculate precise entry levels based on SnD zones - placeholder for enhancement"""
+        # This is a placeholder for more precise entry calculation
+        # Can be expanded with volume analysis, order book data, etc.
+        print(f"🎯 Calculating precise entry levels for {direction}")
+        
+        if direction == 'LONG':
+            optimal_entry = current_price * 0.998
+            confirmation_level = snd_zones.get('demand_zones', [current_price * 0.97])[0]
+        else:
+            optimal_entry = current_price * 1.002
+            confirmation_level = snd_zones.get('supply_zones', [current_price * 1.03])[0]
+        
+        return {
+            'optimal_entry': optimal_entry,
+            'confirmation_level': confirmation_level,
+            'entry_method': 'limit_order'
+        }
 
-            # Calculate profit/loss percentages for better user understanding
-            if signal_direction == "LONG":
-                tp1_profit = ((tp1 - entry_price) / entry_price) * 100
-                tp2_profit = ((tp2 - entry_price) / entry_price) * 100
-                sl_loss = ((entry_price - sl) / entry_price) * 100
-            else:
-                tp1_profit = ((entry_price - tp1) / entry_price) * 100
-                tp2_profit = ((entry_price - tp2) / entry_price) * 100
-                sl_loss = ((sl - entry_price) / entry_price) * 100
-
-            # Format MANDATORY trading signal with ALL required elements
-            if language == 'id':
-                analysis = f"""🎯 **REKOMENDASI WAJIB:**
-{signal_emoji} **SIGNAL**: {signal_direction}
-📊 **Confidence**: {confidence:.0f}%
-🎯 **Setup**: {zone_info}
-
-💰 **LEVEL TRADING REAL-TIME (HARUS DIIKUTI):**
-📍 **Entry**: {format_price(entry_price)}
-🎯 **Target**: {format_price(tp1)} (+{tp1_profit:.1f}% profit)
-🛡️ **Stop**: {format_price(sl)} (-{sl_loss:.1f}% loss)
-
-📈 **ANALISIS SnD FAKTOR:**"""
-                
-                for i, factor in enumerate(signal_factors[:4], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **STRATEGI SnD {timeframe.upper()}:**
-• **Risk/Reward**: {risk_reward:.1f}:1 (Supply & Demand optimized)
-• **Zone Type**: {zone_info} - tunggu konfirmasi price action
-• **Entry Method**: {'Market order saat bounce konfirmasi' if timeframe in ['15m', '30m'] else 'Limit order di zona dengan wick rejection'}
-• **Time Horizon**: {'Scalping (1-4 jam)' if timeframe in ['15m', '30m'] else 'Swing (4-24 jam)' if timeframe in ['1h', '4h'] else 'Position (1-7 hari)'}
-
-🛡️ **SnD RISK MANAGEMENT:**
-• ✅ Entry HANYA di zona SnD dengan konfirmasi bounce/rejection
-• ✅ Stop loss WAJIB di luar zona (tidak boleh di dalam zona)
-• ✅ Take profit bertahap: 50% di TP1, 50% di TP2
-• ✅ Move SL ke break-even setelah TP1 hit
-• ✅ Monitor volume untuk konfirmasi breakout/reversal
-• ✅ Exit jika price kembali masuk zona berlawanan"""
-            
-            else:
-                analysis = f"""🎯 **MANDATORY RECOMMENDATION:**
-{signal_emoji} **SIGNAL**: {signal_direction}
-📊 **Confidence**: {confidence:.0f}%
-🎯 **Setup**: {zone_info}
-
-💰 **REAL-TIME TRADING LEVELS (MUST FOLLOW):**
-📍 **Entry**: {format_price(entry_price)}
-🎯 **Target**: {format_price(tp1)} (+{tp1_profit:.1f}% profit)
-🛡️ **Stop**: {format_price(sl)} (-{sl_loss:.1f}% loss)
-
-📈 **SnD ANALYSIS FACTORS:**"""
-                
-                for i, factor in enumerate(signal_factors[:4], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **SnD {timeframe.upper()} STRATEGY:**
-• **Risk/Reward**: {risk_reward:.1f}:1 (Supply & Demand optimized)
-• **Zone Type**: {zone_info} - wait for price action confirmation
-• **Entry Method**: {'Market order on bounce confirmation' if timeframe in ['15m', '30m'] else 'Limit order in zone with wick rejection'}
-• **Time Horizon**: {'Scalping (1-4 hours)' if timeframe in ['15m', '30m'] else 'Swing (4-24 hours)' if timeframe in ['1h', '4h'] else 'Position (1-7 days)'}
-
-🛡️ **SnD RISK MANAGEMENT:**
-• ✅ Entry ONLY in SnD zones with bounce/rejection confirmation
-• ✅ Stop loss MANDATORY outside zone (not inside zone)
-• ✅ Take profit gradually: 50% at TP1, 50% at TP2
-• ✅ Move SL to break-even after TP1 hit
-• ✅ Monitor volume for breakout/reversal confirmation
-• ✅ Exit if price re-enters opposite zone"""
-            
-            return analysis
-            
-        except Exception as e:
-            print(f"❌ CRITICAL ERROR in mandatory signal: {e}")
-            # ABSOLUTE FINAL fallback
-            return self._generate_emergency_trading_signal(symbol, timeframe, price, language)
-
-    def _generate_guaranteed_futures_signal_with_levels(self, symbol, timeframe, coinapi_data, futures_data, price, language='id'):
-        """Generate GUARANTEED LONG/SHORT signal with MANDATORY Entry, TP1, TP2, SL - NEVER returns without clear recommendation"""
-        try:
-            print(f"🔧 Generating guaranteed SnD signal for {symbol} {timeframe} at price ${price}")
-            
-            # Initialize signal parameters
-            signal_factors = []
-            long_score = 0
-            short_score = 0
-            
-            # Factor 1: Timeframe-specific bias (ALWAYS gives direction)
-            timeframe_bias = self._get_timeframe_bias(symbol, timeframe)
-            if timeframe_bias['direction'] == 'LONG':
-                long_score += timeframe_bias['strength']
-                signal_factors.append(timeframe_bias['reason'])
-            else:
-                short_score += timeframe_bias['strength']
-                signal_factors.append(timeframe_bias['reason'])
-            
-            print(f"📊 Timeframe bias: {timeframe_bias['direction']} (strength: {timeframe_bias['strength']})")
-            
-            # Factor 2: Supply & Demand Zone Analysis (ENHANCED)
-            snd_analysis = self._analyze_supply_demand_zones(symbol, price, timeframe)
-            if snd_analysis['direction'] == 'LONG':
-                long_score += snd_analysis['strength']
-            else:
-                short_score += snd_analysis['strength']
-            signal_factors.append(snd_analysis['reason'])
-            print(f"🎯 SnD analysis: {snd_analysis['direction']} (strength: {snd_analysis['strength']})")
-            
-            # Factor 3: Futures sentiment if available
-            if 'error' not in futures_data:
-                ls_data = futures_data.get('long_short_ratio_data', {})
-                funding_data = futures_data.get('funding_rate_data', {})
-                
-                if 'error' not in ls_data:
-                    long_ratio = ls_data.get('long_ratio', 50)
-                    
-                    if long_ratio > 70:
-                        short_score += 3  # Increased weight for contrarian signals
-                        signal_factors.append(f"⚠️ Overcrowded longs ({long_ratio:.1f}%) - contrarian SHORT")
-                        print(f"🔴 SHORT bias: Overcrowded longs {long_ratio:.1f}%")
-                    elif long_ratio < 30:
-                        long_score += 3
-                        signal_factors.append(f"💎 Oversold ({long_ratio:.1f}% long) - bounce opportunity")
-                        print(f"🟢 LONG bias: Oversold conditions {long_ratio:.1f}%")
-                    elif 45 <= long_ratio <= 55:
-                        long_score += 1
-                        signal_factors.append(f"⚖️ Balanced sentiment ({long_ratio:.1f}%)")
-                        print(f"🟡 Neutral bias: Balanced {long_ratio:.1f}%")
-                
-                if 'error' not in funding_data:
-                    funding_rate = funding_data.get('last_funding_rate', 0)
-                    
-                    if funding_rate > 0.01:
-                        short_score += 2
-                        signal_factors.append(f"📉 High funding rate ({funding_rate*100:.3f}%) - shorts earn")
-                        print(f"🔴 SHORT bias: High funding {funding_rate*100:.3f}%")
-                    elif funding_rate < -0.005:
-                        long_score += 2
-                        signal_factors.append(f"📈 Negative funding ({funding_rate*100:.3f}%) - longs earn")
-                        print(f"🟢 LONG bias: Negative funding {funding_rate*100:.3f}%")
-            
-            # Factor 4: Price level analysis (ALWAYS contributes)
-            price_analysis = self._analyze_price_level(symbol, price)
-            if price_analysis['direction'] == 'LONG':
-                long_score += price_analysis['strength']
-            else:
-                short_score += price_analysis['strength']
-            signal_factors.append(price_analysis['reason'])
-            print(f"📈 Price analysis: {price_analysis['direction']} (strength: {price_analysis['strength']})")
-            
-            # Factor 5: Symbol-specific momentum
-            symbol_momentum = self._get_symbol_momentum(symbol, timeframe)
-            if symbol_momentum['direction'] == 'LONG':
-                long_score += symbol_momentum['strength']
-            else:
-                short_score += symbol_momentum['strength']
-            signal_factors.append(symbol_momentum['reason'])
-            print(f"⚡ Symbol momentum: {symbol_momentum['direction']} (strength: {symbol_momentum['strength']})")
-            
-            print(f"📊 Final scores: LONG={long_score:.1f}, SHORT={short_score:.1f}")
-            
-            # FORCE decision - ALWAYS choose LONG or SHORT with mandatory SnD levels
-            if short_score > long_score:
-                signal_direction = "SHORT"
-                signal_emoji = "🔴"
-                confidence = min(95, 70 + (short_score - long_score) * 5)
-                
-                # SnD-based SHORT levels
-                entry_price = price * 1.002   # Entry at supply zone bounce
-                tp1 = price * 0.970          # First demand zone (3% down)
-                tp2 = price * 0.940          # Second demand zone (6% down)
-                sl = price * 1.025           # Above supply zone (2.5% up)
-                
-                zone_type = "Supply Zone"
-                print(f"🔴 SHORT signal at {zone_type}: Entry=${entry_price:.6f}, TP1=${tp1:.6f}, TP2=${tp2:.6f}, SL=${sl:.6f}")
-                
-            else:  # Default to LONG if equal or long_score higher
-                signal_direction = "LONG"
-                signal_emoji = "🟢"
-                confidence = min(95, 70 + max(1, long_score - short_score) * 5)
-                
-                # SnD-based LONG levels  
-                entry_price = price * 0.998  # Entry at demand zone bounce
-                tp1 = price * 1.030          # First supply zone (3% up)
-                tp2 = price * 1.060          # Second supply zone (6% up)
-                sl = price * 0.975           # Below demand zone (2.5% down)
-                
-                zone_type = "Demand Zone"
-                print(f"🟢 LONG signal at {zone_type}: Entry=${entry_price:.6f}, TP1=${tp1:.6f}, TP2=${tp2:.6f}, SL=${sl:.6f}")
-            
-            # Calculate risk/reward ratio
-            if signal_direction == "LONG":
-                risk = abs(entry_price - sl)
-                reward = abs(tp2 - entry_price)
-            else:
-                risk = abs(sl - entry_price)
-                reward = abs(entry_price - tp2)
-            
-            risk_reward = reward / risk if risk > 0 else 2.5
-            print(f"📊 SnD Risk/Reward: {risk_reward:.1f}:1")
-
-            # Format the SnD analysis with CLEAR recommendation and MANDATORY levels
-            if language == 'id':
-                analysis = f"""🎯 **REKOMENDASI SnD TRADING:**
-
-{signal_emoji} **SIGNAL**: {signal_direction} ({zone_type})
-📊 **Confidence**: {confidence:.0f}%
-
-💰 **LEVEL SnD TRADING WAJIB:**
-• **📍 ENTRY**: ${entry_price:,.6f} (masuk di zona {zone_type})
-• **🎯 TP 1**: ${tp1:,.6f} (zona pertama - ambil 50% profit)
-• **🎯 TP 2**: ${tp2:,.6f} (zona kedua - ambil 50% profit)
-• **🛡️ STOP LOSS**: ${sl:,.6f} (di luar zona - WAJIB!)
-
-📈 **ANALISIS SnD FAKTOR:**"""
-                
-                for i, factor in enumerate(signal_factors[:5], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **STRATEGI SnD {timeframe.upper()}:**
-• **Risk/Reward**: {risk_reward:.1f}:1 (Supply & Demand optimized)
-• **Zone Type**: {zone_type} - tunggu konfirmasi price action
-• **Entry method**: {'Market order saat bounce konfirmasi' if timeframe in ['15m', '30m'] else 'Limit order di zona dengan wick rejection'}
-• **Time horizon**: {'Scalping (30m-2jam)' if timeframe in ['15m', '30m'] else 'Intraday (2-8jam)' if timeframe in ['1h', '4h'] else 'Swing (1-5hari)'}
-
-🛡️ **SnD RISK MANAGEMENT:**
-• ✅ Entry HANYA di zona SnD dengan konfirmasi
-• ✅ Stop loss WAJIB di luar zona (tidak boleh di dalam zona)
-• ✅ Take profit bertahap: 50% di TP1, 50% di TP2
-• ✅ Move SL ke break-even setelah TP1 hit
-• ✅ Monitor volume untuk konfirmasi breakout/reversal
-• ✅ Exit jika price kembali masuk zona berlawanan"""
-            
-            else:
-                analysis = f"""🎯 **SnD TRADING RECOMMENDATION:**
-
-{signal_emoji} **SIGNAL**: {signal_direction} ({zone_type})
-📊 **Confidence**: {confidence:.0f}%
-
-💰 **MANDATORY SnD TRADING LEVELS:**
-• **📍 ENTRY**: ${entry_price:,.6f} (enter at {zone_type})
-• **🎯 TP 1**: ${tp1:,.6f} (first zone - take 50% profit)
-• **🎯 TP 2**: ${tp2:,.6f} (second zone - take 50% profit)
-• **🛡️ STOP LOSS**: ${sl:,.6f} (outside zone - MANDATORY!)
-
-📈 **SnD ANALYSIS FACTORS:**"""
-                
-                for i, factor in enumerate(signal_factors[:5], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **SnD {timeframe.upper()} STRATEGY:**
-• **Risk/Reward**: {risk_reward:.1f}:1 (Supply & Demand optimized)
-• **Zone Type**: {zone_type} - wait for price action confirmation
-• **Entry method**: {'Market order on bounce confirmation' if timeframe in ['15m', '30m'] else 'Limit order in zone with wick rejection'}
-• **Time horizon**: {'Scalping (30m-2hrs)' if timeframe in ['15m', '30m'] else 'Intraday (2-8hrs)' if timeframe in ['1h', '4h'] else 'Swing (1-5days)'}
-
-🛡️ **SnD RISK MANAGEMENT:**
-• ✅ Entry ONLY in SnD zones with confirmation
-• ✅ Stop loss MANDATORY outside zone (not inside zone)
-• ✅ Take profit gradually: 50% at TP1, 50% at TP2
-• ✅ Move SL to break-even after TP1 hit
-• ✅ Monitor volume for breakout/reversal confirmation
-• ✅ Exit if price re-enters opposite zone"""
-            
-            return analysis
-            
-        except Exception as e:
-            print(f"❌ Error in SnD signal generation: {e}")
-            # Ultimate fallback with mandatory SnD levels
-            return self._generate_snd_fallback_signal(symbol, timeframe, price, language)
-
-    def _generate_guaranteed_futures_signal(self, symbol, timeframe, coinapi_data, futures_data, price, language='id'):
-        """Generate GUARANTEED LONG/SHORT signal - NEVER returns without clear recommendation"""
-        try:
-            # Initialize signal parameters
-            signal_factors = []
-            long_score = 0
-            short_score = 0
-            
-            # Factor 1: Timeframe-specific bias (ALWAYS gives direction)
-            timeframe_bias = self._get_timeframe_bias(symbol, timeframe)
-            if timeframe_bias['direction'] == 'LONG':
-                long_score += timeframe_bias['strength']
-                signal_factors.append(timeframe_bias['reason'])
-            else:
-                short_score += timeframe_bias['strength']
-                signal_factors.append(timeframe_bias['reason'])
-            
-            # Factor 2: Futures sentiment if available
-            if 'error' not in futures_data:
-                ls_data = futures_data.get('long_short_ratio_data', {})
-                funding_data = futures_data.get('funding_rate_data', {})
-                
-                if 'error' not in ls_data:
-                    long_ratio = ls_data.get('long_ratio', 50)
-                    
-                    if long_ratio > 70:
-                        short_score += 2
-                        signal_factors.append(f"⚠️ Overcrowded longs ({long_ratio:.1f}%) - contrarian SHORT")
-                    elif long_ratio < 30:
-                        long_score += 2
-                        signal_factors.append(f"💎 Oversold ({long_ratio:.1f}% long) - bounce opportunity")
-                    elif 45 <= long_ratio <= 55:
-                        long_score += 1
-                        signal_factors.append(f"⚖️ Balanced sentiment ({long_ratio:.1f}%)")
-                
-                if 'error' not in funding_data:
-                    funding_rate = funding_data.get('last_funding_rate', 0)
-                    
-                    if funding_rate > 0.01:
-                        short_score += 1
-                        signal_factors.append(f"📉 High funding rate ({funding_rate*100:.3f}%) - shorts earn")
-                    elif funding_rate < -0.005:
-                        long_score += 1
-                        signal_factors.append(f"📈 Negative funding ({funding_rate*100:.3f}%) - longs earn")
-            
-            # Factor 3: Price level analysis
-            price_analysis = self._analyze_price_level(symbol, price)
-            if price_analysis['direction'] == 'LONG':
-                long_score += price_analysis['strength']
-            else:
-                short_score += price_analysis['strength']
-            signal_factors.append(price_analysis['reason'])
-            
-            # FORCE decision - ALWAYS choose LONG or SHORT
-            if short_score > long_score:
-                signal_direction = "SHORT"
-                signal_emoji = "🔴"
-                confidence = min(90, 60 + (short_score - long_score) * 8)
-                
-                entry_price = price * 1.002  # Slight rally entry
-                tp1 = price * 0.975         # 2.5% down
-                tp2 = price * 0.95          # 5% down
-                sl = price * 1.015          # 1.5% up
-                
-            else:  # Default to LONG if equal or long_score higher
-                signal_direction = "LONG"
-                signal_emoji = "🟢"
-                confidence = min(90, 60 + max(1, long_score - short_score) * 8)
-                
-                entry_price = price * 0.998  # Slight dip entry
-                tp1 = price * 1.025         # 2.5% up
-                tp2 = price * 1.05          # 5% up
-                sl = price * 0.985          # 1.5% down
-
-            # Format the analysis with CLEAR recommendation
-            if language == 'id':
-                analysis = f"""🎯 **REKOMENDASI TRADING:**
-
-{signal_emoji} **SIGNAL**: {signal_direction}
-📊 **Confidence**: {confidence:.0f}%
-
-💰 **ENTRY STRATEGY:**
-• **Entry**: ${entry_price:,.4f}
-• **TP 1**: ${tp1:,.4f} (Target pertama - 50% profit)
-• **TP 2**: ${tp2:,.4f} (Target kedua - 50% profit)
-• **Stop Loss**: ${sl:,.4f}
-
-📈 **ANALISIS FAKTOR:**"""
-                
-                for i, factor in enumerate(signal_factors[:4], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **STRATEGI {timeframe.upper()}:**
-• Risk/Reward: {abs(tp2 - entry_price) / abs(sl - entry_price):.1f}:1
-• Position size: 1-2% dari total modal
-• Entry type: {'Market order (momentum)' if timeframe in ['15m', '30m'] else 'Limit order (patience)'}
-• Time horizon: {'Scalping (1-4 jam)' if timeframe in ['15m', '30m'] else 'Swing (1-3 hari)' if timeframe in ['1h', '4h'] else 'Position (1-2 minggu)'}
-
-🛡️ **RISK MANAGEMENT:**
-• Set stop loss SEBELUM entry
-• Take profit 50% di TP1, hold 50% untuk TP2
-• Move SL ke break-even setelah TP1 hit
-• Max 3 posisi simultan"""
-            
-            else:
-                analysis = f"""🎯 **TRADING RECOMMENDATION:**
-
-{signal_emoji} **SIGNAL**: {signal_direction}
-📊 **Confidence**: {confidence:.0f}%
-
-💰 **ENTRY STRATEGY:**
-• **Entry**: ${entry_price:,.4f}
-• **TP 1**: ${tp1:,.4f} (First target - 50% profit)
-• **TP 2**: ${tp2:,.4f} (Second target - 50% profit)
-• **Stop Loss**: ${sl:,.4f}
-
-📈 **ANALYSIS FACTORS:**"""
-                
-                for i, factor in enumerate(signal_factors[:4], 1):
-                    analysis += f"\n{i}. {factor}"
-                
-                analysis += f"""
-
-⚡ **{timeframe.upper()} STRATEGY:**
-• Risk/Reward: {abs(tp2 - entry_price) / abs(sl - entry_price):.1f}:1
-• Position size: 1-2% of total capital
-• Entry type: {'Market order (momentum)' if timeframe in ['15m', '30m'] else 'Limit order (patience)'}
-• Time horizon: {'Scalping (1-4 hours)' if timeframe in ['15m', '30m'] else 'Swing (1-3 days)' if timeframe in ['1h', '4h'] else 'Position (1-2 weeks)'}
-
-🛡️ **RISK MANAGEMENT:**
-• Set stop loss BEFORE entry
-• Take profit 50% at TP1, hold 50% for TP2
-• Move SL to break-even after TP1 hit
-• Max 3 positions simultaneously"""
-            
-            return analysis
-            
-        except Exception as e:
-            print(f"❌ Error in guaranteed signal generation: {e}")
-            # Ultimate fallback
-            return self._generate_basic_fallback_signal(symbol, timeframe, price, language)
+    # Removed redundant futures signal generation methods
+    # Consolidated into main _analyze_market_structure and _calculate_trading_levels methods
     
     def _get_timeframe_bias(self, symbol, timeframe):
         """Get timeframe-specific trading bias - ALWAYS returns a direction"""
