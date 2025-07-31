@@ -1209,6 +1209,396 @@ class AIAssistant:
 • Wait for manual confirmation
 
 💡 **Solution**: Try again in a few minutes or use other commands."""
+
+    def get_enhanced_futures_analysis_with_coinapi(self, symbol, timeframe, language='id', crypto_api=None):
+        """Generate enhanced futures analysis dengan real-time CoinAPI data dan rekomendasi trading lengkap"""
+        try:
+            print(f"🎯 Enhanced futures analysis with CoinAPI for {symbol} {timeframe}")
+            
+            if not crypto_api:
+                return self._generate_offline_futures_signal(symbol, timeframe, language)
+            
+            # 1. Get real-time price dari CoinAPI (FORCE refresh untuk data terbaru)
+            coinapi_data = crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            
+            # 2. Get comprehensive futures data dari Binance
+            futures_data = crypto_api.get_comprehensive_futures_data(symbol)
+            
+            # 3. Get SnD analysis
+            snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            
+            # 4. Analyze market structure dan generate recommendations
+            analysis_result = self._generate_coinapi_trading_recommendations(
+                symbol, timeframe, coinapi_data, futures_data, snd_data, language
+            )
+            
+            return analysis_result
+            
+        except Exception as e:
+            print(f"❌ Error in enhanced futures analysis: {e}")
+            return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
+
+    def _generate_coinapi_trading_recommendations(self, symbol, timeframe, coinapi_data, futures_data, snd_data, language='id'):
+        """Generate comprehensive trading recommendations dengan CoinAPI real-time data"""
+        try:
+            # Determine best price source
+            if 'error' not in coinapi_data and coinapi_data.get('price', 0) > 0:
+                current_price = coinapi_data.get('price', 0)
+                price_source = "CoinAPI Real-time"
+                source_emoji = "🟢"
+                price_confidence = "High"
+            elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+                current_price = futures_data.get('price_data', {}).get('price', 0)
+                price_source = "Binance Futures"
+                source_emoji = "🟡"
+                price_confidence = "Medium"
+            else:
+                current_price = self._get_estimated_price(symbol)
+                price_source = "Estimated"
+                source_emoji = "🔴"
+                price_confidence = "Low"
+            
+            # Smart price formatting
+            def format_price_smart(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.6f}"
+                else:
+                    return f"${price:,.4f}"
+            
+            # Advanced market analysis
+            market_analysis = self._analyze_comprehensive_market_structure(
+                symbol, coinapi_data, futures_data, snd_data, timeframe
+            )
+            
+            # Generate trading levels
+            trading_levels = self._calculate_advanced_trading_levels(
+                current_price, market_analysis, timeframe
+            )
+            
+            # Risk assessment
+            risk_assessment = self._calculate_risk_assessment(market_analysis, trading_levels)
+            
+            # Format comprehensive output
+            if language == 'id':
+                return self._format_coinapi_analysis_id(
+                    symbol, timeframe, current_price, price_source, source_emoji,
+                    market_analysis, trading_levels, risk_assessment, price_confidence
+                )
+            else:
+                return self._format_coinapi_analysis_en(
+                    symbol, timeframe, current_price, price_source, source_emoji,
+                    market_analysis, trading_levels, risk_assessment, price_confidence
+                )
+                
+        except Exception as e:
+            print(f"❌ Error generating CoinAPI recommendations: {e}")
+            return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
+
+    def _analyze_comprehensive_market_structure(self, symbol, coinapi_data, futures_data, snd_data, timeframe):
+        """Analyze comprehensive market structure from multiple data sources"""
+        analysis = {
+            'direction': 'LONG',
+            'confidence': 65,
+            'factors': [],
+            'strength': 2
+        }
+        
+        signal_score = 0
+        
+        # 1. CoinAPI Price Analysis
+        if 'error' not in coinapi_data:
+            change_24h = coinapi_data.get('change_24h', 0)
+            if change_24h > 3:
+                signal_score += 2
+                analysis['factors'].append(f"📈 CoinAPI: Strong bullish momentum (+{change_24h:.1f}%)")
+            elif change_24h > 0:
+                signal_score += 1
+                analysis['factors'].append(f"📈 CoinAPI: Positive momentum (+{change_24h:.1f}%)")
+            elif change_24h < -3:
+                signal_score -= 2
+                analysis['factors'].append(f"📉 CoinAPI: Strong bearish momentum ({change_24h:.1f}%)")
+                analysis['direction'] = 'SHORT'
+            elif change_24h < 0:
+                signal_score -= 1
+                analysis['factors'].append(f"📉 CoinAPI: Negative momentum ({change_24h:.1f}%)")
+        
+        # 2. Binance Futures Sentiment
+        if 'error' not in futures_data:
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                
+                if long_ratio > 70:
+                    signal_score -= 1
+                    analysis['factors'].append(f"⚠️ Binance: Overcrowded longs ({long_ratio:.1f}%) - contrarian signal")
+                    if analysis['direction'] == 'LONG':
+                        analysis['direction'] = 'SHORT'
+                elif long_ratio < 30:
+                    signal_score += 1
+                    analysis['factors'].append(f"💎 Binance: Oversold conditions ({long_ratio:.1f}%) - reversal potential")
+                else:
+                    analysis['factors'].append(f"⚖️ Binance: Balanced sentiment ({long_ratio:.1f}%)")
+            
+            # Funding rate analysis
+            funding_data = futures_data.get('funding_rate_data', {})
+            if 'error' not in funding_data:
+                funding_rate = funding_data.get('last_funding_rate', 0)
+                if funding_rate > 0.01:  # 1%
+                    signal_score -= 1
+                    analysis['factors'].append(f"📉 High funding ({funding_rate*100:.3f}%) - longs overpaying")
+                elif funding_rate < -0.005:  # -0.5%
+                    signal_score += 1
+                    analysis['factors'].append(f"📈 Negative funding ({funding_rate*100:.3f}%) - shorts overpaying")
+        
+        # 3. Supply & Demand Analysis
+        if 'error' not in snd_data and snd_data.get('signals'):
+            best_snd = max(snd_data['signals'], key=lambda x: x.get('confidence', 0))
+            snd_confidence = best_snd.get('confidence', 0)
+            snd_direction = best_snd.get('direction', 'LONG')
+            
+            if snd_confidence > 75:
+                signal_score += 2
+                analysis['factors'].append(f"🎯 SnD: Strong {snd_direction} signal ({snd_confidence:.0f}% confidence)")
+                analysis['direction'] = snd_direction
+            elif snd_confidence > 60:
+                signal_score += 1
+                analysis['factors'].append(f"🎯 SnD: {snd_direction} signal ({snd_confidence:.0f}% confidence)")
+        
+        # 4. Timeframe strength adjustment
+        timeframe_multipliers = {
+            '15m': 0.8, '30m': 0.9, '1h': 1.0, '4h': 1.2, '1d': 1.5, '1w': 1.8
+        }
+        multiplier = timeframe_multipliers.get(timeframe, 1.0)
+        signal_score *= multiplier
+        
+        # Final confidence calculation
+        base_confidence = 65
+        confidence_adjustment = signal_score * 8
+        final_confidence = max(50, min(95, base_confidence + confidence_adjustment))
+        
+        analysis['confidence'] = int(final_confidence)
+        analysis['strength'] = max(1, min(5, 3 + int(signal_score)))
+        
+        return analysis
+
+    def _calculate_advanced_trading_levels(self, current_price, market_analysis, timeframe):
+        """Calculate advanced trading levels berdasarkan comprehensive analysis"""
+        direction = market_analysis['direction']
+        confidence = market_analysis['confidence']
+        
+        # Risk adjustment berdasarkan confidence dan timeframe
+        risk_multipliers = {
+            '15m': 1.2, '30m': 1.1, '1h': 1.0, '4h': 0.9, '1d': 0.8, '1w': 0.7
+        }
+        
+        base_risk = 0.02  # 2% base risk
+        confidence_adjustment = (confidence - 70) / 100  # Adjust based on confidence
+        timeframe_risk = base_risk * risk_multipliers.get(timeframe, 1.0)
+        
+        # Final risk calculation
+        risk_percent = max(0.015, min(0.035, timeframe_risk + confidence_adjustment))
+        
+        if direction == 'LONG':
+            # Entry dengan slight discount untuk better fill
+            entry = current_price * 0.9995
+            
+            # Progressive targets
+            tp1 = entry * (1 + (risk_percent * 1.5))  # 1.5:1 RR for TP1
+            tp2 = entry * (1 + (risk_percent * 2.5))  # 2.5:1 RR for TP2
+            tp3 = entry * (1 + (risk_percent * 4.0))  # 4:1 RR for TP3
+            
+            # Adaptive stop loss
+            sl = entry * (1 - risk_percent)
+            
+        else:  # SHORT
+            entry = current_price * 1.0005
+            
+            tp1 = entry * (1 - (risk_percent * 1.5))
+            tp2 = entry * (1 - (risk_percent * 2.5))
+            tp3 = entry * (1 - (risk_percent * 4.0))
+            
+            sl = entry * (1 + risk_percent)
+        
+        # Calculate risk/reward ratios
+        risk_amount = abs(entry - sl)
+        rr1 = abs(tp1 - entry) / risk_amount if risk_amount > 0 else 1.5
+        rr2 = abs(tp2 - entry) / risk_amount if risk_amount > 0 else 2.5
+        rr3 = abs(tp3 - entry) / risk_amount if risk_amount > 0 else 4.0
+        
+        return {
+            'entry': entry,
+            'tp1': tp1,
+            'tp2': tp2, 
+            'tp3': tp3,
+            'sl': sl,
+            'risk_percent': risk_percent * 100,
+            'rr_ratios': {
+                'tp1': rr1,
+                'tp2': rr2,
+                'tp3': rr3
+            }
+        }
+
+    def _calculate_risk_assessment(self, market_analysis, trading_levels):
+        """Calculate comprehensive risk assessment"""
+        confidence = market_analysis['confidence']
+        risk_percent = trading_levels['risk_percent']
+        
+        # Risk level determination
+        if confidence >= 85 and risk_percent <= 2.0:
+            risk_level = "LOW"
+            position_size = "2-3%"
+            risk_color = "🟢"
+        elif confidence >= 75 and risk_percent <= 2.5:
+            risk_level = "MEDIUM"
+            position_size = "1-2%"
+            risk_color = "🟡"
+        elif confidence >= 65:
+            risk_level = "MEDIUM-HIGH"
+            position_size = "0.5-1%"
+            risk_color = "🟠"
+        else:
+            risk_level = "HIGH"
+            position_size = "0.25-0.5%"
+            risk_color = "🔴"
+        
+        return {
+            'level': risk_level,
+            'position_size': position_size,
+            'color': risk_color,
+            'stop_loss_mandatory': True,
+            'max_concurrent_trades': 3 if risk_level == "LOW" else 2 if risk_level == "MEDIUM" else 1
+        }
+
+    def _format_coinapi_analysis_id(self, symbol, timeframe, current_price, price_source, source_emoji, 
+                                   market_analysis, trading_levels, risk_assessment, price_confidence):
+        """Format comprehensive analysis dalam bahasa Indonesia"""
+        direction = market_analysis['direction']
+        confidence = market_analysis['confidence']
+        direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+        
+        def format_price_display(price):
+            if price < 1:
+                return f"${price:.8f}"
+            elif price < 100:
+                return f"${price:.6f}"
+            else:
+                return f"${price:,.4f}"
+        
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+        
+        message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
+
+💰 **HARGA REAL-TIME CoinAPI:**
+• **Current**: {format_price_display(current_price)}
+• **Source**: {source_emoji} {price_source}
+• **Reliability**: {price_confidence}
+
+{direction_emoji} **TRADING SIGNAL: {direction}**
+📊 **Confidence Level**: {confidence}%
+🎯 **Risk Level**: {risk_assessment['color']} {risk_assessment['level']}
+
+💰 **REKOMENDASI TRADING LENGKAP:**
+┣━ 📍 **ENTRY**: {format_price_display(trading_levels['entry'])}
+┣━ 🎯 **TP 1**: {format_price_display(trading_levels['tp1'])} (RR: {trading_levels['rr_ratios']['tp1']:.1f}:1)
+┣━ 🎯 **TP 2**: {format_price_display(trading_levels['tp2'])} (RR: {trading_levels['rr_ratios']['tp2']:.1f}:1)
+┣━ 🏆 **TP 3**: {format_price_display(trading_levels['tp3'])} (RR: {trading_levels['rr_ratios']['tp3']:.1f}:1)
+┗━ 🛡️ **STOP LOSS**: {format_price_display(trading_levels['sl'])} (**WAJIB!**)
+
+📈 **ANALISIS FAKTOR CoinAPI + Binance:**"""
+        
+        for factor in market_analysis['factors']:
+            message += f"\n• {factor}"
+        
+        message += f"""
+
+⚡ **STRATEGI TRADING {timeframe.upper()}:**
+• **Position Size**: {risk_assessment['position_size']} dari total modal
+• **Risk per Trade**: {trading_levels['risk_percent']:.1f}% (adaptive)
+• **Take Profit**: Bertahap 40% di TP1, 30% di TP2, 30% di TP3
+• **Stop Loss Management**: Move ke BE setelah TP1 hit
+
+🛡️ **RISK MANAGEMENT KETAT:**
+• Set SL WAJIB sebelum entry
+• Max concurrent trades: {risk_assessment['max_concurrent_trades']}
+• Monitor price action untuk konfirmasi
+• Exit jika market structure berubah
+
+📊 **DATA SOURCES REAL-TIME:**
+• **Price Data**: CoinAPI (live exchange rates)
+• **Futures Sentiment**: Binance (long/short ratios, funding)
+• **Technical Analysis**: Advanced SnD algorithms
+
+⏰ **Analysis Time**: {current_time}
+🔄 **Next Update**: Real-time via CoinAPI"""
+        
+        return message
+
+    def _format_coinapi_analysis_en(self, symbol, timeframe, current_price, price_source, source_emoji,
+                                   market_analysis, trading_levels, risk_assessment, price_confidence):
+        """Format comprehensive analysis in English"""
+        direction = market_analysis['direction']
+        confidence = market_analysis['confidence']
+        direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+        
+        def format_price_display(price):
+            if price < 1:
+                return f"${price:.8f}"
+            elif price < 100:
+                return f"${price:.6f}"
+            else:
+                return f"${price:,.4f}"
+        
+        current_time = datetime.now().strftime('%H:%M:%S UTC')
+        
+        message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
+
+💰 **REAL-TIME CoinAPI PRICE:**
+• **Current**: {format_price_display(current_price)}
+• **Source**: {source_emoji} {price_source}
+• **Reliability**: {price_confidence}
+
+{direction_emoji} **TRADING SIGNAL: {direction}**
+📊 **Confidence Level**: {confidence}%
+🎯 **Risk Level**: {risk_assessment['color']} {risk_assessment['level']}
+
+💰 **COMPREHENSIVE TRADING RECOMMENDATIONS:**
+┣━ 📍 **ENTRY**: {format_price_display(trading_levels['entry'])}
+┣━ 🎯 **TP 1**: {format_price_display(trading_levels['tp1'])} (RR: {trading_levels['rr_ratios']['tp1']:.1f}:1)
+┣━ 🎯 **TP 2**: {format_price_display(trading_levels['tp2'])} (RR: {trading_levels['rr_ratios']['tp2']:.1f}:1)
+┣━ 🏆 **TP 3**: {format_price_display(trading_levels['tp3'])} (RR: {trading_levels['rr_ratios']['tp3']:.1f}:1)
+┗━ 🛡️ **STOP LOSS**: {format_price_display(trading_levels['sl'])} (**MANDATORY!**)
+
+📈 **CoinAPI + Binance FACTOR ANALYSIS:**"""
+        
+        for factor in market_analysis['factors']:
+            message += f"\n• {factor}"
+        
+        message += f"""
+
+⚡ **{timeframe.upper()} TRADING STRATEGY:**
+• **Position Size**: {risk_assessment['position_size']} of total capital
+• **Risk per Trade**: {trading_levels['risk_percent']:.1f}% (adaptive)
+• **Take Profit**: Gradual 40% at TP1, 30% at TP2, 30% at TP3
+• **Stop Loss Management**: Move to BE after TP1 hit
+
+🛡️ **STRICT RISK MANAGEMENT:**
+• Set SL MANDATORY before entry
+• Max concurrent trades: {risk_assessment['max_concurrent_trades']}
+• Monitor price action for confirmation
+• Exit if market structure changes
+
+📊 **REAL-TIME DATA SOURCES:**
+• **Price Data**: CoinAPI (live exchange rates)
+• **Futures Sentiment**: Binance (long/short ratios, funding)
+• **Technical Analysis**: Advanced SnD algorithms
+
+⏰ **Analysis Time**: {current_time}
+🔄 **Next Update**: Real-time via CoinAPI"""
+        
+        return message
     
     def _generate_clear_futures_signal(self, symbol, timeframe, coinapi_data, futures_data, language='id'):
         """Generate clear LONG/SHORT signal based on multiple factors"""

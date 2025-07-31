@@ -1117,10 +1117,10 @@ class TelegramBot:
                     )
 
                     try:
-                        print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
+                        print(f"🎯 Processing enhanced futures analysis: {symbol} {timeframe}")
                         
-                        # Get enhanced futures analysis using AI with GUARANTEED recommendations
-                        analysis_text = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+                        # Get enhanced futures analysis using AI with CoinAPI real-time data
+                        analysis_text = self.ai.get_enhanced_futures_analysis_with_coinapi(symbol, timeframe, 'id', self.crypto_api)
 
                         # Validate analysis contains trading signal - if not, FORCE generate one
                         if not analysis_text or len(analysis_text.strip()) < 100:
