@@ -350,84 +350,232 @@ class AIAssistant:
         symbol_clean = symbol.upper().replace('USDT', '')
         return estimated_prices.get(symbol_clean, 1.0)
     
-    def _extract_simple_snd_levels(self, snd_data, current_price, symbol):
-        """Extract simple SnD levels display from analysis data"""
+    def _format_price_smart(self, price):
+        """Smart price formatting utility"""
+        if price < 1:
+            return f"${price:.6f}"
+        elif price < 100:
+            return f"${price:.4f}"
+        else:
+            return f"${price:,.2f}"
+    
+    def _calculate_advanced_snd_zones(self, ohlcv_data, current_price):
+        """
+        Advanced SnD zone calculation dari data OHLCV candlestick
+        Returns: dict dengan demand_zones, supply_zones, dan strength rating
+        """
+        if not ohlcv_data or len(ohlcv_data) < 20:
+            # Fallback ke zones sederhana jika data tidak cukup
+            return {
+                'demand_zones': [current_price * 0.95, current_price * 0.97],
+                'supply_zones': [current_price * 1.03, current_price * 1.05],
+                'strength': 'low'
+            }
+        
         try:
-            symbol_clean = symbol.upper().replace('USDT', '')
+            # Extract OHLC data
+            highs = [float(candle[2]) for candle in ohlcv_data[-50:]]  # Last 50 candles
+            lows = [float(candle[3]) for candle in ohlcv_data[-50:]]
+            closes = [float(candle[4]) for candle in ohlcv_data[-50:]]
+            volumes = [float(candle[5]) for candle in ohlcv_data[-50:]]
             
-            # Smart price formatting
-            def format_snd_price(price):
-                if price < 1:
-                    return f"${price:.8f}"
-                elif price < 100:
-                    return f"${price:.4f}"
-                else:
-                    return f"${price:,.2f}"
+            # Identify supply zones (resistance levels dengan volume tinggi)
+            supply_zones = []
+            for i in range(2, len(highs) - 2):
+                if (highs[i] > highs[i-1] and highs[i] > highs[i+1] and 
+                    highs[i] > highs[i-2] and highs[i] > highs[i+2]):
+                    # Local high dengan volume confirmation
+                    if volumes[i] > sum(volumes[max(0, i-3):i+4]) / 7 * 1.2:
+                        supply_zones.append({
+                            'price': highs[i],
+                            'strength': min(100, volumes[i] / max(volumes) * 100),
+                            'touches': 1
+                        })
             
-            # Calculate dynamic SnD zones based on current price
-            nearest_demand = current_price * 0.97   # 3% below current price
-            nearest_supply = current_price * 1.03   # 3% above current price
+            # Identify demand zones (support levels dengan volume tinggi)
+            demand_zones = []
+            for i in range(2, len(lows) - 2):
+                if (lows[i] < lows[i-1] and lows[i] < lows[i+1] and 
+                    lows[i] < lows[i-2] and lows[i] < lows[i+2]):
+                    # Local low dengan volume confirmation
+                    if volumes[i] > sum(volumes[max(0, i-3):i+4]) / 7 * 1.2:
+                        demand_zones.append({
+                            'price': lows[i],
+                            'strength': min(100, volumes[i] / max(volumes) * 100),
+                            'touches': 1
+                        })
             
-            # Determine if we're near a zone
-            demand_distance = abs(current_price - nearest_demand) / current_price * 100
-            supply_distance = abs(nearest_supply - current_price) / current_price * 100
+            # Sort dan filter zones terbaik
+            supply_zones = sorted(supply_zones, key=lambda x: x['strength'], reverse=True)[:3]
+            demand_zones = sorted(demand_zones, key=lambda x: x['strength'], reverse=True)[:3]
             
-            if demand_distance < 1.5:
-                zone_status = "🎯 **STATUS**: Di Demand Zone (Entry point for LONG)"
-                zone_strength = "💪 **Strength**: Strong bounce expected"
-            elif supply_distance < 1.5:
-                zone_status = "🎯 **STATUS**: Di Supply Zone (Entry point for SHORT)" 
-                zone_strength = "💪 **Strength**: Strong rejection expected"
-            else:
-                zone_status = "🎯 **STATUS**: Between zones (Wait for zone touch)"
-                zone_strength = "💪 **Strength**: Medium (trend continuation possible)"
+            # Calculate overall strength
+            avg_supply_strength = sum(z['strength'] for z in supply_zones) / len(supply_zones) if supply_zones else 0
+            avg_demand_strength = sum(z['strength'] for z in demand_zones) / len(demand_zones) if demand_zones else 0
+            overall_strength = (avg_supply_strength + avg_demand_strength) / 2
             
-            return f"""📊 **SUPPLY & DEMAND ANALYSIS:**
-• **💎 Demand Zone**: {format_snd_price(nearest_demand)} (Support level)
-• **🔴 Supply Zone**: {format_snd_price(nearest_supply)} (Resistance level)
-{zone_status}
-{zone_strength}
-• **📈 Current Price**: {format_snd_price(current_price)}"""
+            strength_rating = 'high' if overall_strength > 70 else 'medium' if overall_strength > 40 else 'low'
+            
+            return {
+                'demand_zones': [z['price'] for z in demand_zones],
+                'supply_zones': [z['price'] for z in supply_zones],
+                'strength': strength_rating,
+                'demand_details': demand_zones,
+                'supply_details': supply_zones
+            }
             
         except Exception as e:
-            print(f"❌ Error in SnD levels extraction: {e}")
-            return f"""📊 **SUPPLY & DEMAND ANALYSIS:**
-• **Current Price**: ${current_price:,.4f}
-• **Analysis**: Basic SnD setup based on current market structure
-• **Note**: Enter only with proper confirmation at zones"""
-    
-    def _calculate_advanced_snd_zones(self, symbol, price_data, timeframe):
-        """Advanced SnD zone calculation - placeholder for future enhancement"""
-        # This is a placeholder for more sophisticated SnD analysis
-        # Can be expanded with advanced algorithms for zone detection
-        print(f"🔧 Advanced SnD zone calculation for {symbol} {timeframe}")
-        return {
-            'demand_zones': [price_data * 0.95, price_data * 0.97],
-            'supply_zones': [price_data * 1.03, price_data * 1.05],
-            'strength': 'medium'
-        }
+            print(f"❌ Error in advanced SnD calculation: {e}")
+            return {
+                'demand_zones': [current_price * 0.95, current_price * 0.97],
+                'supply_zones': [current_price * 1.03, current_price * 1.05],
+                'strength': 'low'
+            }
 
-    def _calculate_precise_entry_levels(self, direction, current_price, snd_zones):
-        """Calculate precise entry levels based on SnD zones - placeholder for enhancement"""
-        # This is a placeholder for more precise entry calculation
-        # Can be expanded with volume analysis, order book data, etc.
-        print(f"🎯 Calculating precise entry levels for {direction}")
+    def _identify_consolidation_zones(self, ohlcv_data, lookback_period=14):
+        """
+        Deteksi zona konsolidasi (low volatility) untuk setup trading
+        Returns: dict dengan consolidation zones dan volatility metrics
+        """
+        if not ohlcv_data or len(ohlcv_data) < lookback_period:
+            return {'zones': [], 'current_volatility': 'unknown'}
         
-        if direction == 'LONG':
-            optimal_entry = current_price * 0.998
-            confirmation_level = snd_zones.get('demand_zones', [current_price * 0.97])[0]
-        else:
-            optimal_entry = current_price * 1.002
-            confirmation_level = snd_zones.get('supply_zones', [current_price * 1.03])[0]
-        
-        return {
-            'optimal_entry': optimal_entry,
-            'confirmation_level': confirmation_level,
-            'entry_method': 'limit_order'
-        }
+        try:
+            # Calculate volatility menggunakan ATR simplified
+            recent_data = ohlcv_data[-lookback_period:]
+            volatilities = []
+            
+            for candle in recent_data:
+                high = float(candle[2])
+                low = float(candle[3])
+                close = float(candle[4])
+                
+                # True Range calculation
+                tr = max(high - low, abs(high - close), abs(low - close))
+                volatilities.append(tr)
+            
+            avg_volatility = sum(volatilities) / len(volatilities)
+            current_volatility = volatilities[-1]
+            
+            # Deteksi consolidation zones
+            consolidation_zones = []
+            for i in range(5, len(recent_data) - 5):
+                window = recent_data[i-5:i+6]  # 11 candle window
+                
+                # Check if range sempit (low volatility)
+                window_highs = [float(c[2]) for c in window]
+                window_lows = [float(c[3]) for c in window]
+                
+                range_pct = (max(window_highs) - min(window_lows)) / min(window_lows) * 100
+                
+                if range_pct < 3:  # Range kurang dari 3%
+                    consolidation_zones.append({
+                        'center': (max(window_highs) + min(window_lows)) / 2,
+                        'upper': max(window_highs),
+                        'lower': min(window_lows),
+                        'strength': max(0, 100 - range_pct * 20)  # Smaller range = higher strength
+                    })
+            
+            # Volatility classification
+            vol_rating = 'low' if current_volatility < avg_volatility * 0.7 else 'high' if current_volatility > avg_volatility * 1.3 else 'medium'
+            
+            return {
+                'zones': consolidation_zones[-3:],  # Keep last 3 zones
+                'current_volatility': vol_rating,
+                'avg_volatility': avg_volatility,
+                'breakout_threshold': avg_volatility * 1.5
+            }
+            
+        except Exception as e:
+            print(f"❌ Error in consolidation detection: {e}")
+            return {'zones': [], 'current_volatility': 'unknown'}
 
-    # Removed redundant futures signal generation methods
-    # Consolidated into main _analyze_market_structure and _calculate_trading_levels methods
+    def _identify_breakout_zones(self, ohlcv_data, snd_zones, consolidation_data):
+        """
+        Deteksi breakout zones dengan konfirmasi volume
+        Returns: dict dengan breakout signals dan confidence level
+        """
+        if not ohlcv_data or len(ohlcv_data) < 10:
+            return {'breakout_signal': None, 'confidence': 0}
+        
+        try:
+            # Ambil data terbaru
+            recent_candles = ohlcv_data[-10:]
+            latest_candle = recent_candles[-1]
+            prev_candle = recent_candles[-2]
+            
+            current_price = float(latest_candle[4])  # Close price
+            current_volume = float(latest_candle[5])
+            avg_volume = sum(float(c[5]) for c in recent_candles[:-1]) / 9
+            
+            # Check volume surge (confirmation)
+            volume_surge = current_volume > avg_volume * 1.5
+            
+            # Check untuk supply zone breakout
+            supply_breakouts = []
+            if snd_zones.get('supply_zones'):
+                for supply_price in snd_zones['supply_zones']:
+                    if current_price > supply_price and volume_surge:
+                        distance = (current_price - supply_price) / supply_price * 100
+                        if distance < 2:  # Breakout baru (kurang dari 2%)
+                            supply_breakouts.append({
+                                'type': 'supply_breakout',
+                                'direction': 'LONG',
+                                'zone_price': supply_price,
+                                'confidence': min(95, 60 + distance * 10 + (30 if volume_surge else 0))
+                            })
+            
+            # Check untuk demand zone breakout  
+            demand_breakouts = []
+            if snd_zones.get('demand_zones'):
+                for demand_price in snd_zones['demand_zones']:
+                    if current_price < demand_price and volume_surge:
+                        distance = (demand_price - current_price) / demand_price * 100
+                        if distance < 2:  # Breakdown baru
+                            demand_breakouts.append({
+                                'type': 'demand_breakdown',
+                                'direction': 'SHORT',
+                                'zone_price': demand_price,
+                                'confidence': min(95, 60 + distance * 10 + (30 if volume_surge else 0))
+                            })
+            
+            # Check consolidation breakout
+            consolidation_breakouts = []
+            if consolidation_data.get('zones'):
+                for zone in consolidation_data['zones']:
+                    if current_price > zone['upper'] and volume_surge:
+                        consolidation_breakouts.append({
+                            'type': 'consolidation_breakout',
+                            'direction': 'LONG',
+                            'zone_center': zone['center'],
+                            'confidence': min(90, zone['strength'] + (20 if volume_surge else 0))
+                        })
+                    elif current_price < zone['lower'] and volume_surge:
+                        consolidation_breakouts.append({
+                            'type': 'consolidation_breakdown', 
+                            'direction': 'SHORT',
+                            'zone_center': zone['center'],
+                            'confidence': min(90, zone['strength'] + (20 if volume_surge else 0))
+                        })
+            
+            # Pilih breakout dengan confidence tertinggi
+            all_breakouts = supply_breakouts + demand_breakouts + consolidation_breakouts
+            
+            if not all_breakouts:
+                return {'breakout_signal': None, 'confidence': 0}
+            
+            best_breakout = max(all_breakouts, key=lambda x: x['confidence'])
+            
+            return {
+                'breakout_signal': best_breakout,
+                'confidence': best_breakout['confidence'],
+                'volume_confirmation': volume_surge,
+                'all_signals': all_breakouts[:3]  # Top 3 signals
+            }
+            
+        except Exception as e:
+            print(f"❌ Error in breakout detection: {e}")
+            return {'breakout_signal': None, 'confidence': 0}
     
     def _get_timeframe_bias(self, symbol, timeframe):
         """Get timeframe-specific trading bias - ALWAYS returns a direction"""
@@ -547,118 +695,7 @@ class AIAssistant:
                     'reason': f"📈 Below mid-range (${mid_range:,.0f}) - upside potential"
                 }
     
-    def _analyze_supply_demand_zones(self, symbol, price, timeframe):
-        """Analyze Supply & Demand zones for the symbol - ALWAYS returns direction"""
-        try:
-            import time
-            
-            # Get symbol characteristics for SnD analysis
-            symbol_clean = symbol.upper().replace('USDT', '')
-            
-            # Major SnD levels for key symbols (based on psychological levels and round numbers)
-            snd_levels = {
-                'BTC': {
-                    'demand_zones': [60000, 65000, 67000],
-                    'supply_zones': [70000, 75000, 80000]
-                },
-                'ETH': {
-                    'demand_zones': [3000, 3200, 3500],
-                    'supply_zones': [3800, 4000, 4200]
-                },
-                'SOL': {
-                    'demand_zones': [150, 180, 200],
-                    'supply_zones': [220, 250, 280]
-                },
-                'DOGE': {
-                    'demand_zones': [0.20, 0.22, 0.25],
-                    'supply_zones': [0.28, 0.30, 0.35]
-                },
-                'ADA': {
-                    'demand_zones': [0.40, 0.45, 0.50],
-                    'supply_zones': [0.55, 0.60, 0.70]
-                }
-            }
-            
-            # Get SnD levels for symbol (or create dynamic ones)
-            if symbol_clean in snd_levels:
-                levels = snd_levels[symbol_clean]
-            else:
-                # Create dynamic SnD levels based on current price
-                levels = {
-                    'demand_zones': [price * 0.92, price * 0.96, price * 0.98],
-                    'supply_zones': [price * 1.02, price * 1.05, price * 1.08]
-                }
-            
-            demand_zones = levels['demand_zones']
-            supply_zones = levels['supply_zones']
-            
-            # Find nearest zones
-            nearest_demand = max([d for d in demand_zones if d <= price], default=price * 0.95)
-            nearest_supply = min([s for s in supply_zones if s >= price], default=price * 1.05)
-            
-            # Calculate distance to zones
-            demand_distance = abs(price - nearest_demand) / price * 100
-            supply_distance = abs(nearest_supply - price) / price * 100
-            
-            # Time-based SnD momentum (changes based on timeframe and time)
-            time_hash = int(time.time()) // (3600 if timeframe in ['15m', '30m'] else 7200)
-            symbol_hash = sum(ord(c) for c in symbol_clean)
-            momentum_factor = (time_hash + symbol_hash) % 100
-            
-            # SnD zone analysis logic
-            if demand_distance < 2:  # Very close to demand zone
-                direction = 'LONG'
-                strength = 4
-                reason = f"🎯 Di demand zone ${nearest_demand:,.2f} ({demand_distance:.1f}% away) - bounce expected"
-            elif supply_distance < 2:  # Very close to supply zone
-                direction = 'SHORT'
-                strength = 4
-                reason = f"🎯 Di supply zone ${nearest_supply:,.2f} ({supply_distance:.1f}% away) - rejection expected"
-            elif price < (nearest_demand + nearest_supply) / 2:  # Below mid-range
-                if momentum_factor > 60:
-                    direction = 'LONG'
-                    strength = 3
-                    reason = f"📈 Below mid-range, momentum bullish menuju supply ${nearest_supply:,.2f}"
-                else:
-                    direction = 'SHORT'
-                    strength = 2
-                    reason = f"📉 Below mid-range, pullback ke demand ${nearest_demand:,.2f}"
-            else:  # Above mid-range
-                if momentum_factor > 40:
-                    direction = 'SHORT'
-                    strength = 3
-                    reason = f"📉 Above mid-range, rejection dari supply ${nearest_supply:,.2f}"
-                else:
-                    direction = 'LONG'
-                    strength = 2
-                    reason = f"📈 Above mid-range, momentum continuation"
-            
-            # Timeframe-specific adjustments
-            if timeframe in ['15m', '30m']:
-                strength = max(2, strength - 1)  # Lower strength for scalping
-            elif timeframe in ['1d', '1w']:
-                strength = min(5, strength + 1)  # Higher strength for position trades
-            
-            return {
-                'direction': direction,
-                'strength': strength,
-                'reason': reason,
-                'nearest_demand': nearest_demand,
-                'nearest_supply': nearest_supply,
-                'zone_strength': min(100, 60 + strength * 10)
-            }
-            
-        except Exception as e:
-            print(f"❌ Error in SnD analysis: {e}")
-            # Emergency fallback
-            return {
-                'direction': 'LONG',
-                'strength': 2,
-                'reason': "📊 Default SnD analysis (fallback)",
-                'nearest_demand': price * 0.95,
-                'nearest_supply': price * 1.05,
-                'zone_strength': 65
-            }
+    
 
     def _get_symbol_momentum(self, symbol, timeframe):
         """Get symbol-specific momentum analysis - ALWAYS returns direction"""
@@ -1179,31 +1216,7 @@ class AIAssistant:
             print(f"❌ Error extracting SnD levels: {e}")
             return self._generate_basic_snd_levels(current_price)
     
-    def _generate_basic_snd_levels(self, current_price):
-        """Generate basic Entry/TP/SL levels when SnD analysis fails"""
-        try:
-            # Simple levels based on current price
-            entry = current_price * 0.999
-            tp = current_price * 1.025
-            sl = current_price * 0.985
-            
-            def format_price(price):
-                if price < 1:
-                    return f"${price:.8f}"
-                elif price < 100:
-                    return f"${price:.6f}"
-                else:
-                    return f"${price:,.4f}"
-            
-            return f"""🎯 **BASIC LEVELS (LONG) 🟢**
-📍 **Entry**: {format_price(entry)}
-🎯 **TP**: {format_price(tp)}
-🛡️ **SL**: {format_price(sl)}
-
-"""
-            
-        except Exception:
-            return ""
+    
 
     def _get_top_5_coins_by_market_cap(self, crypto_api):
         """Get top 5 coins by market cap from CoinMarketCap or fallback to default"""
@@ -1840,160 +1853,250 @@ class AIAssistant:
             return "❌ Error dalam menghasilkan sinyal trading."
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate multiple futures signals with clean, professional formatting and real-time CoinAPI prices"""
+        """Generate optimized futures signals dengan SnD integration"""
         try:
-            print(f"🎯 Generating multiple futures signals with clean formatting")
+            print(f"🎯 Generating optimized futures signals")
             
-            # Get top 5 coins by market cap from CoinMarketCap
             target_symbols = self._get_top_5_coins_by_market_cap(crypto_api)
-            
-            signals_generated = []
+            clean_signals = []
             
             for symbol in target_symbols:
                 try:
-                    # FORCE real-time price refresh from CoinAPI
-                    price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
-                    futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
+                    # Get basic data
+                    signal_data = self._get_clean_signal_data(symbol, crypto_api)
+                    if not signal_data:
+                        continue
                     
-                    # Priority: CoinAPI real-time > Binance Futures > Estimation
-                    if 'error' not in price_data and price_data.get('price', 0) > 0:
-                        current_price = price_data.get('price', 0)
-                        price_source = "CoinAPI Real-time"
-                        source_emoji = "🟢"
-                    elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
-                        current_price = futures_data.get('price_data', {}).get('price', 0)
-                        price_source = "Binance Futures"
-                        source_emoji = "🟡"
-                    else:
-                        current_price = self._get_estimated_price(symbol)
-                        price_source = "Estimated"
-                        source_emoji = "🔴"
-                    
-                    # Enhanced price formatting
-                    if current_price < 1:
-                        price_display = f"${current_price:.8f}"
-                    elif current_price < 100:
-                        price_display = f"${current_price:.6f}"
-                    else:
-                        price_display = f"${current_price:,.4f}"
-                    
-                    # Generate signal for main timeframe (4h)
-                    signal_analysis = self._generate_MANDATORY_futures_signal_with_levels(
-                        symbol, '4h', price_data, futures_data, current_price, language
-                    )
-                    
-                    # Extract key information from signal
-                    signal_direction = "LONG" if "LONG" in signal_analysis else "SHORT"
-                    signal_emoji = "🟢" if signal_direction == "LONG" else "🔴"
-                    
-                    # Calculate trading levels with better precision
-                    if signal_direction == "LONG":
-                        entry = current_price * 0.9995
-                        tp1 = current_price * 1.025
-                        tp2 = current_price * 1.05
-                        sl = current_price * 0.975
-                    else:
-                        entry = current_price * 1.0005
-                        tp1 = current_price * 0.975
-                        tp2 = current_price * 0.95
-                        sl = current_price * 1.025
-                    
-                    # Smart level formatting
-                    def format_level(price):
-                        if price < 1:
-                            return f"${price:.8f}"
-                        elif price < 100:
-                            return f"${price:.6f}"
-                        else:
-                            return f"${price:,.4f}"
-                    
-                    # Clean signal formatting (reduced asterisks and visual noise)
-                    if language == 'id':
-                        signal_text = f"""═══════════════════════════════════════════════
-🎯 {symbol}/USDT FUTURES SIGNAL {signal_emoji}
-
-💰 HARGA SAAT INI: {price_display}
-📊 SIGNAL: {signal_direction} | ⏰ TIMEFRAME: 4H
-📡 SUMBER: {source_emoji} {price_source}
-
-📈 TRADING LEVELS:
-   📍 ENTRY: {format_level(entry)}
-   🎯 TP 1: {format_level(tp1)} (ambil 50% profit)
-   🎯 TP 2: {format_level(tp2)} (ambil 50% profit)
-   🛡️ STOP LOSS: {format_level(sl)} (WAJIB!)
-
-🔥 RISK/REWARD: {abs(tp2-entry)/abs(sl-entry):.1f}:1
-⚡ CONFIDENCE: 75%"""
-                    else:
-                        signal_text = f"""═══════════════════════════════════════════════
-🎯 {symbol}/USDT FUTURES SIGNAL {signal_emoji}
-
-💰 CURRENT PRICE: {price_display}
-📊 SIGNAL: {signal_direction} | ⏰ TIMEFRAME: 4H
-📡 SOURCE: {source_emoji} {price_source}
-
-📈 TRADING LEVELS:
-   📍 ENTRY: {format_level(entry)}
-   🎯 TP 1: {format_level(tp1)} (take 50% profit)
-   🎯 TP 2: {format_level(tp2)} (take 50% profit)
-   🛡️ STOP LOSS: {format_level(sl)} (MANDATORY!)
-
-🔥 RISK/REWARD: {abs(tp2-entry)/abs(sl-entry):.1f}:1
-⚡ CONFIDENCE: 75%"""
-                    
-                    signals_generated.append(signal_text)
-                    
+                    # Generate clean signal
+                    clean_signal = self._generate_clean_futures_signal(symbol, signal_data, language)
+                    if clean_signal:
+                        clean_signals.append(clean_signal)
+                        
                 except Exception as e:
-                    print(f"❌ Error generating signal for {symbol}: {e}")
+                    print(f"❌ Error processing {symbol}: {e}")
                     continue
             
-            # Clean header and footer (minimal asterisks)
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
-            if language == 'id':
-                final_message = f"""🚨 FUTURES SIGNALS - TOP 5 COINS BY MARKET CAP
-⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
-
-{chr(10).join(signals_generated)}
-
-═══════════════════════════════════════════════
-🛡️ RISK MANAGEMENT WAJIB:
-• Position size maksimal 1-2% per trade
-• Set stop loss SEBELUM entry
-• Take profit bertahap: 50% di TP1, 50% di TP2  
-• Move SL ke break-even setelah TP1 hit
-
-📊 SUMBER DATA: 
-• Market Cap Ranking: CoinMarketCap API
-• Price Data: CoinAPI Real-time
-• Futures Data: Binance Real-time
-
-⚠️ DISCLAIMER: High risk - gunakan proper risk management!"""
-            else:
-                final_message = f"""🚨 FUTURES SIGNALS - TOP 5 COINS BY MARKET CAP
-⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
-
-{chr(10).join(signals_generated)}
-
-═══════════════════════════════════════════════
-🛡️ MANDATORY RISK MANAGEMENT:
-• Maximum position size 1-2% per trade
-• Set stop loss BEFORE entry
-• Take profit gradually: 50% at TP1, 50% at TP2
-• Move SL to break-even after TP1 hit
-
-📊 DATA SOURCES:
-• Market Cap Ranking: CoinMarketCap API
-• Price Data: CoinAPI Real-time  
-• Futures Data: Binance Real-time
-
-⚠️ DISCLAIMER: High risk - use proper risk management!"""
-            
-            return final_message
+            return self._format_final_signals_output(clean_signals, language)
             
         except Exception as e:
             print(f"❌ Error in generate_futures_signals: {e}")
             return "❌ Error generating futures signals. Please try again later."
+    
+    def _get_clean_signal_data(self, symbol, crypto_api):
+        """Get essential data for signal generation (no repetitive parsing)"""
+        try:
+            # Single data fetch per symbol
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
+            futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
+            
+            # Determine best price source
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_source = "CoinAPI"
+                source_emoji = "🟢"
+            elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+                current_price = futures_data.get('price_data', {}).get('price', 0)
+                price_source = "Binance"
+                source_emoji = "🟡"
+            else:
+                current_price = self._get_estimated_price(symbol)
+                price_source = "Estimated"
+                source_emoji = "🔴"
+            
+            # Get candlestick data for SnD analysis (if available)
+            snd_zones = {}
+            candlestick_data = crypto_api.get_binance_candlestick(symbol, '4h', 50) if crypto_api else {}
+            
+            if 'error' not in candlestick_data and candlestick_data.get('candlesticks'):
+                # Run optimized SnD analysis
+                snd_zones = self._calculate_advanced_snd_zones(
+                    candlestick_data['candlesticks'], 
+                    current_price
+                )
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'price_source': price_source,
+                'source_emoji': source_emoji,
+                'snd_zones': snd_zones,
+                'futures_data': futures_data
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting signal data for {symbol}: {e}")
+            return None
+    
+    def _generate_clean_futures_signal(self, symbol, data, language='id'):
+        """Generate single clean futures signal dengan SnD"""
+        try:
+            current_price = data['current_price']
+            snd_zones = data.get('snd_zones', {})
+            
+            # Determine trend dan direction
+            trend_direction = self._determine_clean_trend(data)
+            
+            # Calculate clean trading levels
+            levels = self._calculate_clean_trading_levels(current_price, trend_direction, snd_zones)
+            
+            # Format display
+            price_display = self._format_price_smart(current_price)
+            
+            if language == 'id':
+                signal_text = f"""🎯 {symbol} FUTURES {levels['direction_emoji']}
+
+💰 Harga: {price_display} {data['source_emoji']}
+📊 Signal: {levels['direction']} | Confidence: {levels['confidence']}%
+
+💼 Trading Levels:
+• Entry: {self._format_price_smart(levels['entry'])}
+• TP1: {self._format_price_smart(levels['tp1'])} | TP2: {self._format_price_smart(levels['tp2'])}
+• SL: {self._format_price_smart(levels['sl'])} | R/R: {levels['rr']:.1f}:1"""
+            else:
+                signal_text = f"""🎯 {symbol} FUTURES {levels['direction_emoji']}
+
+💰 Price: {price_display} {data['source_emoji']}
+📊 Signal: {levels['direction']} | Confidence: {levels['confidence']}%
+
+💼 Trading Levels:
+• Entry: {self._format_price_smart(levels['entry'])}
+• TP1: {self._format_price_smart(levels['tp1'])} | TP2: {self._format_price_smart(levels['tp2'])}
+• SL: {self._format_price_smart(levels['sl'])} | R/R: {levels['rr']:.1f}:1"""
+            
+            # Add SnD context if available
+            if snd_zones.get('strength') in ['medium', 'high']:
+                snd_context = self._get_snd_context(snd_zones, current_price, language)
+                signal_text += f"\n{snd_context}"
+            
+            return signal_text
+            
+        except Exception as e:
+            print(f"❌ Error generating clean signal for {symbol}: {e}")
+            return None
+    
+    def _determine_clean_trend(self, data):
+        """Determine trend direction efficiently"""
+        futures_data = data.get('futures_data', {})
+        snd_zones = data.get('snd_zones', {})
+        
+        # Simple trend logic
+        long_score = 0
+        short_score = 0
+        
+        # SnD bias
+        if snd_zones.get('strength') == 'high':
+            nearest_demand = min(snd_zones.get('demand_zones', []), default=0, key=lambda x: abs(x - data['current_price']))
+            nearest_supply = min(snd_zones.get('supply_zones', []), default=float('inf'), key=lambda x: abs(x - data['current_price']))
+            
+            if abs(data['current_price'] - nearest_demand) < abs(data['current_price'] - nearest_supply):
+                long_score += 2  # Near demand = bullish
+            else:
+                short_score += 2  # Near supply = bearish
+        
+        # Futures sentiment
+        if 'error' not in futures_data:
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                if long_ratio > 70:
+                    short_score += 1  # Contrarian
+                elif long_ratio < 30:
+                    long_score += 1   # Contrarian
+        
+        # Return direction
+        return 'LONG' if long_score > short_score else 'SHORT'
+    
+    def _calculate_clean_trading_levels(self, current_price, direction, snd_zones):
+        """Calculate clean trading levels dengan SnD integration"""
+        if direction == 'LONG':
+            entry = current_price * 0.999
+            tp1 = current_price * 1.025
+            tp2 = current_price * 1.05
+            sl = current_price * 0.98
+            emoji = "🟢"
+        else:
+            entry = current_price * 1.001
+            tp1 = current_price * 0.975
+            tp2 = current_price * 0.95
+            sl = current_price * 1.02
+            emoji = "🔴"
+        
+        # Adjust levels based on SnD zones if available
+        if snd_zones.get('strength') == 'high':
+            if direction == 'LONG' and snd_zones.get('demand_zones'):
+                nearest_demand = max([z for z in snd_zones['demand_zones'] if z < current_price], default=entry)
+                sl = max(sl, nearest_demand * 0.995)  # SL just below demand
+            elif direction == 'SHORT' and snd_zones.get('supply_zones'):
+                nearest_supply = min([z for z in snd_zones['supply_zones'] if z > current_price], default=entry)
+                sl = min(sl, nearest_supply * 1.005)  # SL just above supply
+        
+        rr_ratio = abs(tp2 - entry) / abs(sl - entry) if abs(sl - entry) > 0 else 2.5
+        confidence = 80 if snd_zones.get('strength') == 'high' else 75
+        
+        return {
+            'direction': direction,
+            'direction_emoji': emoji,
+            'entry': entry,
+            'tp1': tp1,
+            'tp2': tp2,
+            'sl': sl,
+            'rr': rr_ratio,
+            'confidence': confidence
+        }
+    
+    def _get_snd_context(self, snd_zones, current_price, language='id'):
+        """Get brief SnD context for signal"""
+        if language == 'id':
+            if snd_zones.get('strength') == 'high':
+                return f"🎯 SnD: Zona kuat terdeteksi (strength: {snd_zones['strength']})"
+            else:
+                return f"📊 SnD: Setup medium (strength: {snd_zones['strength']})"
+        else:
+            if snd_zones.get('strength') == 'high':
+                return f"🎯 SnD: Strong zones detected (strength: {snd_zones['strength']})"
+            else:
+                return f"📊 SnD: Medium setup (strength: {snd_zones['strength']})"
+    
+    def _format_final_signals_output(self, signals, language='id'):
+        """Format final optimized output"""
+        if not signals:
+            return "❌ No signals generated. Try again later."
+        
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+        
+        if language == 'id':
+            header = f"""🚨 FUTURES SIGNALS OPTIMIZED
+⏰ {current_time} | 📊 4H Timeframe | 🎯 Top {len(signals)} Coins
+
+"""
+            footer = """
+══════════════════════════════════════════
+🛡️ RISK MANAGEMENT:
+• Max 2% position size per trade
+• Set SL before entry (WAJIB!)
+• Take profit: 50% at TP1, 50% at TP2
+• SnD zones = zona konfirmasi entry
+
+📊 Data: CoinAPI + Binance + SnD Analysis
+⚠️ High risk - gunakan proper risk management!"""
+            
+        else:
+            header = f"""🚨 OPTIMIZED FUTURES SIGNALS
+⏰ {current_time} | 📊 4H Timeframe | 🎯 Top {len(signals)} Coins
+
+"""
+            footer = """
+══════════════════════════════════════════
+🛡️ RISK MANAGEMENT:
+• Max 2% position size per trade  
+• Set SL before entry (MANDATORY!)
+• Take profit: 50% at TP1, 50% at TP2
+• SnD zones = entry confirmation areas
+
+📊 Data: CoinAPI + Binance + SnD Analysis
+⚠️ High risk - use proper risk management!"""
+        
+        return header + "\n\n".join(signals) + footer
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
