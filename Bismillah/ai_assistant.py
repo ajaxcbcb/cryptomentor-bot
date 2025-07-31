@@ -1205,6 +1205,38 @@ class AIAssistant:
         except Exception:
             return ""
 
+    def _get_top_5_coins_by_market_cap(self, crypto_api):
+        """Get top 5 coins by market cap from CoinMarketCap or fallback to default"""
+        try:
+            if crypto_api and crypto_api.cmc_provider and crypto_api.cmc_provider.api_key:
+                # Try to get top cryptocurrencies from CoinMarketCap
+                top_cryptos = crypto_api.cmc_provider.get_top_cryptocurrencies(5)
+                
+                if 'error' not in top_cryptos and 'data' in top_cryptos:
+                    symbols = []
+                    for crypto in top_cryptos['data']:
+                        symbol = crypto.get('symbol', '')
+                        if symbol:
+                            symbols.append(symbol)
+                    
+                    if len(symbols) >= 5:
+                        print(f"✅ Got top 5 coins from CoinMarketCap: {symbols}")
+                        return symbols[:5]
+                    else:
+                        print(f"⚠️ CoinMarketCap returned only {len(symbols)} coins, using fallback")
+                else:
+                    print(f"⚠️ CoinMarketCap failed: {top_cryptos.get('error', 'Unknown error')}")
+            else:
+                print(f"⚠️ CoinMarketCap not available, using fallback")
+                
+        except Exception as e:
+            print(f"❌ Error getting top coins from CoinMarketCap: {e}")
+        
+        # Fallback to default top 5 coins by market cap (manually curated)
+        fallback_symbols = ['BTC', 'ETH', 'USDT', 'BNB', 'SOL']
+        print(f"📊 Using fallback top 5 coins: {fallback_symbols}")
+        return fallback_symbols
+
     def _generate_emergency_futures_signal(self, symbol, timeframe, language, error_msg):
         """Emergency signal generation when everything fails"""
         price = self._get_estimated_price(symbol)
@@ -1812,8 +1844,8 @@ class AIAssistant:
         try:
             print(f"🎯 Generating multiple futures signals with clean formatting")
             
-            # Target symbols for signals
-            target_symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA']
+            # Get top 5 coins by market cap from CoinMarketCap
+            target_symbols = self._get_top_5_coins_by_market_cap(crypto_api)
             
             signals_generated = []
             
@@ -1919,7 +1951,7 @@ class AIAssistant:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             
             if language == 'id':
-                final_message = f"""🚨 FUTURES SIGNALS HARIAN - SnD ANALYSIS
+                final_message = f"""🚨 FUTURES SIGNALS - TOP 5 COINS BY MARKET CAP
 ⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
 
 {chr(10).join(signals_generated)}
@@ -1931,10 +1963,14 @@ class AIAssistant:
 • Take profit bertahap: 50% di TP1, 50% di TP2  
 • Move SL ke break-even setelah TP1 hit
 
-📊 SUMBER DATA: CoinAPI + Binance Futures Real-time
+📊 SUMBER DATA: 
+• Market Cap Ranking: CoinMarketCap API
+• Price Data: CoinAPI Real-time
+• Futures Data: Binance Real-time
+
 ⚠️ DISCLAIMER: High risk - gunakan proper risk management!"""
             else:
-                final_message = f"""🚨 DAILY FUTURES SIGNALS - SnD ANALYSIS
+                final_message = f"""🚨 FUTURES SIGNALS - TOP 5 COINS BY MARKET CAP
 ⏰ UPDATE: {current_time} | 📊 TIMEFRAME: 4H
 
 {chr(10).join(signals_generated)}
@@ -1946,7 +1982,11 @@ class AIAssistant:
 • Take profit gradually: 50% at TP1, 50% at TP2
 • Move SL to break-even after TP1 hit
 
-📊 DATA SOURCE: CoinAPI + Binance Futures Real-time
+📊 DATA SOURCES:
+• Market Cap Ranking: CoinMarketCap API
+• Price Data: CoinAPI Real-time  
+• Futures Data: Binance Real-time
+
 ⚠️ DISCLAIMER: High risk - use proper risk management!"""
             
             return final_message
