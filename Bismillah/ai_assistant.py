@@ -1853,34 +1853,37 @@ class AIAssistant:
             return "❌ Error dalam menghasilkan sinyal trading."
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate optimized futures signals dengan SnD integration dan limit order recommendations"""
+        """Generate optimized futures signals dengan SnD integration dan limit order recommendations untuk top 5 coins"""
         try:
-            print(f"🎯 Generating optimized futures signals with SnD entry recommendations")
+            print(f"🎯 Generating SnD futures signals with limit order recommendations for top 5 coins")
             
+            # Get top 5 coins by market cap
             target_symbols = self._get_top_5_coins_by_market_cap(crypto_api)
-            clean_signals = []
+            
+            # Generate SnD signals with limit order recommendations
+            snd_signals = []
             
             for symbol in target_symbols:
                 try:
-                    # Get comprehensive data for SnD analysis
-                    signal_data = self._get_enhanced_signal_data_with_snd(symbol, crypto_api)
-                    if not signal_data:
+                    # Get comprehensive SnD data for each coin
+                    snd_signal_data = self._get_snd_signal_data_for_limit_orders(symbol, crypto_api)
+                    if not snd_signal_data:
                         continue
                     
-                    # Generate clean signal with SnD entry recommendations
-                    clean_signal = self._generate_snd_futures_signal_with_entries(symbol, signal_data, language)
-                    if clean_signal:
-                        clean_signals.append(clean_signal)
+                    # Generate SnD signal with precise limit order recommendations
+                    snd_signal = self._generate_snd_limit_order_signal(symbol, snd_signal_data, language)
+                    if snd_signal:
+                        snd_signals.append(snd_signal)
                         
                 except Exception as e:
-                    print(f"❌ Error processing {symbol}: {e}")
+                    print(f"❌ Error processing SnD signal for {symbol}: {e}")
                     continue
             
-            return self._format_final_snd_signals_output(clean_signals, language)
+            return self._format_snd_limit_order_signals_output(snd_signals, language)
             
         except Exception as e:
             print(f"❌ Error in generate_futures_signals: {e}")
-            return "❌ Error generating futures signals. Please try again later."
+            return "❌ Error generating SnD futures signals. Please try again later."
     
     def _get_enhanced_signal_data_with_snd(self, symbol, crypto_api):
         """Get enhanced data for SnD-based signal generation with limit order recommendations"""
@@ -2794,6 +2797,460 @@ Try again in a few minutes for real-time data."""
 ```
 {dominance_bar}
 ```
+
+
+    def _get_snd_signal_data_for_limit_orders(self, symbol, crypto_api):
+        """Get comprehensive SnD data specifically for limit order entry recommendations"""
+        try:
+            # Get real-time price data
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
+            futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
+            
+            # Determine best price source
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_source = "CoinAPI"
+                source_emoji = "🟢"
+            elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+                current_price = futures_data.get('price_data', {}).get('price', 0)
+                price_source = "Binance"
+                source_emoji = "🟡"
+            else:
+                current_price = self._get_estimated_price(symbol)
+                price_source = "Estimated"
+                source_emoji = "🔴"
+            
+            # Get multi-timeframe candlestick data for SnD analysis
+            candlestick_4h = crypto_api.get_binance_candlestick(symbol, '4h', 100) if crypto_api else {}
+            candlestick_1h = crypto_api.get_binance_candlestick(symbol, '1h', 50) if crypto_api else {}
+            
+            # Calculate advanced SnD zones
+            snd_zones = {}
+            if 'error' not in candlestick_4h and candlestick_4h.get('candlesticks'):
+                snd_zones = self._calculate_advanced_snd_zones(
+                    candlestick_4h['candlesticks'], 
+                    current_price
+                )
+            
+            # Calculate precision entry points for limit orders
+            limit_order_entries = {}
+            if 'error' not in candlestick_1h and candlestick_1h.get('candlesticks'):
+                limit_order_entries = self._calculate_limit_order_entry_points(
+                    candlestick_1h['candlesticks'],
+                    current_price,
+                    snd_zones
+                )
+            
+            # Get market structure bias
+            market_bias = self._get_snd_market_bias(current_price, snd_zones, futures_data)
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'price_source': price_source,
+                'source_emoji': source_emoji,
+                'snd_zones': snd_zones,
+                'limit_order_entries': limit_order_entries,
+                'market_bias': market_bias,
+                'futures_data': futures_data
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting SnD data for {symbol}: {e}")
+            return None
+    
+    def _calculate_limit_order_entry_points(self, candlestick_1h, current_price, snd_zones):
+        """Calculate precise limit order entry points based on SnD zones and micro-structure"""
+        if not candlestick_1h or len(candlestick_1h) < 20:
+            return {'entries': [], 'quality': 'low'}
+        
+        try:
+            # Analyze recent price action for limit order placement
+            recent_candles = candlestick_1h[-20:]
+            
+            # Extract price levels
+            recent_highs = [float(c[2]) for c in recent_candles]
+            recent_lows = [float(c[3]) for c in recent_candles]
+            recent_closes = [float(c[4]) for c in recent_candles]
+            recent_volumes = [float(c[5]) for c in recent_candles]
+            
+            # Find key support and resistance levels for limit orders
+            limit_order_levels = []
+            
+            # Calculate swing highs and lows for limit order placement
+            for i in range(3, len(recent_candles) - 3):
+                high = recent_highs[i]
+                low = recent_lows[i]
+                volume = recent_volumes[i]
+                
+                # Swing high (potential SHORT limit order area)
+                if (high > recent_highs[i-1] and high > recent_highs[i+1] and 
+                    high > recent_highs[i-2] and high > recent_highs[i+2]):
+                    
+                    distance_from_current = abs(high - current_price) / current_price * 100
+                    if distance_from_current <= 5:  # Within 5% for actionable limit orders
+                        
+                        # Check SnD zone alignment for SHORT
+                        snd_alignment = self._check_limit_order_snd_alignment(high, snd_zones, 'SHORT')
+                        
+                        limit_order_levels.append({
+                            'price': high,
+                            'type': 'SHORT_LIMIT',
+                            'distance_pct': distance_from_current,
+                            'volume_strength': min(100, (volume / max(recent_volumes)) * 100),
+                            'snd_aligned': snd_alignment['aligned'],
+                            'snd_zone_type': snd_alignment.get('zone_type', 'none'),
+                            'confidence': self._calculate_limit_order_confidence(high, current_price, volume, recent_volumes, snd_alignment)
+                        })
+                
+                # Swing low (potential LONG limit order area)
+                if (low < recent_lows[i-1] and low < recent_lows[i+1] and 
+                    low < recent_lows[i-2] and low < recent_lows[i+2]):
+                    
+                    distance_from_current = abs(current_price - low) / current_price * 100
+                    if distance_from_current <= 5:  # Within 5% for actionable limit orders
+                        
+                        # Check SnD zone alignment for LONG
+                        snd_alignment = self._check_limit_order_snd_alignment(low, snd_zones, 'LONG')
+                        
+                        limit_order_levels.append({
+                            'price': low,
+                            'type': 'LONG_LIMIT',
+                            'distance_pct': distance_from_current,
+                            'volume_strength': min(100, (volume / max(recent_volumes)) * 100),
+                            'snd_aligned': snd_alignment['aligned'],
+                            'snd_zone_type': snd_alignment.get('zone_type', 'none'),
+                            'confidence': self._calculate_limit_order_confidence(low, current_price, volume, recent_volumes, snd_alignment)
+                        })
+            
+            # Sort by confidence and distance (prefer higher confidence and closer levels)
+            limit_order_levels.sort(key=lambda x: (x['confidence'], -x['distance_pct']), reverse=True)
+            
+            # Filter to top 3 best limit order opportunities
+            best_entries = limit_order_levels[:3]
+            
+            return {
+                'entries': best_entries,
+                'quality': 'high' if len(best_entries) > 0 and best_entries[0]['confidence'] > 70 else 'medium',
+                'total_found': len(limit_order_levels)
+            }
+            
+        except Exception as e:
+            print(f"❌ Error calculating limit order entries: {e}")
+            return {'entries': [], 'quality': 'low'}
+    
+    def _check_limit_order_snd_alignment(self, price_level, snd_zones, order_type):
+        """Check if limit order level aligns with SnD zones"""
+        if not snd_zones or snd_zones.get('strength') == 'low':
+            return {'aligned': False, 'zone_type': 'none', 'bonus': 0}
+        
+        # Check LONG limit orders against demand zones
+        if order_type == 'LONG' and snd_zones.get('demand_zones'):
+            for demand_price in snd_zones['demand_zones']:
+                if abs(price_level - demand_price) / demand_price < 0.015:  # Within 1.5%
+                    return {
+                        'aligned': True,
+                        'zone_type': 'demand_zone',
+                        'bonus': 30 if snd_zones['strength'] == 'high' else 20
+                    }
+        
+        # Check SHORT limit orders against supply zones
+        if order_type == 'SHORT' and snd_zones.get('supply_zones'):
+            for supply_price in snd_zones['supply_zones']:
+                if abs(price_level - supply_price) / supply_price < 0.015:  # Within 1.5%
+                    return {
+                        'aligned': True,
+                        'zone_type': 'supply_zone',
+                        'bonus': 30 if snd_zones['strength'] == 'high' else 20
+                    }
+        
+        return {'aligned': False, 'zone_type': 'none', 'bonus': 0}
+    
+    def _calculate_limit_order_confidence(self, price_level, current_price, volume, recent_volumes, snd_alignment):
+        """Calculate confidence score for limit order placement"""
+        try:
+            base_confidence = 50
+            
+            # Volume strength component
+            avg_volume = sum(recent_volumes) / len(recent_volumes)
+            volume_ratio = volume / avg_volume if avg_volume > 0 else 1
+            volume_score = min(20, volume_ratio * 10)
+            
+            # Distance penalty (closer is better for limit orders)
+            distance_pct = abs(price_level - current_price) / current_price * 100
+            distance_score = max(0, 15 - distance_pct * 3)  # Penalty for distance
+            
+            # SnD alignment bonus
+            snd_bonus = snd_alignment.get('bonus', 0)
+            
+            # Calculate final confidence
+            final_confidence = base_confidence + volume_score + distance_score + snd_bonus
+            
+            return min(95, max(30, final_confidence))
+            
+        except Exception:
+            return 50  # Default confidence
+    
+    def _get_snd_market_bias(self, current_price, snd_zones, futures_data):
+        """Determine overall market bias based on SnD zones and futures sentiment"""
+        bias_score = 0
+        bias_factors = []
+        
+        # SnD zone positioning bias
+        if snd_zones.get('strength') in ['medium', 'high']:
+            demand_zones = snd_zones.get('demand_zones', [])
+            supply_zones = snd_zones.get('supply_zones', [])
+            
+            # Find nearest zones
+            if demand_zones:
+                nearest_demand = min(demand_zones, key=lambda x: abs(x - current_price))
+                demand_distance = abs(current_price - nearest_demand) / current_price * 100
+                
+                if demand_distance < 3:  # Close to demand zone
+                    bias_score += 2
+                    bias_factors.append(f"🟢 Near strong demand zone (${nearest_demand:,.2f})")
+            
+            if supply_zones:
+                nearest_supply = min(supply_zones, key=lambda x: abs(x - current_price))
+                supply_distance = abs(nearest_supply - current_price) / current_price * 100
+                
+                if supply_distance < 3:  # Close to supply zone
+                    bias_score -= 2
+                    bias_factors.append(f"🔴 Near strong supply zone (${nearest_supply:,.2f})")
+        
+        # Futures sentiment bias
+        if 'error' not in futures_data:
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                
+                if long_ratio > 75:
+                    bias_score -= 1
+                    bias_factors.append(f"⚠️ Overleveraged longs ({long_ratio:.1f}%)")
+                elif long_ratio < 25:
+                    bias_score += 1
+                    bias_factors.append(f"💎 Oversold conditions ({long_ratio:.1f}%)")
+        
+        # Determine final bias
+        if bias_score >= 2:
+            overall_bias = 'BULLISH'
+            bias_emoji = '🟢'
+        elif bias_score <= -2:
+            overall_bias = 'BEARISH' 
+            bias_emoji = '🔴'
+        else:
+            overall_bias = 'NEUTRAL'
+            bias_emoji = '🟡'
+        
+        return {
+            'direction': overall_bias,
+            'emoji': bias_emoji,
+            'score': bias_score,
+            'factors': bias_factors
+        }
+    
+    def _generate_snd_limit_order_signal(self, symbol, snd_data, language='id'):
+        """Generate SnD-based signal with specific limit order recommendations"""
+        try:
+            current_price = snd_data['current_price']
+            snd_zones = snd_data.get('snd_zones', {})
+            limit_entries = snd_data.get('limit_order_entries', {})
+            market_bias = snd_data.get('market_bias', {})
+            
+            # Format price display
+            def format_price(p):
+                if p < 1:
+                    return f"${p:.8f}"
+                elif p < 100:
+                    return f"${p:.6f}"
+                else:
+                    return f"${p:,.4f}"
+            
+            price_display = format_price(current_price)
+            
+            if language == 'id':
+                signal_text = f"""🎯 {symbol} SnD LIMIT ORDERS {market_bias.get('emoji', '🟡')}
+
+💰 Harga: {price_display} {snd_data['source_emoji']} | SnD: {snd_zones.get('strength', 'low').upper()}
+📊 Market Bias: {market_bias.get('direction', 'NEUTRAL')} | Source: {snd_data['price_source']}"""
+                
+                # Add best limit order recommendations
+                if limit_entries.get('entries') and limit_entries.get('quality') != 'low':
+                    signal_text += f"\n\n🎯 **REKOMENDASI LIMIT ORDER SnD:**"
+                    
+                    for i, entry in enumerate(limit_entries['entries'][:2], 1):  # Top 2 recommendations
+                        order_type = entry['type'].replace('_LIMIT', '')
+                        order_emoji = "🟢" if order_type == 'LONG' else "🔴"
+                        
+                        signal_text += f"""
+
+{order_emoji} **{order_type} LIMIT ORDER #{i}:**
+• **Entry Price**: {format_price(entry['price'])}
+• **Distance**: {entry['distance_pct']:.1f}% dari harga saat ini
+• **SnD Zone**: {entry['snd_zone_type'].replace('_', ' ').title() if entry['snd_aligned'] else 'No alignment'}
+• **Confidence**: {entry['confidence']:.0f}%
+• **Order Type**: LIMIT {order_type} @ {format_price(entry['price'])}"""
+                        
+                        # Calculate TP and SL for this entry
+                        if order_type == 'LONG':
+                            tp1 = entry['price'] * 1.02
+                            tp2 = entry['price'] * 1.04
+                            sl = entry['price'] * 0.985
+                        else:
+                            tp1 = entry['price'] * 0.98
+                            tp2 = entry['price'] * 0.96
+                            sl = entry['price'] * 1.015
+                        
+                        signal_text += f"""
+• **TP1**: {format_price(tp1)} | **TP2**: {format_price(tp2)}
+• **SL**: {format_price(sl)}"""
+                
+                else:
+                    signal_text += f"""
+
+⚠️ **NO CLEAR LIMIT ORDER SETUP:**
+• SnD zones tidak memberikan entry yang jelas
+• Tunggu price action konfirmasi di level kunci
+• Monitor breakout/breakdown dengan volume"""
+                
+                # Add market bias factors
+                if market_bias.get('factors'):
+                    signal_text += f"\n\n📊 **ANALISIS SnD:**"
+                    for factor in market_bias['factors'][:2]:
+                        signal_text += f"\n• {factor}"
+            
+            else:  # English
+                signal_text = f"""🎯 {symbol} SnD LIMIT ORDERS {market_bias.get('emoji', '🟡')}
+
+💰 Price: {price_display} {snd_data['source_emoji']} | SnD: {snd_zones.get('strength', 'low').upper()}
+📊 Market Bias: {market_bias.get('direction', 'NEUTRAL')} | Source: {snd_data['price_source']}"""
+                
+                # Add best limit order recommendations
+                if limit_entries.get('entries') and limit_entries.get('quality') != 'low':
+                    signal_text += f"\n\n🎯 **SnD LIMIT ORDER RECOMMENDATIONS:**"
+                    
+                    for i, entry in enumerate(limit_entries['entries'][:2], 1):  # Top 2 recommendations
+                        order_type = entry['type'].replace('_LIMIT', '')
+                        order_emoji = "🟢" if order_type == 'LONG' else "🔴"
+                        
+                        signal_text += f"""
+
+{order_emoji} **{order_type} LIMIT ORDER #{i}:**
+• **Entry Price**: {format_price(entry['price'])}
+• **Distance**: {entry['distance_pct']:.1f}% from current price
+• **SnD Zone**: {entry['snd_zone_type'].replace('_', ' ').title() if entry['snd_aligned'] else 'No alignment'}
+• **Confidence**: {entry['confidence']:.0f}%
+• **Order Type**: LIMIT {order_type} @ {format_price(entry['price'])}"""
+                        
+                        # Calculate TP and SL for this entry
+                        if order_type == 'LONG':
+                            tp1 = entry['price'] * 1.02
+                            tp2 = entry['price'] * 1.04
+                            sl = entry['price'] * 0.985
+                        else:
+                            tp1 = entry['price'] * 0.98
+                            tp2 = entry['price'] * 0.96
+                            sl = entry['price'] * 1.015
+                        
+                        signal_text += f"""
+• **TP1**: {format_price(tp1)} | **TP2**: {format_price(tp2)}
+• **SL**: {format_price(sl)}"""
+                
+                else:
+                    signal_text += f"""
+
+⚠️ **NO CLEAR LIMIT ORDER SETUP:**
+• SnD zones don't provide clear entries
+• Wait for price action confirmation at key levels
+• Monitor breakout/breakdown with volume"""
+                
+                # Add market bias factors
+                if market_bias.get('factors'):
+                    signal_text += f"\n\n📊 **SnD ANALYSIS:**"
+                    for factor in market_bias['factors'][:2]:
+                        signal_text += f"\n• {factor}"
+            
+            return signal_text
+            
+        except Exception as e:
+            print(f"❌ Error generating SnD limit order signal for {symbol}: {e}")
+            return None
+    
+    def _format_snd_limit_order_signals_output(self, signals, language='id'):
+        """Format final SnD limit order signals output"""
+        if not signals:
+            if language == 'id':
+                return "❌ Tidak ada sinyal SnD limit order yang tersedia. Coba lagi nanti."
+            else:
+                return "❌ No SnD limit order signals available. Try again later."
+        
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+        
+        if language == 'id':
+            header = f"""🚨 SnD LIMIT ORDER SIGNALS - TOP {len(signals)} COINS BY MARKET CAP
+⏰ {current_time} | 📊 Multi-Timeframe SnD Analysis | 🎯 Precision Limit Orders
+
+💡 **STRATEGI LIMIT ORDER SnD:**
+Entry berdasarkan zona Supply & Demand dengan konfirmasi price action dan volume.
+
+"""
+            footer = """
+══════════════════════════════════════════
+🎯 **PANDUAN LIMIT ORDER SnD:**
+
+📍 **CARA PAKAI:**
+• Set limit order di harga yang direkomendasikan
+• Tunggu price mencapai level entry sebelum order tereksekusi
+• Cancel order jika struktur SnD berubah atau confidence turun
+
+🛡️ **RISK MANAGEMENT SnD:**
+• Max 1% position size per limit order (precision trading)
+• Set stop loss WAJIB setelah order terisi
+• Take profit bertahap: 50% di TP1, 50% di TP2
+• Monitor price action di zona SnD untuk konfirmasi
+
+⚠️ **PERINGATAN PENTING:**
+• Limit order bisa tidak terisi jika price tidak mencapai level
+• Gunakan hanya di market dengan volatility cukup
+• Cancel order jika market structure berubah drastis
+
+📊 **Data Source:** CoinAPI + Binance + Advanced SnD Algorithm
+🕐 **Valid:** 1-4 jam (tergantung volatilitas market)"""
+            
+        else:
+            header = f"""🚨 SnD LIMIT ORDER SIGNALS - TOP {len(signals)} COINS BY MARKET CAP
+⏰ {current_time} | 📊 Multi-Timeframe SnD Analysis | 🎯 Precision Limit Orders
+
+💡 **SnD LIMIT ORDER STRATEGY:**
+Entries based on Supply & Demand zones with price action and volume confirmation.
+
+"""
+            footer = """
+══════════════════════════════════════════
+🎯 **SnD LIMIT ORDER GUIDE:**
+
+📍 **HOW TO USE:**
+• Set limit orders at recommended price levels
+• Wait for price to reach entry level before order execution
+• Cancel orders if SnD structure changes or confidence drops
+
+🛡️ **SnD RISK MANAGEMENT:**
+• Max 1% position size per limit order (precision trading)
+• Set stop loss MANDATORY after order fills
+• Take profit gradually: 50% at TP1, 50% at TP2
+• Monitor price action at SnD zones for confirmation
+
+⚠️ **IMPORTANT WARNINGS:**
+• Limit orders may not fill if price doesn't reach level
+• Use only in markets with sufficient volatility
+• Cancel orders if market structure changes drastically
+
+📊 **Data Source:** CoinAPI + Binance + Advanced SnD Algorithm
+🕐 **Valid:** 1-4 hours (depends on market volatility)"""
+        
+        return header + "\n\n".join(signals) + footer
+
+
 
 """
 
