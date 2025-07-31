@@ -1853,22 +1853,22 @@ class AIAssistant:
             return "❌ Error dalam menghasilkan sinyal trading."
 
     def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate optimized futures signals dengan SnD integration"""
+        """Generate optimized futures signals dengan SnD integration dan limit order recommendations"""
         try:
-            print(f"🎯 Generating optimized futures signals")
+            print(f"🎯 Generating optimized futures signals with SnD entry recommendations")
             
             target_symbols = self._get_top_5_coins_by_market_cap(crypto_api)
             clean_signals = []
             
             for symbol in target_symbols:
                 try:
-                    # Get basic data
-                    signal_data = self._get_clean_signal_data(symbol, crypto_api)
+                    # Get comprehensive data for SnD analysis
+                    signal_data = self._get_enhanced_signal_data_with_snd(symbol, crypto_api)
                     if not signal_data:
                         continue
                     
-                    # Generate clean signal
-                    clean_signal = self._generate_clean_futures_signal(symbol, signal_data, language)
+                    # Generate clean signal with SnD entry recommendations
+                    clean_signal = self._generate_snd_futures_signal_with_entries(symbol, signal_data, language)
                     if clean_signal:
                         clean_signals.append(clean_signal)
                         
@@ -1876,14 +1876,91 @@ class AIAssistant:
                     print(f"❌ Error processing {symbol}: {e}")
                     continue
             
-            return self._format_final_signals_output(clean_signals, language)
+            return self._format_final_snd_signals_output(clean_signals, language)
             
         except Exception as e:
             print(f"❌ Error in generate_futures_signals: {e}")
             return "❌ Error generating futures signals. Please try again later."
     
+    def _get_enhanced_signal_data_with_snd(self, symbol, crypto_api):
+        """Get enhanced data for SnD-based signal generation with limit order recommendations"""
+        try:
+            # Single data fetch per symbol
+            price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
+            futures_data = crypto_api.get_comprehensive_futures_data(symbol) if crypto_api else {}
+            
+            # Determine best price source
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_source = "CoinAPI"
+                source_emoji = "🟢"
+            elif 'error' not in futures_data and futures_data.get('price_data', {}).get('price', 0) > 0:
+                current_price = futures_data.get('price_data', {}).get('price', 0)
+                price_source = "Binance"
+                source_emoji = "🟡"
+            else:
+                current_price = self._get_estimated_price(symbol)
+                price_source = "Estimated"
+                source_emoji = "🔴"
+            
+            # Get multiple timeframe candlestick data for comprehensive SnD analysis
+            snd_zones = {}
+            consolidation_zones = {}
+            breakout_signals = {}
+            
+            # Get 4H data for primary SnD analysis
+            candlestick_4h = crypto_api.get_binance_candlestick(symbol, '4h', 100) if crypto_api else {}
+            
+            if 'error' not in candlestick_4h and candlestick_4h.get('candlesticks'):
+                # Run comprehensive SnD analysis
+                snd_zones = self._calculate_advanced_snd_zones(
+                    candlestick_4h['candlesticks'], 
+                    current_price
+                )
+                
+                # Identify consolidation zones for better entry timing
+                consolidation_zones = self._identify_consolidation_zones(
+                    candlestick_4h['candlesticks']
+                )
+                
+                # Check for breakout signals with volume confirmation
+                breakout_signals = self._identify_breakout_zones(
+                    candlestick_4h['candlesticks'],
+                    snd_zones,
+                    consolidation_zones
+                )
+            
+            # Get 1H data for precision entry points
+            candlestick_1h = crypto_api.get_binance_candlestick(symbol, '1h', 50) if crypto_api else {}
+            precision_entries = {}
+            
+            if 'error' not in candlestick_1h and candlestick_1h.get('candlesticks'):
+                precision_entries = self._calculate_precision_entry_points(
+                    candlestick_1h['candlesticks'],
+                    current_price,
+                    snd_zones
+                )
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'price_source': price_source,
+                'source_emoji': source_emoji,
+                'snd_zones': snd_zones,
+                'consolidation_zones': consolidation_zones,
+                'breakout_signals': breakout_signals,
+                'precision_entries': precision_entries,
+                'futures_data': futures_data,
+                'candlestick_4h': candlestick_4h,
+                'candlestick_1h': candlestick_1h
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting enhanced signal data for {symbol}: {e}")
+            return None
+    
     def _get_clean_signal_data(self, symbol, crypto_api):
-        """Get essential data for signal generation (no repetitive parsing)"""
+        """Get essential data for signal generation (no repetitive parsing) - legacy method"""
         try:
             # Single data fetch per symbol
             price_data = crypto_api.get_coinapi_price(symbol, force_refresh=True) if crypto_api else {}
@@ -2044,6 +2121,307 @@ class AIAssistant:
             'confidence': confidence
         }
     
+    def _calculate_precision_entry_points(self, candlestick_1h, current_price, snd_zones):
+        """Calculate precision entry points for limit orders based on 1H data"""
+        if not candlestick_1h or len(candlestick_1h) < 10:
+            return {'entries': [], 'quality': 'low'}
+        
+        try:
+            # Get recent price action for micro-structure analysis
+            recent_candles = candlestick_1h[-20:]
+            
+            # Calculate support and resistance levels from recent action
+            recent_highs = [float(c[2]) for c in recent_candles]
+            recent_lows = [float(c[3]) for c in recent_candles]
+            recent_closes = [float(c[4]) for c in recent_candles]
+            
+            # Find pivot points for precise entries
+            pivot_levels = []
+            
+            # Calculate pivot highs and lows
+            for i in range(2, len(recent_candles) - 2):
+                high = recent_highs[i]
+                low = recent_lows[i]
+                
+                # Pivot high (resistance for SHORT entries)
+                if (high > recent_highs[i-1] and high > recent_highs[i+1] and 
+                    high > recent_highs[i-2] and high > recent_highs[i+2]):
+                    distance_pct = abs(high - current_price) / current_price * 100
+                    if distance_pct < 3:  # Within 3% of current price
+                        pivot_levels.append({
+                            'price': high,
+                            'type': 'resistance',
+                            'strength': self._calculate_pivot_strength(recent_candles, i, 'high'),
+                            'distance_pct': distance_pct
+                        })
+                
+                # Pivot low (support for LONG entries)
+                if (low < recent_lows[i-1] and low < recent_lows[i+1] and 
+                    low < recent_lows[i-2] and low < recent_lows[i+2]):
+                    distance_pct = abs(current_price - low) / current_price * 100
+                    if distance_pct < 3:  # Within 3% of current price
+                        pivot_levels.append({
+                            'price': low,
+                            'type': 'support',
+                            'strength': self._calculate_pivot_strength(recent_candles, i, 'low'),
+                            'distance_pct': distance_pct
+                        })
+            
+            # Enhance with SnD zone alignment
+            enhanced_entries = []
+            for pivot in pivot_levels:
+                # Check alignment with SnD zones
+                snd_alignment = self._check_snd_alignment(pivot, snd_zones)
+                
+                if snd_alignment['aligned']:
+                    enhanced_entries.append({
+                        'entry_price': pivot['price'],
+                        'entry_type': 'LONG' if pivot['type'] == 'support' else 'SHORT',
+                        'precision_level': 'high' if pivot['strength'] > 70 else 'medium',
+                        'snd_confirmation': snd_alignment['zone_type'],
+                        'limit_order_distance': round(abs(pivot['price'] - current_price) / current_price * 100, 2),
+                        'confidence': min(95, pivot['strength'] + snd_alignment['bonus'])
+                    })
+            
+            # Sort by confidence and limit to top 3
+            enhanced_entries.sort(key=lambda x: x['confidence'], reverse=True)
+            
+            return {
+                'entries': enhanced_entries[:3],
+                'quality': 'high' if len(enhanced_entries) > 0 else 'medium',
+                'total_found': len(enhanced_entries)
+            }
+            
+        except Exception as e:
+            print(f"❌ Error calculating precision entries: {e}")
+            return {'entries': [], 'quality': 'low'}
+    
+    def _calculate_pivot_strength(self, candles, pivot_index, pivot_type):
+        """Calculate the strength of a pivot point based on volume and touch count"""
+        try:
+            pivot_candle = candles[pivot_index]
+            pivot_volume = float(pivot_candle[5])
+            
+            # Compare with average volume
+            surrounding_volumes = [float(c[5]) for c in candles[max(0, pivot_index-3):pivot_index+4]]
+            avg_volume = sum(surrounding_volumes) / len(surrounding_volumes)
+            
+            volume_strength = min(50, (pivot_volume / avg_volume) * 25)
+            
+            # Check for multiple touches (stronger level)
+            pivot_price = float(pivot_candle[2] if pivot_type == 'high' else pivot_candle[3])
+            touch_count = 0
+            
+            for candle in candles:
+                if pivot_type == 'high':
+                    if abs(float(candle[2]) - pivot_price) / pivot_price < 0.002:  # Within 0.2%
+                        touch_count += 1
+                else:
+                    if abs(float(candle[3]) - pivot_price) / pivot_price < 0.002:  # Within 0.2%
+                        touch_count += 1
+            
+            touch_strength = min(30, touch_count * 10)
+            
+            return volume_strength + touch_strength + 20  # Base 20 points
+            
+        except Exception:
+            return 40  # Default medium strength
+    
+    def _check_snd_alignment(self, pivot, snd_zones):
+        """Check if pivot point aligns with SnD zones"""
+        if not snd_zones or snd_zones.get('strength') == 'low':
+            return {'aligned': False, 'zone_type': None, 'bonus': 0}
+        
+        pivot_price = pivot['price']
+        
+        # Check demand zones for LONG entries
+        if pivot['type'] == 'support' and snd_zones.get('demand_zones'):
+            for demand_price in snd_zones['demand_zones']:
+                if abs(pivot_price - demand_price) / demand_price < 0.01:  # Within 1%
+                    return {
+                        'aligned': True,
+                        'zone_type': 'demand_zone',
+                        'bonus': 25 if snd_zones['strength'] == 'high' else 15
+                    }
+        
+        # Check supply zones for SHORT entries
+        if pivot['type'] == 'resistance' and snd_zones.get('supply_zones'):
+            for supply_price in snd_zones['supply_zones']:
+                if abs(pivot_price - supply_price) / supply_price < 0.01:  # Within 1%
+                    return {
+                        'aligned': True,
+                        'zone_type': 'supply_zone',
+                        'bonus': 25 if snd_zones['strength'] == 'high' else 15
+                    }
+        
+        return {'aligned': False, 'zone_type': None, 'bonus': 0}
+    
+    def _generate_snd_futures_signal_with_entries(self, symbol, data, language='id'):
+        """Generate SnD-based futures signal with precise limit order entry recommendations"""
+        try:
+            current_price = data['current_price']
+            snd_zones = data.get('snd_zones', {})
+            precision_entries = data.get('precision_entries', {})
+            
+            # Determine primary trend direction
+            trend_direction = self._determine_snd_trend(data)
+            
+            # Calculate trading levels with SnD integration
+            levels = self._calculate_snd_trading_levels(current_price, trend_direction, snd_zones)
+            
+            # Format price displays
+            price_display = self._format_price_smart(current_price)
+            
+            if language == 'id':
+                signal_text = f"""🎯 {symbol} SnD FUTURES {levels['direction_emoji']}
+
+💰 Harga: {price_display} {data['source_emoji']} | SnD: {snd_zones.get('strength', 'low').upper()}
+📊 Signal: {levels['direction']} | Confidence: {levels['confidence']}%
+
+💼 LEVEL TRADING SnD:
+• Entry Zone: {self._format_price_smart(levels['entry_zone_low'])} - {self._format_price_smart(levels['entry_zone_high'])}
+• TP1: {self._format_price_smart(levels['tp1'])} | TP2: {self._format_price_smart(levels['tp2'])}
+• SL: {self._format_price_smart(levels['sl'])} | R/R: {levels['rr']:.1f}:1"""
+            else:
+                signal_text = f"""🎯 {symbol} SnD FUTURES {levels['direction_emoji']}
+
+💰 Price: {price_display} {data['source_emoji']} | SnD: {snd_zones.get('strength', 'low').upper()}
+📊 Signal: {levels['direction']} | Confidence: {levels['confidence']}%
+
+💼 SnD TRADING LEVELS:
+• Entry Zone: {self._format_price_smart(levels['entry_zone_low'])} - {self._format_price_smart(levels['entry_zone_high'])}
+• TP1: {self._format_price_smart(levels['tp1'])} | TP2: {self._format_price_smart(levels['tp2'])}
+• SL: {self._format_price_smart(levels['sl'])} | R/R: {levels['rr']:.1f}:1"""
+            
+            # Add precision limit order recommendations
+            if precision_entries.get('entries') and precision_entries.get('quality') != 'low':
+                best_entry = precision_entries['entries'][0]
+                
+                if language == 'id':
+                    signal_text += f"""
+
+🎯 LIMIT ORDER RECOMMENDATION:
+• Precision Entry: {self._format_price_smart(best_entry['entry_price'])} ({best_entry['entry_type']})
+• Distance: {best_entry['limit_order_distance']}% dari harga saat ini
+• SnD Alignment: {best_entry['snd_confirmation'].replace('_', ' ').title()}
+• Order Type: LIMIT {best_entry['entry_type']} @ {self._format_price_smart(best_entry['entry_price'])}"""
+                else:
+                    signal_text += f"""
+
+🎯 LIMIT ORDER RECOMMENDATION:
+• Precision Entry: {self._format_price_smart(best_entry['entry_price'])} ({best_entry['entry_type']})
+• Distance: {best_entry['limit_order_distance']}% from current price
+• SnD Alignment: {best_entry['snd_confirmation'].replace('_', ' ').title()}
+• Order Type: LIMIT {best_entry['entry_type']} @ {self._format_price_smart(best_entry['entry_price'])}"""
+            
+            return signal_text
+            
+        except Exception as e:
+            print(f"❌ Error generating SnD futures signal for {symbol}: {e}")
+            return None
+    
+    def _determine_snd_trend(self, data):
+        """Determine trend direction based on SnD zones and market structure"""
+        snd_zones = data.get('snd_zones', {})
+        breakout_signals = data.get('breakout_signals', {})
+        current_price = data['current_price']
+        
+        # Priority 1: Breakout signals
+        if breakout_signals.get('breakout_signal') and breakout_signals.get('confidence', 0) > 70:
+            return breakout_signals['breakout_signal']['direction']
+        
+        # Priority 2: SnD zone positioning
+        if snd_zones.get('strength') in ['medium', 'high']:
+            demand_zones = snd_zones.get('demand_zones', [])
+            supply_zones = snd_zones.get('supply_zones', [])
+            
+            # Find nearest zones
+            nearest_demand = min(demand_zones, default=0, key=lambda x: abs(x - current_price)) if demand_zones else 0
+            nearest_supply = min(supply_zones, default=float('inf'), key=lambda x: abs(x - current_price)) if supply_zones else float('inf')
+            
+            demand_distance = abs(current_price - nearest_demand) / current_price * 100 if nearest_demand > 0 else 100
+            supply_distance = abs(nearest_supply - current_price) / current_price * 100 if nearest_supply != float('inf') else 100
+            
+            # Closer to demand = LONG bias, closer to supply = SHORT bias
+            if demand_distance < supply_distance and demand_distance < 2:
+                return 'LONG'
+            elif supply_distance < demand_distance and supply_distance < 2:
+                return 'SHORT'
+        
+        # Priority 3: Futures sentiment
+        futures_data = data.get('futures_data', {})
+        if 'error' not in futures_data:
+            ls_data = futures_data.get('long_short_ratio_data', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                if long_ratio > 75:
+                    return 'SHORT'  # Contrarian
+                elif long_ratio < 25:
+                    return 'LONG'   # Contrarian
+        
+        # Default to LONG if no clear direction
+        return 'LONG'
+    
+    def _calculate_snd_trading_levels(self, current_price, direction, snd_zones):
+        """Calculate trading levels with SnD zone integration and entry zones for limit orders"""
+        
+        # Base entry zone calculation
+        if direction == 'LONG':
+            base_entry = current_price * 0.998
+            entry_zone_low = current_price * 0.995
+            entry_zone_high = current_price * 1.001
+            tp1 = current_price * 1.025
+            tp2 = current_price * 1.05
+            sl = current_price * 0.98
+            emoji = "🟢"
+        else:
+            base_entry = current_price * 1.002
+            entry_zone_low = current_price * 0.999
+            entry_zone_high = current_price * 1.005
+            tp1 = current_price * 0.975
+            tp2 = current_price * 0.95
+            sl = current_price * 1.02
+            emoji = "🔴"
+        
+        # Adjust levels based on SnD zones if high quality
+        if snd_zones.get('strength') == 'high':
+            if direction == 'LONG' and snd_zones.get('demand_zones'):
+                # Find nearest demand zone
+                nearest_demand = max([z for z in snd_zones['demand_zones'] if z < current_price * 1.02], default=None)
+                if nearest_demand:
+                    # Adjust entry zone to align with demand zone
+                    entry_zone_low = nearest_demand * 0.999
+                    entry_zone_high = nearest_demand * 1.003
+                    sl = max(sl, nearest_demand * 0.995)  # SL below demand zone
+            
+            elif direction == 'SHORT' and snd_zones.get('supply_zones'):
+                # Find nearest supply zone
+                nearest_supply = min([z for z in snd_zones['supply_zones'] if z > current_price * 0.98], default=None)
+                if nearest_supply:
+                    # Adjust entry zone to align with supply zone
+                    entry_zone_low = nearest_supply * 0.997
+                    entry_zone_high = nearest_supply * 1.001
+                    sl = min(sl, nearest_supply * 1.005)  # SL above supply zone
+        
+        # Calculate risk/reward
+        avg_entry = (entry_zone_low + entry_zone_high) / 2
+        rr_ratio = abs(tp2 - avg_entry) / abs(sl - avg_entry) if abs(sl - avg_entry) > 0 else 2.5
+        
+        # Confidence based on SnD strength
+        confidence = 85 if snd_zones.get('strength') == 'high' else 75 if snd_zones.get('strength') == 'medium' else 65
+        
+        return {
+            'direction': direction,
+            'direction_emoji': emoji,
+            'entry_zone_low': entry_zone_low,
+            'entry_zone_high': entry_zone_high,
+            'tp1': tp1,
+            'tp2': tp2,
+            'sl': sl,
+            'rr': rr_ratio,
+            'confidence': confidence
+        }
+    
     def _get_snd_context(self, snd_zones, current_price, language='id'):
         """Get brief SnD context for signal"""
         if language == 'id':
@@ -2057,8 +2435,61 @@ class AIAssistant:
             else:
                 return f"📊 SnD: Medium setup (strength: {snd_zones['strength']})"
     
+    def _format_final_snd_signals_output(self, signals, language='id'):
+        """Format final SnD-optimized output with limit order guidance"""
+        if not signals:
+            return "❌ No SnD signals generated. Try again later."
+        
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+        
+        if language == 'id':
+            header = f"""🚨 SnD FUTURES SIGNALS - TOP {len(signals)} COINS
+⏰ {current_time} | 📊 Multi-Timeframe SnD | 🎯 Limit Order Ready
+
+"""
+            footer = """
+══════════════════════════════════════════
+🎯 LIMIT ORDER STRATEGY:
+• Entry Zone = area untuk spread limit orders
+• Precision Entry = entry terbaik dengan limit order
+• Gunakan LIMIT order untuk entry yang lebih baik
+• Scale-in di entry zone untuk mengurangi risiko
+
+🛡️ SnD RISK MANAGEMENT:
+• Max 1.5% position size per trade (SnD = precision trading)
+• SL WAJIB di luar zona SnD
+• Take profit bertahap: 40% di TP1, 60% di TP2
+• Cancel limit order jika struktur SnD berubah
+
+📊 Data: CoinAPI + Binance + Advanced SnD Analysis
+⚠️ SnD trading memerlukan disiplin dan patience!"""
+            
+        else:
+            header = f"""🚨 SnD FUTURES SIGNALS - TOP {len(signals)} COINS
+⏰ {current_time} | 📊 Multi-Timeframe SnD | 🎯 Limit Order Ready
+
+"""
+            footer = """
+══════════════════════════════════════════
+🎯 LIMIT ORDER STRATEGY:
+• Entry Zone = area to spread limit orders
+• Precision Entry = best entry with limit order
+• Use LIMIT orders for better entry execution
+• Scale-in at entry zone to reduce risk
+
+🛡️ SnD RISK MANAGEMENT:
+• Max 1.5% position size per trade (SnD = precision trading)
+• SL MANDATORY outside SnD zones
+• Take profit gradually: 40% at TP1, 60% at TP2
+• Cancel limit orders if SnD structure changes
+
+📊 Data: CoinAPI + Binance + Advanced SnD Analysis
+⚠️ SnD trading requires discipline and patience!"""
+        
+        return header + "\n\n".join(signals) + footer
+    
     def _format_final_signals_output(self, signals, language='id'):
-        """Format final optimized output"""
+        """Format final optimized output - legacy method"""
         if not signals:
             return "❌ No signals generated. Try again later."
         
