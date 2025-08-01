@@ -64,22 +64,26 @@ class Database:
 
         except Exception as e:
             print(f"❌ CRITICAL: Error in table schema migration: {e}")
-            print("🔧 Attempting safe recovery without data loss...")
+            print("🔧 SAFE MODE: Preserving all user data...")
             
-            # SAFE RECOVERY: Backup existing data before recreate
+            # SAFE RECOVERY: Always backup before any changes
             try:
-                # Check if table exists and has data
+                # Create timestamp for backup
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_table = f"users_backup_{timestamp}"
+                
+                # Always create backup first
+                self.cursor.execute(f"CREATE TABLE {backup_table} AS SELECT * FROM users")
+                print(f"✅ Emergency backup created: {backup_table}")
+                
+                # Check if we have users to preserve
                 self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
                 user_count = self.cursor.fetchone()[0]
                 
                 if user_count > 0:
-                    print(f"⚠️ WARNING: {user_count} users found! Creating backup...")
+                    print(f"⚠️ PRESERVING {user_count} users during schema update...")
                     
-                    # Create backup table
-                    self.cursor.execute("CREATE TABLE users_backup AS SELECT * FROM users")
-                    print("✅ User data backed up to users_backup table")
-                    
-                    # Drop and recreate with COMPLETE schema
+                    # Recreate table with correct schema
                     self.cursor.execute("DROP TABLE users")
                     self.cursor.execute("""
                         CREATE TABLE users (
@@ -100,12 +104,15 @@ class Database:
                         )
                     """)
                     
-                    # Restore data from backup
-                    self.cursor.execute("""
+                    # Restore ALL data preserving premium status
+                    self.cursor.execute(f"""
                         INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
                                          is_premium, credits, subscription_end, referred_by, referral_code,
                                          premium_referral_code, premium_earnings, created_at)
-                        SELECT telegram_id, first_name, last_name, username, 
+                        SELECT telegram_id, 
+                               COALESCE(first_name, 'User'),
+                               last_name,
+                               COALESCE(username, 'no_username'),
                                COALESCE(language_code, 'id'),
                                COALESCE(is_premium, 0),
                                COALESCE(credits, 100),
@@ -115,18 +122,20 @@ class Database:
                                premium_referral_code,
                                COALESCE(premium_earnings, 0),
                                COALESCE(created_at, datetime('now'))
-                        FROM users_backup 
-                        WHERE telegram_id IS NOT NULL
+                        FROM {backup_table}
+                        WHERE telegram_id IS NOT NULL AND telegram_id != 0
                     """)
                     
                     restored_count = self.cursor.rowcount
-                    print(f"✅ Restored {restored_count} users with complete schema")
+                    print(f"✅ RESTORED {restored_count} users with ALL PREMIUM STATUS PRESERVED")
                     
-                    # Keep backup table for safety
-                    print("💾 Backup table 'users_backup' preserved for safety")
+                    # Verify premium users were restored
+                    self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
+                    premium_count = self.cursor.fetchone()[0]
+                    print(f"✅ Premium users verified: {premium_count}")
                     
                 else:
-                    # No users, safe to recreate
+                    # Safe to recreate empty table
                     self.cursor.execute("DROP TABLE IF EXISTS users")
                     self.cursor.execute("""
                         CREATE TABLE users (
@@ -150,26 +159,9 @@ class Database:
                     
             except Exception as recovery_error:
                 print(f"❌ RECOVERY FAILED: {recovery_error}")
-                # Last resort: create minimal working table
-                self.cursor.execute("DROP TABLE IF EXISTS users")
-                self.cursor.execute("""
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        telegram_id INTEGER UNIQUE,
-                        first_name TEXT,
-                        last_name TEXT,
-                        username TEXT,
-                        language_code TEXT DEFAULT 'id',
-                        is_premium INTEGER DEFAULT 0,
-                        credits INTEGER DEFAULT 0,
-                        subscription_end TEXT,
-                        referred_by INTEGER,
-                        referral_code TEXT,
-                        premium_referral_code TEXT,
-                        premium_earnings INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+                # Emergency: Don't drop the table if recovery fails
+                print("🚨 EMERGENCY: Keeping existing table to prevent data loss")
+                # Try to work with existing structure
 
         # Create subscriptions table
         self.cursor.execute("""

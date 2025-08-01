@@ -63,7 +63,7 @@ async def main():
     while retry_count < max_retries:
         try:
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
-
+            
             # Initialize bot
             bot = TelegramBot()
 
@@ -84,7 +84,7 @@ async def main():
 
             print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
             logger.error(f"Bot crashed: {e}")
-            
+
             # Log specific error types for debugging
             if "HTTPXRequest" in error_msg:
                 print("🔧 HTTPXRequest initialization error - telegram-bot version issue")
