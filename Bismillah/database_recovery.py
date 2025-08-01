@@ -21,7 +21,7 @@ class DatabaseRecovery:
             os.makedirs(self.backup_dir)
     
     def create_full_backup(self):
-        """Create complete database backup"""
+        """Create complete database backup with metadata"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = f"{self.backup_dir}/backup_{timestamp}.db"
@@ -30,7 +30,20 @@ class DatabaseRecovery:
             import shutil
             shutil.copy2(self.db_path, backup_file)
             
+            # Create metadata
+            metadata = {
+                'backup_time': timestamp,
+                'database_size': os.path.getsize(self.db_path),
+                'backup_type': 'full_database'
+            }
+            
+            metadata_file = f"{self.backup_dir}/backup_{timestamp}_metadata.json"
+            import json
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
             print(f"✅ Full database backup created: {backup_file}")
+            print(f"📋 Metadata saved: {metadata_file}")
             return backup_file
         except Exception as e:
             print(f"❌ Backup failed: {e}")

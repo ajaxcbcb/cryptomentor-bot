@@ -63,7 +63,7 @@ async def main():
     while retry_count < max_retries:
         try:
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
-            
+
             # Initialize bot
             bot = TelegramBot()
 
