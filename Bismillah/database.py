@@ -16,7 +16,7 @@ class Database:
     def create_tables(self):
         # Check if tables exist and add missing columns if needed
         try:
-            # Create users table with all required columns
+            # Create users table with all required columns (COMPLETE SCHEMA)
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,61 +36,140 @@ class Database:
                 )
             """)
 
-            # Check if telegram_id column exists, if not add it
+            # Get current table schema
             self.cursor.execute("PRAGMA table_info(users)")
             columns = [column[1] for column in self.cursor.fetchall()]
+            print(f"Current table columns: {columns}")
 
-            if 'telegram_id' not in columns:
-                print("Adding missing telegram_id column to users table...")
-                self.cursor.execute("ALTER TABLE users ADD COLUMN telegram_id INTEGER")
+            # Add missing columns one by one with error handling
+            missing_columns = [
+                ('telegram_id', 'INTEGER'),
+                ('language_code', "TEXT DEFAULT 'id'"),
+                ('is_premium', 'INTEGER DEFAULT 0'),
+                ('credits', 'INTEGER DEFAULT 0'),
+                ('subscription_end', 'TEXT'),
+                ('referred_by', 'INTEGER'),
+                ('referral_code', 'TEXT'),
+                ('premium_referral_code', 'TEXT'),
+                ('premium_earnings', 'INTEGER DEFAULT 0')
+            ]
 
-            if 'language_code' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN language_code TEXT DEFAULT 'id'")
-
-            if 'is_premium' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
-
-            if 'credits' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 0")
-
-            if 'subscription_end' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN subscription_end TEXT")
-
-            if 'referred_by' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN referred_by INTEGER")
-
-            if 'referral_code' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
-
-            if 'premium_referral_code' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_referral_code TEXT")
-
-            if 'premium_earnings' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_earnings INTEGER DEFAULT 0")
-
-            if 'premium_referral_code' not in columns:
-                self.cursor.execute("ALTER TABLE users ADD COLUMN premium_referral_code TEXT")
+            for column_name, column_def in missing_columns:
+                if column_name not in columns:
+                    try:
+                        self.cursor.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_def}")
+                        print(f"✅ Added missing column: {column_name}")
+                    except Exception as col_error:
+                        print(f"⚠️ Column {column_name} might already exist: {col_error}")
 
         except Exception as e:
-            print(f"Error updating users table schema: {e}")
-            # If there's an error, drop and recreate the table
-            self.cursor.execute("DROP TABLE IF EXISTS users")
-            self.cursor.execute("""
-                CREATE TABLE users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER UNIQUE,
-                    first_name TEXT,
-                    last_name TEXT,
-                    username TEXT,
-                    language_code TEXT DEFAULT 'id',
-                    is_premium INTEGER DEFAULT 0,
-                    credits INTEGER DEFAULT 0,
-                    subscription_end TEXT,
-                    referred_by INTEGER,
-                    referral_code TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            print(f"❌ CRITICAL: Error in table schema migration: {e}")
+            print("🔧 Attempting safe recovery without data loss...")
+            
+            # SAFE RECOVERY: Backup existing data before recreate
+            try:
+                # Check if table exists and has data
+                self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+                user_count = self.cursor.fetchone()[0]
+                
+                if user_count > 0:
+                    print(f"⚠️ WARNING: {user_count} users found! Creating backup...")
+                    
+                    # Create backup table
+                    self.cursor.execute("CREATE TABLE users_backup AS SELECT * FROM users")
+                    print("✅ User data backed up to users_backup table")
+                    
+                    # Drop and recreate with COMPLETE schema
+                    self.cursor.execute("DROP TABLE users")
+                    self.cursor.execute("""
+                        CREATE TABLE users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            telegram_id INTEGER UNIQUE,
+                            first_name TEXT,
+                            last_name TEXT,
+                            username TEXT,
+                            language_code TEXT DEFAULT 'id',
+                            is_premium INTEGER DEFAULT 0,
+                            credits INTEGER DEFAULT 0,
+                            subscription_end TEXT,
+                            referred_by INTEGER,
+                            referral_code TEXT,
+                            premium_referral_code TEXT,
+                            premium_earnings INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    
+                    # Restore data from backup
+                    self.cursor.execute("""
+                        INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
+                                         is_premium, credits, subscription_end, referred_by, referral_code,
+                                         premium_referral_code, premium_earnings, created_at)
+                        SELECT telegram_id, first_name, last_name, username, 
+                               COALESCE(language_code, 'id'),
+                               COALESCE(is_premium, 0),
+                               COALESCE(credits, 100),
+                               subscription_end,
+                               referred_by,
+                               referral_code,
+                               premium_referral_code,
+                               COALESCE(premium_earnings, 0),
+                               COALESCE(created_at, datetime('now'))
+                        FROM users_backup 
+                        WHERE telegram_id IS NOT NULL
+                    """)
+                    
+                    restored_count = self.cursor.rowcount
+                    print(f"✅ Restored {restored_count} users with complete schema")
+                    
+                    # Keep backup table for safety
+                    print("💾 Backup table 'users_backup' preserved for safety")
+                    
+                else:
+                    # No users, safe to recreate
+                    self.cursor.execute("DROP TABLE IF EXISTS users")
+                    self.cursor.execute("""
+                        CREATE TABLE users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            telegram_id INTEGER UNIQUE,
+                            first_name TEXT,
+                            last_name TEXT,
+                            username TEXT,
+                            language_code TEXT DEFAULT 'id',
+                            is_premium INTEGER DEFAULT 0,
+                            credits INTEGER DEFAULT 0,
+                            subscription_end TEXT,
+                            referred_by INTEGER,
+                            referral_code TEXT,
+                            premium_referral_code TEXT,
+                            premium_earnings INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    print("✅ Empty table recreated with complete schema")
+                    
+            except Exception as recovery_error:
+                print(f"❌ RECOVERY FAILED: {recovery_error}")
+                # Last resort: create minimal working table
+                self.cursor.execute("DROP TABLE IF EXISTS users")
+                self.cursor.execute("""
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        telegram_id INTEGER UNIQUE,
+                        first_name TEXT,
+                        last_name TEXT,
+                        username TEXT,
+                        language_code TEXT DEFAULT 'id',
+                        is_premium INTEGER DEFAULT 0,
+                        credits INTEGER DEFAULT 0,
+                        subscription_end TEXT,
+                        referred_by INTEGER,
+                        referral_code TEXT,
+                        premium_referral_code TEXT,
+                        premium_earnings INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
 
         # Create subscriptions table
         self.cursor.execute("""
@@ -1033,6 +1112,60 @@ class Database:
         except Exception as e:
             print(f"DB Error (set_user_language): {e}")
             return False
+
+    def create_automatic_backup(self):
+        """Create automatic backup of critical user data"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Backup users table
+            self.cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS users_backup_{timestamp} AS 
+                SELECT * FROM users WHERE telegram_id IS NOT NULL
+            """)
+            
+            # Backup premium referrals
+            self.cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS premium_referrals_backup_{timestamp} AS 
+                SELECT * FROM premium_referrals
+            """)
+            
+            self.conn.commit()
+            print(f"✅ Automatic backup created: users_backup_{timestamp}")
+            return timestamp
+            
+        except Exception as e:
+            print(f"❌ Error creating automatic backup: {e}")
+            return None
+
+    def verify_user_data_integrity(self):
+        """Verify user data integrity after updates"""
+        try:
+            # Check for premium users
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
+            premium_count = self.cursor.fetchone()[0]
+            
+            # Check for lifetime users (subscription_end IS NULL)
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND subscription_end IS NULL")
+            lifetime_count = self.cursor.fetchone()[0]
+            
+            # Check for data corruption
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+            corrupt_count = self.cursor.fetchone()[0]
+            
+            integrity_report = {
+                'premium_users': premium_count,
+                'lifetime_users': lifetime_count,
+                'corrupt_entries': corrupt_count,
+                'integrity_ok': corrupt_count == 0
+            }
+            
+            print(f"📊 Data Integrity: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
+            return integrity_report
+            
+        except Exception as e:
+            print(f"❌ Error verifying data integrity: {e}")
+            return {'integrity_ok': False, 'error': str(e)}
 
     def close(self):
         """Close database connection"""
