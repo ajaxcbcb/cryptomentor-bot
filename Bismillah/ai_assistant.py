@@ -106,62 +106,115 @@ class AIAssistant:
         }
 
     def _analyze_market_structure(self, symbol, market_data, timeframe):
-        """Analyze market structure and determine trading direction with HOLD for low confidence"""
+        """Analyze market structure with improved SHORT detection and reduced LONG bias"""
         futures_data = market_data['futures_data']
         snd_data = market_data['snd_data']
+        coinapi_data = market_data['coinapi_data']
         
-        # Calculate signal strength
+        # Calculate signal strength with better balance
         signal_strength = 0
         signal_factors = []
+        preferred_direction = None
         
-        # Factor 1: SnD Analysis
+        # Factor 1: Price momentum analysis (NEW - check actual price movement)
+        if 'error' not in coinapi_data:
+            price_change_24h = coinapi_data.get('change_24h', 0)
+            if price_change_24h < -3:  # Strong bearish movement
+                signal_strength += 3
+                preferred_direction = 'SHORT'
+                signal_factors.append(f"📉 Strong bearish momentum ({price_change_24h:.1f}%)")
+            elif price_change_24h < -1:  # Mild bearish
+                signal_strength += 1
+                preferred_direction = 'SHORT'
+                signal_factors.append(f"📉 Bearish momentum ({price_change_24h:.1f}%)")
+            elif price_change_24h > 3:  # Strong bullish
+                signal_strength += 3
+                preferred_direction = 'LONG'
+                signal_factors.append(f"📈 Strong bullish momentum ({price_change_24h:.1f}%)")
+            elif price_change_24h > 1:  # Mild bullish
+                signal_strength += 1
+                preferred_direction = 'LONG'
+                signal_factors.append(f"📈 Bullish momentum ({price_change_24h:.1f}%)")
+            else:  # Sideways
+                signal_factors.append(f"📊 Sideways movement ({price_change_24h:.1f}%)")
+        
+        # Factor 2: SnD Analysis with better SHORT detection
         if 'error' not in snd_data and snd_data.get('signals'):
             best_snd_signal = max(snd_data['signals'], key=lambda x: x.get('confidence', 0))
-            if best_snd_signal.get('confidence', 0) > 60:
-                signal_strength += 3
-                signal_factors.append(f"🎯 SnD {best_snd_signal.get('direction', 'LONG')} zone confirmed")
-                preferred_direction = best_snd_signal.get('direction', 'LONG')
-            else:
-                preferred_direction = 'HOLD'  # Set HOLD if SnD confidence is low
-        else:
-            preferred_direction = 'HOLD'  # Set HOLD if no SnD signals
+            snd_confidence = best_snd_signal.get('confidence', 0)
+            snd_direction = best_snd_signal.get('direction', 'LONG')
             
-        # Factor 2: Futures sentiment
+            if snd_confidence > 60:
+                signal_strength += 2
+                signal_factors.append(f"🎯 SnD {snd_direction} zone confirmed ({snd_confidence:.0f}%)")
+                
+                # Override preferred direction if SnD is strong enough
+                if snd_confidence > 70:
+                    preferred_direction = snd_direction
+                elif preferred_direction is None:
+                    preferred_direction = snd_direction
+            
+        # Factor 3: Futures sentiment with enhanced SHORT logic
         if 'error' not in futures_data:
             ls_data = futures_data.get('long_short_ratio_data', {})
+            funding_data = futures_data.get('funding_rate_data', {})
+            
             if 'error' not in ls_data:
                 long_ratio = ls_data.get('long_ratio', 50)
-                if long_ratio > 70:
-                    signal_strength += 2 if preferred_direction == 'SHORT' else -1
-                    signal_factors.append(f"⚠️ Overcrowded longs ({long_ratio:.1f}%)")
-                elif long_ratio < 30:
-                    signal_strength += 2 if preferred_direction == 'LONG' else -1
+                
+                # Enhanced SHORT conditions
+                if long_ratio > 75:  # Extremely overcrowded longs
+                    signal_strength += 3
+                    if preferred_direction != 'SHORT':
+                        preferred_direction = 'SHORT'  # Force SHORT for extreme conditions
+                    signal_factors.append(f"🔴 Extremely overcrowded longs ({long_ratio:.1f}%) - SHORT setup")
+                elif long_ratio > 65:  # Overcrowded longs
+                    signal_strength += 2
+                    signal_factors.append(f"⚠️ Overcrowded longs ({long_ratio:.1f}%) - contrarian SHORT")
+                elif long_ratio < 25:  # Extremely overcrowded shorts
+                    signal_strength += 3
+                    if preferred_direction != 'LONG':
+                        preferred_direction = 'LONG'
+                    signal_factors.append(f"🟢 Extremely oversold ({long_ratio:.1f}%) - LONG opportunity")
+                elif long_ratio < 35:  # Oversold
+                    signal_strength += 2
                     signal_factors.append(f"💎 Oversold conditions ({long_ratio:.1f}%)")
+            
+            # Enhanced funding rate analysis
+            if 'error' not in funding_data:
+                funding_rate = funding_data.get('last_funding_rate', 0)
+                if funding_rate > 0.01:  # High positive funding favors SHORT
+                    signal_strength += 2
+                    if preferred_direction is None or preferred_direction == 'LONG':
+                        preferred_direction = 'SHORT'
+                    signal_factors.append(f"💸 High positive funding ({funding_rate*100:.3f}%) - longs overpaying")
+                elif funding_rate < -0.005:  # Negative funding favors LONG
+                    signal_strength += 1
+                    signal_factors.append(f"💰 Negative funding ({funding_rate*100:.3f}%) - shorts overpaying")
         
-        # Factor 3: Timeframe bias
-        timeframe_weight = {'15m': 1, '30m': 1.5, '1h': 2, '4h': 3, '1d': 4}.get(timeframe, 2)
-        signal_strength += timeframe_weight
-        signal_factors.append(f"📊 {timeframe} structure analysis")
+        # Factor 4: Market condition priority for SHORT signals
+        current_price = coinapi_data.get('price', 0) if 'error' not in coinapi_data else 0
+        if current_price > 0:
+            # Price level analysis for key coins
+            if symbol == 'BTC' and current_price > 70000:
+                signal_strength += 1
+                signal_factors.append("⚠️ BTC at high levels - potential resistance")
+            elif symbol == 'ETH' and current_price > 4000:
+                signal_strength += 1
+                signal_factors.append("⚠️ ETH at high levels - potential resistance")
         
-        # Determine final direction and confidence with HOLD logic
-        if signal_strength >= 4 and preferred_direction != 'HOLD':
+        # Determine final direction with improved logic
+        if signal_strength >= 4 and preferred_direction:
             direction = preferred_direction
-            confidence = min(90, 65 + signal_strength * 5)
-        elif signal_strength <= 1 or preferred_direction == 'HOLD':
-            # NEW LOGIC: Return HOLD instead of forcing LONG/SHORT
-            direction = 'HOLD'
-            confidence = 50  # Low confidence for HOLD
-            signal_factors.append("⏸️ Sinyal tidak jelas - tunggu konfirmasi market")
+            confidence = min(92, 65 + signal_strength * 4)
+        elif signal_strength >= 2 and preferred_direction:
+            direction = preferred_direction
+            confidence = min(85, 60 + signal_strength * 5)
         else:
-            # Only assign LONG/SHORT if confidence > 60%
-            calculated_confidence = min(85, 60 + signal_strength * 5)
-            if calculated_confidence > 60:
-                direction = preferred_direction if preferred_direction != 'HOLD' else 'LONG'
-                confidence = calculated_confidence
-            else:
-                direction = 'HOLD'
-                confidence = 50
-                signal_factors.append("⏸️ Confidence rendah - hold position")
+            # Return HOLD for unclear market conditions
+            direction = 'HOLD'
+            confidence = 45
+            signal_factors.append("⏸️ Market conditions unclear - avoid trading")
         
         return {
             'direction': direction,
@@ -171,40 +224,59 @@ class AIAssistant:
         }
 
     def _calculate_trading_levels(self, current_price, market_analysis):
-        """Calculate precise entry, TP, and SL levels"""
+        """Calculate precise entry, TP, and SL levels with 2.5%/3% RR"""
         direction = market_analysis['direction']
         confidence = market_analysis['confidence']
         
-        # Adjust risk based on confidence
-        risk_multiplier = 1.0 if confidence >= 80 else 1.2 if confidence >= 70 else 1.5
+        # Base risk: 2.5% for TP1, 3% for TP2, 1.2% for SL (improved RR)
+        base_tp1_percent = 0.025  # 2.5%
+        base_tp2_percent = 0.03   # 3% 
+        base_sl_percent = 0.012   # 1.2%
+        
+        # Adjust risk based on confidence (less aggressive adjustments)
+        risk_multiplier = 1.0 if confidence >= 80 else 1.1 if confidence >= 70 else 1.2
         
         if direction == 'LONG':
-            entry = current_price * 0.998  # Slight dip entry
-            tp1 = current_price * (1 + 0.025 / risk_multiplier)  # 2.5% adjusted for confidence
-            tp2 = current_price * (1 + 0.05 / risk_multiplier)   # 5% adjusted for confidence
-            sl = current_price * (1 - 0.02 * risk_multiplier)    # 2% SL adjusted for risk
-        else:  # SHORT
-            entry = current_price * 1.002  # Slight pump entry
-            tp1 = current_price * (1 - 0.025 / risk_multiplier)  # 2.5% down
-            tp2 = current_price * (1 - 0.05 / risk_multiplier)   # 5% down
-            sl = current_price * (1 + 0.02 * risk_multiplier)    # 2% SL up
+            entry = current_price * 0.9985  # Better entry timing
+            tp1 = current_price * (1 + base_tp1_percent)  # Fixed 2.5%
+            tp2 = current_price * (1 + base_tp2_percent)  # Fixed 3%
+            sl = current_price * (1 - base_sl_percent * risk_multiplier)  # 1.2-1.44% SL
+        elif direction == 'SHORT':
+            entry = current_price * 1.0015  # Better short entry
+            tp1 = current_price * (1 - base_tp1_percent)  # Fixed 2.5% down
+            tp2 = current_price * (1 - base_tp2_percent)  # Fixed 3% down  
+            sl = current_price * (1 + base_sl_percent * risk_multiplier)  # 1.2-1.44% SL up
+        else:  # HOLD
+            # For HOLD, return neutral levels
+            entry = current_price
+            tp1 = current_price * 1.01
+            tp2 = current_price * 1.015
+            sl = current_price * 0.995
         
-        # Calculate risk/reward
-        risk = abs(entry - sl)
-        reward = abs(tp2 - entry)
-        rr_ratio = reward / risk if risk > 0 else 2.5
+        # Calculate actual risk/reward
+        if direction != 'HOLD':
+            risk = abs(entry - sl)
+            reward1 = abs(tp1 - entry)
+            reward2 = abs(tp2 - entry)
+            rr_ratio1 = reward1 / risk if risk > 0 else 2.0
+            rr_ratio2 = reward2 / risk if risk > 0 else 2.5
+        else:
+            rr_ratio1 = 1.0
+            rr_ratio2 = 1.5
         
         return {
             'entry': entry,
             'tp1': tp1,
             'tp2': tp2,
             'sl': sl,
-            'rr_ratio': rr_ratio,
+            'rr_ratio': rr_ratio2,  # Use TP2 RR as main ratio
+            'rr_ratio1': rr_ratio1,
+            'rr_ratio2': rr_ratio2,
             'risk_level': 'low' if confidence >= 80 else 'medium' if confidence >= 70 else 'high'
         }
 
     def _format_futures_output(self, symbol, timeframe, market_data, market_analysis, trading_levels, language='id'):
-        """Format the final clean output for Telegram with HOLD handling"""
+        """Format the final clean output for Telegram with improved HOLD handling"""
         price = market_data['price']
         direction = market_analysis['direction']
         confidence = market_analysis['confidence']
@@ -219,12 +291,15 @@ class AIAssistant:
             else:
                 return f"${p:,.2f}"
         
-        # Handle HOLD signals
+        # Enhanced emoji logic for better visual feedback
         if direction == 'HOLD':
             direction_emoji = "⏸️"
             confidence_emoji = "⚠️"
-        else:
-            direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+        elif direction == 'SHORT':
+            direction_emoji = "🔴"
+            confidence_emoji = "🔥" if confidence >= 85 else "⚡" if confidence >= 75 else "📉"
+        else:  # LONG
+            direction_emoji = "🟢"
             confidence_emoji = "🔥" if confidence >= 85 else "⭐" if confidence >= 75 else "💡"
         
         if language == 'id':
@@ -237,22 +312,29 @@ class AIAssistant:
 {direction_emoji} **SIGNAL**: {direction} {confidence_emoji}
 📊 **Confidence**: {confidence:.0f}%
 
-⏸️ **REKOMENDASI HOLD:**
-• Tidak ada setup trading yang jelas
-• Tunggu konfirmasi trend yang lebih kuat
-• Monitor level kunci: Support ${format_price(price * 0.97)} | Resistance ${format_price(price * 1.03)}
+⏸️ **REKOMENDASI HOLD - JANGAN TRADING:**
+• Market tidak memberikan sinyal yang jelas
+• Risk/reward tidak menguntungkan saat ini
+• Tunggu momentum yang lebih kuat
+• Monitor breakout level: Support ${format_price(price * 0.975)} | Resistance ${format_price(price * 1.025)}
 
-📈 **ANALISIS:**"""
+📈 **ANALISIS MARKET:**"""
                 
-                for factor in factors[:3]:  # Limit to 3 key factors
+                for factor in factors[:4]:  # Show more factors for HOLD
                     message += f"\n• {factor}"
                 
                 message += f"""
 
-⚡ **STRATEGI HOLD:**
-• Tunggu breakout atau breakdown yang jelas
-• Confidence terlalu rendah untuk entry
-• Observasi saja, jangan FOMO
+⚡ **STRATEGI HOLD (PENTING):**
+• JANGAN paksa entry saat signal HOLD
+• Tunggu konfirmasi breakout/breakdown dengan volume
+• Setup trading yang buruk = kerugian pasti
+• Patience adalah kunci trading yang profitable
+
+💡 **Next Action:**
+• Pantau pergerakan harga di level kunci
+• Cek ulang dalam 2-4 jam
+• Look for clear trend confirmation
 
 ⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
             else:
@@ -278,14 +360,21 @@ class AIAssistant:
                 message += f"""
 
 ⚡ **STRATEGY {timeframe.upper()}:**
-• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• TP1 Risk/Reward: {trading_levels.get('rr_ratio1', 2.0):.1f}:1 (2.5% target)
+• TP2 Risk/Reward: {trading_levels.get('rr_ratio2', 2.5):.1f}:1 (3.0% target)
 • Risk Level: {trading_levels['risk_level'].title()}
-• Position size: 1-2% modal
+• Position size: {"2-3%" if confidence >= 80 else "1-2%" if confidence >= 70 else "0.5-1%"} modal
 
-🛡️ **RISK MANAGEMENT:**
-• Set SL WAJIB sebelum entry
-• Take profit bertahap di TP1 & TP2
-• Exit jika struktur berubah
+🛡️ **RISK MANAGEMENT KETAT:**
+• Set SL WAJIB sebelum entry (Max loss: 1.2-1.4%)
+• Take profit: 50% di TP1 (2.5%), 50% di TP2 (3%)
+• Move SL to breakeven setelah TP1 hit
+• Exit immediate jika market structure berubah
+
+⚠️ **WARNING untuk {direction}:**
+• Validate sinyal dengan price action confirmation
+• Jangan entry jika volume rendah
+• Cut loss cepat jika salah arah
 
 ⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
         
