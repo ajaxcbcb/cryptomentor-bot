@@ -118,3 +118,27 @@ def cleanup_old_files(directory, max_age_days=7):
     except Exception as e:
         print(f"❌ Error cleaning up files: {e}")
         return 0
+
+def ensure_database_persistence():
+    """Ensure database persistence across deployments"""
+    try:
+        from database import Database
+        db = Database()
+        
+        # Create backup
+        backup_timestamp = db.create_automatic_backup()
+        
+        # Verify data integrity
+        integrity = db.verify_user_data_integrity()
+        
+        db.close()
+        
+        return {
+            'backup_created': backup_timestamp is not None,
+            'integrity_ok': integrity.get('integrity_ok', False),
+            'premium_users': integrity.get('premium_users', 0),
+            'lifetime_users': integrity.get('lifetime_users', 0)
+        }
+    except Exception as e:
+        print(f"❌ Database persistence check failed: {e}")
+        return {'backup_created': False, 'integrity_ok': False}
