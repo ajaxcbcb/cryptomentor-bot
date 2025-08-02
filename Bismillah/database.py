@@ -65,24 +65,24 @@ class Database:
         except Exception as e:
             print(f"❌ CRITICAL: Error in table schema migration: {e}")
             print("🔧 SAFE MODE: Preserving all user data...")
-
+            
             # SAFE RECOVERY: Always backup before any changes
             try:
                 # Create timestamp for backup
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_table = f"users_backup_{timestamp}"
-
+                
                 # Always create backup first
                 self.cursor.execute(f"CREATE TABLE {backup_table} AS SELECT * FROM users")
                 print(f"✅ Emergency backup created: {backup_table}")
-
+                
                 # Check if we have users to preserve
                 self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
                 user_count = self.cursor.fetchone()[0]
-
+                
                 if user_count > 0:
                     print(f"⚠️ PRESERVING {user_count} users during schema update...")
-
+                    
                     # Recreate table with correct schema
                     self.cursor.execute("DROP TABLE users")
                     self.cursor.execute("""
@@ -103,7 +103,7 @@ class Database:
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
-
+                    
                     # Restore ALL data preserving premium status
                     self.cursor.execute(f"""
                         INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
@@ -125,15 +125,15 @@ class Database:
                         FROM {backup_table}
                         WHERE telegram_id IS NOT NULL AND telegram_id != 0
                     """)
-
+                    
                     restored_count = self.cursor.rowcount
                     print(f"✅ RESTORED {restored_count} users with ALL PREMIUM STATUS PRESERVED")
-
+                    
                     # Verify premium users were restored
                     self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
                     premium_count = self.cursor.fetchone()[0]
                     print(f"✅ Premium users verified: {premium_count}")
-
+                    
                 else:
                     # Safe to recreate empty table
                     self.cursor.execute("DROP TABLE IF EXISTS users")
@@ -156,7 +156,7 @@ class Database:
                         )
                     """)
                     print("✅ Empty table recreated with complete schema")
-
+                    
             except Exception as recovery_error:
                 print(f"❌ RECOVERY FAILED: {recovery_error}")
                 # Emergency: Don't drop the table if recovery fails
@@ -1109,23 +1109,23 @@ class Database:
         """Create automatic backup of critical user data"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+            
             # Backup users table
             self.cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS users_backup_{timestamp} AS 
                 SELECT * FROM users WHERE telegram_id IS NOT NULL
             """)
-
+            
             # Backup premium referrals
             self.cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS premium_referrals_backup_{timestamp} AS 
                 SELECT * FROM premium_referrals
             """)
-
+            
             self.conn.commit()
             print(f"✅ Automatic backup created: users_backup_{timestamp}")
             return timestamp
-
+            
         except Exception as e:
             print(f"❌ Error creating automatic backup: {e}")
             return None
@@ -1136,78 +1136,28 @@ class Database:
             # Check for premium users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
             premium_count = self.cursor.fetchone()[0]
-
+            
             # Check for lifetime users (subscription_end IS NULL)
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND subscription_end IS NULL")
             lifetime_count = self.cursor.fetchone()[0]
-
+            
             # Check for data corruption
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
             corrupt_count = self.cursor.fetchone()[0]
-
+            
             integrity_report = {
                 'premium_users': premium_count,
                 'lifetime_users': lifetime_count,
                 'corrupt_entries': corrupt_count,
                 'integrity_ok': corrupt_count == 0
             }
-
+            
             print(f"📊 Data Integrity: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
             return integrity_report
-
+            
         except Exception as e:
             print(f"❌ Error verifying data integrity: {e}")
             return {'integrity_ok': False, 'error': str(e)}
-
-    def fix_user_credits(self):
-        """Fix users with NULL or negative credits"""
-        try:
-            # Fix NULL credits
-            self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
-            null_fixed = self.cursor.rowcount
-
-            # Fix negative credits
-            self.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
-            negative_fixed = self.cursor.rowcount
-
-            self.conn.commit()
-
-            total_fixed = null_fixed + negative_fixed
-            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
-
-            return total_fixed
-        except Exception as e:
-            print(f"Error fixing user credits: {e}")
-            return 0
-
-    def database_health_check(self):
-        """Comprehensive database health check"""
-        try:
-            # Check if tables exist
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [row[0] for row in self.cursor.fetchall()]
-
-            required_tables = ['users', 'subscriptions', 'portfolio', 'user_activity', 'premium_referrals']
-            missing_tables = [table for table in required_tables if table not in tables]
-
-            if missing_tables:
-                print(f"⚠️ Missing tables: {missing_tables}")
-                return False
-
-            # Check user data integrity
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
-            corrupt_users = self.cursor.fetchone()[0]
-
-            if corrupt_users > 0:
-                print(f"⚠️ Found {corrupt_users} corrupt user entries")
-                return False
-
-            print("✅ Database health check passed")
-            return True
-
-        except Exception as e:
-            print(f"❌ Database health check failed: {e}")
-            return False
 
     def close(self):
         """Close database connection"""
