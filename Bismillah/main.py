@@ -64,14 +64,6 @@ async def main():
         try:
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
 
-            # Run database preservation before starting bot
-            if is_deployment:
-                try:
-                    from preserve_premium_users import preserve_premium_users
-                    preserve_premium_users()
-                except Exception as e:
-                    print(f"⚠️ Premium preservation warning: {e}")
-
             # Initialize bot
             bot = TelegramBot()
 
