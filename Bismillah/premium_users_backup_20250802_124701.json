@@ -1,0 +1,366 @@
+{
+  "backup_timestamp": "20250802_124701",
+  "total_premium_users": 40,
+  "premium_users": [
+    {
+      "telegram_id": 6478958291,
+      "first_name": "The",
+      "username": "Zeed129",
+      "is_premium": 1,
+      "subscription_end": null,
+      "created_at": "2025-06-30 04:39:03",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 701702843,
+      "first_name": "Yuwa",
+      "username": "katarinayuaa",
+      "is_premium": 1,
+      "subscription_end": "2025-07-30T09:08:06.676731",
+      "created_at": "2025-06-30 09:07:30",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1234500018,
+      "first_name": "Edogawa",
+      "username": "Ceteline",
+      "is_premium": 1,
+      "subscription_end": "2025-08-08T06:08:15.357550",
+      "created_at": "2025-06-30 09:07:45",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1885958291,
+      "first_name": "eric",
+      "username": "Ericckk_24",
+      "is_premium": 1,
+      "subscription_end": "2025-09-12T08:19:00.500678",
+      "created_at": "2025-06-30 14:05:41",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 678319888,
+      "first_name": "foer",
+      "username": "Foerkoeq",
+      "is_premium": 1,
+      "subscription_end": "2025-08-09T09:16:31.239679",
+      "created_at": "2025-07-01 07:13:01",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1115476405,
+      "first_name": "MW",
+      "username": "mw8810",
+      "is_premium": 1,
+      "subscription_end": "2025-08-01T12:43:11.346029",
+      "created_at": "2025-07-02 12:16:23",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 5378920396,
+      "first_name": "David John Oscar",
+      "username": "djomarbun",
+      "is_premium": 1,
+      "subscription_end": "2025-08-01T12:34:51.533257",
+      "created_at": "2025-07-02 12:20:18",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6288416575,
+      "first_name": "bas_",
+      "username": "Bendt09",
+      "is_premium": 1,
+      "subscription_end": "2025-08-09T23:50:26.287419",
+      "created_at": "2025-07-02 12:55:43",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 8039842839,
+      "first_name": "Reinhart",
+      "username": "no_username",
+      "is_premium": 1,
+      "subscription_end": "2025-08-01T12:58:23.856799",
+      "created_at": "2025-07-02 12:56:04",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 86507746,
+      "first_name": "Asep",
+      "username": "asepby",
+      "is_premium": 1,
+      "subscription_end": "2025-08-07T01:40:55.342050",
+      "created_at": "2025-07-02 16:45:01",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1234500006,
+      "first_name": "Rio",
+      "username": "RioArtCorp",
+      "is_premium": 1,
+      "subscription_end": null,
+      "created_at": "2025-07-02 16:54:06",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 878431611,
+      "first_name": "Wildan",
+      "username": "wsulthanf",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T02:53:57.890351",
+      "created_at": "2025-07-03 02:57:23",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1135319644,
+      "first_name": "yuvoy",
+      "username": "no_username",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T15:16:36.691487",
+      "created_at": "2025-07-04 09:45:00",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1494023108,
+      "first_name": "Gerry",
+      "username": "GerryHartono",
+      "is_premium": 1,
+      "subscription_end": "2025-08-04T05:38:47.101698",
+      "created_at": "2025-07-05 00:37:56",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7255533151,
+      "first_name": "Fucoign",
+      "username": "fudss22",
+      "is_premium": 1,
+      "subscription_end": "2025-11-04T12:13:15.455027",
+      "created_at": "2025-07-06 04:25:01",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7065892390,
+      "first_name": "Nimbus",
+      "username": "nymbwus",
+      "is_premium": 1,
+      "subscription_end": "2025-08-05T17:00:00.371234",
+      "created_at": "2025-07-06 14:07:03",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1201654243,
+      "first_name": "Berry",
+      "username": "BerryRoring",
+      "is_premium": 1,
+      "subscription_end": "2025-09-04T15:01:39.599301",
+      "created_at": "2025-07-06 14:09:22",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 874486602,
+      "first_name": "Elvan",
+      "username": "elvandito",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T17:27:33.786147",
+      "created_at": "2025-07-06 14:35:55",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7468888215,
+      "first_name": "Bgut",
+      "username": "Erlann13",
+      "is_premium": 1,
+      "subscription_end": "2025-08-18T07:44:40.337587",
+      "created_at": "2025-07-06 14:55:13",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6461636120,
+      "first_name": "JollyHolly",
+      "username": "olafyp",
+      "is_premium": 1,
+      "subscription_end": "2025-09-10T04:49:39.663569",
+      "created_at": "2025-07-07 08:10:47",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6948202097,
+      "first_name": "igris | Drops💧",
+      "username": "Revonlyme",
+      "is_premium": 1,
+      "subscription_end": "2025-08-09T17:25:33.590457",
+      "created_at": "2025-07-09 06:49:14",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 5712126051,
+      "first_name": "Mens",
+      "username": "KomangBar",
+      "is_premium": 1,
+      "subscription_end": "2025-08-12T22:40:45.870063",
+      "created_at": "2025-07-09 11:40:56",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1234500011,
+      "first_name": "Rifqi",
+      "username": "Miesodengkil",
+      "is_premium": 1,
+      "subscription_end": null,
+      "created_at": "2025-07-09 12:48:26",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1570467527,
+      "first_name": "Jason",
+      "username": "jasjas01",
+      "is_premium": 1,
+      "subscription_end": "2025-08-16T07:36:45.245587",
+      "created_at": "2025-07-10 08:21:57",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1234500015,
+      "first_name": "Aria",
+      "username": "arialabelos",
+      "is_premium": 1,
+      "subscription_end": "2025-09-09T01:36:05.288807",
+      "created_at": "2025-07-10 08:29:42",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6069734148,
+      "first_name": "Toni",
+      "username": "ifatoni",
+      "is_premium": 1,
+      "subscription_end": "2025-08-10T13:07:57.111082",
+      "created_at": "2025-07-10 08:29:45",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6593114529,
+      "first_name": "Taka",
+      "username": "taka_nomee",
+      "is_premium": 1,
+      "subscription_end": "2025-08-18T02:56:40.689986",
+      "created_at": "2025-07-10 08:33:53",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7206116991,
+      "first_name": "Fan",
+      "username": "no_username",
+      "is_premium": 1,
+      "subscription_end": "2025-08-10T03:02:22.837666",
+      "created_at": "2025-07-10 08:37:41",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7906381493,
+      "first_name": "Af",
+      "username": "no_username",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T06:19:27.810023",
+      "created_at": "2025-07-10 08:40:18",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7981410760,
+      "first_name": "N A",
+      "username": "NUAURA9",
+      "is_premium": 1,
+      "subscription_end": "2025-09-01T12:28:09.459243",
+      "created_at": "2025-07-10 08:40:46",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 825993343,
+      "first_name": "Znauts",
+      "username": "sfaiji",
+      "is_premium": 1,
+      "subscription_end": "2025-08-22T02:34:15.389677",
+      "created_at": "2025-07-10 09:02:53",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6581870752,
+      "first_name": "Cristoforus",
+      "username": "C11juniascristo",
+      "is_premium": 1,
+      "subscription_end": null,
+      "created_at": "2025-07-10 10:06:58",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 6952144714,
+      "first_name": "Kana",
+      "username": "kanack84",
+      "is_premium": 1,
+      "subscription_end": "2025-08-16T14:54:43.917077",
+      "created_at": "2025-07-10 18:20:55",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1380327661,
+      "first_name": "RMA",
+      "username": "ADARLANN",
+      "is_premium": 1,
+      "subscription_end": "2025-08-09T23:38:23.254418",
+      "created_at": "2025-07-10 23:38:16",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7056981817,
+      "first_name": "Rendra",
+      "username": "X_preso",
+      "is_premium": 1,
+      "subscription_end": "2025-09-09T07:12:38.027758",
+      "created_at": "2025-07-11 07:08:41",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 578975181,
+      "first_name": "hslaksana",
+      "username": "hslaksana",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T10:26:42.080906",
+      "created_at": "2025-07-11 14:27:37",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1234500007,
+      "first_name": "awingg",
+      "username": "si_hao30",
+      "is_premium": 1,
+      "subscription_end": null,
+      "created_at": "2025-07-17 01:03:15",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 7102575378,
+      "first_name": "MONYET🐾",
+      "username": "monyetgantenghehe",
+      "is_premium": 1,
+      "subscription_end": "2025-08-16T14:39:56.277787",
+      "created_at": "2025-07-17 07:37:10",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 8149906165,
+      "first_name": "angga",
+      "username": "anggaandika38",
+      "is_premium": 1,
+      "subscription_end": "2025-08-19T04:57:41.598010",
+      "created_at": "2025-07-20 04:49:02",
+      "preserved_at": "20250802_124701"
+    },
+    {
+      "telegram_id": 1362073859,
+      "first_name": "MGod",
+      "username": "mgod8",
+      "is_premium": 1,
+      "subscription_end": "2025-08-22T02:34:56.962241",
+      "created_at": "2025-07-21 02:10:30",
+      "preserved_at": "20250802_124701"
+    }
+  ]
+}
