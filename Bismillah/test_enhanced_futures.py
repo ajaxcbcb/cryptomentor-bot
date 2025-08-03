@@ -26,12 +26,11 @@ async def test_enhanced_futures():
     ai = AIAssistant()
     db = Database()
     
-    # Test 1: CoinAPI connectivity
-    print("\n1️⃣ Testing CoinAPI connectivity...")
-    test_result = crypto_api.test_coinapi_connectivity('BTC')
+    # Test 1: Coinglass API connectivity
+    print("\n1️⃣ Testing Coinglass API connectivity...")
+    test_result = crypto_api.test_coinglass_connectivity('BTC')
     print(f"   Overall Health: {'✅ GOOD' if test_result.get('overall_health') else '❌ POOR'}")
-    if test_result.get('price_value'):
-        print(f"   BTC Price: ${test_result.get('price_value'):,.2f}")
+    print(f"   Working Endpoints: {test_result.get('working_endpoints', '0/4')}")
     
     # Test 2: CoinMarketCap integration
     print("\n2️⃣ Testing CoinMarketCap integration...")

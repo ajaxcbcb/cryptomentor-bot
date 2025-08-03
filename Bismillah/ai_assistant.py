@@ -1386,8 +1386,8 @@ class AIAssistant:
 
 💡 **Solution**: Try again in a few minutes or use other commands."""
 
-    def get_enhanced_futures_analysis_with_coinapi(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate enhanced futures analysis dengan real-time CoinAPI data dan rekomendasi trading lengkap"""
+    def get_enhanced_futures_analysis_with_coinglass(self, symbol, timeframe, language='id', crypto_api=None):
+        """Generate enhanced futures analysis dengan real-time Coinglass data dan rekomendasi trading lengkap"""
         try:
             print(f"🎯 Enhanced futures analysis with CoinAPI for {symbol} {timeframe}")
             
