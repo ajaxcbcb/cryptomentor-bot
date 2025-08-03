@@ -11,24 +11,17 @@ import asyncio
 import logging
 from datetime import datetime
 
-# Enhanced deployment detection with fallbacks
+# Enhanced deployment detection
 deployment_indicators = {
     'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
     'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
     'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
     'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
     'replit_slug': bool(os.getenv('REPL_SLUG')),
-    'replit_owner': bool(os.getenv('REPL_OWNER')),
-    'in_repl_env': '/home/runner' in os.getcwd(),  # Check if in Replit environment
-    'has_repl_config': os.path.exists('.replit')   # Check for .replit file
+    'replit_owner': bool(os.getenv('REPL_OWNER'))
 }
 
 is_deployment = any(deployment_indicators.values())
-
-# Force deployment mode if we detect Replit environment
-if not is_deployment and ('/home/runner' in os.getcwd() or os.path.exists('.replit')):
-    print("🔧 Detected Replit environment, forcing deployment mode")
-    is_deployment = True
 
 # Create deployment flag for consistent detection
 if is_deployment:

@@ -25,17 +25,10 @@ deployment_env_checks = {
     'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
     'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
     'replit_slug': bool(os.getenv('REPL_SLUG')),
-    'replit_owner': bool(os.getenv('REPL_OWNER')),
-    'in_repl_env': '/home/runner' in os.getcwd(),
-    'has_repl_config': os.path.exists('.replit')
+    'replit_owner': bool(os.getenv('REPL_OWNER'))
 }
 
 IS_DEPLOYMENT = any(deployment_env_checks.values())
-
-# Force deployment mode if we detect Replit environment
-if not IS_DEPLOYMENT and ('/home/runner' in os.getcwd() or os.path.exists('.replit')):
-    print("🔧 Detected Replit environment, forcing deployment mode")
-    IS_DEPLOYMENT = True
 
 # Log deployment detection for debugging
 print(f"🔍 Bot Deployment Detection:")
