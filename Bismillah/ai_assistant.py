@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 import requests
 import random
@@ -63,7 +64,7 @@ class AIAssistant:
         }
 
     def _get_coinglass_long_short_data(self, symbol, timeframe='1h'):
-        """Get long/short ratio data from Coinglass"""
+        """Get long/short ratio data from Coinglass v2 API"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -112,7 +113,7 @@ class AIAssistant:
             return {'error': f"Coinglass long/short data error: {str(e)}"}
 
     def _get_coinglass_open_interest_data(self, symbol, timeframe='1h'):
-        """Get open interest and funding rate data from Coinglass"""
+        """Get open interest data from Coinglass v2 API"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -123,15 +124,8 @@ class AIAssistant:
             url = "https://open-api.coinglass.com/public/v2/futures/openInterest"
             headers = self._get_coinglass_headers()
 
-            # Map timeframe to intervalType
-            interval_map = {
-                '5m': 0, '15m': 1, '1h': 2, '4h': 3, '12h': 4, '24h': 5
-            }
-            interval_type = interval_map.get(timeframe, 2)
-
             params = {
-                'symbol': clean_symbol,
-                'intervalType': interval_type
+                'symbol': clean_symbol
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -168,7 +162,7 @@ class AIAssistant:
             return {'error': f"Coinglass open interest error: {str(e)}"}
 
     def _analyze_smc_structure(self, long_short_data, oi_data, symbol):
-        """Analyze Smart Money Concepts (SMC) structure"""
+        """Analyze Smart Money Concepts (SMC) structure using Coinglass data"""
         try:
             smc_analysis = {
                 'market_structure': 'neutral',
@@ -541,11 +535,6 @@ class AIAssistant:
 ┣━ 📊 **Monitor Levels**: {format_price(current_price * 0.98)} - {format_price(current_price * 1.02)}
 ┗━ 🔍 **Next Signal**: Wait for market structure change"""
 
-                # Add similar analysis sections in English...
-                message += f"""
-
-📊 **COINGLASS DATA ANALYSIS:**"""
-
                 message += f"""
 
 📡 **DATA SOURCES (100% COINGLASS):**
@@ -736,7 +725,7 @@ Gunakan `/price btc` untuk cek harga terkini!"""
             elif any(keyword in text_lower for keyword in ['analisis', 'analyze', 'sinyal']):
                 return "📊 Untuk analisis mendalam, gunakan `/analyze <symbol>` atau `/futures_signals` untuk sinyal futures harian.\n\n💡 **Tips**: Analisis mencakup technical analysis, sentiment, dan rekomendasi trading."
 
-            elif any(keyword in text_lower for keyword in text_lower for keyword in ['help', 'bantuan', 'command']):
+            elif any(keyword in text_lower for keyword in ['help', 'bantuan', 'command']):
                 return self.help_message()
 
             elif any(keyword in text_lower for keyword in ['terima kasih', 'thanks', 'thx']):
@@ -749,7 +738,7 @@ Gunakan `/price btc` untuk cek harga terkini!"""
 Saya memahami Anda bertanya tentang: "{text}"
 
 📚 **Yang bisa saya bantu:**
-- Analisisharga crypto (`/price btc`)
+- Analisis harga crypto (`/price btc`)
 - Analisis mendalam (`/analyze eth`) 
 - Sinyal trading (`/futures_signals`)
 - Overview pasar (`/market`)
@@ -835,7 +824,7 @@ Ask me anything about crypto! 🚀"""
             return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
 
     def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Generate comprehensive analysis using Coinglass data instead of CoinAPI"""
+        """Generate comprehensive analysis using Coinglass data"""
         try:
             print(f"🎯 Generating comprehensive Coinglass analysis for {symbol}")
 
