@@ -502,11 +502,15 @@ class AIAssistant:
 
                 message += f"""
 
-📡 **DATA SOURCES:**
-• **Long/Short Data**: Coinglass Futures API
-• **Open Interest**: Coinglass Real-time
+📡 **DATA SOURCES (100% COINGLASS):**
+• **Long/Short Ratio**: Coinglass longShortChart API ✅
+• **Open Interest**: Coinglass openInterest API ✅  
 • **Price Data**: {price_source}
-• **SMC Analysis**: Advanced algorithmic analysis
+• **SMC Analysis**: Coinglass + Advanced algorithmic analysis
+
+🔗 **API ENDPOINTS USED:**
+• `/public/v2/futures/longShortChart` - Long vs Short dominasi
+• `/public/v2/futures/openInterest` - Open Interest tracking
 
 ⏰ **Analysis Time**: {current_time}
 🔄 **Next Update**: Real-time via Coinglass API"""
@@ -544,11 +548,15 @@ class AIAssistant:
 
                 message += f"""
 
-📡 **DATA SOURCES:**
-• **Long/Short Data**: Coinglass Futures API
-• **Open Interest**: Coinglass Real-time
+📡 **DATA SOURCES (100% COINGLASS):**
+• **Long/Short Ratio**: Coinglass longShortChart API ✅
+• **Open Interest**: Coinglass openInterest API ✅
 • **Price Data**: {price_source}
-• **SMC Analysis**: Advanced algorithmic analysis
+• **SMC Analysis**: Coinglass + Advanced algorithmic analysis
+
+🔗 **API ENDPOINTS USED:**
+• `/public/v2/futures/longShortChart` - Long vs Short dominance
+• `/public/v2/futures/openInterest` - Open Interest tracking
 
 ⏰ **Analysis Time**: {current_time}
 🔄 **Next Update**: Real-time via Coinglass API"""
@@ -728,7 +736,7 @@ Gunakan `/price btc` untuk cek harga terkini!"""
             elif any(keyword in text_lower for keyword in ['analisis', 'analyze', 'sinyal']):
                 return "📊 Untuk analisis mendalam, gunakan `/analyze <symbol>` atau `/futures_signals` untuk sinyal futures harian.\n\n💡 **Tips**: Analisis mencakup technical analysis, sentiment, dan rekomendasi trading."
 
-            elif any(keyword in text_lower for keyword in ['help', 'bantuan', 'command']):
+            elif any(keyword in text_lower for keyword in text_lower for keyword in ['help', 'bantuan', 'command']):
                 return self.help_message()
 
             elif any(keyword in text_lower for keyword in ['terima kasih', 'thanks', 'thx']):
@@ -789,3 +797,32 @@ I'm here to help you learn about cryptocurrency!
 - `/help` - See all commands
 
 Ask me anything about crypto! 🚀"""
+
+    def _get_estimated_price(self, symbol):
+        """Placeholder for fetching estimated price (replace with actual implementation)"""
+        # In a real implementation, this should fetch the current price from an API
+        # For now, just return a dummy price for testing
+        return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
+
+    def _generate_emergency_futures_signal(self, symbol, timeframe, language, error_message):
+        """Generate a fallback signal in case of errors."""
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+
+        if language == 'id':
+            message = f"""❌ SIGNAL GAGAL - {symbol.upper()} ({timeframe})
+⏰ {current_time}
+
+Terjadi kesalahan saat memproses data Coinglass:
+{error_message}
+
+Mohon coba lagi nanti. Kami mohon maaf atas ketidaknyamanannya."""
+        else:
+            message = f"""❌ SIGNAL FAILED - {symbol.upper()} ({timeframe})
+⏰ {current_time}
+
+An error occurred while processing Coinglass data:
+{error_message}
+
+Please try again later. We apologize for the inconvenience."""
+
+        return message
