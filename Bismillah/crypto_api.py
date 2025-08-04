@@ -591,7 +591,7 @@ class CryptoAPI:
             futures_data = self.get_comprehensive_futures_data(symbol)
 
             # Get real-time price from Binance as backup
-            price_data = self.get_price(symbol, force_refresh=True)
+            price_data = self.get_binance_price(symbol)
 
             # Combine all data
             analysis_data = {
