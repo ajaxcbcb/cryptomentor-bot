@@ -1,16 +1,20 @@
 import requests
 import os
 import time
+import asyncio
 from datetime import datetime, timezone
 from binance_provider import BinanceFuturesProvider
 from coinmarketcap_provider import CoinMarketCapProvider
+from coinapi_helper import CoinAPIHelper
 
 class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinapi_key = os.getenv("COINAPI_KEY")
         self.cmc_provider = CoinMarketCapProvider()
+        self.coinapi_helper = CoinAPIHelper()
 
         if not self.coinglass_key:
             print("⚠️ COINGLASS_API_KEY not found in environment variables")
@@ -20,13 +24,14 @@ class CryptoAPI:
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
         self.binance_spot_url = "https://api.binance.com/api/v3"
 
-        print("🚀 CryptoAPI initialized with Coinglass + Binance integration")
+        print("🚀 CryptoAPI initialized with CoinAPI + Coinglass + Binance integration")
         print(f"📊 Coinglass Base URL: {self.coinglass_url}")
         print(f"🔑 Coinglass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
+        print(f"🔑 CoinAPI Key: {'✅ Enabled' if self.coinapi_key else '❌ Disabled'}")
         print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📈 Binance Futures API: {self.binance_futures_url}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
-        print("🎯 Futures data from Coinglass, market data from Binance")
+        print("🎯 Real-time data from CoinAPI, futures from Coinglass, market data from Binance")
 
     # === COINGLASS API METHODS ===
 
@@ -42,6 +47,21 @@ class CryptoAPI:
     def get_coinglass_open_interest(self, symbol, time_type='24h'):
         """Get open interest data from Coinglass"""
         try:
+
+    # === COINAPI METHODS ===
+    
+    async def get_coinapi_price(self, symbol, force_refresh=False):
+        """Get price from CoinAPI (async wrapper)"""
+        return await self.coinapi_helper.get_coinapi_price(symbol, force_refresh)
+    
+    async def get_coinapi_historical(self, symbol, period="1HRS", limit=100):
+        """Get historical data from CoinAPI (async wrapper)"""
+        return await self.coinapi_helper.get_coinapi_historical(symbol, period, limit)
+    
+    async def cleanup(self):
+        """Cleanup resources"""
+        await self.coinapi_helper.close_session()
+
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
 
