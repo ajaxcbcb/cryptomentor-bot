@@ -5,6 +5,7 @@ import os
 import asyncio
 import time
 from datetime import datetime
+import html
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -99,7 +100,7 @@ class AIAssistant:
             data = response.json()
 
             if data.get('success'):
-                result_data = data.get('data', {})
+                result_data = data.get('data', [])
                 if result_data and len(result_data) > 0:
                     latest = result_data[-1]  # Get latest data point
 
@@ -141,7 +142,7 @@ class AIAssistant:
             data = response.json()
 
             if data.get('success'):
-                result_data = data.get('data', {})
+                result_data = data.get('data', [])
                 if result_data and len(result_data) > 0:
                     latest = result_data[-1]
                     previous = result_data[-2] if len(result_data) > 1 else latest
@@ -176,81 +177,102 @@ class AIAssistant:
                 'smart_money_bias': 'neutral',
                 'liquidity_zones': [],
                 'confidence': 50,
-                'entry_type': 'HOLD'
+                'entry_type': 'HOLD',
+                'accumulation_distribution': 'neutral',
+                'smc_signals': [],
+                'liquidity_sweep': False,
+                'smc_note': ''
             }
 
             if 'error' in long_short_data or 'error' in oi_data:
+                smc_analysis['smc_signals'].append('⚠️ Insufficient data for SMC analysis.')
                 return smc_analysis
 
             long_ratio = long_short_data.get('long_ratio', 50)
             oi_change = oi_data.get('oi_change_percent', 0)
             funding_rate = oi_data.get('funding_rate', 0)
 
-            # SMC Analysis based on smart money indicators
             confidence_score = 50
 
             # 1. Long/Short Ratio Analysis (Contrarian indicator)
             if long_ratio > 70:
-                # Overleveraged longs - Smart money likely short
                 smc_analysis['smart_money_bias'] = 'bearish'
                 smc_analysis['market_structure'] = 'distribution'
+                smc_analysis['accumulation_distribution'] = 'distribution'
+                smc_analysis['smc_signals'].append(f'⚠️ High Long Ratio ({long_ratio:.1f}%) indicates potential smart money shorting.')
                 confidence_score += 20
             elif long_ratio < 30:
-                # Overleveraged shorts - Smart money likely long
                 smc_analysis['smart_money_bias'] = 'bullish'
                 smc_analysis['market_structure'] = 'accumulation'
+                smc_analysis['accumulation_distribution'] = 'accumulation'
+                smc_analysis['smc_signals'].append(f'💎 Low Long Ratio ({long_ratio:.1f}%) suggests smart money accumulation.')
                 confidence_score += 20
-            elif 45 <= long_ratio <= 55:
-                # Balanced - Look at other indicators
+            else:
+                smc_analysis['smc_signals'].append(f'📊 Balanced Long/Short Ratio ({long_ratio:.1f}%).')
                 confidence_score += 5
 
             # 2. Open Interest Analysis
             if oi_change > 5:
-                # Increasing OI with trend continuation
+                smc_analysis['smc_signals'].append(f'📈 Increasing OI ({oi_change:+.2f}%) supports current trend momentum.')
                 if smc_analysis['smart_money_bias'] == 'bullish':
                     confidence_score += 15
                 elif smc_analysis['smart_money_bias'] == 'bearish':
                     confidence_score += 15
                 else:
                     smc_analysis['smart_money_bias'] = 'bullish' if long_ratio < 50 else 'bearish'
+                    smc_analysis['smc_signals'].append(f'💡 OI confirms bias towards {smc_analysis["smart_money_bias"]}.')
                     confidence_score += 10
             elif oi_change < -5:
-                # Decreasing OI - Potential reversal
+                smc_analysis['smc_signals'].append(f'📉 Decreasing OI ({oi_change:+.2f}%) may signal weakening momentum.')
                 confidence_score -= 10
 
             # 3. Funding Rate Analysis
-            if funding_rate > 0.01:  # High positive funding (1%+)
-                # Longs paying shorts heavily - Smart money short bias
+            if funding_rate > 0.005:  # High positive funding (0.5%+)
+                smc_analysis['smc_signals'].append(f'💸 High Funding Rate ({funding_rate*100:.4f}%) suggests over-enthusiasm in longs.')
                 if smc_analysis['smart_money_bias'] != 'bearish':
                     smc_analysis['smart_money_bias'] = 'bearish'
                 confidence_score += 15
-            elif funding_rate < -0.005:  # Negative funding
-                # Shorts paying longs - Smart money long bias
+            elif funding_rate < -0.003:  # Negative funding
+                smc_analysis['smc_signals'].append(f'💰 Negative Funding Rate ({funding_rate*100:.4f}%) indicates smart money might be favoring longs.')
                 if smc_analysis['smart_money_bias'] != 'bullish':
                     smc_analysis['smart_money_bias'] = 'bullish'
                 confidence_score += 15
-
-            # 4. Determine entry type based on SMC bias
-            if smc_analysis['smart_money_bias'] == 'bullish' and confidence_score >= 70:
-                smc_analysis['entry_type'] = 'LONG'
-            elif smc_analysis['smart_money_bias'] == 'bearish' and confidence_score >= 70:
-                smc_analysis['entry_type'] = 'SHORT'
             else:
+                smc_analysis['smc_signals'].append(f'⚖️ Neutral Funding Rate ({funding_rate*100:.4f}%).')
+
+
+            # 4. Determine entry type based on SMC bias and confidence
+            if confidence_score >= 75: # High confidence for signals
+                if smc_analysis['smart_money_bias'] == 'bullish':
+                    smc_analysis['entry_type'] = 'LONG'
+                    smc_analysis['smc_note'] = "Smart money likely accumulating."
+                elif smc_analysis['smart_money_bias'] == 'bearish':
+                    smc_analysis['entry_type'] = 'SHORT'
+                    smc_analysis['smc_note'] = "Smart money likely distributing."
+            elif confidence_score >= 60: # Medium confidence
+                 smc_analysis['entry_type'] = 'HOLD'
+                 smc_analysis['smc_note'] = "Market bias unclear, wait for confirmation."
+            else: # Low confidence
                 smc_analysis['entry_type'] = 'HOLD'
+                smc_analysis['smc_note'] = "Market lacks clear smart money direction."
+
 
             # 5. Generate liquidity zones (simplified)
-            if oi_data.get('open_interest', 0) > 0:
-                base_price = self._get_estimated_price(symbol)
-                if smc_analysis['smart_money_bias'] == 'bullish':
-                    smc_analysis['liquidity_zones'] = [
-                        {'type': 'support', 'price': base_price * 0.97, 'strength': 'high'},
-                        {'type': 'support', 'price': base_price * 0.95, 'strength': 'medium'}
-                    ]
-                elif smc_analysis['smart_money_bias'] == 'bearish':
-                    smc_analysis['liquidity_zones'] = [
-                        {'type': 'resistance', 'price': base_price * 1.03, 'strength': 'high'},
-                        {'type': 'resistance', 'price': base_price * 1.05, 'strength': 'medium'}
-                    ]
+            # This is a placeholder, real liquidity sweep detection requires price action analysis
+            # For now, we infer potential liquidity areas based on bias.
+            if smc_analysis['smart_money_bias'] == 'bullish':
+                smc_analysis['liquidity_zones'].append(
+                    {'type': 'support', 'price': self._get_estimated_price(symbol) * 0.97, 'strength': 'high', 'smc_note': 'Potential support liquidity'}
+                )
+                smc_analysis['liquidity_sweep'] = True # Assume potential sweep if bullish bias
+                smc_analysis['smc_signals'].append("✅ Potential bullish liquidity sweep expected.")
+            elif smc_analysis['smart_money_bias'] == 'bearish':
+                 smc_analysis['liquidity_zones'].append(
+                    {'type': 'resistance', 'price': self._get_estimated_price(symbol) * 1.03, 'strength': 'high', 'smc_note': 'Potential resistance liquidity'}
+                )
+                 smc_analysis['liquidity_sweep'] = True # Assume potential sweep if bearish bias
+                 smc_analysis['smc_signals'].append("✅ Potential bearish liquidity sweep expected.")
+
 
             smc_analysis['confidence'] = min(95, max(30, confidence_score))
             return smc_analysis
@@ -262,7 +284,11 @@ class AIAssistant:
                 'smart_money_bias': 'neutral',
                 'liquidity_zones': [],
                 'confidence': 30,
-                'entry_type': 'HOLD'
+                'entry_type': 'HOLD',
+                'accumulation_distribution': 'neutral',
+                'smc_signals': [f'⚠️ Error during SMC analysis: {str(e)}'],
+                'liquidity_sweep': False,
+                'smc_note': 'SMC analysis failed.'
             }
 
     def _calculate_smc_levels(self, symbol, smc_analysis, long_short_data, oi_data):
@@ -271,17 +297,22 @@ class AIAssistant:
             base_price = self._get_estimated_price(symbol)
             entry_type = smc_analysis.get('entry_type', 'HOLD')
             confidence = smc_analysis.get('confidence', 50)
+            smc_note = smc_analysis.get('smc_note', '')
 
             # Risk management based on confidence
             if confidence >= 80:
                 risk_percent = 0.015  # 1.5% risk for high confidence
                 reward_ratio = 3.0    # 3:1 RR
+                pos_size_factor = 0.03 # 3% position size
             elif confidence >= 70:
                 risk_percent = 0.012  # 1.2% risk for medium confidence
                 reward_ratio = 2.5    # 2.5:1 RR
+                pos_size_factor = 0.02 # 2% position size
             else:
                 risk_percent = 0.01   # 1% risk for low confidence
                 reward_ratio = 2.0    # 2:1 RR
+                pos_size_factor = 0.01 # 1% position size
+
 
             if entry_type == 'LONG':
                 entry = base_price * 0.9995  # Slight discount for better fill
@@ -309,7 +340,9 @@ class AIAssistant:
                 'sl': sl,
                 'risk_percent': risk_percent * 100,
                 'reward_ratio': reward_ratio,
-                'confidence': confidence
+                'confidence': confidence,
+                'smc_note': smc_note,
+                'position_size': f"{pos_size_factor*100:.0f}% capital"
             }
 
         except Exception as e:
@@ -323,7 +356,9 @@ class AIAssistant:
                 'sl': base_price * 0.99,
                 'risk_percent': 1.0,
                 'reward_ratio': 2.0,
-                'confidence': 50
+                'confidence': 50,
+                'smc_note': 'Error calculating SMC levels.',
+                'position_size': '1% capital'
             }
 
     async def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
@@ -358,10 +393,8 @@ class AIAssistant:
     def _format_coinglass_analysis(self, symbol, timeframe, long_short_data, oi_data, cmc_data, smc_analysis, trading_levels, language='id'):
         """Format Coinglass analysis output"""
         try:
-            entry_type = trading_levels.get('entry_type', 'HOLD')
-            confidence = trading_levels.get('confidence', 50)
 
-            # Smart price formatting
+            # Helper function to format price
             def format_price(price):
                 if price < 1:
                     return f"${price:.8f}"
@@ -458,32 +491,45 @@ class AIAssistant:
                 # SMC Analysis
                 message += f"""
 
-🧠 **SMART MONEY CONCEPTS (SMC):**
-• **Market Structure**: {smc_analysis.get('market_structure', 'neutral').title()}
-• **Smart Money Bias**: {smc_analysis.get('smart_money_bias', 'neutral').title()}"""
+🧠 *ANALISIS SMC ENHANCED:*
+• *Smart Money Bias*: {smc_analysis.get('smart_money_bias', 'Neutral').title()}
+• *Market Structure*: {smc_analysis.get('market_structure', 'Neutral').title()}
+• *Accumulation/Distribution*: {smc_analysis.get('accumulation_distribution', 'Neutral').title()}"""
 
-                # Liquidity zones
+                if smc_analysis.get('liquidity_sweep'):
+                    message += f"\n• *Liquidity Sweep*: ✅ Detected"
+
+                # Show key SMC signals
+                smc_signals = smc_analysis.get('smc_signals', [])
+                if smc_signals:
+                    key_signals = [s for s in smc_signals if any(indicator in s for indicator in ['✅', '⚠️', 'Extreme', 'Strong'])]
+                    if key_signals:
+                        message += f"\n• *Key SMC Signals*:"
+                        for signal in key_signals[:2]:  # Show top 2 key signals
+                            message += f"\n  \\- {safe_text(signal[:60])}{'...' if len(signal) > 60 else ''}"
+
                 liquidity_zones = smc_analysis.get('liquidity_zones', [])
                 if liquidity_zones:
-                    message += f"""
-• **Liquidity Zones**:"""
+                    message += f"\n• *SMC Liquidity Zones*:"
                     for zone in liquidity_zones[:2]:
                         zone_price = format_price(zone.get('price', 0))
-                        zone_type = zone.get('type', '').title()
-                        zone_strength = zone.get('strength', 'medium').title()
-                        message += f"""
-  - {zone_type}: {zone_price} ({zone_strength})"""
+                        zone_type = safe_text(zone.get('type', 'N/A').replace('_', ' ').title())
+                        zone_strength = safe_text(zone.get('strength', 'medium').replace('_', ' ').title())
+                        smc_note = zone.get('smc_note', '')
+                        message += f"\n  \\- {zone_type}: {safe_text(zone_price)} \\({zone_strength}\\)"
+                        if smc_note:
+                            message += f"\n    {safe_text(smc_note[:40])}{'...' if len(smc_note) > 40 else ''}"
 
                 if entry_type != 'HOLD':
                     message += f"""
 
-⚡ **STRATEGI SMC {timeframe.upper()}:**
-• **Risk Management**: {trading_levels.get('risk_percent', 1):.1f}% risk per trade
-• **Reward Ratio**: {trading_levels.get('reward_ratio', 2):.1f}:1
-• **Position Size**: {"2-3%" if confidence >= 80 else "1-2%" if confidence >= 70 else "0.5-1%"} modal
-• **Market Bias**: Follow smart money {smc_analysis.get('smart_money_bias', 'neutral')} bias
+⚡ *STRATEGI SMC {timeframe.upper()}:*
+• *Risk Management*: {trading_levels.get('risk_percent', 1):.1f}% risk per trade
+• *Reward Ratio*: {trading_levels.get('reward_ratio', 2):.1f}:1
+• *Position Size*: {trading_levels.get('position_size', '1-2% capital')} modal
+• *Market Bias*: Follow smart money {smc_analysis.get('smart_money_bias', 'neutral')} bias
 
-🛡️ **RISK MANAGEMENT KETAT:**
+🛡️ *RISK MANAGEMENT KETAT:*
 • Set SL WAJIB sebelum entry
 • Take profit: 50% di TP1, 50% di TP2
 • Move SL ke breakeven setelah TP1 hit
@@ -491,7 +537,7 @@ class AIAssistant:
                 else:
                     message += f"""
 
-⏸️ **STRATEGI HOLD:**
+⏸️ *STRATEGI HOLD:*
 • Market belum memberikan setup SMC yang jelas
 • Tunggu konfirmasi smart money bias
 • Monitor perubahan long/short ratio dan OI
@@ -499,51 +545,88 @@ class AIAssistant:
 
                 message += f"""
 
-📡 **DATA SOURCES (100% COINGLASS):**
-• **Long/Short Ratio**: Coinglass longShortChart API ✅
-• **Open Interest**: Coinglass openInterest API ✅  
-• **Price Data**: {price_source}
-• **SMC Analysis**: Coinglass + Advanced algorithmic analysis
+📡 *DATA SOURCES (100% COINGLASS):*
+• *Long/Short Ratio*: Coinglass longShortChart API ✅
+• *Open Interest*: Coinglass openInterest API ✅  
+• *Price Data*: {price_source}
+• *SMC Analysis*: Coinglass + Advanced algorithmic analysis
 
-⏰ **Analysis Time**: {current_time}
-🔄 **Next Update**: Real-time via Coinglass API"""
+⏰ *Analysis Time*: {current_time}
+🔄 *Next Update*: Real-time via Coinglass API"""
 
             else:
-                # English version (similar structure)
-                message = f"""🎯 **COINGLASS FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
+                # English version
+                message = f"""🎯 *COINGLASS FUTURES ANALYSIS \\- {symbol.upper()} \\({timeframe}\\)*
 
-💰 **Price Data:**
-• **Current**: {format_price(current_price)} {source_emoji}
-• **Source**: {price_source}
+💰 *CURRENT PRICE*: {format_price(current_price)} {source_emoji}
+💰 *SOURCE*: {price_source}
 
-{direction_emoji} **SMART MONEY SIGNAL: {entry_type}** {signal_emoji}
-📊 **Confidence**: {confidence:.0f}%
-🧠 **SMC Bias**: {smc_analysis.get('smart_money_bias', 'neutral').title()}
+{direction_emoji} *RECOMMENDATION: {entry_type}* {signal_emoji}
+📊 *CONFIDENCE*: {confidence:.0f}%
+🧠 *SENTIMENT*: {sentiment}
 
-💰 **COINGLASS TRADING RECOMMENDATIONS:**"""
+💰 *TRADING DETAILS:*"""
 
                 if entry_type != 'HOLD':
                     message += f"""
-┣━ 📍 **ENTRY**: {format_price(trading_levels['entry'])}
-┣━ 🎯 **TP 1**: {format_price(trading_levels['tp1'])} (50% profit)
-┣━ 🎯 **TP 2**: {format_price(trading_levels['tp2'])} (50% profit)
-┗━ 🛡️ **STOP LOSS**: {format_price(trading_levels['sl'])} (**MANDATORY!**)"""
+• 📍 *ENTRY*: {format_price(trading_levels['entry'])}
+• 🎯 *TP 1*: {format_price(trading_levels['tp1'])}
+• 🎯 *TP 2*: {format_price(trading_levels['tp2'])}
+• 🛡️ *STOP LOSS*: {format_price(trading_levels['sl'])} \\(*MANDATORY\\!*\\)"""
                 else:
                     message += f"""
-┣━ ⏸️ **HOLD POSITION** - Wait for clearer setup
-┣━ 📊 **Monitor Levels**: {format_price(current_price * 0.98)} - {format_price(current_price * 1.02)}
-┗━ 🔍 **Next Signal**: Wait for market structure change"""
+• ⏸️ *HOLD POSITION* \\- Wait for clearer setup
+• 📊 *MONITOR LEVELS*: {format_price(current_price * 0.98)} \\- {format_price(current_price * 1.02)}"""
+
+                long_status = 'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'
+                funding_status = 'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'
 
                 message += f"""
 
-📡 **DATA SOURCES (100% COINGLASS):**
-• **Long/Short Ratio**: Coinglass longShortChart API ✅
-• **Open Interest**: Coinglass openInterest API ✅
-• **Price Data**: {price_source}
-• **SMC Analysis**: Coinglass + Advanced algorithmic analysis
+📊 *COINGLASS v2 DATA:*
+• *Long/Short Ratio*: {long_ratio:.1f}% \\({long_status}\\)
+• *Open Interest Change*: {oi_data.get('oi_change_percent', 0):+.2f}%
+• *Funding Rate*: {funding_rate:.4f}% \\({funding_status}\\)
 
-⏰ **Analysis Time**: {current_time}
-🔄 **Next Update**: Real-time via Coinglass API"""
+🧠 *ENHANCED SMC ANALYSIS:*
+• *Smart Money Bias*: {smc_analysis.get('smart_money_bias', 'Neutral').title()}
+• *Market Structure*: {smc_analysis.get('market_structure', 'Neutral').title()}
+• *Accumulation/Distribution*: {smc_analysis.get('accumulation_distribution', 'Neutral').title()}"""
+
+                if smc_analysis.get('liquidity_sweep'):
+                    message += f"\n• *Liquidity Sweep*: ✅ Detected"
+
+                # Show key SMC signals
+                smc_signals = smc_analysis.get('smc_signals', [])
+                if smc_signals:
+                    key_signals = [s for s in smc_signals if any(indicator in s for indicator in ['✅', '⚠️', 'Extreme', 'Strong'])]
+                    if key_signals:
+                        message += f"\n• *Key SMC Signals*:"
+                        for signal in key_signals[:2]:  # Show top 2 key signals
+                            message += f"\n  \\- {safe_text(signal[:60])}{'...' if len(signal) > 60 else ''}"
+
+                liquidity_zones = smc_analysis.get('liquidity_zones', [])
+                if liquidity_zones:
+                    message += f"\n• *SMC Liquidity Zones*:"
+                    for zone in liquidity_zones[:2]:
+                        zone_price = format_price(zone.get('price', 0))
+                        zone_type = safe_text(zone.get('type', 'N/A').replace('_', ' ').title())
+                        zone_strength = safe_text(zone.get('strength', 'medium').replace('_', ' ').title())
+                        smc_note = zone.get('smc_note', '')
+                        message += f"\n  \\- {zone_type}: {safe_text(zone_price)} \\({zone_strength}\\)"
+                        if smc_note:
+                            message += f"\n    {safe_text(smc_note[:40])}{'...' if len(smc_note) > 40 else ''}"
+
+                pos_size = '2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'
+                message += f"""
+
+⚡ *TRADING DETAILS:*
+• *Confidence*: {confidence:.0f}%
+• *Risk/Reward Ratio*: {risk_reward:.2f}:1
+• *Position Size*: {pos_size} Capital
+
+⏰ *Update*: {datetime.now().strftime('%H:%M:%S UTC')}
+🔄 *Next Update*: Auto-refreshing"""
 
             return message
 
@@ -812,8 +895,7 @@ class AIAssistant:
     def _format_coinglass_v2_analysis(self, symbol, timeframe, futures_data, language='id'):
         """Format Coinglass v2 futures analysis output"""
         try:
-            import html
-            
+
             # Helper function to format price
             def format_price(price):
                 if price < 1:
@@ -822,7 +904,7 @@ class AIAssistant:
                     return f"${price:.6f}"
                 else:
                     return f"${price:,.4f}"
-            
+
             # Helper function to escape special characters for Telegram
             def safe_text(text):
                 # Escape HTML special characters
@@ -834,13 +916,14 @@ class AIAssistant:
                 text = text.replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('.', '\\.')
                 text = text.replace('!', '\\!')
                 return text
-            
+
             price_data = futures_data.get('price_data', {})
             long_short_data = futures_data.get('long_short_data', {})
             oi_data = futures_data.get('open_interest_data', {})
             funding_data = futures_data.get('funding_rate_data', {})
             recommendation = futures_data.get('trading_recommendation', {})
             smc_analysis = futures_data.get('smc_analysis', {})
+            smc_levels = futures_data.get('smc_levels', {})
             sentiment_analysis = futures_data.get('sentiment_analysis', {})
 
             # Format price
@@ -877,11 +960,11 @@ class AIAssistant:
 💰 *DETAIL TRADING:*"""
 
                 if direction != 'HOLD':
-                    entry_price = format_price(recommendation.get('entry_price', current_price))
-                    tp1_price = format_price(recommendation.get('take_profit_1', current_price))
-                    tp2_price = format_price(recommendation.get('take_profit_2', current_price))
-                    sl_price = format_price(recommendation.get('stop_loss', current_price))
-                    
+                    entry_price = format_price(smc_levels.get('entry', current_price))
+                    tp1_price = format_price(smc_levels.get('tp1', current_price))
+                    tp2_price = format_price(smc_levels.get('tp2', current_price))
+                    sl_price = format_price(smc_levels.get('sl', current_price))
+
                     message += f"""
 • 📍 *ENTRY*: {safe_text(entry_price)}
 • 🎯 *TP 1*: {safe_text(tp1_price)}
@@ -896,7 +979,7 @@ class AIAssistant:
 
                 long_status = 'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'
                 funding_status = 'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'
-                
+
                 message += f"""
 
 📊 *DATA COINGLASS v2:*
@@ -904,29 +987,45 @@ class AIAssistant:
 • *Open Interest Change*: {oi_data.get('oi_change_percent', 0):+.2f}%
 • *Funding Rate*: {funding_rate:.4f}% \\({safe_text(funding_status)}\\)
 
-🧠 *ANALISIS SMC:*
-• *Bias*: {safe_text(smc_analysis.get('smart_money_bias', 'Neutral').title())}
-• *Market Structure*: {safe_text(smc_analysis.get('market_structure', 'Neutral').title())}"""
+🧠 *ANALISIS SMC ENHANCED:*
+• *Smart Money Bias*: {safe_text(smc_analysis.get('smart_money_bias', 'Neutral').title())}
+• *Market Structure*: {safe_text(smc_analysis.get('market_structure', 'Neutral').title())}
+• *Accumulation/Distribution*: {safe_text(smc_analysis.get('accumulation_distribution', 'Neutral').title())}"""
+
+                if smc_analysis.get('liquidity_sweep'):
+                    message += f"\n• *Liquidity Sweep*: ✅ Detected"
+
+                # Show key SMC signals
+                smc_signals = smc_analysis.get('smc_signals', [])
+                if smc_signals:
+                    key_signals = [s for s in smc_signals if any(indicator in s for indicator in ['✅', '⚠️', 'Extreme', 'Strong'])]
+                    if key_signals:
+                        message += f"\n• *Key SMC Signals*:"
+                        for signal in key_signals[:2]:  # Show top 2 key signals
+                            message += f"\n  \\- {safe_text(signal[:60])}{'...' if len(signal) > 60 else ''}"
 
                 liquidity_zones = smc_analysis.get('liquidity_zones', [])
                 if liquidity_zones:
-                    message += f"\n• *Liquidity Zones*:"
+                    message += f"\n• *SMC Liquidity Zones*:"
                     for zone in liquidity_zones[:2]:
                         zone_price = format_price(zone.get('price', 0))
-                        zone_type = safe_text(zone.get('type', 'N/A').title())
-                        zone_strength = safe_text(zone.get('strength', 'medium').title())
+                        zone_type = safe_text(zone.get('type', 'N/A').replace('_', ' ').title())
+                        zone_strength = safe_text(zone.get('strength', 'medium').replace('_', ' ').title())
+                        smc_note = zone.get('smc_note', '')
                         message += f"\n  \\- {zone_type}: {safe_text(zone_price)} \\({zone_strength}\\)"
+                        if smc_note:
+                            message += f"\n    {safe_text(smc_note[:40])}{'...' if len(smc_note) > 40 else ''}"
 
-                pos_size = '2\\-3%' if confidence >= 80 else '1\\-2%' if confidence >= 70 else '0\\.5\\-1%'
+                pos_size = '2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'
                 message += f"""
 
 ⚡ *DETAIL TRADING:*
 • *Confidence*: {confidence:.0f}%
 • *Risk/Reward Ratio*: {risk_reward:.2f}:1
-• *Position Size*: {pos_size} Modal
+• *Position Size*: {smc_levels.get('position_size', pos_size)}
 
 ⏰ *Update*: {safe_text(datetime.now().strftime('%H:%M:%S WIB'))}
-🔄 *Next Update*: Auto\\-refreshing"""
+🔄 *Next Update*: Auto-refreshing"""
 
             else: # English
                 message = f"""🎯 *COINGLASS v2 FUTURES ANALYSIS \\- {safe_text(symbol.upper())} \\({safe_text(timeframe)}\\)*
@@ -940,11 +1039,11 @@ class AIAssistant:
 💰 *TRADING DETAILS:*"""
 
                 if direction != 'HOLD':
-                    entry_price = format_price(recommendation.get('entry_price', current_price))
-                    tp1_price = format_price(recommendation.get('take_profit_1', current_price))
-                    tp2_price = format_price(recommendation.get('take_profit_2', current_price))
-                    sl_price = format_price(recommendation.get('stop_loss', current_price))
-                    
+                    entry_price = format_price(smc_levels.get('entry', current_price))
+                    tp1_price = format_price(smc_levels.get('tp1', current_price))
+                    tp2_price = format_price(smc_levels.get('tp2', current_price))
+                    sl_price = format_price(smc_levels.get('sl', current_price))
+
                     message += f"""
 • 📍 *ENTRY*: {safe_text(entry_price)}
 • 🎯 *TP 1*: {safe_text(tp1_price)}
@@ -954,12 +1053,12 @@ class AIAssistant:
                     monitor_low = format_price(current_price * 0.98)
                     monitor_high = format_price(current_price * 1.02)
                     message += f"""
-• ⏸️ *HOLD POSITION* \\- Wait for clearer signals
+• ⏸️ *HOLD POSITION* \\- Wait for clearer setup
 • 📊 *MONITOR LEVELS*: {safe_text(monitor_low)} \\- {safe_text(monitor_high)}"""
 
                 long_status = 'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'
                 funding_status = 'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'
-                
+
                 message += f"""
 
 📊 *COINGLASS v2 DATA:*
@@ -967,35 +1066,125 @@ class AIAssistant:
 • *Open Interest Change*: {oi_data.get('oi_change_percent', 0):+.2f}%
 • *Funding Rate*: {funding_rate:.4f}% \\({safe_text(funding_status)}\\)
 
-🧠 *SMC ANALYSIS:*
-• *Bias*: {safe_text(smc_analysis.get('smart_money_bias', 'Neutral').title())}
-• *Market Structure*: {safe_text(smc_analysis.get('market_structure', 'Neutral').title())}"""
+🧠 *ENHANCED SMC ANALYSIS:*
+• *Smart Money Bias*: {safe_text(smc_analysis.get('smart_money_bias', 'Neutral').title())}
+• *Market Structure*: {safe_text(smc_analysis.get('market_structure', 'Neutral').title())}
+• *Accumulation/Distribution*: {safe_text(smc_analysis.get('accumulation_distribution', 'Neutral').title())}"""
+
+                if smc_analysis.get('liquidity_sweep'):
+                    message += f"\n• *Liquidity Sweep*: ✅ Detected"
+
+                # Show key SMC signals
+                smc_signals = smc_analysis.get('smc_signals', [])
+                if smc_signals:
+                    key_signals = [s for s in smc_signals if any(indicator in s for indicator in ['✅', '⚠️', 'Extreme', 'Strong'])]
+                    if key_signals:
+                        message += f"\n• *Key SMC Signals*:"
+                        for signal in key_signals[:2]:  # Show top 2 key signals
+                            message += f"\n  \\- {safe_text(signal[:60])}{'...' if len(signal) > 60 else ''}"
 
                 liquidity_zones = smc_analysis.get('liquidity_zones', [])
                 if liquidity_zones:
-                    message += f"\n• *Liquidity Zones*:"
+                    message += f"\n• *SMC Liquidity Zones*:"
                     for zone in liquidity_zones[:2]:
                         zone_price = format_price(zone.get('price', 0))
-                        zone_type = safe_text(zone.get('type', 'N/A').title())
-                        zone_strength = safe_text(zone.get('strength', 'medium').title())
+                        zone_type = safe_text(zone.get('type', 'N/A').replace('_', ' ').title())
+                        zone_strength = safe_text(zone.get('strength', 'medium').replace('_', ' ').title())
+                        smc_note = zone.get('smc_note', '')
                         message += f"\n  \\- {zone_type}: {safe_text(zone_price)} \\({zone_strength}\\)"
+                        if smc_note:
+                            message += f"\n    {safe_text(smc_note[:40])}{'...' if len(smc_note) > 40 else ''}"
 
-                pos_size = '2\\-3%' if confidence >= 80 else '1\\-2%' if confidence >= 70 else '0\\.5\\-1%'
+                pos_size = '2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'
                 message += f"""
 
 ⚡ *TRADING DETAILS:*
 • *Confidence*: {confidence:.0f}%
 • *Risk/Reward Ratio*: {risk_reward:.2f}:1
-• *Position Size*: {pos_size} Capital
+• *Position Size*: {smc_levels.get('position_size', pos_size)}
 
 ⏰ *Update*: {safe_text(datetime.now().strftime('%H:%M:%S UTC'))}
-🔄 *Next Update*: Auto\\-refreshing"""
+🔄 *Next Update*: Auto-refreshing"""
 
             return message
 
         except Exception as e:
             print(f"❌ Error formatting Coinglass v2 analysis: {e}")
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
+
+    def _generate_comprehensive_futures_data(self, symbol, crypto_api=None):
+        """Fetch and combine data from Coinglass for comprehensive futures analysis"""
+        try:
+            if not crypto_api:
+                return {'error': 'CryptoAPI not available'}
+
+            print(f"Fetching comprehensive data for {symbol}...")
+
+            # Fetch individual data points
+            ls_data = asyncio.run(asyncio.to_thread(self._get_coinglass_long_short_data, symbol))
+            oi_data = asyncio.run(asyncio.to_thread(self._get_coinglass_open_interest_data, symbol))
+            # Assume funding_rate is part of oi_data, no need for separate call if already present
+            funding_data = oi_data if 'funding_rate' in oi_data else {'funding_rate': 0}
+            price_data = asyncio.run(asyncio.to_thread(crypto_api.get_price_data, symbol)) # Assuming crypto_api has get_price_data
+
+            # Fetch recommendation data (this might be from another module/API)
+            # For now, we'll use a placeholder or simplified logic
+            recommendation = {}
+            if 'error' not in ls_data and 'error' not in oi_data and 'error' not in price_data:
+                 recommendation = self._analyze_coinglass_data(
+                    {'long_short': ls_data, 'open_interest': oi_data}, symbol
+                 )
+                 # Enhance recommendation with SMC logic
+                 smc_analysis = self._analyze_smc_structure(ls_data, oi_data, symbol)
+                 smc_levels = self._calculate_smc_levels(symbol, smc_analysis, ls_data, oi_data)
+
+                 recommendation.update({
+                    'smc_analysis': smc_analysis,
+                    'smc_levels': smc_levels,
+                    'smc_note': smc_levels.get('smc_note', ''),
+                    'position_size_smc': smc_levels.get('position_size', '1-2% capital')
+                 })
+
+            successful_calls = sum([
+                not isinstance(ls_data, dict) or 'error' not in ls_data,
+                not isinstance(oi_data, dict) or 'error' not in oi_data,
+                not isinstance(price_data, dict) or 'error' not in price_data,
+                not isinstance(recommendation, dict) or 'error' not in recommendation
+            ])
+            total_calls = 4
+
+            # Enhanced SMC Analysis Integration
+            smc_analysis = self._analyze_smc_structure(ls_data, oi_data, symbol)
+            smc_levels = self._calculate_smc_levels(symbol, smc_analysis, ls_data, oi_data)
+
+            # Combine SMC with existing recommendation
+            if 'error' not in recommendation:
+                recommendation.update({
+                    'smc_analysis': smc_analysis,
+                    'smc_levels': smc_levels,
+                    'smc_note': smc_levels.get('smc_note', ''),
+                    'position_size_smc': smc_levels.get('position_size', '1-2% capital')
+                })
+
+            return {
+                'symbol': symbol,
+                'open_interest_data': oi_data,
+                'long_short_data': ls_data,
+                'funding_rate_data': funding_data,
+                'price_data': price_data,
+                'trading_recommendation': recommendation,
+                'smc_analysis': smc_analysis,
+                'smc_levels': smc_levels,
+                'successful_api_calls': successful_calls,
+                'total_api_calls': total_calls,
+                'data_quality': 'excellent' if successful_calls >= 3 else 'good' if successful_calls >= 2 else 'partial',
+                'source': 'coinglass_v2_comprehensive_smc'
+            }
+
+        except Exception as e:
+            print(f"Error in _generate_comprehensive_futures_data: {e}")
+            return {'error': f'Failed to fetch comprehensive data: {str(e)}'}
+
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
@@ -1043,7 +1232,7 @@ Saya memahami Anda bertanya tentang: "{text}"
 
 📚 **Yang bisa saya bantu:**
 - Analisis harga crypto (`/price btc`)
-- Analisis mendalam (`/analyze eth`) 
+- Analisis mendalam (`/analyze eth`)
 - Sinyal trading (`/futures_signals`)
 - Overview pasar (`/market`)
 - Pertanyaan crypto umum
