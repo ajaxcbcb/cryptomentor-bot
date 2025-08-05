@@ -1866,6 +1866,177 @@ This analysis is based on fundamental data from CoinMarketCap. Always combine wi
                 'confidence': 50
             }
 
+    def get_comprehensive_analysis(self, symbol):
+        """Get comprehensive analysis using CoinMarketCap API"""
+        try:
+            # Get CoinMarketCap API key from environment
+            cmc_api_key = os.getenv("COINMARKETCAP_API_KEY")
+            
+            if not cmc_api_key:
+                return """❌ **ANALISIS GAGAL**
+
+CoinMarketCap API key tidak ditemukan di Secrets.
+
+🔧 **Setup diperlukan:**
+• Buka Tools > Secrets di Replit
+• Tambahkan secret dengan nama: COINMARKETCAP_API_KEY
+• Masukkan API key dari CoinMarketCap
+
+💡 **Cara mendapatkan API key:**
+1. Daftar di coinmarketcap.com/api
+2. Buat akun gratis
+3. Copy API key dari dashboard
+4. Paste ke Replit Secrets"""
+
+            # Setup API request
+            url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+            headers = {
+                'X-CMC_PRO_API_KEY': cmc_api_key,
+                'Accept': 'application/json'
+            }
+            params = {
+                'symbol': symbol.upper()
+            }
+
+            # Make API request
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Check if API call was successful
+            if data.get('status', {}).get('error_code') != 0:
+                error_msg = data.get('status', {}).get('error_message', 'Unknown error')
+                return f"""❌ **CoinMarketCap API Error**
+
+{error_msg}
+
+💡 **Kemungkinan penyebab:**
+• API key tidak valid
+• Limit request tercapai
+• Symbol cryptocurrency tidak ditemukan
+• Masalah koneksi internet
+
+🔄 **Solusi:** Coba lagi dalam beberapa menit"""
+
+            # Extract cryptocurrency data
+            crypto_data = data.get('data', {}).get(symbol.upper(), {})
+            
+            if not crypto_data:
+                return f"""❌ **Cryptocurrency Tidak Ditemukan**
+
+Symbol "{symbol.upper()}" tidak ditemukan di CoinMarketCap.
+
+💡 **Tips:**
+• Pastikan symbol benar (contoh: BTC, ETH, BNB)
+• Gunakan symbol resmi, bukan nama lengkap
+• Coba symbol populer seperti BTC atau ETH"""
+
+            quote_data = crypto_data.get('quote', {}).get('USD', {})
+            
+            # Extract relevant data
+            name = crypto_data.get('name', symbol.upper())
+            current_price = quote_data.get('price', 0)
+            market_cap = quote_data.get('market_cap', 0)
+            volume_24h = quote_data.get('volume_24h', 0)
+            percent_change_24h = quote_data.get('percent_change_24h', 0)
+            cmc_rank = crypto_data.get('cmc_rank', 0)
+            
+            # Format numbers for readability
+            def format_currency(amount):
+                if amount >= 1_000_000_000_000:  # Trillions
+                    return f"${amount/1_000_000_000_000:.2f}T"
+                elif amount >= 1_000_000_000:  # Billions
+                    return f"${amount/1_000_000_000:.2f}B"
+                elif amount >= 1_000_000:  # Millions
+                    return f"${amount/1_000_000:.1f}M"
+                else:
+                    return f"${amount:,.0f}"
+
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.4f}"
+                else:
+                    return f"${price:,.2f}"
+
+            # Generate trading recommendation
+            if percent_change_24h > 5:
+                recommendation = "BUY"
+                rec_emoji = "🟢"
+                rec_reason = f"Strong bullish momentum (+{percent_change_24h:.1f}%)"
+            elif percent_change_24h > 0:
+                recommendation = "HOLD"
+                rec_emoji = "🟡"
+                rec_reason = f"Slight upward movement (+{percent_change_24h:.1f}%)"
+            elif percent_change_24h > -5:
+                recommendation = "HOLD"
+                rec_emoji = "🟡"
+                rec_reason = f"Minor correction ({percent_change_24h:.1f}%)"
+            else:
+                recommendation = "SELL"
+                rec_emoji = "🔴"
+                rec_reason = f"Strong bearish pressure ({percent_change_24h:.1f}%)"
+
+            # Format final output
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            analysis = f"""📊 **ANALISIS KOMPREHENSIF {name} ({symbol.upper()})**
+
+💰 **DATA HARGA:**
+• Harga Sekarang: {format_price(current_price)}
+• Ranking CMC: #{cmc_rank}
+• Market Cap: {format_currency(market_cap)}
+• Volume 24 Jam: {format_currency(volume_24h)}
+
+📈 **PERFORMA:**
+• Perubahan 24 Jam: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
+
+🎯 **REKOMENDASI:** {rec_emoji} {recommendation}
+💡 **Alasan:** {rec_reason}
+
+⚠️ **RISK MANAGEMENT:**
+• Gunakan stop loss 3-5% untuk trading jangka pendek
+• Take profit bertahap di level resistance
+• Maksimal 2-3% dari total portfolio per trade
+• Selalu DYOR (Do Your Own Research)
+
+📡 **SOURCE:** CoinMarketCap Professional API
+⏰ **Update:** {current_time}
+
+💎 **DISCLAIMER:** Analisis ini berdasarkan data fundamental. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
+
+            return analysis
+
+        except requests.exceptions.RequestException as e:
+            return f"""❌ **KONEKSI ERROR**
+
+Gagal mengambil data dari CoinMarketCap API.
+
+**Detail Error:** {str(e)[:100]}...
+
+🔄 **Solusi:**
+• Cek koneksi internet
+• Coba lagi dalam beberapa menit
+• Pastikan API key CoinMarketCap valid
+
+💡 **Alternative:** Gunakan command `/price {symbol.lower()}` untuk harga basic"""
+
+        except Exception as e:
+            return f"""❌ **ANALISIS GAGAL**
+
+Terjadi kesalahan tak terduga saat memproses data.
+
+**Detail Error:** {str(e)[:100]}...
+
+🔄 **Solusi:**
+• Coba lagi dalam beberapa menit
+• Pastikan symbol cryptocurrency benar
+• Contact admin jika masalah berlanjut
+
+💡 **Example:** `/analyze BTC` atau `/analyze ETH`"""
+
     def _generate_emergency_analysis(self, symbol, language, error_message):
         """Generate fallback analysis in case of errors"""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
