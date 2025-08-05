@@ -98,6 +98,9 @@ class CryptoAPI:
         """Cleanup resources"""
         await self.coinapi_helper.close_session()
 
+    def get_coinglass_long_short_ratio(self, symbol, time_type='24h'):
+        """Get long/short ratio from Coinglass"""
+        try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
 
@@ -105,46 +108,6 @@ class CryptoAPI:
             symbol = symbol.upper()
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]  # Remove USDT suffix
-
-            url = f"{self.coinglass_url}/futures/openInterestVolume"
-            headers = self._get_coinglass_headers()
-
-            params = {
-                'symbol': symbol,
-                'timeType': time_type
-            }
-
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-
-            data = response.json()
-
-            if data.get('success'):
-                result_data = data.get('data', {})
-                return {
-                    'symbol': symbol,
-                    'open_interest': result_data.get('totalOpenInterest', 0),
-                    'open_interest_change': result_data.get('totalOpenInterestChange', 0),
-                    'time_type': time_type,
-                    'source': 'coinglass',
-                    'timestamp': datetime.now().isoformat()
-                }
-            else:
-                return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
-
-        except Exception as e:
-            return {'error': f"Coinglass open interest error: {str(e)}"}
-
-    def get_coinglass_long_short_ratio(self, symbol, time_type='24h'):
-        """Get long/short ratio from Coinglass"""
-        try:
-            if not self.coinglass_key:
-                return {'error': 'Coinglass API key not found'}
-
-            # Convert symbol format
-            symbol = symbol.upper()
-            if symbol.endswith('USDT'):
-                symbol = symbol[:-4]
 
             url = f"{self.coinglass_url}/futures/longShortRatio"
             headers = self._get_coinglass_headers()
@@ -181,6 +144,48 @@ class CryptoAPI:
 
     def get_coinglass_liquidation(self, symbol, time_type='24h'):
         """Get liquidation data from Coinglass"""
+        try:
+            if not self.coinglass_key:
+                return {'error': 'Coinglass API key not found'}
+
+            # Convert symbol format
+            symbol = symbol.upper()
+            if symbol.endswith('USDT'):
+                symbol = symbol[:-4]
+
+            url = f"{self.coinglass_url}/futures/liquidation"
+            headers = self._get_coinglass_headers()
+
+            params = {
+                'symbol': symbol,
+                'timeType': time_type
+            }
+
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if data.get('success'):
+                result_data = data.get('data', {})
+                return {
+                    'symbol': symbol,
+                    'total_liquidation': result_data.get('totalLiquidation', 0),
+                    'long_liquidation': result_data.get('longLiquidation', 0),
+                    'short_liquidation': result_data.get('shortLiquidation', 0),
+                    'liquidation_ratio': result_data.get('liquidationRatio', 0),
+                    'time_type': time_type,
+                    'source': 'coinglass',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
+
+        except Exception as e:
+            return {'error': f"Coinglass liquidation error: {str(e)}"}
+
+    def get_coinglass_funding_rate(self, symbol):
+        """Get funding rate from Coinglass"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
