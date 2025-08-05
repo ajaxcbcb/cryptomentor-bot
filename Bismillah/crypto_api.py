@@ -18,13 +18,15 @@ class CryptoAPI:
             print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
 
         self.coinglass_url = "https://open-api.coinglass.com/api/pro/v1"
+        self.coinglass_base_url = "https://open-api.coinglass.com/public/v2" # Added for v2 endpoints
 
         self.cache = {} # Initialize cache for price data
         self.cache_duration = 30 # Enhanced cache duration (30 seconds for real-time)
 
         print("🚀 CryptoAPI initialized with CoinGlass + CoinMarketCap Startup Plan")
-        print(f"📊 CoinGlass Pro URL: {self.coinglass_url}")
-        print(f"🔑 CoinGlass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
+        print(f"📊 Coinglass API Base URL: {self.coinglass_url}")
+        print(f"📊 Coinglass Public API Base URL: {self.coinglass_base_url}") # Added for clarity
+        print(f"🔑 Coinglass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
         print(f"📊 CoinMarketCap Startup: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
         print("⭐ Premium Analysis: CoinGlass Futures + CoinMarketCap Fundamental")
@@ -99,7 +101,7 @@ class CryptoAPI:
         """Get cryptocurrency price with CoinMarketCap + CoinGlass Premium integration"""
         try:
             cache_key = f"premium_price_{symbol.upper()}"
-            
+
             # Check cache first (unless force refresh)
             if not force_refresh and cache_key in self.cache:
                 cached_data = self.cache[cache_key]
@@ -116,7 +118,7 @@ class CryptoAPI:
                 if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
                     # Enhance with CoinGlass futures data
                     coinglass_data = self._get_coinglass_enhanced_ticker(symbol)
-                    
+
                     result = {
                         'symbol': symbol.upper(),
                         'price': cmc_data.get('price', 0),
@@ -156,7 +158,7 @@ class CryptoAPI:
             params = {'symbol': clean_symbol}
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get('success') and data.get('data'):
@@ -182,7 +184,7 @@ class CryptoAPI:
             params = {'symbol': clean_symbol, 'intervalType': 1}  # 24h
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get('success'):
@@ -205,10 +207,10 @@ class CryptoAPI:
         try:
             volume_24h = ticker_data.get('volume_24h', 0)
             oi_data = self.get_coinglass_open_interest(symbol)
-            
+
             if 'error' not in oi_data:
                 oi_change = oi_data.get('open_interest_change', 0)
-                
+
                 # Simplified volume flow analysis
                 if oi_change > 5 and volume_24h > 0:
                     return {
@@ -222,7 +224,7 @@ class CryptoAPI:
                         'strength': 'strong' if oi_change < -10 else 'moderate',
                         'volume_quality': 'distribution'
                     }
-            
+
             return {'flow_bias': 'neutral', 'strength': 'low', 'volume_quality': 'mixed'}
         except Exception as e:
             return {'error': f'Volume flow analysis error: {str(e)}'}
@@ -412,13 +414,13 @@ class CryptoAPI:
             ls_data = self.get_coinglass_long_short_ratio(symbol, interval_type=2)  # 1 hour
             funding_data = self.get_coinglass_funding_rate(symbol)
             liquidation_data = self._get_coinglass_liquidation_heatmap(symbol)
-            
+
             # Get CoinMarketCap fundamental data
             cmc_data = self.cmc_provider.get_cryptocurrency_quotes(symbol) if self.cmc_provider.api_key else {}
-            
+
             # Volume flow analysis
             volume_flow = self._analyze_volume_inflow_outflow(symbol, futures_ticker)
-            
+
             successful_calls = 0
             total_calls = 6
 
