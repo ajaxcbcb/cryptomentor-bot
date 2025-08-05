@@ -1,0 +1,65 @@
+Tingkatkan command `/futures` di file `ai_assistant.py` agar terlihat profesional dan strategis.
+
+1. Gunakan kombinasi metode analisa:
+   - Smart Money Concepts (SMC)
+   - Supply & Demand (SnD)
+   - Ambil data dari: Coinglass (long/short, OI, funding), CoinAPI (harga), Binance (sentimen)
+
+2. Output harus diformat seperti ini:
+
+🎯 **ENHANCED FUTURES ANALYSIS - BTC (30m)**
+
+💰 **HARGA REAL-TIME (CoinAPI):**  
+• Current: $118,520.41  
+• Source: 🟢 CoinAPI Real-time  
+• Reliability: ✅ Tinggi
+
+🧭 **TRADING SIGNAL**: 🟢 **LONG** / 🔴 **SHORT** / ⏸️ **HOLD POSITION**  
+📊 **Confidence Level**: 84%  
+🎯 **Risk Level**: 🟠 Medium-High
+
+💡 Jika sinyal HOLD, tampilkan seperti ini:  
+⏸️ **HOLD POSITION**: Tunggu setup yang lebih jelas.  
+(*gunakan format tebal untuk "HOLD POSITION" dan jangan tampilkan TP/SL*)
+
+📌 **REKOMENDASI TRADING:**  
+┣━ 📍 Entry: $118,461.15  
+┣━ 🎯 TP 1: $121,126.52 (RR 1.5:1)  
+┣━ 🎯 TP 2: $122,903.44 (RR 2.5:1)  
+┣━ 🏆 TP 3: $125,568.82 (RR 4.0:1)  
+┗━ 🛡️ Stop Loss: $116,684.23 (**WAJIB!**)
+
+📈 **STRATEGI TRADING (30m)**  
+• Position Size: 0.5% – 1% modal  
+• Risk per Trade: 1.5%  
+• Take Profit: 40% di TP1, 30% TP2, 30% TP3  
+• SL: Move to BE setelah TP1
+
+🧠 **ANALISA (SMC + SnD)**  
+• Deteksi zona demand & imbalance  
+• Pergerakan OI dan likuidasi  
+• Posisi mayoritas vs crowd (SMC principle)  
+• Korelasi funding & trend kekuatan
+
+🛡️ **RISK MANAGEMENT KETAT:**  
+• Set SL WAJIB sebelum entry  
+• Max concurrent trades: 1  
+• Monitor price action untuk konfirmasi  
+• Exit jika market structure berubah
+
+📊 **Sumber Data**  
+• CoinAPI: Real-time price  
+• Coinglass: Long/short ratio, OI, funding  
+• Binance: Futures sentiment
+
+⏰ Waktu Analisa: `hh:mm:ss WIB`  
+🔄 Next Update: Real-time
+
+3. Tambahkan logika HOLD:
+   - Jika sinyal SND dan SMC bertentangan atau tidak kuat, berikan output:
+     ⏸️ **HOLD POSITION**: Tunggu setup yang lebih jelas.
+   - Jangan tampilkan TP/SL jika HOLD.
+
+4. Jangan ubah command lain di file. Simpan semua perubahan hanya di `ai_assistant.py`.
+
+Tujuan: output `/futures` menjadi analisa premium yang kuat, rapi, dan langsung bisa dikirim ke Telegram tanpa error.
