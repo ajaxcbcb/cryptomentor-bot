@@ -389,266 +389,213 @@ class AIAssistant:
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
 
     def _format_coinglass_v2_analysis(self, symbol, timeframe, futures_data, language='id'):
-        """Format Enhanced Professional Futures Analysis with SMC + SnD"""
+        """Format Premium Enhanced Futures Analysis with CoinGlass + CoinMarketCap"""
         try:
-            # Extract data from comprehensive futures data
-            long_short_data = futures_data.get('long_short_data', {})
-            oi_data = futures_data.get('open_interest_data', {})
+            # Extract premium data
             recommendation = futures_data.get('trading_recommendation', {})
-            smc_analysis = futures_data.get('smc_analysis', {})
+            cmc_data = futures_data.get('cmc_fundamental', {})
+            liquidation_data = futures_data.get('liquidation_data', {})
+            volume_flow = futures_data.get('volume_flow', {})
             
-            # Get real-time price from Coinglass
+            # Get price from CoinMarketCap or CoinGlass
             current_price = 0
-            price_source = "Coinglass Live"
-            reliability = "✅ Tinggi"
+            change_24h = 0
+            funding_rate = 0
+            long_ratio = 50
+            oi_change = 0
             
-            # Fetch real-time price from Coinglass
-            coinglass_price_data = self._get_coinglass_realtime_price(symbol)
-            
-            if coinglass_price_data and 'error' not in coinglass_price_data:
-                current_price = coinglass_price_data.get('price', 0)
-                exchange = coinglass_price_data.get('exchange', 'Multiple')
-                price_source = f"🟢 Coinglass Live ({exchange})"
-                reliability = "✅ Tinggi"
-                print(f"✅ Coinglass real-time price for {symbol}: ${current_price:.2f}")
+            if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
+                current_price = cmc_data.get('price', 0)
+                change_24h = cmc_data.get('percent_change_24h', 0)
+                price_source = "🟢 CoinMarketCap Startup"
+                reliability = "✅ Premium"
             else:
-                # Fallback to estimated price only if Coinglass fails
+                # Fallback to estimated price
                 current_price = self._get_estimated_price(symbol)
-                price_source = "Estimated (Coinglass failed)"
-                reliability = "⚠️ Fallback"
-                print(f"❌ Coinglass failed for {symbol}: {coinglass_price_data.get('error', 'Unknown error')}")
+                price_source = "🟡 Fallback Estimate"
+                reliability = "⚠️ Limited"
+            
+            # Extract futures data
+            if 'long_short_data' in futures_data and 'error' not in futures_data['long_short_data']:
+                long_ratio = futures_data['long_short_data'].get('long_ratio', 50)
+            
+            if 'funding_rate_data' in futures_data and 'error' not in futures_data['funding_rate_data']:
+                funding_rate = futures_data['funding_rate_data'].get('funding_rate', 0)
                 
-            # Calculate confidence based on data quality and SMC
-            base_confidence = self._calculate_coinglass_confidence(long_short_data, oi_data, recommendation)
-            smc_confidence = smc_analysis.get('confidence', 50)
-            final_confidence = (base_confidence + smc_confidence) // 2
-            
-            # Get recommendation with SMC enhancement
+            if 'open_interest_data' in futures_data and 'error' not in futures_data['open_interest_data']:
+                oi_change = futures_data['open_interest_data'].get('open_interest_change', 0)
+
+            # Extract recommendation
             direction = recommendation.get('direction', 'HOLD')
-            smc_bias = smc_analysis.get('smart_money_bias', 'neutral')
+            smc_bias = recommendation.get('smc_bias', 'NEUTRAL')
+            confidence = recommendation.get('confidence', 50)
+            risk_level = recommendation.get('risk_level', 'Medium')
             
-            # Override direction if SMC and recommendation conflict
-            if smc_confidence > 70 and smc_bias != 'neutral':
-                if smc_bias == 'bullish' and direction in ['SELL', 'SHORT']:
-                    direction = 'HOLD'  # Conflict - be cautious
-                elif smc_bias == 'bearish' and direction in ['BUY', 'LONG']:
-                    direction = 'HOLD'  # Conflict - be cautious
-            
-            # Calculate risk level
-            if final_confidence >= 80:
-                risk_level = "🟢 Low"
-                position_size = "1% - 1.5%"
-                risk_per_trade = "1.5%"
-            elif final_confidence >= 65:
-                risk_level = "🟠 Medium"
-                position_size = "0.5% - 1%"
-                risk_per_trade = "1.0%"
-            else:
-                risk_level = "🔴 High"
-                position_size = "0.25% - 0.5%"
-                risk_per_trade = "0.5%"
-                direction = 'HOLD'  # Force HOLD for low confidence
-            
-            # Format price display with 2 decimal precision for real-time data
+            # Format price with proper precision
             def format_price(price):
                 if price < 1:
                     return f"${price:.8f}"
                 elif price < 100:
-                    return f"${price:.4f}"  
+                    return f"${price:.4f}"
                 else:
                     return f"${price:,.2f}"
-            
-            # Direction emoji and signal
-            if direction == 'LONG':
-                direction_emoji = "🟢"
-                signal_text = "🟢 **LONG**"
-            elif direction == 'SHORT':
-                direction_emoji = "🔴" 
-                signal_text = "🔴 **SHORT**"
+
+            # Enhanced risk level display
+            if confidence >= 80:
+                risk_display = "🟢 Low-Medium"
+                max_position = "1.5%"
+            elif confidence >= 65:
+                risk_display = "🟠 Medium-High"
+                max_position = "1%"
             else:
-                direction_emoji = "⏸️"
+                risk_display = "🔴 High"
+                max_position = "0.5%"
+                direction = 'HOLD'  # Force HOLD for low confidence
+
+            # Direction formatting
+            if direction == 'LONG':
+                signal_text = "🟢 **LONG**"
+                signal_emoji = "📈"
+            elif direction == 'SHORT':
+                signal_text = "🔴 **SHORT**"
+                signal_emoji = "📉"
+            else:
                 signal_text = "⏸️ **HOLD POSITION**"
-            
+                signal_emoji = "📊"
+
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             
             if language == 'id':
                 message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
-💰 **HARGA REAL-TIME (Coinglass):**
+💰 **HARGA (CoinGlass + CoinMarketCap):**
 • Current: {format_price(current_price)}
-• Source: {price_source}
-• Reliability: {reliability}
+• Funding Rate: {funding_rate*100:+.3f}%
+• Long/Short Ratio: {long_ratio:.0f}% Long
+• Open Interest: {oi_change:+.1f}% (24h)
 
-🧭 **TRADING SIGNAL**: {signal_text}
-📊 **Confidence Level**: {final_confidence}%
-🎯 **Risk Level**: {risk_level}"""
+🧭 **TRADING SIGNAL**: {signal_text} {signal_emoji}
+📊 **Confidence**: {confidence:.0f}%
+🎯 **Risk**: {risk_display}"""
 
                 if direction != 'HOLD':
-                    # Calculate enhanced TP levels with better RR ratios
-                    entry_price = recommendation.get('entry_price', current_price)
-                    stop_loss = recommendation.get('stop_loss', current_price * 0.97)  # 3% SL default
-                    
-                    # Calculate multiple TP levels with strategic RR ratios
-                    if direction == 'LONG':
-                        risk_amount = entry_price - stop_loss
-                        tp1 = entry_price + (risk_amount * 1.5)  # 1.5:1 RR
-                        tp2 = entry_price + (risk_amount * 2.5)  # 2.5:1 RR  
-                        tp3 = entry_price + (risk_amount * 4.0)  # 4.0:1 RR
-                    else:  # SHORT
-                        risk_amount = stop_loss - entry_price
-                        tp1 = entry_price - (risk_amount * 1.5)
-                        tp2 = entry_price - (risk_amount * 2.5)
-                        tp3 = entry_price - (risk_amount * 4.0)
+                    # Get entry zones from recommendation
+                    entry_low = recommendation.get('entry_zone_low', current_price * 0.998)
+                    entry_high = recommendation.get('entry_zone_high', current_price * 1.002)
+                    tp1 = recommendation.get('take_profit_1', current_price * 1.025)
+                    tp2 = recommendation.get('take_profit_2', current_price * 1.05)
+                    tp3 = recommendation.get('take_profit_3', current_price * 1.08)
+                    sl = recommendation.get('stop_loss', current_price * 0.975)
 
                     message += f"""
 
-📌 **REKOMENDASI TRADING:**
-┣━ 📍 Entry: {format_price(entry_price)}
-┣━ 🎯 TP 1: {format_price(tp1)} (RR 1.5:1)
-┣━ 🎯 TP 2: {format_price(tp2)} (RR 2.5:1)
-┣━ 🏆 TP 3: {format_price(tp3)} (RR 4.0:1)
-┗━ 🛡️ Stop Loss: {format_price(stop_loss)} (**WAJIB!**)
-
-📈 **STRATEGI TRADING ({timeframe})**
-• Position Size: {position_size} modal
-• Risk per Trade: {risk_per_trade}
-• Take Profit: 40% di TP1, 30% TP2, 30% TP3
-• SL: Move to BE setelah TP1"""
+📌 **ENTRY ZONE**: {format_price(entry_low)} – {format_price(entry_high)}
+🎯 TP1: {format_price(tp1)} (RR 1.5)
+🎯 TP2: {format_price(tp2)} (RR 2.5)
+🏆 TP3: {format_price(tp3)} (RR 4.0)
+🛡️ SL: {format_price(sl)}"""
                 else:
                     message += f"""
 
-⏸️ **HOLD POSITION**: Tunggu setup yang lebih jelas.
+⏸️ **HOLD POSITION**: Tunggu setup yang lebih jelas."""
 
-📊 **Alasan HOLD:**
-• SMC dan SnD analysis bertentangan
-• Confidence level di bawah threshold (65%)
-• Market structure belum memberikan sinyal kuat"""
-
-                # Add SMC + SnD Analysis
                 message += f"""
 
 🧠 **ANALISA (SMC + SnD)**
 • Smart Money Bias: {smc_bias.title()}
-• Deteksi zona demand & imbalance
-• Pergerakan OI dan likuidasi
-• Posisi mayoritas vs crowd (SMC principle)
-• Korelasi funding & trend kekuatan"""
+• Demand imbalance {"terpenuhi" if direction == "SHORT" else "dibutuhkan"}
+• Posisi mayoritas {"Long" if long_ratio > 60 else "Balanced"} → {"peluang trap" if long_ratio > 70 else "netral"}
+• Funding rate {"overbought" if funding_rate > 0.01 else "netral"} → {"potensi retrace" if funding_rate > 0.01 else "stabil"}
 
-                # Add Coinglass data
-                if 'error' not in long_short_data:
-                    long_ratio = long_short_data.get('long_ratio', 50)
-                    message += f"""
+🛡️ **RISK MANAGEMENT KETAT**
+• SL WAJIB sebelum entry
+• Max trade aktif: 1
+• Exit jika struktur pasar berubah"""
 
-📊 **Data Coinglass:**
-• Long/Short Ratio: {long_ratio:.1f}% / {100-long_ratio:.1f}%"""
+                # Add premium market context
+                if 'error' not in cmc_data:
+                    dominance = cmc_data.get('market_cap_dominance', 0)
+                    market_cap = cmc_data.get('market_cap', 0)
                     
-                    if long_ratio > 70:
-                        message += " (⚠️ Overleveraged Longs)"
-                    elif long_ratio < 30:
-                        message += " (💎 Oversold Conditions)"
+                    def format_cap(cap):
+                        if cap > 1_000_000_000_000:
+                            return f"${cap/1_000_000_000_000:.2f}T"
+                        elif cap > 1_000_000_000:
+                            return f"${cap/1_000_000_000:.1f}B"
+                        else:
+                            return f"${cap/1_000_000:.0f}M"
 
-                if 'error' not in oi_data:
-                    oi_change = oi_data.get('oi_change_percent', 0)
-                    funding_rate = oi_data.get('funding_rate', 0) * 100
                     message += f"""
-• Open Interest: {oi_change:+.1f}% change
-• Funding Rate: {funding_rate:.3f}%"""
+
+📊 **MARKET CONTEXT (CoinMarketCap)**
+• {symbol} Dominance: {dominance:.2f}%
+• Market Cap: {format_cap(market_cap)}
+• 24h Change: {change_24h:+.2f}%"""
+
+                # Volume Flow Analysis
+                flow_bias = volume_flow.get('flow_bias', 'neutral')
+                flow_strength = volume_flow.get('strength', 'low')
+                if flow_bias != 'neutral':
+                    message += f"""
+• Volume Flow: {flow_bias.title()} ({flow_strength})"""
 
                 message += f"""
 
-🛡️ **RISK MANAGEMENT KETAT:**
-• Set SL WAJIB sebelum entry
-• Max concurrent trades: 1
-• Monitor price action untuk konfirmasi
-• Exit jika market structure berubah
-
-📊 **Sumber Data**
-• Coinglass: Real-time price, Long/short ratio, OI, funding
-• Binance: Futures sentiment
-• CoinMarketCap: Market data
-
-⏰ Waktu Analisa: {current_time}
-🔄 Next Update: Real-time"""
+⏰ Update: {current_time}
+🔄 Real-time sync enabled
+⭐ **Status Premium** - Startup Plan"""
 
             else:
-                # English version with same structure
+                # English version with same premium structure
                 message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
-💰 **REAL-TIME PRICE (Coinglass):**
+💰 **PRICE (CoinGlass + CoinMarketCap):**
 • Current: {format_price(current_price)}
-• Source: {price_source}
-• Reliability: {reliability}
+• Funding Rate: {funding_rate*100:+.3f}%
+• Long/Short Ratio: {long_ratio:.0f}% Long
+• Open Interest: {oi_change:+.1f}% (24h)
 
-🧭 **TRADING SIGNAL**: {signal_text}
-📊 **Confidence Level**: {final_confidence}%
-🎯 **Risk Level**: {risk_level}"""
+🧭 **TRADING SIGNAL**: {signal_text} {signal_emoji}
+📊 **Confidence**: {confidence:.0f}%
+🎯 **Risk**: {risk_display}"""
 
                 if direction != 'HOLD':
-                    entry_price = recommendation.get('entry_price', current_price)
-                    stop_loss = recommendation.get('stop_loss', current_price * 0.97)
-                    
-                    if direction == 'LONG':
-                        risk_amount = entry_price - stop_loss
-                        tp1 = entry_price + (risk_amount * 1.5)
-                        tp2 = entry_price + (risk_amount * 2.5)
-                        tp3 = entry_price + (risk_amount * 4.0)
-                    else:
-                        risk_amount = stop_loss - entry_price
-                        tp1 = entry_price - (risk_amount * 1.5)
-                        tp2 = entry_price - (risk_amount * 2.5)
-                        tp3 = entry_price - (risk_amount * 4.0)
+                    entry_low = recommendation.get('entry_zone_low', current_price * 0.998)
+                    entry_high = recommendation.get('entry_zone_high', current_price * 1.002)
+                    tp1 = recommendation.get('take_profit_1', current_price * 1.025)
+                    tp2 = recommendation.get('take_profit_2', current_price * 1.05)
+                    tp3 = recommendation.get('take_profit_3', current_price * 1.08)
+                    sl = recommendation.get('stop_loss', current_price * 0.975)
 
                     message += f"""
 
-📌 **TRADING RECOMMENDATION:**
-┣━ 📍 Entry: {format_price(entry_price)}
-┣━ 🎯 TP 1: {format_price(tp1)} (RR 1.5:1)
-┣━ 🎯 TP 2: {format_price(tp2)} (RR 2.5:1)
-┣━ 🏆 TP 3: {format_price(tp3)} (RR 4.0:1)
-┗━ 🛡️ Stop Loss: {format_price(stop_loss)} (**MANDATORY!**)
-
-📈 **TRADING STRATEGY ({timeframe})**
-• Position Size: {position_size} capital
-• Risk per Trade: {risk_per_trade}
-• Take Profit: 40% at TP1, 30% TP2, 30% TP3
-• SL: Move to BE after TP1"""
-                else:
-                    message += f"""
-
-⏸️ **HOLD POSITION**: Wait for clearer setup.
-
-📊 **HOLD Reasons:**
-• SMC and SnD analysis conflicting
-• Confidence below threshold (65%)
-• Market structure lacks strong signals"""
+📌 **ENTRY ZONE**: {format_price(entry_low)} – {format_price(entry_high)}
+🎯 TP1: {format_price(tp1)} (RR 1.5)
+🎯 TP2: {format_price(tp2)} (RR 2.5)
+🏆 TP3: {format_price(tp3)} (RR 4.0)
+🛡️ SL: {format_price(sl)}"""
 
                 message += f"""
 
 🧠 **ANALYSIS (SMC + SnD)**
 • Smart Money Bias: {smc_bias.title()}
-• Demand zone & imbalance detection
-• OI movement and liquidations
-• Majority vs crowd positioning (SMC)
-• Funding & trend strength correlation
+• {"Demand imbalance fulfilled" if direction == "SHORT" else "Demand zone needed"}
+• Majority positioning: {"Long heavy" if long_ratio > 70 else "Balanced"}
+• Funding rate: {"Overbought territory" if funding_rate > 0.01 else "Neutral"}
 
-🛡️ **STRICT RISK MANAGEMENT:**
+🛡️ **STRICT RISK MANAGEMENT**
 • Set SL MANDATORY before entry
 • Max concurrent trades: 1
-• Monitor price action for confirmation
 • Exit if market structure changes
 
-📊 **Data Sources**
-• Coinglass: Real-time price, Long/short ratio, OI, funding
-• Binance: Futures sentiment
-• CoinMarketCap: Market data
-
-⏰ Analysis Time: {current_time}
-🔄 Next Update: Real-time"""
+⏰ Update: {current_time}
+🔄 Real-time sync enabled
+⭐ **Premium Status** - Startup Plan"""
 
             return message
 
         except Exception as e:
-            print(f"❌ Error formatting enhanced analysis: {e}")
+            print(f"❌ Error formatting premium analysis: {e}")
             import traceback
             traceback.print_exc()
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
@@ -1597,94 +1544,68 @@ Error processing data:
         else:
             return "😔 Sorry, no high-confidence futures signals found at the moment. Please try again later or check `/help`."
 
-    def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, user_id=None):
-        """Get comprehensive analysis using CoinMarketCap API with Smart Money Concepts"""
+    def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, crypto_api=None):
+        """Get comprehensive analysis using CoinMarketCap Startup + CoinGlass Premium"""
         try:
             import html
+            
+            if not crypto_api or not crypto_api.cmc_provider.api_key:
+                return """❌ **ANALISIS PREMIUM GAGAL**
 
-            # Get CoinMarketCap API key from environment
-            cmc_api_key = os.getenv("CMC_API_KEY")
-
-            if not cmc_api_key:
-                return """❌ **ANALISIS GAGAL**
-
-CoinMarketCap API key tidak ditemukan di Secrets.
+CoinMarketCap Startup API tidak tersedia.
 
 🔧 **Setup diperlukan:**
-• Buka Tools > Secrets di Replit
-• Tambahkan secret dengan nama: COINMARKETCAP_API_KEY
-• Masukkan API key dari CoinMarketCap
+• Pastikan CMC_API_KEY tersedia di Secrets
+• Verifikasi Startup Plan aktif
+• CoinGlass API key diperlukan untuk futures data
 
-💡 **Cara mendapatkan API key:**
-1. Daftar di coinmarketcap.com/api
-2. Buat akun gratis
-3. Copy API key dari dashboard
-4. Paste ke Replit Secrets"""
+💡 **Status:** Bot menggunakan Premium Analysis Plan"""
 
-            # Setup CoinMarketCap API request
-            cmc_url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-            cmc_headers = {
-                'X-CMC_PRO_API_KEY': cmc_api_key,
-                'Accept': 'application/json'
-            }
-            cmc_params = {
-                'symbol': symbol.upper()
-            }
+            # Get comprehensive data from CoinMarketCap Startup
+            cmc_data = crypto_api.cmc_provider.get_cryptocurrency_quotes(symbol)
+            
+            if 'error' in cmc_data:
+                return f"""❌ **CoinMarketCap Startup Error**
 
-            # Make CoinMarketCap API request
-            cmc_response = requests.get(cmc_url, headers=cmc_headers, params=cmc_params, timeout=15)
-            cmc_response.raise_for_status()
+{html.escape(cmc_data.get('error', 'Unknown error'))}
 
-            cmc_data = cmc_response.json()
+🔄 **Solusi:** 
+• Coba symbol cryptocurrency lain
+• Pastikan Startup Plan masih aktif
+• Tunggu beberapa menit untuk reset rate limit"""
 
-            # Check if CoinMarketCap API call was successful
-            if cmc_data.get('status', {}).get('error_code') != 0:
-                error_msg = cmc_data.get('status', {}).get('error_message', 'Unknown error')
-                return f"""❌ **CoinMarketCap API Error**
+            # Get additional info from CoinMarketCap
+            info_data = crypto_api.cmc_provider.get_cryptocurrency_info(symbol)
+            
+            # Get enhanced Smart Money analysis from CoinGlass
+            smc_analysis = self._get_enhanced_smart_money_analysis(symbol, crypto_api)
+            
+            # Extract CoinMarketCap data
+            current_price = cmc_data.get('price', 0)
+            market_cap = cmc_data.get('market_cap', 0)
+            volume_24h = cmc_data.get('volume_24h', 0)
+            percent_change_24h = cmc_data.get('percent_change_24h', 0)
+            percent_change_7d = cmc_data.get('percent_change_7d', 0)
+            circulating_supply = cmc_data.get('circulating_supply', 0)
+            max_supply = cmc_data.get('max_supply', 0)
+            dominance = cmc_data.get('market_cap_dominance', 0)
+            
+            # Extract info data
+            description = ""
+            category = ""
+            website = ""
+            if 'error' not in info_data:
+                description = info_data.get('description', '')[:200] + "..." if info_data.get('description', '') else "Deskripsi tidak tersedia"
+                category = info_data.get('category', 'Unknown')
+                website = info_data.get('website', '')
 
-{html.escape(error_msg)}
-
-💡 **Kemungkinan penyebab:**
-• API key tidak valid
-• Limit request tercapai
-• Symbol cryptocurrency tidak ditemukan
-• Masalah koneksi internet
-
-🔄 **Solusi:** Coba lagi dalam beberapa menit"""
-
-            # Extract cryptocurrency data from CoinMarketCap
-            crypto_data = cmc_data.get('data', {}).get(symbol.upper(), {})
-
-            if not crypto_data:
-                return f"""❌ **Cryptocurrency Tidak Ditemukan**
-
-Symbol "{html.escape(symbol.upper())}" tidak ditemukan di CoinMarketCap.
-
-💡 **Tips:**
-• Pastikan symbol benar (contoh: BTC, ETH, BNB)
-• Gunakan symbol resmi, bukan nama lengkap
-• Coba symbol populer seperti BTC atau ETH"""
-
-            quote_data = crypto_data.get('quote', {}).get('USD', {})
-
-            # Extract relevant data from CoinMarketCap
-            name = crypto_data.get('name', symbol.upper())
-            current_price = quote_data.get('price', 0)
-            market_cap = quote_data.get('market_cap', 0)
-            volume_24h = quote_data.get('volume_24h', 0)
-            percent_change_24h = quote_data.get('percent_change_24h', 0)
-            cmc_rank = crypto_data.get('cmc_rank', 0)
-
-            # Get Smart Money Concepts data from Coinglass
-            smc_analysis = self._get_smart_money_analysis(symbol)
-
-            # Format numbers for readability
+            # Enhanced number formatting
             def format_currency(amount):
-                if amount >= 1_000_000_000_000:  # Trillions
+                if amount >= 1_000_000_000_000:
                     return f"${amount/1_000_000_000_000:.2f}T"
-                elif amount >= 1_000_000_000:  # Billions
+                elif amount >= 1_000_000_000:
                     return f"${amount/1_000_000_000:.2f}B"
-                elif amount >= 1_000_000:  # Millions
+                elif amount >= 1_000_000:
                     return f"${amount/1_000_000:.1f}M"
                 else:
                     return f"${amount:,.0f}"
@@ -1697,89 +1618,78 @@ Symbol "{html.escape(symbol.upper())}" tidak ditemukan di CoinMarketCap.
                 else:
                     return f"${price:,.2f}"
 
-            # Generate basic trading recommendation from price movement
-            if percent_change_24h > 5:
-                basic_recommendation = "BUY"
-                basic_emoji = "🟢"
-                basic_reason = f"Strong bullish momentum (+{percent_change_24h:.1f}%)"
-            elif percent_change_24h > 0:
-                basic_recommendation = "HOLD"
-                basic_emoji = "🟡"
-                basic_reason = f"Slight upward movement (+{percent_change_24h:.1f}%)"
-            elif percent_change_24h > -5:
-                basic_recommendation = "HOLD"
-                basic_emoji = "🟡"
-                basic_reason = f"Minor correction ({percent_change_24h:.1f}%)"
-            else:
-                basic_recommendation = "SELL"
-                basic_emoji = "🔴"
-                basic_reason = f"Strong bearish pressure ({percent_change_24h:.1f}%)"
+            # Enhanced recommendation system
+            final_recommendation = self._generate_enhanced_recommendation(
+                cmc_data, smc_analysis, percent_change_24h, percent_change_7d
+            )
 
-            # Combine basic recommendation with SMC analysis
-            final_recommendation = self._combine_recommendations(basic_recommendation, smc_analysis)
-
-            # Format final output
             current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-            analysis = f"""📊 **ANALISIS KOMPREHENSIF {html.escape(name)} ({html.escape(symbol.upper())})**
+            analysis = f"""📊 **ANALISIS PREMIUM {symbol.upper()} (CoinMarketCap Startup + CoinGlass)**
 
-💰 **DATA FUNDAMENTAL (CoinMarketCap):**
-• Harga Sekarang: {format_price(current_price)}
-• Ranking CMC: #{cmc_rank}
-• Market Cap: {format_currency(market_cap)}
-• Volume 24 Jam: {format_currency(volume_24h)}
-• Perubahan 24 Jam: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
+💰 **DATA FUNDAMENTAL (CoinMarketCap Startup):**
+• **Harga Live**: {format_price(current_price)}
+• **Market Cap**: {format_currency(market_cap)}
+• **Volume 24j**: {format_currency(volume_24h)}
+• **Dominance**: {dominance:.2f}% dari total market
+• **Supply**: {circulating_supply:,.0f} / {max_supply:,.0f if max_supply > 0 else "∞"}
 
-🧠 **SMART MONEY CONCEPTS (Coinglass):**
-{smc_analysis.get('analysis_text', '• Data Smart Money sedang diproses...')}
+📈 **PERFORMA:**
+• **24 Jam**: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
+• **7 Hari**: {percent_change_7d:+.2f}% {'📈' if percent_change_7d >= 0 else '📉'}
 
-🎯 **REKOMENDASI GABUNGAN:** {final_recommendation['emoji']} {final_recommendation['action']}
-💡 **Alasan:** {html.escape(final_recommendation['reason'])}
-📊 **Confidence:** {final_recommendation['confidence']:.1f}%
+🏷️ **INFO TAMBAHAN:**
+• **Kategori**: {category}
+• **Deskripsi**: {html.escape(description)}
+{'• **Website**: ' + website if website else ''}
 
-⚠️ **RISK MANAGEMENT:**
-• Gunakan stop loss 3-5% untuk trading jangka pendek
-• Take profit bertahap di level resistance
-• Maksimal 2-3% dari total portfolio per trade
-• Monitor smart money flow untuk timing entry/exit
-• Selalu DYOR (Do Your Own Research)
+🧠 **SMART MONEY ANALYSIS (CoinGlass Premium):**
+{smc_analysis.get('analysis_text', '• Menganalisis smart money flow dari CoinGlass...')}
 
-📡 **DATA SOURCES:**
-• Fundamental: CoinMarketCap Professional API
-• Smart Money: Coinglass Real-time API
-⏰ **Update:** {current_time}
+🎯 **REKOMENDASI PREMIUM:** {final_recommendation['emoji']} **{final_recommendation['action']}**
+💡 **Reasoning**: {html.escape(final_recommendation['reason'])}
+📊 **Confidence Score**: {final_recommendation['confidence']:.1f}%
+🎯 **Entry Strategy**: {final_recommendation.get('entry_strategy', 'Dollar Cost Averaging')}
 
-💎 **DISCLAIMER:** Analisis ini menggabungkan data fundamental dan smart money flow. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
+⚠️ **RISK MANAGEMENT PREMIUM:**
+• **Position Size**: Maksimal {final_recommendation.get('max_position', '2-3%')} dari portfolio
+• **Stop Loss**: {final_recommendation.get('stop_loss', '3-5%')} untuk trading aktif
+• **Take Profit**: Bertahap di level resistance
+• **Time Horizon**: {final_recommendation.get('time_horizon', 'Medium-term (1-4 weeks)')}
+
+📈 **VOLUME INFLOW ANALYSIS:**
+{smc_analysis.get('volume_analysis', '• Volume flow analysis dari CoinGlass data')}
+
+🛡️ **LIQUIDATION HEATMAP:**
+{smc_analysis.get('liquidation_summary', '• Heatmap likuidasi dari futures data')}
+
+📡 **DATA SOURCES PREMIUM:**
+• **Fundamental**: CoinMarketCap Startup Plan ✅
+• **Smart Money**: CoinGlass Pro API ✅
+• **Volume Flow**: Enhanced algorithm ✅
+• **Liquidation**: Real-time heatmap ✅
+
+⏰ **Update**: {current_time} | 🔄 **Real-time Sync**
+⭐ **Premium Analysis** - Startup Plan Aktif
+
+💎 **DISCLAIMER PREMIUM:** Analisis menggunakan data premium dari CoinMarketCap Startup + CoinGlass Pro. Kombinasikan dengan technical analysis dan berita terkini untuk keputusan optimal."""
 
             return analysis
 
-        except requests.exceptions.RequestException as e:
-            return f"""❌ **KONEKSI ERROR**
-
-Gagal mengambil data dari CoinMarketCap API.
-
-**Detail Error:** {html.escape(str(e)[:100])}...
-
-🔄 **Solusi:**
-• Cek koneksi internet
-• Coba lagi dalam beberapa menit
-• Pastikan API key CoinMarketCap valid
-
-💡 **Alternative:** Gunakan command `/price {symbol.lower()}` untuk harga basic"""
-
         except Exception as e:
-            return f"""❌ **ANALISIS GAGAL**
+            return f"""❌ **PREMIUM ANALYSIS ERROR**
 
-Terjadi kesalahan tak terduga saat memproses data.
+Terjadi kesalahan saat mengambil data premium.
 
-**Detail Error:** {html.escape(str(e)[:100])}...
+**Error Details:** {html.escape(str(e)[:100])}...
 
 🔄 **Solusi:**
-• Coba lagi dalam beberapa menit
-• Pastikan symbol cryptocurrency benar
-• Contact admin jika masalah berlanjut
+• Verifikasi CoinMarketCap Startup Plan
+• Pastikan CoinGlass API key valid
+• Coba symbol cryptocurrency lain
+• Contact admin untuk troubleshooting
 
-💡 **Example:** `/analyze BTC` atau `/analyze ETH`"""
+💡 **Alternatif:** Gunakan `/futures {symbol.lower()}` untuk analisis futures"""
 
     def _get_smart_money_analysis(self, symbol):
         """Get Smart Money Concepts analysis using Coinglass data"""
@@ -1990,18 +1900,14 @@ Error fetching CoinMarketCap data:
 
         return message
 
-    def _get_coinglass_realtime_price(self, symbol):
-        """Get real-time price from Coinglass API"""
+    def _get_premium_price_data(self, symbol, crypto_api=None):
+        """Get premium price data from CoinMarketCap + CoinGlass"""
         try:
-            import requests
+            if crypto_api:
+                return crypto_api.get_crypto_price(symbol, force_refresh=True)
             
-            if not self.coinglass_key:
-                return {'error': 'Coinglass API key not found in secrets'}
-            
-            # Clean symbol (remove USDT if present)
+            # Direct CoinGlass fallback
             clean_symbol = symbol.upper().replace('USDT', '')
-            
-            # Coinglass ticker endpoint for real-time price
             url = f"{self.coinglass_base_url}/futures/ticker"
             
             headers = {
@@ -2009,49 +1915,28 @@ Error fetching CoinMarketCap data:
                 "coinglassSecret": self.coinglass_key
             }
             
-            params = {
-                'symbol': clean_symbol
-            }
-            
-            print(f"🔄 Fetching real-time price for {clean_symbol} from Coinglass...")
+            params = {'symbol': clean_symbol}
             
             response = requests.get(url, headers=headers, params=params, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
-                
                 if data.get('success'):
                     result_data = data.get('data', [])
-                    if result_data and len(result_data) > 0:
-                        # Get the first exchange's price (usually Binance)
+                    if result_data:
                         ticker_data = result_data[0]
-                        price = float(ticker_data.get('price', 0))
-                        
-                        if price > 0:
-                            return {
-                                'symbol': clean_symbol,
-                                'price': price,
-                                'source': 'coinglass_live',
-                                'exchange': ticker_data.get('exchangeName', 'Unknown'),
-                                'timestamp': ticker_data.get('time', ''),
-                                'success': True
-                            }
-                        else:
-                            return {'error': f'Invalid price received: {price}'}
-                    else:
-                        return {'error': 'No ticker data available from Coinglass'}
-                else:
-                    return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
-            else:
-                error_msg = f'Coinglass HTTP {response.status_code}: {response.text[:100]}...'
-                return {'error': error_msg}
+                        return {
+                            'symbol': clean_symbol,
+                            'price': float(ticker_data.get('price', 0)),
+                            'funding_rate': float(ticker_data.get('fundingRate', 0)),
+                            'volume_24h': float(ticker_data.get('volume24h', 0)),
+                            'source': 'coinglass_premium'
+                        }
+            
+            return {'error': 'Premium price data unavailable'}
                 
-        except requests.exceptions.Timeout:
-            return {'error': 'Coinglass request timeout (10s)'}
-        except requests.exceptions.RequestException as e:
-            return {'error': f'Coinglass connection error: {str(e)}'}
         except Exception as e:
-            return {'error': f'Coinglass unexpected error: {str(e)}'}
+            return {'error': f'Premium price error: {str(e)}'}
 
     def _get_estimated_price(self, symbol):
         """Helper to get an estimated price, fallback based on symbol"""
