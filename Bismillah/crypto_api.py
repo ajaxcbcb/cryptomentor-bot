@@ -5,16 +5,13 @@ import asyncio
 from datetime import datetime, timezone
 from binance_provider import BinanceFuturesProvider
 from coinmarketcap_provider import CoinMarketCapProvider
-from coinapi_helper import CoinAPIHelper
 
 class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.coinglass_key = os.getenv("COINGLASS_API_KEY")
-        self.coinapi_key = os.getenv("COINAPI_KEY")
         self.cmc_provider = CoinMarketCapProvider()
-        self.coinapi_helper = CoinAPIHelper()
 
         if not self.coinglass_key:
             print("⚠️ Coinglass API key not found in environment variables")
@@ -23,7 +20,6 @@ class CryptoAPI:
         self.coinglass_url = "https://open-api.coinglass.com/api/pro/v1"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
         self.binance_spot_url = "https://api.binance.com/api/v3"
-        self.coinapi_base_url = "https://rest.coinapi.io/v1" # Added base URL for CoinAPI
 
         self.cache = {} # Initialize cache for price data
         self.cache_duration = 60 # Cache duration in seconds (e.g., 1 minute)
@@ -31,11 +27,10 @@ class CryptoAPI:
         print("🚀 CryptoAPI initialized with CoinAPI + Coinglass + Binance integration")
         print(f"📊 Coinglass Base URL: {self.coinglass_url}")
         print(f"🔑 Coinglass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
-        print(f"🔑 CoinAPI Key: {'✅ Enabled' if self.coinapi_key else '❌ Disabled'}")
         print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📈 Binance Futures API: {self.binance_futures_url}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
-        print("🎯 Real-time data from CoinAPI, futures from Coinglass, market data from Binance")
+        print("🎯 Real-time data from Coinglass, market data from CoinMarketCap & Binance")
 
     # === COINGLASS API METHODS ===
 
@@ -103,8 +98,8 @@ class CryptoAPI:
 
     # === COINAPI METHODS ===
 
-    def get_coinapi_price(self, symbol, force_refresh=False):
-        """Get cryptocurrency price - prioritize CoinMarketCap, fallback to CoinAPI and Binance"""
+    def get_crypto_price(self, symbol, force_refresh=False):
+        """Get cryptocurrency price - prioritize CoinMarketCap, fallback to Coinglass and Binance"""
         try:
             # First try CoinMarketCap (most reliable and comprehensive)
             if self.cmc_provider.api_key:
@@ -130,66 +125,66 @@ class CryptoAPI:
                     print(f"✅ CoinMarketCap price for {symbol}: ${result['price']:.8f}")
                     return result
 
-            # Fallback to CoinAPI if available
-            if self.coinapi_key:
-                print(f"🔄 CoinMarketCap failed, trying CoinAPI for {symbol}")
+            # Fallback to Coinglass ticker if available
+            if self.coinglass_key:
+                print(f"🔄 CoinMarketCap failed, trying Coinglass for {symbol}")
 
                 # Use cached data if not forcing refresh and cache is valid
-                cache_key = f"coinapi_price_{symbol.upper()}"
+                cache_key = f"coinglass_price_{symbol.upper()}"
                 if not force_refresh and cache_key in self.cache:
                     cached_data = self.cache[cache_key]
                     cache_time = cached_data.get('timestamp', 0)
                     if time.time() - cache_time < self.cache_duration:
-                        print(f"📊 Using cached CoinAPI price for {symbol}")
+                        print(f"📊 Using cached Coinglass price for {symbol}")
                         return cached_data
 
                 clean_symbol = symbol.upper().replace('USDT', '')
 
-                url = f"{self.coinapi_base_url}/exchangerate/{clean_symbol}/USD"
-                headers = {
-                    'X-CoinAPI-Key': self.coinapi_key,
-                    'Accept': 'application/json'
-                }
+                url = f"{self.coinglass_url}/futures/ticker"
+                headers = self._get_coinglass_headers()
+                params = {'symbol': clean_symbol}
 
-                response = requests.get(url, headers=headers, timeout=15)
+                response = requests.get(url, headers=headers, params=params, timeout=15)
 
                 if response.status_code == 200:
                     data = response.json()
-                    price = data.get('rate', 0)
 
-                    if price > 0:
-                        # Get 24h change from Binance as fallback
-                        binance_data = self.get_binance_price(symbol)
-                        change_24h = binance_data.get('change_24h', 0) if binance_data and 'error' not in binance_data else 0
+                    if data.get('success'):
+                        result_data = data.get('data', [])
+                        if result_data and len(result_data) > 0:
+                            ticker_data = result_data[0]  # Get first exchange
+                            price = float(ticker_data.get('price', 0))
 
-                        result = {
-                            'symbol': clean_symbol,
-                            'price': price,
-                            'change_24h': change_24h,
-                            'source': 'coinapi',
-                            'timestamp': time.time()
-                        }
+                            if price > 0:
+                                # Get 24h change from Binance as fallback
+                                binance_data = self.get_binance_price(symbol)
+                                change_24h = binance_data.get('change_24h', 0) if binance_data and 'error' not in binance_data else 0
 
-                        # Cache the result
-                        self.cache[cache_key] = result
-                        print(f"✅ CoinAPI price for {clean_symbol}: ${price:.8f}")
-                        return result
+                                result = {
+                                    'symbol': clean_symbol,
+                                    'price': price,
+                                    'change_24h': change_24h,
+                                    'source': 'coinglass',
+                                    'exchange': ticker_data.get('exchangeName', 'Unknown'),
+                                    'timestamp': time.time()
+                                }
+
+                                # Cache the result
+                                self.cache[cache_key] = result
+                                print(f"✅ Coinglass price for {clean_symbol}: ${price:.8f}")
+                                return result
 
             # Final fallback to Binance
-            print(f"⚠️ CoinMarketCap and CoinAPI failed for {symbol}, falling back to Binance")
+            print(f"⚠️ CoinMarketCap and Coinglass failed for {symbol}, falling back to Binance")
             return self.get_binance_price(symbol)
 
         except Exception as e:
             print(f"❌ Price fetch error for {symbol}: {e}")
             return self.get_binance_price(symbol)
 
-    async def get_coinapi_historical(self, symbol, period="1HRS", limit=100):
-        """Get historical data from CoinAPI (async wrapper)"""
-        return await self.coinapi_helper.get_coinapi_historical(symbol, period, limit)
-
     async def cleanup(self):
-        """Cleanup resources"""
-        await self.coinapi_helper.close_session()
+        """Cleanup resources - placeholder for future async operations"""
+        pass
 
     def get_coinglass_long_short_ratio(self, symbol, interval_type=2):
         """Get long/short ratio from Coinglass API v2"""

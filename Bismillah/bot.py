@@ -21,7 +21,7 @@ from snd_auto_signals import initialize_auto_signals
 # Enhanced deployment detection with verification
 deployment_env_checks = {
     'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
-    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
+    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1',
     'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
     'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
     'replit_slug': bool(os.getenv('REPL_SLUG')),
@@ -157,7 +157,7 @@ class TelegramBot:
 
                 # Use shorter timeout for deployment environment
                 bot_info = await asyncio.wait_for(
-                    self.application.bot.get_me(), 
+                    self.application.bot.get_me(),
                     timeout=5.0
                 )
 
@@ -200,59 +200,39 @@ class TelegramBot:
             print("✅ Bot is now running and polling for updates...")
             print("🎯 Waiting for Telegram messages...")
 
+            # Proper initialization sequence for telegram-bot v22.x
+            await self.application.initialize()
+            print("✅ Application initialized")
+
+            await self.application.start()
+            print("✅ Application started")
+
+            # Start polling with proper error handling
+            await self.application.updater.start_polling(
+                poll_interval=1.0,
+                timeout=20,
+                drop_pending_updates=True,
+                allowed_updates=['message', 'callback_query']
+            )
+            print("🚀 Bot polling started successfully!")
+
+            # Keep running until interrupted - fix for telegram-bot v22.x
             try:
-                # Proper initialization sequence for telegram-bot v22.x
-                await self.application.initialize()
-                print("✅ Application initialized")
-
-                await self.application.start()
-                print("✅ Application started")
-
-                # Start polling with proper error handling
-                await self.application.updater.start_polling(
-                    poll_interval=1.0,
-                    timeout=20,
-                    drop_pending_updates=True,
-                    allowed_updates=['message', 'callback_query']
-                )
-                print("🚀 Bot polling started successfully!")
-                
-                # Wait for polling to be ready
-                await asyncio.sleep(2)
-
-                # Keep the bot running
                 import signal
+                stop_event = asyncio.Event()
 
                 def signal_handler(signum, frame):
                     print(f"\n🛑 Received signal {signum}, stopping bot...")
-                    raise KeyboardInterrupt
+                    stop_event.set()
 
                 signal.signal(signal.SIGINT, signal_handler)
                 signal.signal(signal.SIGTERM, signal_handler)
 
-                # Keep running until interrupted - fix for telegram-bot v22.x
-                try:
-                    # Use a different approach for keeping bot alive
-                    import signal
-                    stop_event = asyncio.Event()
-                    
-                    def signal_handler(signum, frame):
-                        print(f"\n🛑 Received signal {signum}, stopping bot...")
-                        stop_event.set()
-                    
-                    signal.signal(signal.SIGINT, signal_handler)
-                    signal.signal(signal.SIGTERM, signal_handler)
-                    
-                    # Wait indefinitely until stop signal
-                    await stop_event.wait()
-                    
-                except KeyboardInterrupt:
-                    print("🛑 Bot stopped by interrupt signal")
+                # Wait indefinitely until stop signal
+                await stop_event.wait()
 
-            except Exception as polling_error:
-                print(f"❌ Polling error: {polling_error}")
-                logger.error(f"Polling error: {polling_error}")
-                raise
+            except KeyboardInterrupt:
+                print("🛑 Bot stopped by interrupt signal")
 
         except Exception as e:
             # Handle specific Telegram conflicts
@@ -316,20 +296,20 @@ class TelegramBot:
             try:
                 if self.application:
                     print("🛑 Stopping application...")
-                    
+
                     # Stop updater first
                     if hasattr(self.application, 'updater') and self.application.updater.running:
                         await self.application.updater.stop()
                         print("✅ Updater stopped")
-                    
+
                     # Stop application
                     await self.application.stop()
                     print("✅ Application stopped")
-                    
+
                     # Shutdown application
                     await self.application.shutdown()
                     print("✅ Application shutdown complete")
-                    
+
                 print("🛑 Bot stopped gracefully")
             except Exception as e:
                 logger.error(f"Error during bot shutdown: {e}")
@@ -340,7 +320,7 @@ class TelegramBot:
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
-        
+
         # Debug: Show that command handler is working
         print(f"📞 Start command handler called successfully")
 
@@ -455,8 +435,8 @@ class TelegramBot:
                 else:
                     # Check if this is a new session vs returning user
                     last_activity = self.db.cursor.execute("""
-                        SELECT timestamp FROM user_activity 
-                        WHERE telegram_id = ? AND action = 'user_returned' 
+                        SELECT timestamp FROM user_activity
+                        WHERE telegram_id = ? AND action = 'user_returned'
                         ORDER BY timestamp DESC LIMIT 1
                     """, (user.id,))
                     last_return = last_activity.fetchone()
@@ -633,7 +613,7 @@ class TelegramBot:
 2. **Coba `/market`** (20 credit) - overview pasar global CoinMarketCap
 3. **Test `/analyze btc`** (20 credit) - fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
-5. **Upgrade premium** untuk unlimited access + auto signals
+5. **Upgrade premium** untuk unlimited access
 
 💡 **Fitur Premium:**
 - Unlimited access semua fitur
@@ -651,7 +631,7 @@ class TelegramBot:
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
         print(f"🎯 /price command received from user {update.effective_user.id}")
-        
+
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -670,7 +650,7 @@ class TelegramBot:
         print(f"🔄 Fetching real-time data for {symbol} from CoinMarketCap...")
 
         # Force refresh in deployment to ensure real-time data
-        price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=IS_DEPLOYMENT)
+        price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=IS_DEPLOYMENT)
 
         if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
             # Smart price formatting
@@ -718,7 +698,7 @@ class TelegramBot:
             # API Status and timing
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             data_source = price_data.get('source', 'unknown')
-            
+
             if data_source == 'coinmarketcap':
                 source_text = "🟢 CoinMarketCap Professional"
                 api_status = "✅ CoinMarketCap Real-time"
@@ -728,7 +708,7 @@ class TelegramBot:
             else:
                 source_text = "🟢 Binance Exchange"
                 api_status = "✅ Binance Live Data"
-                
+
             message += f"""
 ⏰ **Update**: {current_time}
 🔄 **Source**: {source_text}
@@ -736,7 +716,7 @@ class TelegramBot:
 🔗 **Mode**: {'🌐 Always On (Deployment)' if IS_DEPLOYMENT else '🔧 Development Workspace'}"""
         else:
             # API error handling
-            error_reason = price_data.get('error', 'Unknown error') if price_data else 'All price APIs unavailable'
+            error_reason = price_data.get('error', 'All price APIs unavailable') if price_data else 'All price APIs unavailable'
             message = f"""❌ **Data harga tidak tersedia untuk {symbol}**
 
 🌐 **Mode**: {'Deployment (Real-time Only)' if IS_DEPLOYMENT else 'Development'}
@@ -900,7 +880,7 @@ class TelegramBot:
             raw_query = ' '.join(context.args).upper()
             query_parts = raw_query.split()
             cleaned_parts = [part for part in query_parts if part != 'SND']
-            
+
             if cleaned_parts:
                 # Show cleaned query in loading message
                 if any(tf in cleaned_parts[0] for tf in ['M', 'H', 'D', 'W']):
@@ -988,7 +968,7 @@ class TelegramBot:
         # Clean the symbol query - remove "SND" if present and extract timeframe
         raw_query = ' '.join(context.args).upper()
         query_parts = raw_query.split()
-        
+
         # Check if first part looks like a timeframe (contains M, H, D, W)
         if len(query_parts) >= 2 and any(tf in query_parts[0] for tf in ['M', 'H', 'D', 'W']):
             # Extract timeframe and symbol, remove "SND" if present
@@ -1018,7 +998,7 @@ class TelegramBot:
             # Clean display: show only timeframe without "SND"
             clean_timeframe = timeframe_input.replace('SND', '').strip()
             display_text += f"🎯 **Timeframe yang diminta**: {clean_timeframe}\n\n"
-        
+
         display_text += "Pilih timeframe untuk analisis SnD dengan Entry/TP/SL:"
 
         await update.message.reply_text(
@@ -1051,7 +1031,7 @@ class TelegramBot:
                         await query.edit_message_text("❌ Credit tidak cukup untuk analisis futures!")
                         return
 
-                    # Show loading message
+                    # Show loading
                     await query.edit_message_text(
                         f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass...\n\n"
                         "🔍 Memproses data real-time...",
@@ -1060,7 +1040,7 @@ class TelegramBot:
 
                     try:
                         print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
-                        
+
                         # Get futures analysis using new async method
                         analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
 
@@ -1211,7 +1191,7 @@ class TelegramBot:
         if is_admin:
             message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
-👑 **Status**: **ADMIN** 
+👑 **Status**: **ADMIN**
 ♾️ **Credit**: **UNLIMITED**
 
 🛠️ **Akses Admin:**
@@ -1228,7 +1208,7 @@ Selamat mengelola CryptoMentor AI!"""
 
             message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
-⭐ **Status**: **PREMIUM {'LIFETIME' if is_lifetime else ''}** 
+⭐ **Status**: **PREMIUM {'LIFETIME' if is_lifetime else ''}**
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
@@ -1372,7 +1352,7 @@ Harga akan diambil real-time dari CoinAPI."""
             for coin in portfolio:
                 symbol = coin['symbol']
                 amount = coin['amount']
-                price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+                price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
 
                 if price_data and 'error' not in price_data:
                     current_price = price_data.get('price', 0)
@@ -1649,7 +1629,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle regular text messages"""
         text = update.message.text.lower().strip()
         user_id = update.message.from_user.id
-        
+
         print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
         logger.info(f"Message from user {user_id}: {text[:50]}")
 
@@ -1661,7 +1641,7 @@ Gunakan `/subscribe` untuk upgrade!
             symbol = text.upper()
             loading_msg = await update.message.reply_text(f"⏳ Cek harga {symbol} dari CoinAPI...")
 
-            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
 
             if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
                 current_price = price_data.get('price', 0)
@@ -1830,7 +1810,7 @@ Gunakan `/subscribe` untuk upgrade!
                 # Check if user was referred via premium referral
                 referrer_id = self.db.check_premium_referral(target_user_id)
                 referral_reward_msg = ""
-                
+
                 if referrer_id and self.db.is_user_premium(referrer_id):
                     # Give premium referral reward
                     reward_success = self.db.record_premium_referral_reward(
@@ -1858,8 +1838,8 @@ Gunakan `/subscribe` untuk upgrade!
 
                 # Log admin action
                 self.db.log_user_activity(
-                    user_id, 
-                    "admin_grant_premium", 
+                    user_id,
+                    "admin_grant_premium",
                     f"Granted {premium_type} premium to user {target_user_id}"
                 )
 
@@ -1922,8 +1902,8 @@ Gunakan `/subscribe` untuk upgrade!
 
             # Log admin action
             self.db.log_user_activity(
-                user_id, 
-                "admin_grant_credits", 
+                user_id,
+                "admin_grant_credits",
                 f"Added {amount} credits to user {target_user_id}"
             )
         else:
@@ -1978,8 +1958,8 @@ Gunakan `/subscribe` untuk upgrade!
 
                 # Log admin action
                 self.db.log_user_activity(
-                    user_id, 
-                    "admin_revoke_premium", 
+                    user_id,
+                    "admin_revoke_premium",
                     f"Revoked premium from user {target_user_id}"
                 )
             else:
@@ -2015,8 +1995,8 @@ Gunakan `/subscribe` untuk upgrade!
 
             # Log admin action
             self.db.log_user_activity(
-                user_id, 
-                "admin_fix_all_credits", 
+                user_id,
+                "admin_fix_all_credits",
                 f"Fixed credits for {fixed_count} users"
             )
 
@@ -2166,8 +2146,8 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
             # Log admin action
             self.db.log_user_activity(
-                user_id, 
-                "admin_refresh_credits", 
+                user_id,
+                "admin_refresh_credits",
                 f"Gave +50 credits to {refreshed_count} free users"
             )
 
@@ -2314,8 +2294,8 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
                 # Log admin action
                 self.db.log_user_activity(
-                    user_id, 
-                    "admin_grant_package", 
+                    user_id,
+                    "admin_grant_package",
                     f"Granted package '{package_name}' to user {target_user_id}"
                 )
             else:
@@ -2404,10 +2384,10 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
                         text=self.pending_broadcast,
                         parse_mode=None
                     )
-                
+
                 success_count += 1
                 await asyncio.sleep(0.1)  # Rate limiting
-                
+
             except Exception as e:
                 print(f"Failed to send broadcast to user {user_id_target}: {e}")
                 continue

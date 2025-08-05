@@ -66,10 +66,8 @@ class AIAssistant:
         }
 
     def _get_coinglass_price(self, symbol):
-        """Get price data for Coinglass analysis - removed CoinAPI dependency"""
-        # This method is no longer needed as we get price from comprehensive_futures_data
-        # Return empty to maintain compatibility
-        return {'error': 'Use comprehensive_futures_data instead'}
+        """Get price data for Coinglass analysis using Coinglass API"""
+        return self._get_coinglass_realtime_price(symbol)
 
     def _get_coinglass_long_short_data(self, symbol, timeframe='1h'):
         """Get long/short ratio data from Coinglass v2 API"""
@@ -399,25 +397,26 @@ class AIAssistant:
             recommendation = futures_data.get('trading_recommendation', {})
             smc_analysis = futures_data.get('smc_analysis', {})
             
-            # Get real-time price from CoinAPI
+            # Get real-time price from Coinglass
             current_price = 0
-            price_source = "CoinAPI Live"
+            price_source = "Coinglass Live"
             reliability = "✅ Tinggi"
             
-            # Fetch real-time price from CoinAPI
-            coinapi_price_data = self._get_coinapi_realtime_price(symbol)
+            # Fetch real-time price from Coinglass
+            coinglass_price_data = self._get_coinglass_realtime_price(symbol)
             
-            if coinapi_price_data and 'error' not in coinapi_price_data:
-                current_price = coinapi_price_data.get('price', 0)
-                price_source = "🟢 CoinAPI Live"
+            if coinglass_price_data and 'error' not in coinglass_price_data:
+                current_price = coinglass_price_data.get('price', 0)
+                exchange = coinglass_price_data.get('exchange', 'Multiple')
+                price_source = f"🟢 Coinglass Live ({exchange})"
                 reliability = "✅ Tinggi"
-                print(f"✅ CoinAPI real-time price for {symbol}: ${current_price:.2f}")
+                print(f"✅ Coinglass real-time price for {symbol}: ${current_price:.2f}")
             else:
-                # Fallback to estimated price only if CoinAPI fails
+                # Fallback to estimated price only if Coinglass fails
                 current_price = self._get_estimated_price(symbol)
-                price_source = "Estimated (CoinAPI failed)"
+                price_source = "Estimated (Coinglass failed)"
                 reliability = "⚠️ Fallback"
-                print(f"❌ CoinAPI failed for {symbol}: {coinapi_price_data.get('error', 'Unknown error')}")
+                print(f"❌ Coinglass failed for {symbol}: {coinglass_price_data.get('error', 'Unknown error')}")
                 
             # Calculate confidence based on data quality and SMC
             base_confidence = self._calculate_coinglass_confidence(long_short_data, oi_data, recommendation)
@@ -475,7 +474,7 @@ class AIAssistant:
             if language == 'id':
                 message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
-💰 **HARGA REAL-TIME (CoinAPI):**
+💰 **HARGA REAL-TIME (Coinglass):**
 • Current: {format_price(current_price)}
 • Source: {price_source}
 • Reliability: {reliability}
@@ -564,9 +563,9 @@ class AIAssistant:
 • Exit jika market structure berubah
 
 📊 **Sumber Data**
-• CoinAPI: Real-time price
-• Coinglass: Long/short ratio, OI, funding
+• Coinglass: Real-time price, Long/short ratio, OI, funding
 • Binance: Futures sentiment
+• CoinMarketCap: Market data
 
 ⏰ Waktu Analisa: {current_time}
 🔄 Next Update: Real-time"""
@@ -575,7 +574,7 @@ class AIAssistant:
                 # English version with same structure
                 message = f"""🎯 **ENHANCED FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
-💰 **REAL-TIME PRICE (CoinAPI):**
+💰 **REAL-TIME PRICE (Coinglass):**
 • Current: {format_price(current_price)}
 • Source: {price_source}
 • Reliability: {reliability}
@@ -639,9 +638,9 @@ class AIAssistant:
 • Exit if market structure changes
 
 📊 **Data Sources**
-• CoinAPI: Real-time price
-• Coinglass: Long/short ratio, OI, funding
+• Coinglass: Real-time price, Long/short ratio, OI, funding
 • Binance: Futures sentiment
+• CoinMarketCap: Market data
 
 ⏰ Analysis Time: {current_time}
 🔄 Next Update: Real-time"""
@@ -1991,54 +1990,68 @@ Error fetching CoinMarketCap data:
 
         return message
 
-    def _get_coinapi_realtime_price(self, symbol):
-        """Get real-time price from CoinAPI"""
+    def _get_coinglass_realtime_price(self, symbol):
+        """Get real-time price from Coinglass API"""
         try:
             import requests
             
-            coinapi_key = os.getenv('COINAPI_KEY')
-            if not coinapi_key:
-                return {'error': 'CoinAPI key not found in secrets'}
+            if not self.coinglass_key:
+                return {'error': 'Coinglass API key not found in secrets'}
             
             # Clean symbol (remove USDT if present)
             clean_symbol = symbol.upper().replace('USDT', '')
             
-            # CoinAPI endpoint for real-time exchange rate
-            url = f"https://rest.coinapi.io/v1/exchangerate/{clean_symbol}/USDT"
+            # Coinglass ticker endpoint for real-time price
+            url = f"{self.coinglass_base_url}/futures/ticker"
             
             headers = {
-                'X-CoinAPI-Key': coinapi_key,
-                'Accept': 'application/json'
+                "accept": "application/json",
+                "coinglassSecret": self.coinglass_key
             }
             
-            print(f"🔄 Fetching real-time price for {clean_symbol} from CoinAPI...")
+            params = {
+                'symbol': clean_symbol
+            }
             
-            response = requests.get(url, headers=headers, timeout=10)
+            print(f"🔄 Fetching real-time price for {clean_symbol} from Coinglass...")
+            
+            response = requests.get(url, headers=headers, params=params, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
-                price = data.get('rate', 0)
                 
-                if price > 0:
-                    return {
-                        'symbol': clean_symbol,
-                        'price': price,
-                        'source': 'coinapi_live',
-                        'timestamp': data.get('time', ''),
-                        'success': True
-                    }
+                if data.get('success'):
+                    result_data = data.get('data', [])
+                    if result_data and len(result_data) > 0:
+                        # Get the first exchange's price (usually Binance)
+                        ticker_data = result_data[0]
+                        price = float(ticker_data.get('price', 0))
+                        
+                        if price > 0:
+                            return {
+                                'symbol': clean_symbol,
+                                'price': price,
+                                'source': 'coinglass_live',
+                                'exchange': ticker_data.get('exchangeName', 'Unknown'),
+                                'timestamp': ticker_data.get('time', ''),
+                                'success': True
+                            }
+                        else:
+                            return {'error': f'Invalid price received: {price}'}
+                    else:
+                        return {'error': 'No ticker data available from Coinglass'}
                 else:
-                    return {'error': f'Invalid price received: {price}'}
+                    return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
             else:
-                error_msg = f'CoinAPI HTTP {response.status_code}: {response.text[:100]}...'
+                error_msg = f'Coinglass HTTP {response.status_code}: {response.text[:100]}...'
                 return {'error': error_msg}
                 
         except requests.exceptions.Timeout:
-            return {'error': 'CoinAPI request timeout (10s)'}
+            return {'error': 'Coinglass request timeout (10s)'}
         except requests.exceptions.RequestException as e:
-            return {'error': f'CoinAPI connection error: {str(e)}'}
+            return {'error': f'Coinglass connection error: {str(e)}'}
         except Exception as e:
-            return {'error': f'CoinAPI unexpected error: {str(e)}'}
+            return {'error': f'Coinglass unexpected error: {str(e)}'}
 
     def _get_estimated_price(self, symbol):
         """Helper to get an estimated price, fallback based on symbol"""
