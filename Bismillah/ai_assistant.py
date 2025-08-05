@@ -390,6 +390,157 @@ class AIAssistant:
             print(f"❌ Error in futures analysis: {e}")
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
 
+    def _format_coinglass_v2_analysis(self, symbol, timeframe, futures_data, language='id'):
+        """Format Coinglass v2 analysis output for futures command"""
+        try:
+            # Extract data from comprehensive futures data
+            long_short_data = futures_data.get('long_short_data', {})
+            oi_data = futures_data.get('open_interest_data', {})
+            recommendation = futures_data.get('trading_recommendation', {})
+            
+            # Get key metrics
+            if 'error' not in long_short_data:
+                long_ratio = long_short_data.get('long_ratio', 50)
+                short_ratio = long_short_data.get('short_ratio', 50)
+                ls_display = f"{long_ratio:.1f}% / {short_ratio:.1f}%"
+            else:
+                ls_display = "Data tidak tersedia"
+            
+            if 'error' not in oi_data:
+                open_interest = oi_data.get('open_interest', 0)
+                oi_change = oi_data.get('open_interest_change', 0)
+                oi_display = f"{open_interest:,.0f} ({oi_change:+.1f}%)"
+            else:
+                oi_display = "Data tidak tersedia"
+            
+            # Calculate confidence based on data quality
+            confidence = self._calculate_coinglass_confidence(long_short_data, oi_data, recommendation)
+            
+            # Get recommendation
+            direction = recommendation.get('direction', 'HOLD')
+            entry_price = recommendation.get('entry_price', 0)
+            stop_loss = recommendation.get('stop_loss', 0)
+            take_profit_1 = recommendation.get('take_profit_1', 0)
+            
+            # Format price display
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.4f}"
+                else:
+                    return f"${price:,.2f}"
+            
+            # Direction emoji
+            if direction == 'LONG':
+                direction_emoji = "🟢"
+                signal_emoji = "📈"
+            elif direction == 'SHORT':
+                direction_emoji = "🔴"
+                signal_emoji = "📉"
+            else:
+                direction_emoji = "⏸️"
+                signal_emoji = "📊"
+            
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            if language == 'id':
+                message = f"""🎯 **ANALISIS FUTURES COINGLASS V2 - {symbol.upper()} ({timeframe})**
+
+📊 **DATA COINGLASS:**
+• **Long/Short Ratio**: {ls_display}
+• **Open Interest**: {oi_display}
+• **Confidence**: {confidence:.0f}%
+
+{direction_emoji} **REKOMENDASI: {direction}** {signal_emoji}"""
+
+                if direction != 'HOLD' and entry_price > 0:
+                    message += f"""
+
+💰 **TRADING LEVELS:**
+┣━ 📍 **ENTRY**: {format_price(entry_price)}
+┣━ 🎯 **TP 1**: {format_price(take_profit_1)}
+┗━ 🛡️ **STOP LOSS**: {format_price(stop_loss)} (**WAJIB!**)"""
+                else:
+                    message += f"""
+
+⏸️ **HOLD POSITION** - Tunggu setup yang lebih jelas
+📊 **Monitor Market** untuk perubahan struktur"""
+
+                message += f"""
+
+🧠 **SMART MONEY CONCEPTS:**
+📌 Entry, TP, dan SL dihitung berdasarkan Smart Money Concepts dan volume clusters.
+⚠️ **Risk Management**: Gunakan maksimal 2-3% dari modal per trade.
+
+⏰ **Update**: {current_time}
+📡 **Source**: Coinglass v2 API Real-time"""
+
+            else:
+                # English version
+                message = f"""🎯 **COINGLASS V2 FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
+
+📊 **COINGLASS DATA:**
+• **Long/Short Ratio**: {ls_display}
+• **Open Interest**: {oi_display}
+• **Confidence**: {confidence:.0f}%
+
+{direction_emoji} **RECOMMENDATION: {direction}** {signal_emoji}"""
+
+                if direction != 'HOLD' and entry_price > 0:
+                    message += f"""
+
+💰 **TRADING LEVELS:**
+┣━ 📍 **ENTRY**: {format_price(entry_price)}
+┣━ 🎯 **TP 1**: {format_price(take_profit_1)}
+┗━ 🛡️ **STOP LOSS**: {format_price(stop_loss)} (**MANDATORY!**)"""
+                else:
+                    message += f"""
+
+⏸️ **HOLD POSITION** - Wait for clearer setup
+📊 **Monitor Market** for structure changes"""
+
+                message += f"""
+
+🧠 **SMART MONEY CONCEPTS:**
+📌 Entry, TP, and SL calculated based on Smart Money Concepts and volume clusters.
+⚠️ **Risk Management**: Use maximum 2-3% of capital per trade.
+
+⏰ **Update**: {current_time}
+📡 **Source**: Coinglass v2 API Real-time"""
+
+            return message
+
+        except Exception as e:
+            print(f"❌ Error formatting Coinglass v2 analysis: {e}")
+            return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
+
+    def _calculate_coinglass_confidence(self, long_short_data, oi_data, recommendation):
+        """Calculate confidence score based on Coinglass data quality"""
+        confidence = 50  # Base confidence
+        
+        # Add confidence based on data availability
+        if 'error' not in long_short_data:
+            confidence += 20
+            long_ratio = long_short_data.get('long_ratio', 50)
+            # Add confidence for extreme ratios (better signals)
+            if long_ratio > 70 or long_ratio < 30:
+                confidence += 15
+        
+        if 'error' not in oi_data:
+            confidence += 20
+            oi_change = oi_data.get('open_interest_change', 0)
+            # Add confidence for significant OI changes
+            if abs(oi_change) > 5:
+                confidence += 10
+        
+        # Add confidence from recommendation quality
+        if 'error' not in recommendation:
+            rec_confidence = recommendation.get('confidence', 50)
+            confidence = (confidence + rec_confidence) // 2
+        
+        return min(95, max(30, confidence))
+
     def _format_coinglass_analysis(self, symbol, timeframe, long_short_data, oi_data, cmc_data, smc_analysis, trading_levels, language='id'):
         """Format Coinglass analysis output"""
         try:
@@ -1185,7 +1336,7 @@ Error processing data:
             import html
 
             # Get CoinMarketCap API key from environment
-            cmc_api_key = os.getenv("COINMARKETCAP_API_KEY")
+            cmc_api_key = os.getenv("CMC_API_KEY")
 
             if not cmc_api_key:
                 return """❌ **ANALISIS GAGAL**
