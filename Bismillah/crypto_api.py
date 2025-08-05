@@ -5,31 +5,37 @@ import asyncio
 from datetime import datetime, timezone
 from binance_provider import BinanceFuturesProvider
 from coinmarketcap_provider import CoinMarketCapProvider
+from coinapi_helper import CoinAPIHelper
 
 class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
         self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinapi_key = os.getenv("COINAPI_KEY")
         self.cmc_provider = CoinMarketCapProvider()
+        self.coinapi_helper = CoinAPIHelper()
 
         if not self.coinglass_key:
             print("⚠️ Coinglass API key not found in environment variables")
             print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
 
         self.coinglass_url = "https://open-api.coinglass.com/api/pro/v1"
-        self.coinglass_base_url = "https://open-api.coinglass.com/public/v2" # Added for v2 endpoints
+        self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
+        self.binance_spot_url = "https://api.binance.com/api/v3"
+        self.coinapi_base_url = "https://rest.coinapi.io/v1" # Added base URL for CoinAPI
 
         self.cache = {} # Initialize cache for price data
-        self.cache_duration = 30 # Enhanced cache duration (30 seconds for real-time)
+        self.cache_duration = 60 # Cache duration in seconds (e.g., 1 minute)
 
-        print("🚀 CryptoAPI initialized with CoinGlass + CoinMarketCap Startup Plan")
-        print(f"📊 Coinglass API Base URL: {self.coinglass_url}")
-        print(f"📊 Coinglass Public API Base URL: {self.coinglass_base_url}") # Added for clarity
+        print("🚀 CryptoAPI initialized with CoinAPI + Coinglass + Binance integration")
+        print(f"📊 Coinglass Base URL: {self.coinglass_url}")
         print(f"🔑 Coinglass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
-        print(f"📊 CoinMarketCap Startup: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
+        print(f"🔑 CoinAPI Key: {'✅ Enabled' if self.coinapi_key else '❌ Disabled'}")
+        print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
+        print(f"📈 Binance Futures API: {self.binance_futures_url}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
-        print("⭐ Premium Analysis: CoinGlass Futures + CoinMarketCap Fundamental")
+        print("🎯 Real-time data from CoinAPI, futures from Coinglass, market data from Binance")
 
     # === COINGLASS API METHODS ===
 
@@ -42,8 +48,8 @@ class CryptoAPI:
             "Connection": "keep-alive"
         }
 
-    def get_coinglass_open_interest(self, symbol):
-        """Get open interest data from Coinglass API v2"""
+    def get_coinglass_open_interest(self, symbol, time_type='24h'):
+        """Get open interest data from Coinglass"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -53,14 +59,12 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]  # Remove USDT suffix
 
-            url = "https://open-api.coinglass.com/public/v2/futures/openInterest"
-            headers = {
-                "accept": "application/json",
-                "coinglassSecret": self.coinglass_key
-            }
+            url = f"{self.coinglass_url}/futures/openInterestVolume"
+            headers = self._get_coinglass_headers()
 
             params = {
-                'symbol': symbol
+                'symbol': symbol,
+                'timeType': time_type
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -70,23 +74,12 @@ class CryptoAPI:
 
             if data.get('success'):
                 result_data = data.get('data', {})
-                total_oi = 0
-                oi_change = 0
-
-                # Sum up open interest from all exchanges
-                if isinstance(result_data, list):
-                    for exchange_data in result_data:
-                        oi_value = float(exchange_data.get('openInterest', 0))
-                        oi_change_value = float(exchange_data.get('openInterestChange', 0))
-                        total_oi += oi_value
-                        oi_change += oi_change_value
-
                 return {
                     'symbol': symbol,
-                    'open_interest': total_oi,
-                    'open_interest_change': oi_change,
-                    'exchanges_count': len(result_data) if isinstance(result_data, list) else 1,
-                    'source': 'coinglass_v2',
+                    'open_interest': result_data.get('totalOpenInterest', 0),
+                    'open_interest_change': result_data.get('totalOpenInterestChange', 0),
+                    'time_type': time_type,
+                    'source': 'coinglass',
                     'timestamp': datetime.now().isoformat()
                 }
             else:
@@ -97,267 +90,96 @@ class CryptoAPI:
 
     # === COINAPI METHODS ===
 
-    def get_crypto_price(self, symbol, force_refresh=False):
-        """Get cryptocurrency price with CoinMarketCap + CoinGlass Premium integration"""
+    def get_coinapi_price(self, symbol, force_refresh=False):
+        """Get cryptocurrency price - prioritize CoinMarketCap, fallback to CoinAPI and Binance"""
         try:
-            cache_key = f"premium_price_{symbol.upper()}"
-
-            # Check cache first (unless force refresh)
-            if not force_refresh and cache_key in self.cache:
-                cached_data = self.cache[cache_key]
-                cache_time = cached_data.get('timestamp', 0)
-                if time.time() - cache_time < self.cache_duration:
-                    print(f"📊 Using cached premium price for {symbol}")
-                    return cached_data
-
-            # Primary: CoinMarketCap for comprehensive data
+            # First try CoinMarketCap (most reliable and comprehensive)
             if self.cmc_provider.api_key:
-                print(f"🔄 Fetching premium data for {symbol} from CoinMarketCap Startup...")
+                print(f"🔄 Fetching price for {symbol} from CoinMarketCap...")
                 cmc_data = self.cmc_provider.get_cryptocurrency_quotes(symbol)
 
                 if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
-                    # Enhance with CoinGlass futures data
-                    coinglass_data = self._get_coinglass_enhanced_ticker(symbol)
-
                     result = {
                         'symbol': symbol.upper(),
                         'price': cmc_data.get('price', 0),
                         'change_24h': cmc_data.get('percent_change_24h', 0),
-                        'change_7d': cmc_data.get('percent_change_7d', 0),
                         'volume_24h': cmc_data.get('volume_24h', 0),
+                        'high_24h': 0,  # CMC doesn't provide this directly
+                        'low_24h': 0,   # CMC doesn't provide this directly
                         'market_cap': cmc_data.get('market_cap', 0),
-                        'market_cap_dominance': cmc_data.get('market_cap_dominance', 0),
-                        'circulating_supply': cmc_data.get('circulating_supply', 0),
-                        'max_supply': cmc_data.get('max_supply', 0),
-                        # Enhanced with CoinGlass futures data
-                        'funding_rate': coinglass_data.get('funding_rate', 0),
-                        'open_interest': coinglass_data.get('open_interest', 0),
-                        'long_short_ratio': coinglass_data.get('long_short_ratio', 50),
-                        'source': 'coinmarketcap_premium',
+                        'source': 'coinmarketcap',
                         'timestamp': time.time()
                     }
 
-                    # Cache the premium result
+                    # Cache the result
+                    cache_key = f"cmc_price_{symbol.upper()}"
                     self.cache[cache_key] = result
-                    print(f"✅ Premium price data for {symbol}: ${result['price']:.4f} (CMC+CoinGlass)")
+                    print(f"✅ CoinMarketCap price for {symbol}: ${result['price']:.8f}")
                     return result
 
-            # Fallback to CoinGlass only
-            return self._get_coinglass_price_fallback(symbol)
+            # Fallback to CoinAPI if available
+            if self.coinapi_key:
+                print(f"🔄 CoinMarketCap failed, trying CoinAPI for {symbol}")
 
-        except Exception as e:
-            print(f"❌ Premium price fetch error for {symbol}: {e}")
-            return self._get_coinglass_price_fallback(symbol)
+                # Use cached data if not forcing refresh and cache is valid
+                cache_key = f"coinapi_price_{symbol.upper()}"
+                if not force_refresh and cache_key in self.cache:
+                    cached_data = self.cache[cache_key]
+                    cache_time = cached_data.get('timestamp', 0)
+                    if time.time() - cache_time < self.cache_duration:
+                        print(f"📊 Using cached CoinAPI price for {symbol}")
+                        return cached_data
 
-    def _get_coinglass_enhanced_ticker(self, symbol):
-        """Get enhanced ticker data from CoinGlass Pro"""
-        try:
-            clean_symbol = symbol.upper().replace('USDT', '')
-            url = f"{self.coinglass_url}/futures/ticker"
-            headers = self._get_coinglass_headers()
-            params = {'symbol': clean_symbol}
+                clean_symbol = symbol.upper().replace('USDT', '')
 
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+                url = f"{self.coinapi_base_url}/exchangerate/{clean_symbol}/USD"
+                headers = {
+                    'X-CoinAPI-Key': self.coinapi_key,
+                    'Accept': 'application/json'
+                }
 
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success') and data.get('data'):
-                    ticker_data = data['data'][0]  # Primary exchange
-                    return {
-                        'price': float(ticker_data.get('price', 0)),
-                        'volume_24h': float(ticker_data.get('volume24h', 0)),
-                        'funding_rate': float(ticker_data.get('fundingRate', 0)),
-                        'open_interest': float(ticker_data.get('openInterest', 0)),
-                        'exchange': ticker_data.get('exchangeName', 'Binance'),
-                        'source': 'coinglass_pro'
-                    }
-            return {'error': f'CoinGlass ticker error: {response.status_code}'}
-        except Exception as e:
-            return {'error': f'Enhanced ticker error: {str(e)}'}
+                response = requests.get(url, headers=headers, timeout=15)
 
-    def _get_coinglass_liquidation_heatmap(self, symbol):
-        """Get liquidation heatmap data from CoinGlass"""
-        try:
-            clean_symbol = symbol.upper().replace('USDT', '')
-            url = f"{self.coinglass_url}/futures/liquidation_chart"
-            headers = self._get_coinglass_headers()
-            params = {'symbol': clean_symbol, 'intervalType': 1}  # 24h
+                if response.status_code == 200:
+                    data = response.json()
+                    price = data.get('rate', 0)
 
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+                    if price > 0:
+                        # Get 24h change from Binance as fallback
+                        binance_data = self.get_binance_price(symbol)
+                        change_24h = binance_data.get('change_24h', 0) if binance_data and 'error' not in binance_data else 0
 
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    chart_data = data.get('data', [])
-                    if chart_data:
-                        latest = chart_data[-1]
-                        return {
-                            'total_liquidation': float(latest.get('totalLiquidation', 0)),
-                            'long_liquidation': float(latest.get('longLiquidation', 0)),
-                            'short_liquidation': float(latest.get('shortLiquidation', 0)),
-                            'liquidation_ratio': float(latest.get('longLiquidation', 0)) / max(float(latest.get('totalLiquidation', 1)), 1),
-                            'source': 'coinglass_liquidation'
+                        result = {
+                            'symbol': clean_symbol,
+                            'price': price,
+                            'change_24h': change_24h,
+                            'source': 'coinapi',
+                            'timestamp': time.time()
                         }
-            return {'error': 'No liquidation data available'}
+
+                        # Cache the result
+                        self.cache[cache_key] = result
+                        print(f"✅ CoinAPI price for {clean_symbol}: ${price:.8f}")
+                        return result
+
+            # Final fallback to Binance
+            print(f"⚠️ CoinMarketCap and CoinAPI failed for {symbol}, falling back to Binance")
+            return self.get_binance_price(symbol)
+
         except Exception as e:
-            return {'error': f'Liquidation heatmap error: {str(e)}'}
+            print(f"❌ Price fetch error for {symbol}: {e}")
+            return self.get_binance_price(symbol)
 
-    def _analyze_volume_inflow_outflow(self, symbol, ticker_data):
-        """Analyze volume inflow vs outflow patterns"""
-        try:
-            volume_24h = ticker_data.get('volume_24h', 0)
-            oi_data = self.get_coinglass_open_interest(symbol)
-
-            if 'error' not in oi_data:
-                oi_change = oi_data.get('open_interest_change', 0)
-
-                # Simplified volume flow analysis
-                if oi_change > 5 and volume_24h > 0:
-                    return {
-                        'flow_bias': 'inflow',
-                        'strength': 'strong' if oi_change > 10 else 'moderate',
-                        'volume_quality': 'institutional' if volume_24h > 1000000000 else 'retail'
-                    }
-                elif oi_change < -5:
-                    return {
-                        'flow_bias': 'outflow',
-                        'strength': 'strong' if oi_change < -10 else 'moderate',
-                        'volume_quality': 'distribution'
-                    }
-
-            return {'flow_bias': 'neutral', 'strength': 'low', 'volume_quality': 'mixed'}
-        except Exception as e:
-            return {'error': f'Volume flow analysis error: {str(e)}'}
-
-    def _get_coinglass_price_fallback(self, symbol):
-        """Fallback price method using CoinGlass only"""
-        try:
-            ticker_data = self._get_coinglass_enhanced_ticker(symbol)
-            if 'error' not in ticker_data:
-                return {
-                    'symbol': symbol.upper(),
-                    'price': ticker_data.get('price', 0),
-                    'funding_rate': ticker_data.get('funding_rate', 0),
-                    'volume_24h': ticker_data.get('volume_24h', 0),
-                    'source': 'coinglass_fallback',
-                    'timestamp': time.time()
-                }
-            return {'error': 'All price sources failed'}
-        except Exception as e:
-            return {'error': f'Fallback price error: {str(e)}'}
-
-    def get_comprehensive_coinglass_data(self, symbol):
-        """Get comprehensive CoinGlass data using all available endpoints"""
-        try:
-            print(f"🔄 Fetching comprehensive CoinGlass data for {symbol}...")
-            
-            # Clean symbol format
-            clean_symbol = symbol.upper().replace('USDT', '')
-            
-            # Initialize data container
-            comprehensive_data = {
-                'symbol': clean_symbol,
-                'data_sources': {},
-                'successful_calls': 0,
-                'total_calls': 6,
-                'data_quality': 'unknown'
-            }
-            
-            # 1. Get ticker data
-            try:
-                ticker_data = self._get_coinglass_enhanced_ticker(symbol)
-                comprehensive_data['data_sources']['ticker'] = ticker_data
-                if 'error' not in ticker_data:
-                    comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['ticker'] = {'error': str(e)}
-            
-            # 2. Get open interest data
-            try:
-                oi_data = self.get_coinglass_open_interest(symbol)
-                comprehensive_data['data_sources']['open_interest'] = oi_data
-                if 'error' not in oi_data:
-                    comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['open_interest'] = {'error': str(e)}
-            
-            # 3. Get long/short ratio data
-            try:
-                ls_data = self.get_coinglass_long_short_ratio(symbol)
-                comprehensive_data['data_sources']['long_short'] = ls_data
-                if 'error' not in ls_data:
-                    comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['long_short'] = {'error': str(e)}
-            
-            # 4. Get liquidation data
-            try:
-                liq_data = self.get_coinglass_liquidation(symbol)
-                comprehensive_data['data_sources']['liquidation'] = liq_data
-                if 'error' not in liq_data:
-                    comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['liquidation'] = {'error': str(e)}
-            
-            # 5. Get top trader position ratio (simulated for now)
-            try:
-                # This would be a real endpoint call in production
-                top_trader_data = {
-                    'symbol': clean_symbol,
-                    'long_ratio': 55.0,  # Placeholder
-                    'short_ratio': 45.0,  # Placeholder
-                    'source': 'coinglass_top_trader'
-                }
-                comprehensive_data['data_sources']['top_trader'] = top_trader_data
-                comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['top_trader'] = {'error': str(e)}
-            
-            # 6. Get global position ratio (simulated for now)
-            try:
-                # This would be a real endpoint call in production
-                global_data = {
-                    'symbol': clean_symbol,
-                    'long_ratio': 58.0,  # Placeholder
-                    'short_ratio': 42.0,  # Placeholder
-                    'source': 'coinglass_global'
-                }
-                comprehensive_data['data_sources']['global_position'] = global_data
-                comprehensive_data['successful_calls'] += 1
-            except Exception as e:
-                comprehensive_data['data_sources']['global_position'] = {'error': str(e)}
-            
-            # Calculate data quality
-            success_rate = comprehensive_data['successful_calls'] / comprehensive_data['total_calls']
-            if success_rate >= 0.8:
-                comprehensive_data['data_quality'] = 'excellent'
-            elif success_rate >= 0.6:
-                comprehensive_data['data_quality'] = 'good'
-            elif success_rate >= 0.4:
-                comprehensive_data['data_quality'] = 'partial'
-            else:
-                comprehensive_data['data_quality'] = 'poor'
-            
-            print(f"✅ Comprehensive data fetched: {comprehensive_data['successful_calls']}/{comprehensive_data['total_calls']} APIs")
-            return comprehensive_data
-            
-        except Exception as e:
-            print(f"❌ Error in get_comprehensive_coinglass_data: {e}")
-            return {
-                'error': f'Failed to fetch comprehensive data: {str(e)}',
-                'symbol': symbol,
-                'data_sources': {},
-                'successful_calls': 0,
-                'total_calls': 6,
-                'data_quality': 'failed'
-            }
+    async def get_coinapi_historical(self, symbol, period="1HRS", limit=100):
+        """Get historical data from CoinAPI (async wrapper)"""
+        return await self.coinapi_helper.get_coinapi_historical(symbol, period, limit)
 
     async def cleanup(self):
-        """Cleanup resources - placeholder for future async operations"""
-        pass
+        """Cleanup resources"""
+        await self.coinapi_helper.close_session()
 
-    def get_coinglass_long_short_ratio(self, symbol, interval_type=2):
-        """Get long/short ratio from Coinglass API v2"""
+    def get_coinglass_long_short_ratio(self, symbol, time_type='24h'):
+        """Get long/short ratio from Coinglass"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -367,16 +189,12 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]  # Remove USDT suffix
 
-            # Use v2 public endpoint as specified
-            url = "https://open-api.coinglass.com/public/v2/futures/longShortChart"
-            headers = {
-                "accept": "application/json",
-                "coinglassSecret": self.coinglass_key
-            }
+            url = f"{self.coinglass_url}/futures/longShortRatio"
+            headers = self._get_coinglass_headers()
 
             params = {
                 'symbol': symbol,
-                'intervalType': interval_type  # 2 = 1 hour
+                'timeType': time_type
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -385,25 +203,19 @@ class CryptoAPI:
             data = response.json()
 
             if data.get('success'):
-                chart_data = data.get('data', [])
-                if chart_data and len(chart_data) > 0:
-                    # Get latest data point
-                    latest = chart_data[-1]
-                    long_ratio = float(latest.get('longRatio', 50))
-                    short_ratio = float(latest.get('shortRatio', 50))
+                result_data = data.get('data', {})
+                long_ratio = result_data.get('longRatio', 50)
+                short_ratio = result_data.get('shortRatio', 50)
 
-                    return {
-                        'symbol': symbol,
-                        'long_ratio': long_ratio,
-                        'short_ratio': short_ratio,
-                        'long_short_ratio': long_ratio / short_ratio if short_ratio > 0 else 1.0,
-                        'interval_type': interval_type,
-                        'timestamp': latest.get('createTime', datetime.now().isoformat()),
-                        'data_points': len(chart_data),
-                        'source': 'coinglass_v2'
-                    }
-                else:
-                    return {'error': 'No chart data available from Coinglass'}
+                return {
+                    'symbol': symbol,
+                    'long_ratio': long_ratio,
+                    'short_ratio': short_ratio,
+                    'long_short_ratio': long_ratio / short_ratio if short_ratio > 0 else 1.0,
+                    'time_type': time_type,
+                    'source': 'coinglass',
+                    'timestamp': datetime.now().isoformat()
+                }
             else:
                 return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
 
@@ -453,7 +265,7 @@ class CryptoAPI:
             return {'error': f"Coinglass liquidation error: {str(e)}"}
 
     def get_coinglass_funding_rate(self, symbol):
-        """Get funding rate from Coinglass API v2"""
+        """Get funding rate from Coinglass"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -463,11 +275,8 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]
 
-            url = "https://open-api.coinglass.com/public/v2/futures/fundingRate"
-            headers = {
-                "accept": "application/json",
-                "coinglassSecret": self.coinglass_key
-            }
+            url = f"{self.coinglass_url}/futures/fundingRate"
+            headers = self._get_coinglass_headers()
 
             params = {
                 'symbol': symbol
@@ -479,30 +288,15 @@ class CryptoAPI:
             data = response.json()
 
             if data.get('success'):
-                result_data = data.get('data', [])
-                if result_data and len(result_data) > 0:
-                    # Calculate average funding rate across exchanges
-                    total_funding = 0
-                    valid_exchanges = 0
-
-                    for exchange_data in result_data:
-                        funding_rate = float(exchange_data.get('fundingRate', 0))
-                        if funding_rate != 0:  # Only count non-zero rates
-                            total_funding += funding_rate
-                            valid_exchanges += 1
-
-                    avg_funding = total_funding / valid_exchanges if valid_exchanges > 0 else 0
-
-                    return {
-                        'symbol': symbol,
-                        'funding_rate': avg_funding,
-                        'funding_rate_8h': avg_funding * 3,  # Approximate 8h rate
-                        'exchanges_count': valid_exchanges,
-                        'source': 'coinglass_v2',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                else:
-                    return {'error': 'No funding rate data available'}
+                result_data = data.get('data', {})
+                return {
+                    'symbol': symbol,
+                    'funding_rate': result_data.get('fundingRate', 0),
+                    'funding_rate_8h': result_data.get('fundingRate8h', 0),
+                    'next_funding_time': result_data.get('nextFundingTime', 0),
+                    'source': 'coinglass',
+                    'timestamp': datetime.now().isoformat()
+                }
             else:
                 return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
 
@@ -510,53 +304,41 @@ class CryptoAPI:
             return {'error': f"Coinglass funding rate error: {str(e)}"}
 
     def get_comprehensive_futures_data(self, symbol):
-        """Get comprehensive futures data with enhanced CoinGlass + CoinMarketCap analysis"""
+        """Get comprehensive futures data from Coinglass"""
         try:
-            print(f"🔄 Getting premium futures data for {symbol} from CoinGlass Pro + CoinMarketCap...")
+            print(f"🔄 Getting comprehensive futures data for {symbol} from Coinglass...")
 
-            # Enhanced CoinGlass data collection
-            futures_ticker = self._get_coinglass_enhanced_ticker(symbol)
+            # Get all Coinglass data
             oi_data = self.get_coinglass_open_interest(symbol)
-            ls_data = self.get_coinglass_long_short_ratio(symbol, interval_type=2)  # 1 hour
+            ls_data = self.get_coinglass_long_short_ratio(symbol)
+            liq_data = self.get_coinglass_liquidation(symbol)
             funding_data = self.get_coinglass_funding_rate(symbol)
-            liquidation_data = self._get_coinglass_liquidation_heatmap(symbol)
 
-            # Get CoinMarketCap fundamental data
-            cmc_data = self.cmc_provider.get_cryptocurrency_quotes(symbol) if self.cmc_provider.api_key else {}
-
-            # Volume flow analysis
-            volume_flow = self._analyze_volume_inflow_outflow(symbol, futures_ticker)
+            # Get price data from Binance as fallback
+            price_data = self.get_binance_futures_price(symbol)
 
             successful_calls = 0
-            total_calls = 6
+            total_calls = 5
 
             # Count successful API calls
-            for data in [futures_ticker, oi_data, ls_data, funding_data, liquidation_data, cmc_data]:
-                if isinstance(data, dict) and 'error' not in data:
+            for data in [oi_data, ls_data, liq_data, funding_data, price_data]:
+                if 'error' not in data:
                     successful_calls += 1
-
-            # Enhanced SMC + SnD recommendation
-            recommendation = self._generate_premium_recommendation(
-                symbol, ls_data, oi_data, funding_data, liquidation_data, cmc_data, volume_flow
-            )
 
             return {
                 'symbol': symbol,
-                'futures_ticker': futures_ticker,
                 'open_interest_data': oi_data,
                 'long_short_data': ls_data,
+                'liquidation_data': liq_data,
                 'funding_rate_data': funding_data,
-                'liquidation_data': liquidation_data,
-                'cmc_fundamental': cmc_data,
-                'volume_flow': volume_flow,
-                'trading_recommendation': recommendation,
+                'price_data': price_data,
                 'successful_api_calls': successful_calls,
                 'total_api_calls': total_calls,
-                'data_quality': 'premium' if successful_calls >= 5 else 'excellent' if successful_calls >= 4 else 'good',
-                'source': 'coinglass_pro_cmc_startup'
+                'data_quality': 'excellent' if successful_calls >= 4 else 'good' if successful_calls >= 3 else 'partial',
+                'source': 'coinglass_comprehensive'
             }
         except Exception as e:
-            return {'error': f"Premium futures data error: {str(e)}"}
+            return {'error': f"Comprehensive futures data error: {str(e)}"}
 
     # === BINANCE SPOT API METHODS ===
 
@@ -902,7 +684,7 @@ class CryptoAPI:
         """Get comprehensive analysis data using CoinMarketCap + Coinglass + Binance"""
         try:
             # Get comprehensive data from CoinMarketCap
-            cmc_data = self.get_coinmarketcap_data(symbol)
+            cmc_data = self.cmc_provider.get_comprehensive_data(symbol)
 
             # Get futures data from Coinglass
             futures_data = self.get_comprehensive_futures_data(symbol)
@@ -1361,120 +1143,6 @@ class CryptoAPI:
         base_confidence += trend_score * 5
 
         return min(95, max(30, base_confidence))
-
-    def _generate_premium_recommendation(self, symbol, ls_data, oi_data, funding_data, liquidation_data, cmc_data, volume_flow):
-        """Generate premium trading recommendation with SMC + SnD analysis"""
-        try:
-            # Get base price from multiple sources
-            current_price = 0
-            if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
-                current_price = cmc_data.get('price', 0)
-            else:
-                ticker_data = self._get_coinglass_enhanced_ticker(symbol)
-                current_price = ticker_data.get('price', 0) if 'error' not in ticker_data else 50000
-
-            if current_price <= 0:
-                return {'error': 'Invalid price data for analysis'}
-
-            # Extract data safely
-            long_ratio = ls_data.get('long_ratio', 50) if 'error' not in ls_data else 50
-            funding_rate = funding_data.get('funding_rate', 0) if 'error' not in funding_data else 0
-            oi_change = oi_data.get('open_interest_change', 0) if 'error' not in oi_data else 0
-            total_liquidation = liquidation_data.get('total_liquidation', 0) if 'error' not in liquidation_data else 0
-            liquidation_ratio = liquidation_data.get('liquidation_ratio', 0.5) if 'error' not in liquidation_data else 0.5
-
-            # Smart Money Concepts Analysis
-            smc_bias = 'NEUTRAL'
-            confidence = 50
-            risk_level = 'Medium'
-
-            # 1. Funding Rate False Breakout Detection
-            if funding_rate > 0.015:  # 1.5%+ funding - extreme
-                smc_bias = 'BEARISH'
-                confidence += 25
-                risk_level = 'High'
-            elif funding_rate < -0.008:  # Negative funding
-                smc_bias = 'BULLISH'
-                confidence += 20
-
-            # 2. Long/Short Ratio + Liquidation Analysis
-            if long_ratio > 75:  # Extreme long dominance
-                smc_bias = 'BEARISH'
-                confidence += 20
-                if liquidation_ratio > 0.7:  # More long liquidations
-                    confidence += 15
-            elif long_ratio < 25:  # Extreme short dominance
-                smc_bias = 'BULLISH'
-                confidence += 20
-                if liquidation_ratio < 0.3:  # More short liquidations
-                    confidence += 15
-
-            # 3. Volume Flow + OI Analysis
-            flow_bias = volume_flow.get('flow_bias', 'neutral')
-            if flow_bias == 'inflow' and oi_change > 8:
-                confidence += 15
-            elif flow_bias == 'outflow' and oi_change < -8:
-                confidence += 10
-
-            # 4. Market Context from CMC
-            market_cap_dominance = cmc_data.get('market_cap_dominance', 0) if 'error' not in cmc_data else 0
-            change_7d = cmc_data.get('percent_change_7d', 0) if 'error' not in cmc_data else 0
-
-            # Determine final direction with HOLD logic
-            direction = 'HOLD'
-            if smc_bias == 'BULLISH' and funding_rate < 0.01 and confidence >= 70:
-                direction = 'LONG'
-            elif smc_bias == 'BEARISH' and funding_rate > 0.005 and confidence >= 70:
-                direction = 'SHORT'
-
-            # Calculate entry zones (not single price)
-            if direction == 'LONG':
-                entry_zone_low = current_price * 0.996
-                entry_zone_high = current_price * 1.001
-                stop_loss = current_price * 0.975  # 2.5% SL
-                tp1 = current_price * 1.0375  # RR 1.5:1
-                tp2 = current_price * 1.0625  # RR 2.5:1
-                tp3 = current_price * 1.10    # RR 4.0:1
-            elif direction == 'SHORT':
-                entry_zone_low = current_price * 0.999
-                entry_zone_high = current_price * 1.004
-                stop_loss = current_price * 1.025  # 2.5% SL
-                tp1 = current_price * 0.9625  # RR 1.5:1
-                tp2 = current_price * 0.9375  # RR 2.5:1
-                tp3 = current_price * 0.90    # RR 4.0:1
-            else:  # HOLD
-                entry_zone_low = current_price * 0.995
-                entry_zone_high = current_price * 1.005
-                stop_loss = current_price * 0.98
-                tp1 = current_price * 1.02
-                tp2 = current_price * 1.04
-                tp3 = current_price * 1.06
-
-            return {
-                'direction': direction,
-                'smc_bias': smc_bias,
-                'entry_zone_low': entry_zone_low,
-                'entry_zone_high': entry_zone_high,
-                'stop_loss': stop_loss,
-                'take_profit_1': tp1,
-                'take_profit_2': tp2,
-                'take_profit_3': tp3,
-                'confidence': min(95, max(30, confidence)),
-                'risk_level': risk_level,
-                'analysis': {
-                    'long_ratio': long_ratio,
-                    'funding_rate': funding_rate,
-                    'oi_change': oi_change,
-                    'liquidation_bias': 'Long Heavy' if liquidation_ratio > 0.6 else 'Short Heavy' if liquidation_ratio < 0.4 else 'Balanced',
-                    'volume_flow': flow_bias,
-                    'market_dominance': market_cap_dominance,
-                    'weekly_momentum': change_7d
-                },
-                'source': 'premium_smc_snd'
-            }
-
-        except Exception as e:
-            return {'error': f"Premium recommendation error: {str(e)}"}
 
     # === NEWS API ===
 
