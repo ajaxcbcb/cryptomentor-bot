@@ -399,18 +399,25 @@ class AIAssistant:
             recommendation = futures_data.get('trading_recommendation', {})
             smc_analysis = futures_data.get('smc_analysis', {})
             
-            # Get current price (try multiple sources)
+            # Get real-time price from CoinAPI
             current_price = 0
-            price_source = "Estimated"
-            reliability = "🟡 Medium"
+            price_source = "CoinAPI Live"
+            reliability = "✅ Tinggi"
             
-            # Try to get real price from recommendation or crypto_api
-            if recommendation.get('entry_price', 0) > 0:
-                current_price = recommendation.get('entry_price', 0)
-                price_source = "CoinAPI Real-time"
+            # Fetch real-time price from CoinAPI
+            coinapi_price_data = self._get_coinapi_realtime_price(symbol)
+            
+            if coinapi_price_data and 'error' not in coinapi_price_data:
+                current_price = coinapi_price_data.get('price', 0)
+                price_source = "🟢 CoinAPI Live"
                 reliability = "✅ Tinggi"
+                print(f"✅ CoinAPI real-time price for {symbol}: ${current_price:.2f}")
             else:
+                # Fallback to estimated price only if CoinAPI fails
                 current_price = self._get_estimated_price(symbol)
+                price_source = "Estimated (CoinAPI failed)"
+                reliability = "⚠️ Fallback"
+                print(f"❌ CoinAPI failed for {symbol}: {coinapi_price_data.get('error', 'Unknown error')}")
                 
             # Calculate confidence based on data quality and SMC
             base_confidence = self._calculate_coinglass_confidence(long_short_data, oi_data, recommendation)
@@ -443,12 +450,12 @@ class AIAssistant:
                 risk_per_trade = "0.5%"
                 direction = 'HOLD'  # Force HOLD for low confidence
             
-            # Format price display
+            # Format price display with 2 decimal precision for real-time data
             def format_price(price):
                 if price < 1:
                     return f"${price:.8f}"
                 elif price < 100:
-                    return f"${price:.4f}"
+                    return f"${price:.4f}"  
                 else:
                     return f"${price:,.2f}"
             
@@ -470,7 +477,7 @@ class AIAssistant:
 
 💰 **HARGA REAL-TIME (CoinAPI):**
 • Current: {format_price(current_price)}
-• Source: 🟢 {price_source}
+• Source: {price_source}
 • Reliability: {reliability}
 
 🧭 **TRADING SIGNAL**: {signal_text}
@@ -570,7 +577,7 @@ class AIAssistant:
 
 💰 **REAL-TIME PRICE (CoinAPI):**
 • Current: {format_price(current_price)}
-• Source: 🟢 {price_source}
+• Source: {price_source}
 • Reliability: {reliability}
 
 🧭 **TRADING SIGNAL**: {signal_text}
@@ -1983,6 +1990,55 @@ Error fetching CoinMarketCap data:
 💡 **Alternative**: Use `/futures {symbol.lower()}` for futures analysis"""
 
         return message
+
+    def _get_coinapi_realtime_price(self, symbol):
+        """Get real-time price from CoinAPI"""
+        try:
+            import requests
+            
+            coinapi_key = os.getenv('COINAPI_KEY')
+            if not coinapi_key:
+                return {'error': 'CoinAPI key not found in secrets'}
+            
+            # Clean symbol (remove USDT if present)
+            clean_symbol = symbol.upper().replace('USDT', '')
+            
+            # CoinAPI endpoint for real-time exchange rate
+            url = f"https://rest.coinapi.io/v1/exchangerate/{clean_symbol}/USDT"
+            
+            headers = {
+                'X-CoinAPI-Key': coinapi_key,
+                'Accept': 'application/json'
+            }
+            
+            print(f"🔄 Fetching real-time price for {clean_symbol} from CoinAPI...")
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                price = data.get('rate', 0)
+                
+                if price > 0:
+                    return {
+                        'symbol': clean_symbol,
+                        'price': price,
+                        'source': 'coinapi_live',
+                        'timestamp': data.get('time', ''),
+                        'success': True
+                    }
+                else:
+                    return {'error': f'Invalid price received: {price}'}
+            else:
+                error_msg = f'CoinAPI HTTP {response.status_code}: {response.text[:100]}...'
+                return {'error': error_msg}
+                
+        except requests.exceptions.Timeout:
+            return {'error': 'CoinAPI request timeout (10s)'}
+        except requests.exceptions.RequestException as e:
+            return {'error': f'CoinAPI connection error: {str(e)}'}
+        except Exception as e:
+            return {'error': f'CoinAPI unexpected error: {str(e)}'}
 
     def _get_estimated_price(self, symbol):
         """Helper to get an estimated price, fallback based on symbol"""
