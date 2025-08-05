@@ -11,14 +11,14 @@ class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinglass_key = os.getenv("COINGLASS_SECRET")
         self.coinapi_key = os.getenv("COINAPI_KEY")
         self.cmc_provider = CoinMarketCapProvider()
         self.coinapi_helper = CoinAPIHelper()
 
         if not self.coinglass_key:
             print("⚠️ Coinglass API key not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+            print("💡 Please set COINGLASS_SECRET in Replit Secrets")
 
         self.coinglass_url = "https://open-api.coinglass.com/api/pro/v1"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
@@ -47,6 +47,65 @@ class CryptoAPI:
             "Accept": "application/json",
             "Connection": "keep-alive"
         }
+
+    def get_coinglass_ticker(self, symbol):
+        """Get real-time price from Coinglass ticker endpoint"""
+        try:
+            if not self.coinglass_key:
+                return {'error': 'Coinglass API key not found'}
+
+            # Clean symbol (remove USDT if present)
+            clean_symbol = symbol.upper().replace('USDT', '')
+
+            url = f"{self.coinglass_url}/futures/ticker"
+            headers = self._get_coinglass_headers()
+
+            params = {
+                'symbol': clean_symbol
+            }
+
+            print(f"🔄 Fetching ticker for {clean_symbol} from Coinglass...")
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            
+            print(f"📊 Coinglass ticker response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                print(f"❌ HTTP Error {response.status_code}: {response.text}")
+                return {'error': f"HTTP {response.status_code}: {response.text}"}
+
+            data = response.json()
+            print(f"📋 Coinglass ticker response: {data}")
+
+            if data.get('success'):
+                result_data = data.get('data', {})
+                if result_data:
+                    price = float(result_data.get('price', 0))
+                    if price > 0:
+                        return {
+                            'symbol': clean_symbol,
+                            'price': price,
+                            'change_24h': float(result_data.get('priceChangePercent', 0)),
+                            'high_24h': float(result_data.get('highPrice', 0)),
+                            'low_24h': float(result_data.get('lowPrice', 0)),
+                            'volume_24h': float(result_data.get('volume', 0)),
+                            'source': 'coinglass_ticker',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    else:
+                        return {'error': f'Invalid price received: {price}'}
+                else:
+                    return {'error': 'No ticker data available'}
+            else:
+                error_msg = data.get('msg', 'Unknown error')
+                print(f"❌ Coinglass API error: {error_msg}")
+                return {'error': f"Coinglass API error: {error_msg}"}
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Request error: {str(e)}")
+            return {'error': f"Request error: {str(e)}"}
+        except Exception as e:
+            print(f"❌ Coinglass ticker error: {str(e)}")
+            return {'error': f"Coinglass ticker error: {str(e)}"}
 
     def get_coinglass_open_interest(self, symbol, time_type='24h'):
         """Get open interest data from Coinglass"""
