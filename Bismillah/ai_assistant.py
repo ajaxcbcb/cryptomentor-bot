@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import requests
 import random
@@ -12,7 +11,7 @@ class AIAssistant:
         self.name = name
         self.coinglass_key = os.getenv("COINGLASS_API_KEY")
         self.coinglass_base_url = "https://open-api.coinglass.com/public/v2"
-        
+
         if not self.coinglass_key:
             print("⚠️ COINGLASS_API_KEY not found in environment variables")
             print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
@@ -91,13 +90,13 @@ class AIAssistant:
                 result_data = data.get('data', {})
                 if result_data and len(result_data) > 0:
                     latest = result_data[-1]  # Get latest data point
-                    
+
                     # Extract price from the data
                     price = latest.get('price', 0)
                     if price <= 0:
                         # Try alternative price fields
                         price = latest.get('close', 0)
-                    
+
                     if price > 0:
                         return {
                             'symbol': clean_symbol,
@@ -106,7 +105,7 @@ class AIAssistant:
                             'source': 'coinglass',
                             'raw_data': latest
                         }
-                
+
                 return {'error': 'No price data available from Coinglass'}
             else:
                 return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
@@ -380,9 +379,9 @@ class AIAssistant:
                 asyncio.to_thread(self._get_coinglass_price, symbol),
                 self._get_coinglass_data_async(symbol, timeframe)
             ]
-            
+
             price_data, coinglass_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Handle exceptions
             if isinstance(price_data, Exception):
                 price_data = {'error': str(price_data)}
@@ -393,7 +392,7 @@ class AIAssistant:
             analysis = await self._generate_futures_analysis(
                 symbol, timeframe, price_data, coinglass_data, language
             )
-            
+
             return analysis
 
         except Exception as e:
@@ -602,17 +601,17 @@ class AIAssistant:
             print(f"🎯 Generating futures signals for top coins")
 
             target_symbols = self._get_top_coins_for_signals(crypto_api)
-            
+
             # Get price data for all symbols concurrently from Coinglass
             price_tasks = [
                 asyncio.to_thread(self._get_coinglass_price, symbol) for symbol in target_symbols
             ]
             price_results = await asyncio.gather(*price_tasks, return_exceptions=True)
-            
+
             # Get Coinglass data for high-quality symbols
             valid_symbols = []
             price_data = {}
-            
+
             for i, result in enumerate(price_results):
                 symbol = target_symbols[i]
                 if isinstance(result, dict) and 'error' not in result:
@@ -620,26 +619,26 @@ class AIAssistant:
                     price_data[symbol] = result
                 else:
                     print(f"⚠️ Price data failed for {symbol}: {result}")
-            
+
             # Generate signals for valid symbols
             signal_recommendations = []
-            
+
             for symbol in valid_symbols[:10]:  # Limit to top 10 for performance
                 try:
                     coinglass_data = await self._get_coinglass_data_async(symbol, '1h')
-                    
+
                     if 'error' not in coinglass_data:
                         signal = await self._analyze_futures_signal(
                             symbol, price_data[symbol], coinglass_data
                         )
-                        
+
                         if signal and signal.get('confidence', 0) >= 70:
                             signal_recommendations.append(signal)
-                
+
                 except Exception as e:
                     print(f"❌ Error processing signal for {symbol}: {e}")
                     continue
-            
+
             return await self._format_futures_signals_output(signal_recommendations, language)
 
         except Exception as e:
@@ -783,20 +782,20 @@ Ask me anything about crypto! 🚀"""
             price_data = self._get_coinglass_price(symbol)
             if 'error' in price_data:
                 return {'error': 'Cannot get base price for historical simulation'}
-            
+
             current_price = price_data.get('price', 0)
             if current_price <= 0:
                 return {'error': 'Invalid base price for simulation'}
-            
+
             # Generate 50 simulated historical data points
             historical_data = []
             base_price = current_price
-            
+
             for i in range(50):
                 # Simulate price variation ±2%
                 variation = random.uniform(-0.02, 0.02)
                 simulated_price = base_price * (1 + variation)
-                
+
                 historical_data.append({
                     'price_close': simulated_price,
                     'price_open': simulated_price * (1 + random.uniform(-0.005, 0.005)),
@@ -805,10 +804,10 @@ Ask me anything about crypto! 🚀"""
                     'volume_traded': random.uniform(1000000, 10000000),
                     'timestamp': f"2024-{random.randint(1,12):02d}-{random.randint(1,28):02d}T{random.randint(0,23):02d}:00:00Z"
                 })
-                
+
                 # Slight trend for next iteration
                 base_price = simulated_price
-            
+
             return {
                 'symbol': symbol,
                 'data': historical_data,
@@ -816,285 +815,154 @@ Ask me anything about crypto! 🚀"""
                 'source': 'coinglass_simulation',
                 'base_price': current_price
             }
-            
+
         except Exception as e:
             return {'error': f'Historical simulation error: {str(e)}'}
 
-    async def get_comprehensive_analysis(self, symbol, futures_data, price_data, language='id', crypto_api=None):
-        """Generate comprehensive analysis using Coinglass data sources"""
+    async def get_comprehensive_analysis(self, symbol, price_data, additional_data, language='id', crypto_api=None):
+        """Generate comprehensive cryptocurrency analysis with CoinMarketCap integration"""
         try:
-            print(f"🎯 Generating comprehensive analysis for {symbol}")
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-            # Get comprehensive data concurrently using Coinglass
-            tasks = [
-                asyncio.to_thread(self._get_coinglass_price, symbol),
-                asyncio.to_thread(self._get_coinglass_historical_simulation, symbol),
-                self._get_coinglass_comprehensive_async(symbol)
-            ]
-            
-            price_data, historical_data, coinglass_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Handle exceptions gracefully
-            for i, result in enumerate([price_data, historical_data, coinglass_data]):
-                if isinstance(result, Exception):
-                    print(f"⚠️ Task {i} failed: {result}")
-                    if i == 0:
-                        price_data = {'error': str(result)}
-                    elif i == 1:
-                        historical_data = {'error': str(result)}
+            # Get comprehensive data from CoinMarketCap
+            if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider.api_key:
+                cmc_data = crypto_api.cmc_provider.get_comprehensive_data(symbol)
+
+                if 'error' not in cmc_data:
+                    price = cmc_data.get('price', 0)
+                    market_cap = cmc_data.get('market_cap', 0)
+                    volume_24h = cmc_data.get('volume_24h', 0)
+                    percent_change_24h = cmc_data.get('percent_change_24h', 0)
+                    percent_change_7d = cmc_data.get('percent_change_7d', 0)
+                    percent_change_30d = cmc_data.get('percent_change_30d', 0)
+                    cmc_rank = cmc_data.get('cmc_rank', 0)
+                    circulating_supply = cmc_data.get('circulating_supply', 0)
+                    total_supply = cmc_data.get('total_supply', 0)
+                    max_supply = cmc_data.get('max_supply', 0)
+
+                    # Format price display
+                    if price < 1:
+                        price_display = f"${price:.8f}"
+                    elif price < 100:
+                        price_display = f"${price:.6f}"
                     else:
-                        coinglass_data = {'error': str(result)}
+                        price_display = f"${price:,.4f}"
 
-            # Get CMC data if available
-            cmc_data = {}
-            if crypto_api and hasattr(crypto_api, 'cmc_provider'):
-                try:
-                    cmc_data = crypto_api.cmc_provider.get_cryptocurrency_quotes(symbol)
-                except Exception as e:
-                    print(f"⚠️ CMC data unavailable: {e}")
+                    # Format market cap
+                    if market_cap > 1000000000:
+                        mc_display = f"${market_cap/1000000000:.2f}B"
+                    elif market_cap > 1000000:
+                        mc_display = f"${market_cap/1000000:.1f}M"
+                    else:
+                        mc_display = f"${market_cap:,.0f}"
 
-            # Generate comprehensive analysis
-            analysis = await self._format_comprehensive_analysis(
-                symbol, price_data, historical_data, coinglass_data, cmc_data, language
-            )
-            
-            return analysis
+                    # Format volume
+                    if volume_24h > 1000000000:
+                        vol_display = f"${volume_24h/1000000000:.2f}B"
+                    elif volume_24h > 1000000:
+                        vol_display = f"${volume_24h/1000000:.1f}M"
+                    else:
+                        vol_display = f"${volume_24h:,.0f}"
 
-        except Exception as e:
-            print(f"❌ Error in comprehensive analysis: {e}")
-            return self._generate_emergency_analysis(symbol, language, str(e))
+                    # Format supply
+                    def format_supply(supply):
+                        if supply > 1000000000:
+                            return f"{supply/1000000000:.2f}B"
+                        elif supply > 1000000:
+                            return f"{supply/1000000:.1f}M"
+                        else:
+                            return f"{supply:,.0f}"
 
-    def _generate_emergency_analysis(self, symbol, language, error_message):
-        """Generate emergency analysis when APIs fail"""
-        current_time = datetime.now().strftime('%H:%M:%S WIB')
+                    # Get description if available
+                    description = cmc_data.get('description', '')
+                    if description and len(description) > 200:
+                        description = description[:200] + "..."
 
-        if language == 'id':
-            return f"""❌ **ANALISIS GAGAL - {symbol.upper()}**
-⏰ {current_time}
+                    # Change indicators
+                    change_24h_emoji = "📈" if percent_change_24h >= 0 else "📉"
+                    change_7d_emoji = "📈" if percent_change_7d >= 0 else "📉"
+                    change_30d_emoji = "📈" if percent_change_30d >= 0 else "📉"
 
-Terjadi kesalahan saat memproses data:
-{error_message[:100]}...
+                    if language == 'id':
+                        analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol.upper()} (CoinMarketCap)**
 
-🔄 **Solusi:**
+💰 **Data Fundamental (CMC Rank #{cmc_rank}):**
+• **Harga Saat Ini**: {price_display}
+• **Market Cap**: {mc_display}
+• **Volume 24j**: {vol_display}
+• **Circulating Supply**: {format_supply(circulating_supply) if circulating_supply else 'N/A'}
+• **Total Supply**: {format_supply(total_supply) if total_supply else 'N/A'}
+• **Max Supply**: {format_supply(max_supply) if max_supply else 'Unlimited'}
+
+📈 **Performa Harga:**
+• **24 Jam**: {change_24h_emoji} {percent_change_24h:+.2f}%
+• **7 Hari**: {change_7d_emoji} {percent_change_7d:+.2f}%
+• **30 Hari**: {change_30d_emoji} {percent_change_30d:+.2f}%
+
+📊 **Level Kritis:**
+• **Support**: ${price * 0.95:.6f} (-5%)
+• **Resistance**: ${price * 1.05:.6f} (+5%)
+• **Trend**: {'Bullish 🟢' if percent_change_24h > 2 else 'Bearish 🔴' if percent_change_24h < -2 else 'Sideways 🟡'}
+
+🎯 **Trading Signals:**
+• **Signal**: {'STRONG BUY' if percent_change_24h > 5 else 'BUY' if percent_change_24h > 2 else 'HOLD' if percent_change_24h > -2 else 'SELL' if percent_change_24h > -5 else 'STRONG SELL'}
+• **Risk Level**: {'LOW' if abs(percent_change_24h) < 3 else 'MEDIUM' if abs(percent_change_24h) < 7 else 'HIGH'}
+• **Volatilitas**: {'Rendah' if abs(percent_change_24h) < 3 else 'Sedang' if abs(percent_change_24h) < 10 else 'Tinggi'}
+
+{f'🔍 **Tentang Proyek:** {description}' if description else ''}
+
+⏰ **Data Update**: {current_time}
+📡 **Source**: CoinMarketCap Professional API
+💎 **Data Quality**: Real-time & Verified"""
+                    else:
+                        analysis = f"""📊 **COMPREHENSIVE ANALYSIS {symbol.upper()} (CoinMarketCap)**
+
+💰 **Fundamental Data (CMC Rank #{cmc_rank}):**
+• **Current Price**: {price_display}
+• **Market Cap**: {mc_display}
+• **Volume 24h**: {vol_display}
+• **Circulating Supply**: {format_supply(circulating_supply) if circulating_supply else 'N/A'}
+• **Total Supply**: {format_supply(total_supply) if total_supply else 'N/A'}
+• **Max Supply**: {format_supply(max_supply) if max_supply else 'Unlimited'}
+
+📈 **Price Performance:**
+• **24 Hours**: {change_24h_emoji} {percent_change_24h:+.2f}%
+• **7 Days**: {change_7d_emoji} {percent_change_7d:+.2f}%
+• **30 Days**: {change_30d_emoji} {percent_change_30d:+.2f}%
+
+📊 **Critical Levels:**
+• **Support**: ${price * 0.95:.6f} (-5%)
+• **Resistance**: ${price * 1.05:.6f} (+5%)
+• **Trend**: {'Bullish 🟢' if percent_change_24h > 2 else 'Bearish 🔴' if percent_change_24h < -2 else 'Sideways 🟡'}
+
+🎯 **Trading Signals:**
+• **Signal**: {'STRONG BUY' if percent_change_24h > 5 else 'BUY' if percent_change_24h > 2 else 'HOLD' if percent_change_24h > -2 else 'SELL' if percent_change_24h > -5 else 'STRONG SELL'}
+• **Risk Level**: {'LOW' if abs(percent_change_24h) < 3 else 'MEDIUM' if abs(percent_change_24h) < 7 else 'HIGH'}
+• **Volatility**: {'Low' if abs(percent_change_24h) < 3 else 'Medium' if abs(percent_change_24h) < 10 else 'High'}
+
+{f'🔍 **About Project:** {description}' if description else ''}
+
+⏰ **Data Update**: {current_time}
+📡 **Source**: CoinMarketCap Professional API
+💎 **Data Quality**: Real-time & Verified"""
+
+                    return analysis
+
+            # Fallback if CoinMarketCap fails
+            fallback_msg = "⚠️ **Data CoinMarketCap sementara tidak tersedia**\n\n" if language == 'id' else "⚠️ **CoinMarketCap data temporarily unavailable**\n\n"
+            fallback_msg += f"""💡 **Solusi:**
 • Coba lagi dalam beberapa menit
-• Gunakan `/price {symbol.lower()}` untuk harga basic
+• Pastikan CMC_API_KEY tersedia di Secrets
 • Contact admin jika masalah berlanjut
 
-📡 **Source**: API Error Handler"""
-        else:
-            return f"""❌ **ANALYSIS FAILED - {symbol.upper()}**
-⏰ {current_time}
+🔄 **Reason**: CoinMarketCap API temporarily unavailable or rate limited"""
 
-An error occurred while processing data:
-{error_message[:100]}...
+            return fallback_msg
 
-🔄 **Solutions:**
-• Try again in a few minutes
-• Use `/price {symbol.lower()}` for basic price
-• Contact admin if issue persists
-
-📡 **Source**: API Error Handler"""
-    
-    def _format_price(self, price):
-        """Format price with appropriate decimal places"""
-        if price < 1:
-            return f"${price:.8f}"
-        elif price < 100:
-            return f"${price:.6f}"
-        else:
-            return f"${price:,.4f}"
-
-    async def cleanup(self):
-        """Cleanup resources"""
-        # No session cleanup needed for Coinglass (using requests library)
-        pass
-
-    async def _get_coinglass_data_async(self, symbol, timeframe):
-        """Get Coinglass data asynchronously"""
-        try:
-            # Get both long/short and OI data concurrently
-            tasks = [
-                asyncio.to_thread(self._get_coinglass_long_short_data, symbol, timeframe),
-                asyncio.to_thread(self._get_coinglass_open_interest_data, symbol, timeframe)
-            ]
-            
-            long_short_data, oi_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            return {
-                'long_short': long_short_data if not isinstance(long_short_data, Exception) else {'error': str(long_short_data)},
-                'open_interest': oi_data if not isinstance(oi_data, Exception) else {'error': str(oi_data)}
-            }
         except Exception as e:
-            return {'error': f'Coinglass data error: {str(e)}'}
-    
-    async def _get_coinglass_comprehensive_async(self, symbol):
-        """Get comprehensive Coinglass data asynchronously"""
-        try:
-            tasks = [
-                asyncio.to_thread(self._get_coinglass_long_short_data, symbol, '1h'),
-                asyncio.to_thread(self._get_coinglass_open_interest_data, symbol, '1h'),
-                asyncio.to_thread(self._get_coinglass_liquidation, symbol, '24h'),
-                asyncio.to_thread(self._get_coinglass_funding_rate, symbol)
-            ]
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            return {
-                'long_short': results[0] if not isinstance(results[0], Exception) else {'error': str(results[0])},
-                'open_interest': results[1] if not isinstance(results[1], Exception) else {'error': str(results[1])},
-                'liquidation': results[2] if not isinstance(results[2], Exception) else {'error': str(results[2])},
-                'funding_rate': results[3] if not isinstance(results[3], Exception) else {'error': str(results[3])}
-            }
-        except Exception as e:
-            return {'error': f'Comprehensive Coinglass error: {str(e)}'}
-    
-    def _get_coinglass_liquidation(self, symbol, timeframe='24h'):
-        """Get liquidation data from Coinglass"""
-        # Placeholder method for comprehensive analysis
-        return {'error': 'Liquidation data not implemented'}
-    
-    def _get_coinglass_funding_rate(self, symbol):
-        """Get funding rate data from Coinglass"""
-        # Placeholder method for comprehensive analysis
-        return {'error': 'Funding rate data not implemented'}
-    
-    async def _generate_futures_analysis(self, symbol, timeframe, price_data, coinglass_data, language):
-        """Generate clean futures analysis"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
-            # Extract price info
-            current_price = 0
-            price_source = "Estimated"
-            if 'error' not in price_data:
-                current_price = price_data.get('price', 0)
-                price_source = "Coinglass Real-time"
-            
-            # Analyze Coinglass data
-            analysis_result = self._analyze_coinglass_data(coinglass_data, symbol)
-            
-            # Format analysis
-            if language == 'id':
-                return self._format_futures_analysis_id(
-                    symbol, timeframe, current_price, price_source, analysis_result, current_time
-                )
-            else:
-                return self._format_futures_analysis_en(
-                    symbol, timeframe, current_price, price_source, analysis_result, current_time
-                )
-                
-        except Exception as e:
-            return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
-    
-    def _format_futures_analysis_id(self, symbol, timeframe, current_price, price_source, analysis_result, current_time):
-        """Format futures analysis in Indonesian"""
-        direction = analysis_result.get('direction', 'HOLD')
-        confidence = analysis_result.get('confidence', 50)
-        reason = analysis_result.get('reason', 'Market analysis')
-        
-        direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "⏸️"
-        
-        formatted_price = self._format_price(current_price)
-        
-        message = f"""🎯 **ANALISIS FUTURES {symbol.upper()} ({timeframe})**
+            print(f"Error in comprehensive analysis: {e}")
+            return f"❌ Error dalam analisis {symbol}: {str(e)[:100]}..."
 
-💰 **HARGA REAL-TIME**: {formatted_price}
-📡 **SUMBER DATA**: {price_source}
-⏰ **UPDATE**: {current_time}
-
-{direction_emoji} **SIGNAL**: {direction}
-📊 **Confidence**: {confidence:.0f}%
-💡 **Alasan**: {reason}
-
-💰 **LEVEL TRADING:**"""
-
-        if direction != 'HOLD':
-            entry_price = current_price * (0.999 if direction == 'LONG' else 1.001)
-            tp_price = current_price * (1.025 if direction == 'LONG' else 0.975)
-            sl_price = current_price * (0.985 if direction == 'LONG' else 1.015)
-            
-            message += f"""
-┣━ 📍 **ENTRY**: {self._format_price(entry_price)}
-┣━ 🎯 **TAKE PROFIT**: {self._format_price(tp_price)}
-┗━ 🛡️ **STOP LOSS**: {self._format_price(sl_price)} (**WAJIB!**)"""
-        else:
-            message += f"""
-┗━ ⏸️ **HOLD** - Tunggu setup yang lebih jelas"""
-
-        if 'long_ratio' in analysis_result:
-            long_ratio = analysis_result['long_ratio']
-            oi_change = analysis_result.get('oi_change', 0)
-            
-            message += f"""
-
-📊 **DATA COINGLASS:**
-• **Long/Short Ratio**: {long_ratio:.1f}% / {100-long_ratio:.1f}%
-• **OI Change**: {oi_change:+.2f}%
-
-⚠️ **RISK MANAGEMENT:**
-• Set stop loss WAJIB sebelum entry
-• Position size maksimal 2% dari modal
-• Exit jika market structure berubah"""
-
-        message += f"""
-
-📡 **SOURCE**: Coinglass Real-time Data
-⏰ **Analysis Time**: {current_time}"""
-
-        return message
-    
-    def _format_futures_analysis_en(self, symbol, timeframe, current_price, price_source, analysis_result, current_time):
-        """Format futures analysis in English"""
-        # Similar structure as Indonesian version
-        direction = analysis_result.get('direction', 'HOLD')
-        confidence = analysis_result.get('confidence', 50)
-        reason = analysis_result.get('reason', 'Market analysis')
-        
-        direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "⏸️"
-        formatted_price = self._format_price(current_price)
-        
-        return f"""🎯 **FUTURES ANALYSIS {symbol.upper()} ({timeframe})**
-
-💰 **REAL-TIME PRICE**: {formatted_price}
-📡 **DATA SOURCE**: {price_source}
-⏰ **UPDATE**: {current_time}
-
-{direction_emoji} **SIGNAL**: {direction}
-📊 **Confidence**: {confidence:.0f}%
-💡 **Reason**: {reason}
-
-📡 **SOURCE**: Coinglass Real-time Data
-⏰ **Analysis Time**: {current_time}"""
-    
-    async def _format_comprehensive_analysis(self, symbol, price_data, historical_data, coinglass_data, cmc_data, language):
-        """Format comprehensive analysis output"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
-            # Extract current price
-            current_price = 0
-            if 'error' not in price_data:
-                current_price = price_data.get('price', 0)
-            
-            # Analyze historical trends
-            trend_analysis = self._analyze_historical_trend(historical_data)
-            
-            # Analyze Coinglass sentiment
-            sentiment_analysis = self._analyze_coinglass_comprehensive(coinglass_data)
-            
-            # Format output based on language
-            if language == 'id':
-                return self._format_comprehensive_analysis_id(
-                    symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time
-                )
-            else:
-                return self._format_comprehensive_analysis_en(
-                    symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time
-                )
-                
-        except Exception as e:
-            return self._generate_emergency_analysis(symbol, language, str(e))
-    
     def _format_comprehensive_analysis_id(self, symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time):
         """Format comprehensive analysis in Indonesian"""
         formatted_price = self._format_price(current_price)
@@ -1102,10 +970,10 @@ An error occurred while processing data:
         trend_strength = trend_analysis.get('strength', 'medium')
         sentiment_score = sentiment_analysis.get('sentiment_score', 50)
         overall_sentiment = sentiment_analysis.get('overall', 'neutral')
-        
+
         trend_emoji = "📈" if trend == 'bullish' else "📉" if trend == 'bearish' else "📊"
         sentiment_emoji = "🟢" if overall_sentiment == 'bullish' else "🔴" if overall_sentiment == 'bearish' else "🟡"
-        
+
         message = f"""🎯 **ANALISIS KOMPREHENSIF {symbol.upper()}**
 
 💰 **HARGA CURRENT**: {formatted_price}
@@ -1139,12 +1007,12 @@ An error occurred while processing data:
 ⏰ **Analysis Time**: {current_time}"""
 
         return message
-    
+
     def _format_comprehensive_analysis_en(self, symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time):
         """Format comprehensive analysis in English"""
         # Similar structure as Indonesian version
         formatted_price = self._format_price(current_price)
-        
+
         return f"""🎯 **COMPREHENSIVE ANALYSIS {symbol.upper()}**
 
 💰 **CURRENT PRICE**: {formatted_price}
@@ -1152,43 +1020,43 @@ An error occurred while processing data:
 
 📡 **DATA SOURCES**: Coinglass + CoinMarketCap
 ⏰ **Analysis Time**: {current_time}"""
-    
+
     async def _analyze_futures_signal(self, symbol, price_data, coinglass_data):
         """Analyze futures signal for a single symbol"""
         try:
             if 'error' in price_data or 'error' in coinglass_data:
                 return None
-            
+
             current_price = price_data.get('price', 0)
             if current_price <= 0:
                 return None
-            
+
             # Analyze Coinglass data for signal
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
-            
+
             if 'error' in long_short or 'error' in open_interest:
                 return None
-            
+
             # Calculate signal confidence
             long_ratio = long_short.get('long_ratio', 50)
             oi_change = open_interest.get('oi_change_percent', 0)
-            
+
             # Simple signal logic
             confidence = 50
             direction = 'HOLD'
-            
+
             if long_ratio > 75:  # Overleveraged longs
                 direction = 'SHORT'
                 confidence = min(85, 60 + (long_ratio - 75))
             elif long_ratio < 25:  # Overleveraged shorts
                 direction = 'LONG'
                 confidence = min(85, 60 + (25 - long_ratio))
-            
+
             # Adjust confidence based on OI
             if abs(oi_change) > 10:
                 confidence += 10
-            
+
             if confidence >= 70:
                 return {
                     'symbol': symbol,
@@ -1201,13 +1069,13 @@ An error occurred while processing data:
                     'stop_loss': current_price * (0.985 if direction == 'LONG' else 1.015),
                     'take_profit': current_price * (1.025 if direction == 'LONG' else 0.975)
                 }
-            
+
             return None
-            
+
         except Exception as e:
             print(f"❌ Signal analysis error for {symbol}: {e}")
             return None
-    
+
     async def _format_futures_signals_output(self, recommendations, language):
         """Format futures signals output"""
         if not recommendations:
@@ -1215,14 +1083,14 @@ An error occurred while processing data:
                 return "❌ Tidak ada sinyal dengan confidence >70%. Coba lagi nanti."
             else:
                 return "❌ No signals with confidence >70%. Try again later."
-        
+
         current_time = datetime.now().strftime('%H:%M:%S WIB')
-        
+
         if language == 'id':
             return self._format_signals_output_id(recommendations, current_time)
         else:
             return self._format_signals_output_en(recommendations, current_time)
-    
+
     def _format_signals_output_id(self, recommendations, current_time):
         """Format multiple signals output in Indonesian"""
         header = f"""🎯 **SINYAL FUTURES REAL-TIME**
@@ -1241,9 +1109,9 @@ An error occurred while processing data:
             entry_price = signal['entry_price']
             tp_price = signal['take_profit']
             sl_price = signal['stop_loss']
-            
+
             direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-            
+
             signal_text = f"""**{i}. {symbol} {direction_emoji} - {direction}**
 💰 Entry: {self._format_price(entry_price)} | Confidence: {confidence:.0f}%
 
@@ -1273,7 +1141,7 @@ An error occurred while processing data:
 ⚠️ **Warning**: Trading berisiko tinggi, gunakan proper risk management!"""
 
         return header + "\n\n".join(formatted_signals) + footer
-    
+
     def _format_signals_output_en(self, recommendations, current_time):
         """Format multiple signals output in English"""
         # Similar structure as Indonesian version
@@ -1282,27 +1150,27 @@ An error occurred while processing data:
 
 📡 **Data**: Coinglass Real-time
 ⚠️ **Warning**: Trading involves high risk!"""
-    
+
     def _get_top_coins_for_signals(self, crypto_api=None):
         """Get top coins for signal generation"""
         return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'MATIC', 'LINK', 'UNI', 'LTC', 'BCH', 'ATOM']
-    
+
     def _analyze_coinglass_data(self, coinglass_data, symbol):
         """Analyze Coinglass data for insights"""
         try:
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
-            
+
             if 'error' in long_short or 'error' in open_interest:
                 return {
                     'direction': 'HOLD',
                     'confidence': 30,
                     'reason': 'Insufficient data'
                 }
-            
+
             long_ratio = long_short.get('long_ratio', 50)
             oi_change = open_interest.get('oi_change_percent', 0)
-            
+
             # Analysis logic
             if long_ratio > 70:
                 return {
@@ -1328,54 +1196,54 @@ An error occurred while processing data:
                     'long_ratio': long_ratio,
                     'oi_change': oi_change
                 }
-                
+
         except Exception as e:
             return {
                 'direction': 'HOLD',
                 'confidence': 30,
                 'reason': f'Analysis error: {str(e)}'
             }
-    
+
     def _analyze_historical_trend(self, historical_data):
         """Analyze historical price trend"""
         try:
             if 'error' in historical_data or not historical_data.get('data'):
                 return {'trend': 'neutral', 'strength': 'low'}
-            
+
             data = historical_data['data']
             if len(data) < 10:
                 return {'trend': 'neutral', 'strength': 'low'}
-            
+
             # Simple trend analysis
             closes = [float(candle.get('price_close', 0)) for candle in data[-10:]]
-            
+
             if len(closes) >= 5:
                 recent_avg = sum(closes[-5:]) / 5
                 older_avg = sum(closes[:5]) / 5
-                
+
                 change = (recent_avg - older_avg) / older_avg * 100
-                
+
                 if change > 2:
                     return {'trend': 'bullish', 'strength': 'strong' if change > 5 else 'medium'}
                 elif change < -2:
                     return {'trend': 'bearish', 'strength': 'strong' if change < -5 else 'medium'}
-            
+
             return {'trend': 'neutral', 'strength': 'medium'}
-            
+
         except Exception as e:
             return {'trend': 'neutral', 'strength': 'low'}
-    
+
     def _analyze_coinglass_comprehensive(self, coinglass_data):
         """Analyze comprehensive Coinglass data"""
         try:
             sentiment_score = 50  # Neutral
             signals = []
-            
+
             # Analyze each data component
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
             liquidation = coinglass_data.get('liquidation', {})
-            
+
             if 'error' not in long_short:
                 long_ratio = long_short.get('long_ratio', 50)
                 if long_ratio > 65:
@@ -1384,7 +1252,7 @@ An error occurred while processing data:
                 elif long_ratio < 35:
                     sentiment_score += 10
                     signals.append('Low long ratio suggests bullish sentiment')
-            
+
             if 'error' not in open_interest:
                 oi_change = open_interest.get('oi_change_percent', 0)
                 if oi_change > 10:
@@ -1393,20 +1261,20 @@ An error occurred while processing data:
                 elif oi_change < -10:
                     sentiment_score -= 5
                     signals.append('Falling open interest suggests weakening')
-            
+
             return {
                 'sentiment_score': max(0, min(100, sentiment_score)),
                 'signals': signals,
                 'overall': 'bullish' if sentiment_score > 60 else 'bearish' if sentiment_score < 40 else 'neutral'
             }
-            
+
         except Exception as e:
             return {
                 'sentiment_score': 50,
                 'signals': [f'Analysis error: {str(e)}'],
                 'overall': 'neutral'
             }
-    
+
     def _generate_emergency_futures_signal(self, symbol, timeframe, language, error_message):
         """Generate a fallback signal in case of errors."""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
@@ -1442,102 +1310,189 @@ Error processing data:
             if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider.api_key:
                 # Get comprehensive market data from CoinMarketCap
                 market_data = crypto_api.cmc_provider.get_enhanced_market_overview()
-                
+
                 if 'error' not in market_data:
+                    global_metrics = market_data.get('global_metrics', {})
+                    top_cryptos = market_data.get('top_cryptocurrencies', {})
+                    fng_data = market_data.get('fear_greed_index', {})
+
                     current_time = datetime.now().strftime('%H:%M:%S WIB')
-                    
+
+                    # Format large numbers
+                    def format_currency(amount):
+                        if amount > 1000000000000:  # Trillions
+                            return f"${amount/1000000000000:.2f}T"
+                        elif amount > 1000000000:  # Billions
+                            return f"${amount/1000000000:.2f}B"
+                        elif amount > 1000000:  # Millions
+                            return f"${amount/1000000:.1f}M"
+                        else:
+                            return f"${amount:,.0f}"
+
+                    total_market_cap = global_metrics.get('total_market_cap', 0)
+                    total_volume = global_metrics.get('total_volume_24h', 0)
+                    market_cap_change = global_metrics.get('market_cap_change_24h', 0)
+                    btc_dominance = global_metrics.get('btc_dominance', 0)
+                    eth_dominance = global_metrics.get('eth_dominance', 0)
+                    active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
+                    active_exchanges = global_metrics.get('active_exchanges', 0)
+
+                    # Fear & Greed Index
+                    fng_value = fng_data.get('value', 50)
+                    fng_classification = fng_data.get('value_classification', 'Neutral')
+
+                    # Market sentiment emoji
+                    if market_cap_change > 3:
+                        sentiment_emoji = "🚀"
+                        sentiment_text = "Very Bullish"
+                    elif market_cap_change > 0:
+                        sentiment_emoji = "📈"
+                        sentiment_text = "Bullish"
+                    elif market_cap_change > -3:
+                        sentiment_emoji = "⚡"
+                        sentiment_text = "Neutral"
+                    else:
+                        sentiment_emoji = "📉"
+                        sentiment_text = "Bearish"
+
                     if language == 'id':
-                        return f"""🌍 **OVERVIEW PASAR CRYPTO (CoinMarketCap Startup)**
+                        analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL (CoinMarketCap)**
 
-💰 **Global Market Cap**: ${market_data.get('total_market_cap', 0):,.0f}
-📊 **24h Change**: {market_data.get('market_cap_change_24h', 0):+.2f}%
-📈 **Total Volume 24h**: ${market_data.get('total_volume_24h', 0):,.0f}
+💰 **Statistik Pasar:**
+• **Total Market Cap**: {format_currency(total_market_cap)}
+• **Perubahan 24j**: {sentiment_emoji} {market_cap_change:+.2f}%
+• **Volume 24j**: {format_currency(total_volume)}
+• **Sentiment**: {sentiment_text}
 
-🪙 **Dominance Crypto:**
-• **Bitcoin (BTC)**: {market_data.get('btc_dominance', 0):.1f}%
-• **Ethereum (ETH)**: {market_data.get('eth_dominance', 0):.1f}%
+🪙 **Dominasi Crypto:**
+• **Bitcoin (BTC)**: {btc_dominance:.1f}%
+• **Ethereum (ETH)**: {eth_dominance:.1f}%
+• **Altcoins**: {100-btc_dominance-eth_dominance:.1f}%
 
-📊 **Top Movers 24h:**
-{self._format_top_movers(market_data, language)}
+📊 **Aktivitas Pasar:**
+• **Cryptocurrency Aktif**: {active_cryptos:,}
+• **Exchange Aktif**: {active_exchanges:,}
+• **Market Pairs**: {global_metrics.get('active_market_pairs', 0):,}
+
+😨😱 **Fear & Greed Index:**
+• **Nilai**: {fng_value}/100
+• **Status**: {fng_classification}
+• **Indikator**: {'Extreme Fear' if fng_value < 20 else 'Fear' if fng_value < 40 else 'Neutral' if fng_value < 60 else 'Greed' if fng_value < 80 else 'Extreme Greed'}"""
+
+                        # Add top movers if available
+                        if 'data' in top_cryptos and top_cryptos['data']:
+                            analysis += f"\n\n🎯 **Top 5 Cryptocurrency:**"
+                            for i, crypto in enumerate(top_cryptos['data'][:5], 1):
+                                price = crypto.get('price', 0)
+                                change_24h = crypto.get('percent_change_24h', 0)
+                                symbol = crypto.get('symbol', '')
+                                name = crypto.get('name', '')
+
+                                price_display = f"${price:.4f}" if price < 100 else f"${price:,.2f}"
+                                change_emoji = "📈" if change_24h >= 0 else "📉"
+
+                                analysis += f"\n• **{i}. {name} ({symbol})**: {price_display} {change_emoji} {change_24h:+.1f}%"
+
+                        analysis += f"""
 
 ⏰ **Update**: {current_time}
-📡 **Source**: CoinMarketCap Startup Plan (Real-time)
-💡 **Data Quality**: Professional Grade"""
-                    else:
-                        return f"""🌍 **CRYPTO MARKET OVERVIEW (CoinMarketCap Startup)**
+📡 **Source**: CoinMarketCap Startup Plan
+💎 **Data Quality**: Real-time Professional"""
 
-💰 **Global Market Cap**: ${market_data.get('total_market_cap', 0):,.0f}
-📊 **24h Change**: {market_data.get('market_cap_change_24h', 0):+.2f}%
-📈 **Total Volume 24h**: ${market_data.get('total_volume_24h', 0):,.0f}
+                        return analysis
+                    else:
+                        analysis = f"""🌍 **GLOBAL CRYPTO MARKET OVERVIEW (CoinMarketCap)**
+
+💰 **Market Statistics:**
+• **Total Market Cap**: {format_currency(total_market_cap)}
+• **24h Change**: {sentiment_emoji} {market_cap_change:+.2f}%
+• **Volume 24h**: {format_currency(total_volume)}
+• **Sentiment**: {sentiment_text}
 
 🪙 **Crypto Dominance:**
-• **Bitcoin (BTC)**: {market_data.get('btc_dominance', 0):.1f}%
-• **Ethereum (ETH)**: {market_data.get('eth_dominance', 0):.1f}%
+• **Bitcoin (BTC)**: {btc_dominance:.1f}%
+• **Ethereum (ETH)**: {eth_dominance:.1f}%
+• **Altcoins**: {100-btc_dominance-eth_dominance:.1f}%
+
+📊 **Market Activity:**
+• **Active Cryptocurrencies**: {active_cryptos:,}
+• **Active Exchanges**: {active_exchanges:,}
+• **Market Pairs**: {global_metrics.get('active_market_pairs', 0):,}
+
+😨😱 **Fear & Greed Index:**
+• **Value**: {fng_value}/100
+• **Status**: {fng_classification}
+• **Indicator**: {'Extreme Fear' if fng_value < 20 else 'Fear' if fng_value < 40 else 'Neutral' if fng_value < 60 else 'Greed' if fng_value < 80 else 'Extreme Greed'}"""
+
+                        # Add top movers if available
+                        if 'data' in top_cryptos and top_cryptos['data']:
+                            analysis += f"\n\n🎯 **Top 5 Cryptocurrencies:**"
+                            for i, crypto in enumerate(top_cryptos['data'][:5], 1):
+                                price = crypto.get('price', 0)
+                                change_24h = crypto.get('percent_change_24h', 0)
+                                symbol = crypto.get('symbol', '')
+                                name = crypto.get('name', '')
+
+                                price_display = f"${price:.4f}" if price < 100 else f"${price:,.2f}"
+                                change_emoji = "📈" if change_24h >= 0 else "📉"
+
+                                analysis += f"\n• **{i}. {name} ({symbol})**: {price_display} {change_emoji} {change_24h:+.1f}%"
+
+                        analysis += f"""
 
 ⏰ **Update**: {current_time}
-📡 **Source**: CoinMarketCap Startup Plan (Real-time)"""
-            
-            # Fallback message if CoinMarketCap unavailable
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
-            if language == 'id':
-                return f"""🌍 **OVERVIEW PASAR CRYPTO**
+📡 **Source**: CoinMarketCap Startup Plan
+💎 **Data Quality**: Real-time Professional"""
 
-⚠️ **CoinMarketCap API Unavailable**
+                        return analysis
 
-💡 **Alternatif yang tersedia:**
-• `/price btc` - Harga real-time dari Coinglass
-• `/analyze btc` - Analisis teknikal dari Coinglass
-• `/futures_signals` - Sinyal futures dari Coinglass
+            # Fallback if CoinMarketCap fails
+            fallback_msg = "⚠️ **Data CoinMarketCap sementara tidak tersedia**\n\n" if language == 'id' else "⚠️ **CoinMarketCap data temporarily unavailable**\n\n"
+            fallback_msg += f"""💡 **Alternatif:**
+• Pastikan CMC_API_KEY tersedia di Secrets
+• Coba command `/price btc` untuk harga basic
+• Contact admin jika masalah berlanjut
 
-⏰ **Update**: {current_time}
-📡 **Source**: Fallback Data"""
-            else:
-                return f"""🌍 **CRYPTO MARKET OVERVIEW**
+🔄 **Reason**: CoinMarketCap API rate limit atau koneksi error"""
 
-⚠️ **CoinMarketCap API Unavailable**
+            return fallback_msg
 
-💡 **Available alternatives:**
-• `/price btc` - Real-time price from Coinglass
-• `/analyze btc` - Technical analysis from Coinglass
-• `/futures_signals` - Futures signals from Coinglass
-
-⏰ **Update**: {current_time}
-📡 **Source**: Fallback Data"""
-                
         except Exception as e:
-            print(f"❌ Error in market sentiment: {e}")
-            return f"❌ Error getting market sentiment: {str(e)[:100]}..."
-    
+            print(f"Error in market sentiment: {e}")
+            if language == 'id':
+                return f"❌ **Error mengambil data pasar**\n\n**Detail**: {str(e)[:100]}...\n\n💡 Coba lagi dalam beberapa menit"
+            else:
+                return f"❌ **Error fetching market data**\n\n**Detail**: {str(e)[:100]}...\n\n💡 Try again in a few minutes"
+
     def _format_top_movers(self, market_data, language='id'):
         """Format top movers from market data"""
         try:
             if 'top_gainers' in market_data and 'top_losers' in market_data:
                 gainers = market_data['top_gainers'][:3]
                 losers = market_data['top_losers'][:3]
-                
+
                 if language == 'id':
                     output = "**Top Gainers:**\n"
                     for gainer in gainers:
                         output += f"• {gainer.get('symbol', 'N/A')}: +{gainer.get('percent_change_24h', 0):.1f}%\n"
-                    
+
                     output += "\n**Top Losers:**\n"
                     for loser in losers:
                         output += f"• {loser.get('symbol', 'N/A')}: {loser.get('percent_change_24h', 0):.1f}%\n"
-                    
+
                     return output
                 else:
                     output = "**Top Gainers:**\n"
                     for gainer in gainers:
                         output += f"• {gainer.get('symbol', 'N/A')}: +{gainer.get('percent_change_24h', 0):.1f}%\n"
-                    
+
                     output += "\n**Top Losers:**\n"
                     for loser in losers:
                         output += f"• {loser.get('symbol', 'N/A')}: {loser.get('percent_change_24h', 0):.1f}%\n"
-                    
+
                     return output
-            
+
             return "• Data movers tidak tersedia" if language == 'id' else "• Movers data unavailable"
-            
+
         except Exception as e:
             return f"• Error formatting movers: {str(e)[:50]}..."

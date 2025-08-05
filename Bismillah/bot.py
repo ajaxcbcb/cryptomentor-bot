@@ -660,12 +660,12 @@ class TelegramBot:
 
         symbol = context.args[0].upper()
 
-        # Show loading with Binance status
+        # Show loading with CoinMarketCap status
         mode_text = "🌐 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinAPI... ({mode_text})")
+        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinMarketCap... ({mode_text})")
 
-        # Get real-time data from CoinAPI
-        print(f"🔄 Fetching real-time data for {symbol} from CoinAPI...")
+        # Get real-time data from CoinMarketCap (prioritized) or CoinAPI
+        print(f"🔄 Fetching real-time data for {symbol} from CoinMarketCap...")
 
         # Force refresh in deployment to ensure real-time data
         price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=IS_DEPLOYMENT)
@@ -715,25 +715,37 @@ class TelegramBot:
 
             # API Status and timing
             current_time = datetime.now().strftime('%H:%M:%S WIB')
+            data_source = price_data.get('source', 'unknown')
+            
+            if data_source == 'coinmarketcap':
+                source_text = "🟢 CoinMarketCap Professional"
+                api_status = "✅ CoinMarketCap Real-time"
+            elif data_source == 'coinapi':
+                source_text = "🟢 CoinAPI Real-Time"
+                api_status = "✅ CoinAPI Live Data"
+            else:
+                source_text = "🟢 Binance Exchange"
+                api_status = "✅ Binance Live Data"
+                
             message += f"""
 ⏰ **Update**: {current_time}
-🔄 **Source**: 🟢 Binance Real-Time Exchange Rate
-🌐 **API Status**: ✅ Binance Live Data
+🔄 **Source**: {source_text}
+🌐 **API Status**: {api_status}
 🔗 **Mode**: {'🌐 Always On (Deployment)' if IS_DEPLOYMENT else '🔧 Development Workspace'}"""
         else:
-            # Binance API error handling
-            error_reason = price_data.get('error', 'Unknown error') if price_data else 'CoinAPI completely unavailable'
-            message = f"""❌ **CoinAPI data tidak tersedia untuk {symbol}**
+            # API error handling
+            error_reason = price_data.get('error', 'Unknown error') if price_data else 'All price APIs unavailable'
+            message = f"""❌ **Data harga tidak tersedia untuk {symbol}**
 
 🌐 **Mode**: {'Deployment (Real-time Only)' if IS_DEPLOYMENT else 'Development'}
 ⚠️ **Error**: {error_reason}
 
 🔄 **Solusi**:
 • Coba beberapa saat lagi
-• CoinAPI sedang mengalami gangguan sementara
-• Pastikan COINAPI_KEY tersedia di Secrets
+• API sedang mengalami gangguan sementara
+• Pastikan CMC_API_KEY tersedia di Secrets
 
-💡 **Info**: Bot menggunakan CoinAPI untuk data real-time"""
+💡 **Info**: Bot menggunakan CoinMarketCap → CoinAPI → Binance (berurutan)"""
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
