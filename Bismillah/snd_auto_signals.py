@@ -34,22 +34,32 @@ class SnDAutoSignals:
         print(f"📈 Min confidence: {self.min_confidence}%")
 
     async def start_auto_scanner(self):
-        """Start the auto SnD scanner"""
-        if self.is_running:
-            print("⚠️ Auto scanner already running")
-            return
+        """Start the auto signal scanner"""
+        try:
+            if self.is_running:
+                print("[AUTO-SIGNAL SND] Scanner sudah berjalan")
+                return
 
-        self.is_running = True
-        print(f"🚀 Starting enhanced SnD auto scanner for {len(self.target_symbols)} altcoins...")
-        print(f"📊 Scan interval: {self.scan_interval} seconds ({self.scan_interval/60:.1f} minutes)")
+            self.is_running = True
+            print(f"[AUTO-SIGNAL SND] ✅ Scanner started - Interval: {self.scan_interval//60} minutes")
 
-        while self.is_running:
-            try:
-                await self.scan_and_send_signals()
-                await asyncio.sleep(self.scan_interval)
-            except Exception as e:
-                print(f"❌ Error in auto scanner: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes on error
+            while self.is_running:
+                try:
+                    print(f"[AUTO-SIGNAL SND] 🔄 Starting scan cycle...")
+                    await self.scan_and_send_signals()
+
+                    if self.is_running:  # Check if still running after scan
+                        print(f"[AUTO-SIGNAL SND] ⏰ Next scan in {self.scan_interval//60} minutes...")
+                        await asyncio.sleep(self.scan_interval)
+
+                except Exception as scan_error:
+                    print(f"[AUTO-SIGNAL SND] ❌ Scan error: {scan_error}")
+                    # Continue running even if one scan fails
+                    await asyncio.sleep(300)  # Wait 5 minutes before retry
+
+        except Exception as e:
+            print(f"[AUTO-SIGNAL SND] ❌ Scanner error: {e}")
+            self.is_running = False
 
     async def stop_auto_scanner(self):
         """Stop the auto SnD scanner"""
@@ -121,7 +131,7 @@ class SnDAutoSignals:
             #    base_confidence += 10
             #    reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
             #elif change_24h < -3:
-            #    direction = "SHORT" 
+            #    direction = "SHORT"
             #    base_confidence += 10
             #    reason = f"Strong bearish momentum ({change_24h:.1f}%)"
             # Secondary logic: Long/Short ratio (contrarian approach)
@@ -159,17 +169,17 @@ class SnDAutoSignals:
             #if direction == "LONG":
             #    entry_price = current_price * 0.997  # Better entry
             #    tp1 = current_price * 1.03   # 3% profit
-            #    tp2 = current_price * 1.055  # 5.5% profit  
+            #    tp2 = current_price * 1.055  # 5.5% profit
             #    sl = current_price * 0.97    # 3% loss
             #else:  # SHORT
-            #    entry_price = current_price * 1.003  # Better entry 
+            #    entry_price = current_price * 1.003  # Better entry
             #    tp1 = current_price * 0.97   # 3% profit
             #    tp2 = current_price * 0.945  # 5.5% profit
             #    sl = current_price * 1.03    # 3% loss
             current_price = 100 #Dummy price
             entry_price = current_price * 0.997  # Better entry
             tp1 = current_price * 1.03   # 3% profit
-            tp2 = current_price * 1.055  # 5.5% profit  
+            tp2 = current_price * 1.055  # 5.5% profit
             sl = current_price * 0.97    # 3% loss
 
             # Risk/Reward calculation
@@ -187,7 +197,7 @@ class SnDAutoSignals:
 
             return {
                 'symbol': symbol,
-                'direction': direction,  
+                'direction': direction,
                 'entry_price': round(entry_price, 6),
                 'tp1': round(tp1, 6),
                 'tp2': round(tp2, 6),
@@ -387,7 +397,7 @@ class SnDAutoSignals:
 
             # Generate signals
             signal = self._generate_snd_signal(
-                current_price, resistance_levels, support_levels, 
+                current_price, resistance_levels, support_levels,
                 volume_trend, highs, lows, closes
             )
 
@@ -458,17 +468,17 @@ class SnDAutoSignals:
         """Analyze volume trend relative to price"""
         try:
             if len(volumes) < 5: return 0
-            
+
             recent_volumes = volumes[-5:]
             avg_volume = sum(recent_volumes) / len(recent_volumes)
-            
+
             # Check for significant volume increase
             if recent_volumes[-1] > avg_volume * 1.5:
                 if closes[-1] > closes[-2]: # Price increased with volume
                     return 1 # Bullish volume
                 elif closes[-1] < closes[-2]: # Price decreased with volume
                     return -1 # Bearish volume
-            
+
             return 0 # Neutral volume
 
         except Exception as e:
@@ -503,7 +513,7 @@ class SnDAutoSignals:
             signal['trend'] = 'bullish'
         elif closes[-1] < closes[-5] and closes[-5] < closes[-10]:
             signal['trend'] = 'bearish'
-        
+
         # Determine market structure and generate signal
         is_in_support = any(current_price >= support <= current_price * 1.02 for support in support_levels)
         is_near_resistance = any(current_price >= resistance * 0.98 and current_price <= resistance for resistance in resistance_levels)
@@ -520,7 +530,7 @@ class SnDAutoSignals:
             signal['sl'] = support_levels[0] * 0.99 if support_levels else current_price * 0.97
             signal['tp1'] = signal['entry_price'] * 1.02 # 2% profit
             signal['tp2'] = signal['entry_price'] * 1.04 # 4% profit
-            
+
             risk = abs(signal['entry_price'] - signal['sl'])
             reward = abs(signal['tp2'] - signal['entry_price'])
             signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
@@ -568,7 +578,7 @@ class SnDAutoSignals:
 
         # Ensure confidence is within bounds
         signal['confidence'] = max(30, min(95, signal['confidence']))
-        
+
         # Adjust entry for slightly better price if not already set
         if is_in_support and signal['entry_price'] == current_price:
             signal['entry_price'] = current_price * 0.995

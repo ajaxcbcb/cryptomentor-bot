@@ -187,8 +187,8 @@ class TelegramBot:
                     print(f"[AUTO-SIGNAL SND] ⚡ Min confidence: {self.auto_signals.min_confidence}%")
                     print(f"[AUTO-SIGNAL SND] 🔄 Scan interval: {self.auto_signals.scan_interval // 60} minutes")
                     # Check if signal_cooldown attribute exists
-                cooldown_hours = getattr(self.auto_signals, 'signal_cooldown', 3600) // 3600
-                print(f"[AUTO-SIGNAL SND] 🛡️ Anti-spam: {cooldown_hours}h cooldown")
+                    cooldown_hours = getattr(self.auto_signals, 'signal_cooldown', 3600) // 3600
+                    print(f"[AUTO-SIGNAL SND] 🛡️ Anti-spam: {cooldown_hours}h cooldown")
                 else:
                     print("[AUTO-SIGNAL SND] ❌ Auto signals system failed to initialize")
             except Exception as e:
