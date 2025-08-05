@@ -32,4 +32,13 @@ def verify_coinglass_setup():
         return False
 
 if __name__ == "__main__":
-    verify_coinglass_setup()
+    success = verify_coinglass_setup()
+    if success:
+        print("🎉 Coinglass setup verification completed successfully!")
+    else:
+        print("❌ Coinglass setup verification failed. Please check your configuration.")
+        print("\n🔧 Troubleshooting steps:")
+        print("1. Verify COINGLASS_SECRET is set in Replit Secrets")
+        print("2. Check if your Coinglass API key is valid")
+        print("3. Ensure you have proper API rate limits")
+        print("4. Try restarting the Repl")fy_coinglass_setup()

@@ -10,15 +10,19 @@ class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinglass_key = os.getenv("COINGLASS_SECRET")
         self.cmc_provider = CoinMarketCapProvider()
 
         if not self.coinglass_key:
             print("⚠️ Coinglass API key not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+            print("💡 Please set COINGLASS_SECRET in Replit Secrets")
 
         self.coinglass_url = "https://open-api.coinglass.com/api/pro/v1"
         self.coinglass_base_url = "https://open-api.coinglass.com/public/v2" # Added for v2 endpoints
+        
+        # Initialize Binance URLs
+        self.binance_spot_url = "https://api.binance.com/api/v3"
+        self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
 
         self.cache = {} # Initialize cache for price data
         self.cache_duration = 30 # Enhanced cache duration (30 seconds for real-time)
@@ -1150,17 +1154,26 @@ class CryptoAPI:
                 }
 
             current_price = closes[-1]
+            max_volume = max(volumes) if volumes else 1  # Prevent division by zero
 
             # Enhanced resistance (supply) zones with order blocks
             resistance_zones = []
             for i in range(3, len(candlesticks) - 3):
                 candle = candlesticks[i]
+                # Get local highs safely
+                local_range_start = max(0, i-5)
+                local_range_end = min(len(highs), i+5)
+                local_highs = highs[local_range_start:local_range_end]
+                
+                if not local_highs:  # Skip if no data
+                    continue
+                    
                 # Look for bearish order blocks (large red candles at highs)
                 if (candle['open'] > candle['close'] and  # Red candle
                     candle['volume'] > sum(volumes[max(0, i-5):i+5]) / 10 and  # High volume
-                    candle['high'] >= max(highs[max(0, i-5):i+5])):  # Local high
+                    candle['high'] >= max(local_highs)):  # Local high
 
-                    zone_strength = (candle['volume'] / max(volumes)) * 100
+                    zone_strength = (candle['volume'] / max_volume) * 100
                     resistance_zones.append({
                         'price_high': candle['high'],
                         'price_low': candle['close'],
@@ -1174,12 +1187,20 @@ class CryptoAPI:
             support_zones = []
             for i in range(3, len(candlesticks) - 3):
                 candle = candlesticks[i]
+                # Get local lows safely
+                local_range_start = max(0, i-5)
+                local_range_end = min(len(lows), i+5)
+                local_lows = lows[local_range_start:local_range_end]
+                
+                if not local_lows:  # Skip if no data
+                    continue
+                    
                 # Look for bullish order blocks (large green candles at lows)
                 if (candle['close'] > candle['open'] and  # Green candle
                     candle['volume'] > sum(volumes[max(0, i-5):i+5]) / 10 and  # High volume
-                    candle['low'] <= min(lows[max(0, i-5):i+5])):  # Local low
+                    candle['low'] <= min(local_lows)):  # Local low
 
-                    zone_strength = (candle['volume'] / max(volumes)) * 100
+                    zone_strength = (candle['volume'] / max_volume) * 100
                     support_zones.append({
                         'price_high': candle['open'],
                         'price_low': candle['low'],
@@ -1517,6 +1538,70 @@ class CryptoAPI:
             {"title": "Regulatory Clarity Boosts Crypto Market Sentiment", "url": "#", "source": "mock"}
         ]
         return mock_news[:limit]
+
+    def test_coinglass_connectivity(self, test_symbol='BTC'):
+        """Test Coinglass API connectivity and return health status"""
+        health_status = {
+            'overall_health': False,
+            'working_endpoints': 0,
+            'total_endpoints': 4,
+            'endpoint_status': {}
+        }
+        
+        if not self.coinglass_key:
+            health_status['error'] = 'No Coinglass API key found'
+            return health_status
+        
+        # Test 1: Long/Short Ratio
+        try:
+            ls_result = self.get_coinglass_long_short_ratio(test_symbol)
+            if 'error' not in ls_result:
+                health_status['working_endpoints'] += 1
+                health_status['endpoint_status']['long_short'] = 'OK'
+            else:
+                health_status['endpoint_status']['long_short'] = f"Error: {ls_result['error']}"
+        except Exception as e:
+            health_status['endpoint_status']['long_short'] = f"Exception: {str(e)}"
+        
+        # Test 2: Open Interest
+        try:
+            oi_result = self.get_coinglass_open_interest(test_symbol)
+            if 'error' not in oi_result:
+                health_status['working_endpoints'] += 1
+                health_status['endpoint_status']['open_interest'] = 'OK'
+            else:
+                health_status['endpoint_status']['open_interest'] = f"Error: {oi_result['error']}"
+        except Exception as e:
+            health_status['endpoint_status']['open_interest'] = f"Exception: {str(e)}"
+        
+        # Test 3: Funding Rate
+        try:
+            fr_result = self.get_coinglass_funding_rate(test_symbol)
+            if 'error' not in fr_result:
+                health_status['working_endpoints'] += 1
+                health_status['endpoint_status']['funding_rate'] = 'OK'
+            else:
+                health_status['endpoint_status']['funding_rate'] = f"Error: {fr_result['error']}"
+        except Exception as e:
+            health_status['endpoint_status']['funding_rate'] = f"Exception: {str(e)}"
+        
+        # Test 4: Enhanced Ticker
+        try:
+            ticker_result = self._get_coinglass_enhanced_ticker(test_symbol)
+            if 'error' not in ticker_result:
+                health_status['working_endpoints'] += 1
+                health_status['endpoint_status']['ticker'] = 'OK'
+            else:
+                health_status['endpoint_status']['ticker'] = f"Error: {ticker_result['error']}"
+        except Exception as e:
+            health_status['endpoint_status']['ticker'] = f"Exception: {str(e)}"
+        
+        # Overall health check
+        if health_status['working_endpoints'] >= 2:  # At least 50% working
+            health_status['overall_health'] = True
+        
+        health_status['working_endpoints'] = f"{health_status['working_endpoints']}/{health_status['total_endpoints']}"
+        return health_status
 
     def _analyze_top_movers(self, prices_data):
         """Analyze top gainers and losers"""

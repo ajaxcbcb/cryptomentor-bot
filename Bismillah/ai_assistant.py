@@ -11,15 +11,15 @@ from crypto_api import CryptoAPI
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
         self.name = name
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinglass_key = os.getenv("COINGLASS_SECRET")
         self.coinglass_base_url = "https://open-api.coinglass.com/public/v2"
         
         # Initialize CryptoAPI for comprehensive data
         self.crypto_api = CryptoAPI()
 
         if not self.coinglass_key:
-            print("⚠️ COINGLASS_API_KEY not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+            print("⚠️ COINGLASS_SECRET not found in environment variables")
+            print("💡 Please set COINGLASS_SECRET in Replit Secrets")
 
     def greet(self):
         return f"Halo! Saya {self.name}, siap membantu analisis dan informasi crypto kamu."
@@ -420,6 +420,13 @@ class AIAssistant:
                 'position_size': '1% capital'
             }
 
+    def _get_coinglass_data_async(self, symbol, timeframe):
+        """Async wrapper for getting Coinglass data"""
+        try:
+            return self._get_advanced_coinglass_data(symbol)
+        except Exception as e:
+            return {'error': f'Async Coinglass data error: {str(e)}'}
+
     async def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
         """Get comprehensive futures analysis with all CoinGlass Startup Plan endpoints"""
         try:
@@ -555,7 +562,7 @@ class AIAssistant:
             
             # 4. Get liquidation map data
             try:
-                liq_url = f"{self.coinglass_url}/futures/liquidation_chart"
+                liq_url = f"{self.coinglass_base_url}/futures/liquidation_chart"
                 liq_params = {'symbol': clean_symbol, 'intervalType': 1}  # 24h
                 response = requests.get(liq_url, headers=headers, params=liq_params, timeout=15)
                 data_container['endpoints_called'] += 1

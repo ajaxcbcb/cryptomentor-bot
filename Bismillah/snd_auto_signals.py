@@ -396,6 +396,7 @@ class SnDAutoSignals:
             volume_trend = self._analyze_volume_trend(volumes, closes)
 
             # Generate signals
+            self.current_symbol = symbol # Set current symbol for _generate_snd_signal
             signal = self._generate_snd_signal(
                 current_price, resistance_levels, support_levels,
                 volume_trend, highs, lows, closes
