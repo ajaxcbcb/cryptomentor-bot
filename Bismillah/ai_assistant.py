@@ -1866,9 +1866,11 @@ This analysis is based on fundamental data from CoinMarketCap. Always combine wi
                 'confidence': 50
             }
 
-    def get_comprehensive_analysis(self, symbol):
-        """Get comprehensive analysis using CoinMarketCap API"""
+    def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, user_id=None):
+        """Get comprehensive analysis using CoinMarketCap API with Smart Money Concepts"""
         try:
+            import html
+            
             # Get CoinMarketCap API key from environment
             cmc_api_key = os.getenv("COINMARKETCAP_API_KEY")
             
@@ -1888,28 +1890,28 @@ CoinMarketCap API key tidak ditemukan di Secrets.
 3. Copy API key dari dashboard
 4. Paste ke Replit Secrets"""
 
-            # Setup API request
-            url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-            headers = {
+            # Setup CoinMarketCap API request
+            cmc_url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+            cmc_headers = {
                 'X-CMC_PRO_API_KEY': cmc_api_key,
                 'Accept': 'application/json'
             }
-            params = {
+            cmc_params = {
                 'symbol': symbol.upper()
             }
 
-            # Make API request
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
+            # Make CoinMarketCap API request
+            cmc_response = requests.get(cmc_url, headers=cmc_headers, params=cmc_params, timeout=15)
+            cmc_response.raise_for_status()
             
-            data = response.json()
+            cmc_data = cmc_response.json()
             
-            # Check if API call was successful
-            if data.get('status', {}).get('error_code') != 0:
-                error_msg = data.get('status', {}).get('error_message', 'Unknown error')
+            # Check if CoinMarketCap API call was successful
+            if cmc_data.get('status', {}).get('error_code') != 0:
+                error_msg = cmc_data.get('status', {}).get('error_message', 'Unknown error')
                 return f"""❌ **CoinMarketCap API Error**
 
-{error_msg}
+{html.escape(error_msg)}
 
 💡 **Kemungkinan penyebab:**
 • API key tidak valid
@@ -1919,13 +1921,13 @@ CoinMarketCap API key tidak ditemukan di Secrets.
 
 🔄 **Solusi:** Coba lagi dalam beberapa menit"""
 
-            # Extract cryptocurrency data
-            crypto_data = data.get('data', {}).get(symbol.upper(), {})
+            # Extract cryptocurrency data from CoinMarketCap
+            crypto_data = cmc_data.get('data', {}).get(symbol.upper(), {})
             
             if not crypto_data:
                 return f"""❌ **Cryptocurrency Tidak Ditemukan**
 
-Symbol "{symbol.upper()}" tidak ditemukan di CoinMarketCap.
+Symbol "{html.escape(symbol.upper())}" tidak ditemukan di CoinMarketCap.
 
 💡 **Tips:**
 • Pastikan symbol benar (contoh: BTC, ETH, BNB)
@@ -1934,13 +1936,16 @@ Symbol "{symbol.upper()}" tidak ditemukan di CoinMarketCap.
 
             quote_data = crypto_data.get('quote', {}).get('USD', {})
             
-            # Extract relevant data
+            # Extract relevant data from CoinMarketCap
             name = crypto_data.get('name', symbol.upper())
             current_price = quote_data.get('price', 0)
             market_cap = quote_data.get('market_cap', 0)
             volume_24h = quote_data.get('volume_24h', 0)
             percent_change_24h = quote_data.get('percent_change_24h', 0)
             cmc_rank = crypto_data.get('cmc_rank', 0)
+            
+            # Get Smart Money Concepts data from Coinglass
+            smc_analysis = self._get_smart_money_analysis(symbol)
             
             # Format numbers for readability
             def format_currency(amount):
@@ -1961,51 +1966,59 @@ Symbol "{symbol.upper()}" tidak ditemukan di CoinMarketCap.
                 else:
                     return f"${price:,.2f}"
 
-            # Generate trading recommendation
+            # Generate basic trading recommendation from price movement
             if percent_change_24h > 5:
-                recommendation = "BUY"
-                rec_emoji = "🟢"
-                rec_reason = f"Strong bullish momentum (+{percent_change_24h:.1f}%)"
+                basic_recommendation = "BUY"
+                basic_emoji = "🟢"
+                basic_reason = f"Strong bullish momentum (+{percent_change_24h:.1f}%)"
             elif percent_change_24h > 0:
-                recommendation = "HOLD"
-                rec_emoji = "🟡"
-                rec_reason = f"Slight upward movement (+{percent_change_24h:.1f}%)"
+                basic_recommendation = "HOLD"
+                basic_emoji = "🟡"
+                basic_reason = f"Slight upward movement (+{percent_change_24h:.1f}%)"
             elif percent_change_24h > -5:
-                recommendation = "HOLD"
-                rec_emoji = "🟡"
-                rec_reason = f"Minor correction ({percent_change_24h:.1f}%)"
+                basic_recommendation = "HOLD"
+                basic_emoji = "🟡"
+                basic_reason = f"Minor correction ({percent_change_24h:.1f}%)"
             else:
-                recommendation = "SELL"
-                rec_emoji = "🔴"
-                rec_reason = f"Strong bearish pressure ({percent_change_24h:.1f}%)"
+                basic_recommendation = "SELL"
+                basic_emoji = "🔴"
+                basic_reason = f"Strong bearish pressure ({percent_change_24h:.1f}%)"
 
+            # Combine basic recommendation with SMC analysis
+            final_recommendation = self._combine_recommendations(basic_recommendation, smc_analysis)
+            
             # Format final output
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             
-            analysis = f"""📊 **ANALISIS KOMPREHENSIF {name} ({symbol.upper()})**
+            analysis = f"""📊 **ANALISIS KOMPREHENSIF {html.escape(name)} ({html.escape(symbol.upper())})**
 
-💰 **DATA HARGA:**
+💰 **DATA FUNDAMENTAL (CoinMarketCap):**
 • Harga Sekarang: {format_price(current_price)}
 • Ranking CMC: #{cmc_rank}
 • Market Cap: {format_currency(market_cap)}
 • Volume 24 Jam: {format_currency(volume_24h)}
-
-📈 **PERFORMA:**
 • Perubahan 24 Jam: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
 
-🎯 **REKOMENDASI:** {rec_emoji} {recommendation}
-💡 **Alasan:** {rec_reason}
+🧠 **SMART MONEY CONCEPTS (Coinglass):**
+{smc_analysis.get('analysis_text', '• Data Smart Money sedang diproses...')}
+
+🎯 **REKOMENDASI GABUNGAN:** {final_recommendation['emoji']} {final_recommendation['action']}
+💡 **Alasan:** {html.escape(final_recommendation['reason'])}
+📊 **Confidence:** {final_recommendation['confidence']}%
 
 ⚠️ **RISK MANAGEMENT:**
 • Gunakan stop loss 3-5% untuk trading jangka pendek
 • Take profit bertahap di level resistance
 • Maksimal 2-3% dari total portfolio per trade
+• Monitor smart money flow untuk timing entry/exit
 • Selalu DYOR (Do Your Own Research)
 
-📡 **SOURCE:** CoinMarketCap Professional API
+📡 **DATA SOURCES:**
+• Fundamental: CoinMarketCap Professional API
+• Smart Money: Coinglass Real-time API
 ⏰ **Update:** {current_time}
 
-💎 **DISCLAIMER:** Analisis ini berdasarkan data fundamental. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
+💎 **DISCLAIMER:** Analisis ini menggabungkan data fundamental dan smart money flow. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
 
             return analysis
 
@@ -2014,7 +2027,7 @@ Symbol "{symbol.upper()}" tidak ditemukan di CoinMarketCap.
 
 Gagal mengambil data dari CoinMarketCap API.
 
-**Detail Error:** {str(e)[:100]}...
+**Detail Error:** {html.escape(str(e)[:100])}...
 
 🔄 **Solusi:**
 • Cek koneksi internet
@@ -2028,7 +2041,7 @@ Gagal mengambil data dari CoinMarketCap API.
 
 Terjadi kesalahan tak terduga saat memproses data.
 
-**Detail Error:** {str(e)[:100]}...
+**Detail Error:** {html.escape(str(e)[:100])}...
 
 🔄 **Solusi:**
 • Coba lagi dalam beberapa menit
@@ -2036,6 +2049,180 @@ Terjadi kesalahan tak terduga saat memproses data.
 • Contact admin jika masalah berlanjut
 
 💡 **Example:** `/analyze BTC` atau `/analyze ETH`"""
+
+    def _get_smart_money_analysis(self, symbol):
+        """Get Smart Money Concepts analysis using Coinglass data"""
+        try:
+            # Get long/short ratio data
+            long_short_data = self._get_coinglass_long_short_data(symbol, '1h')
+            
+            # Get open interest data
+            oi_data = self._get_coinglass_open_interest_data(symbol, '1h')
+            
+            # Get funding rate data (from OI data if available)
+            funding_rate = oi_data.get('funding_rate', 0) if 'error' not in oi_data else 0
+            
+            smc_signals = []
+            confidence_score = 50
+            smart_money_bias = "NEUTRAL"
+            
+            if 'error' not in long_short_data:
+                long_ratio = long_short_data.get('long_ratio', 50)
+                short_ratio = long_short_data.get('short_ratio', 50)
+                
+                # Smart Money Contrarian Analysis
+                if long_ratio > 75:
+                    smart_money_bias = "BEARISH"
+                    smc_signals.append(f"⚠️ Extreme Long Dominance ({long_ratio:.1f}%) - Smart money likely positioning short")
+                    confidence_score += 20
+                elif long_ratio < 25:
+                    smart_money_bias = "BULLISH"
+                    smc_signals.append(f"💎 Extreme Short Dominance ({100-long_ratio:.1f}%) - Smart money likely accumulating")
+                    confidence_score += 20
+                elif long_ratio > 65:
+                    smart_money_bias = "BEARISH"
+                    smc_signals.append(f"🔴 High Long Ratio ({long_ratio:.1f}%) - Potential distribution phase")
+                    confidence_score += 10
+                elif long_ratio < 35:
+                    smart_money_bias = "BULLISH"
+                    smc_signals.append(f"🟢 Low Long Ratio ({long_ratio:.1f}%) - Potential accumulation phase")
+                    confidence_score += 10
+                else:
+                    smc_signals.append(f"📊 Balanced Positioning ({long_ratio:.1f}%/{short_ratio:.1f}%)")
+            else:
+                smc_signals.append("⚠️ Long/Short data tidak tersedia")
+            
+            if 'error' not in oi_data:
+                oi_change = oi_data.get('oi_change_percent', 0)
+                
+                if oi_change > 10:
+                    smc_signals.append(f"📈 Strong OI Increase ({oi_change:+.1f}%) - Institutional accumulation")
+                    confidence_score += 15
+                elif oi_change < -10:
+                    smc_signals.append(f"📉 Strong OI Decrease ({oi_change:+.1f}%) - Position unwinding")
+                    confidence_score -= 10
+                elif abs(oi_change) > 5:
+                    smc_signals.append(f"📊 Moderate OI Change ({oi_change:+.1f}%)")
+                    confidence_score += 5
+            else:
+                smc_signals.append("⚠️ Open Interest data tidak tersedia")
+            
+            # Funding Rate Analysis
+            if funding_rate > 0.01:  # > 1%
+                smc_signals.append(f"💸 High Funding Rate ({funding_rate*100:.3f}%) - Longs overpaying, bearish signal")
+                if smart_money_bias != "BEARISH":
+                    smart_money_bias = "BEARISH"
+                confidence_score += 15
+            elif funding_rate < -0.005:  # < -0.5%
+                smc_signals.append(f"💰 Negative Funding ({funding_rate*100:.3f}%) - Shorts paying, bullish signal")
+                if smart_money_bias != "BULLISH":
+                    smart_money_bias = "BULLISH"
+                confidence_score += 10
+            elif abs(funding_rate) > 0.003:
+                smc_signals.append(f"⚖️ Moderate Funding ({funding_rate*100:.3f}%)")
+            
+            # Format analysis text
+            analysis_text = f"• Smart Money Bias: {smart_money_bias}\n"
+            for signal in smc_signals[:4]:  # Limit to top 4 signals
+                analysis_text += f"• {signal}\n"
+            
+            confidence_score = min(95, max(30, confidence_score))
+            
+            return {
+                'smart_money_bias': smart_money_bias,
+                'confidence': confidence_score,
+                'signals': smc_signals,
+                'analysis_text': analysis_text,
+                'long_short_data': long_short_data,
+                'oi_data': oi_data,
+                'funding_rate': funding_rate
+            }
+            
+        except Exception as e:
+            return {
+                'smart_money_bias': 'NEUTRAL',
+                'confidence': 40,
+                'signals': [f'⚠️ Error dalam Smart Money analysis: {str(e)[:50]}...'],
+                'analysis_text': '• Smart Money analysis error - menggunakan analisis fundamental saja',
+                'error': str(e)
+            }
+
+    def _combine_recommendations(self, basic_recommendation, smc_analysis):
+        """Combine basic price analysis with Smart Money Concepts"""
+        try:
+            smc_bias = smc_analysis.get('smart_money_bias', 'NEUTRAL')
+            smc_confidence = smc_analysis.get('confidence', 50)
+            
+            # Weight the recommendations
+            if smc_bias == basic_recommendation:
+                # Both analyses agree
+                final_action = basic_recommendation
+                final_confidence = min(95, (smc_confidence + 70) // 2)
+                final_reason = f"Fundamental dan Smart Money analysis sinkron mendukung {basic_recommendation}"
+                
+                if basic_recommendation == "BUY":
+                    final_emoji = "🟢"
+                elif basic_recommendation == "SELL":
+                    final_emoji = "🔴"
+                else:
+                    final_emoji = "🟡"
+                    
+            elif smc_bias == "NEUTRAL":
+                # SMC neutral, use basic recommendation
+                final_action = basic_recommendation
+                final_confidence = max(40, smc_confidence - 10)
+                final_reason = f"Smart Money netral, ikuti momentum harga ({basic_recommendation})"
+                
+                if basic_recommendation == "BUY":
+                    final_emoji = "🟡"
+                elif basic_recommendation == "SELL":
+                    final_emoji = "🟡"
+                else:
+                    final_emoji = "🟡"
+                    
+            elif (smc_bias == "BULLISH" and basic_recommendation == "SELL") or \
+                 (smc_bias == "BEARISH" and basic_recommendation == "BUY"):
+                # Conflicting signals - be cautious
+                final_action = "HOLD"
+                final_confidence = max(30, min(smc_confidence, 60))
+                final_reason = f"Konflik sinyal: Smart Money {smc_bias.lower()} vs Harga {basic_recommendation.lower()}"
+                final_emoji = "⚠️"
+                
+            else:
+                # SMC overrides if confidence is high
+                if smc_confidence > 70:
+                    if smc_bias == "BULLISH":
+                        final_action = "BUY"
+                        final_emoji = "🟢"
+                    elif smc_bias == "BEARISH":
+                        final_action = "SELL"
+                        final_emoji = "🔴"
+                    else:
+                        final_action = "HOLD"
+                        final_emoji = "🟡"
+                    
+                    final_confidence = smc_confidence
+                    final_reason = f"Smart Money dominan: {smc_bias.lower()} signal kuat"
+                else:
+                    final_action = "HOLD"
+                    final_confidence = 50
+                    final_reason = "Sinyal mixed dengan confidence rendah"
+                    final_emoji = "🟡"
+            
+            return {
+                'action': final_action,
+                'confidence': final_confidence,
+                'reason': final_reason,
+                'emoji': final_emoji
+            }
+            
+        except Exception as e:
+            return {
+                'action': basic_recommendation,
+                'confidence': 40,
+                'reason': f"Error kombinasi analisis: {str(e)[:50]}...",
+                'emoji': "⚠️"
+            }
 
     def _generate_emergency_analysis(self, symbol, language, error_message):
         """Generate fallback analysis in case of errors"""
