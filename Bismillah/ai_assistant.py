@@ -65,53 +65,10 @@ class AIAssistant:
         }
 
     def _get_coinglass_price(self, symbol):
-        """Get price data from Coinglass using longShortChart endpoint"""
-        try:
-            if not self.coinglass_key:
-                return {'error': 'Coinglass API key not found'}
-
-            # Clean symbol (remove USDT if present)
-            clean_symbol = symbol.upper().replace('USDT', '')
-
-            url = f"{self.coinglass_base_url}/futures/longShortChart"
-            headers = self._get_coinglass_headers()
-
-            params = {
-                'symbol': clean_symbol,
-                'intervalType': 2  # 1 hour interval
-            }
-
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-
-            data = response.json()
-
-            if data.get('success'):
-                result_data = data.get('data', {})
-                if result_data and len(result_data) > 0:
-                    latest = result_data[-1]  # Get latest data point
-
-                    # Extract price from the data
-                    price = latest.get('price', 0)
-                    if price <= 0:
-                        # Try alternative price fields
-                        price = latest.get('close', 0)
-
-                    if price > 0:
-                        return {
-                            'symbol': clean_symbol,
-                            'price': float(price),
-                            'timestamp': latest.get('time', ''),
-                            'source': 'coinglass',
-                            'raw_data': latest
-                        }
-
-                return {'error': 'No price data available from Coinglass'}
-            else:
-                return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
-
-        except Exception as e:
-            return {'error': f"Coinglass price error: {str(e)}"}
+        """Get price data for Coinglass analysis - removed CoinAPI dependency"""
+        # This method is no longer needed as we get price from comprehensive_futures_data
+        # Return empty to maintain compatibility
+        return {'error': 'Use comprehensive_futures_data instead'}
 
     def _get_coinglass_long_short_data(self, symbol, timeframe='1h'):
         """Get long/short ratio data from Coinglass v2 API"""
@@ -370,27 +327,26 @@ class AIAssistant:
             }
 
     async def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate enhanced futures analysis using Coinglass data"""
+        """Get futures analysis with Coinglass v2 integration"""
         try:
-            print(f"🎯 Generating enhanced futures analysis for {symbol} {timeframe}")
+            if not crypto_api:
+                return self._generate_emergency_futures_signal(symbol, timeframe, language, "CryptoAPI not available")
 
-            # Get data concurrently
-            tasks = [
-                asyncio.to_thread(self._get_coinglass_price, symbol),
-                self._get_coinglass_data_async(symbol, timeframe)
-            ]
+            print(f"🎯 Starting futures analysis for {symbol} {timeframe} with Coinglass v2")
 
-            price_data, coinglass_data = await asyncio.gather(*tasks, return_exceptions=True)
+            # Get comprehensive futures data from Coinglass v2
+            futures_data = await asyncio.to_thread(
+                crypto_api.get_comprehensive_futures_data, symbol
+            )
 
-            # Handle exceptions
-            if isinstance(price_data, Exception):
-                price_data = {'error': str(price_data)}
-            if isinstance(coinglass_data, Exception):
-                coinglass_data = {'error': str(coinglass_data)}
+            if 'error' in futures_data:
+                return self._generate_emergency_futures_signal(
+                    symbol, timeframe, language, futures_data['error']
+                )
 
-            # Analyze and format
-            analysis = await self._generate_futures_analysis(
-                symbol, timeframe, price_data, coinglass_data, language
+            # Format analysis with Coinglass v2 data
+            analysis = self._format_coinglass_v2_analysis(
+                symbol, timeframe, futures_data, language
             )
 
             return analysis
@@ -596,54 +552,404 @@ class AIAssistant:
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
 
     async def generate_futures_signals(self, language='id', crypto_api=None):
-        """Generate futures signals using Coinglass data for multiple coins"""
+        """Generate comprehensive futures signals using Coinglass v2 data"""
         try:
-            print(f"🎯 Generating futures signals for top coins")
+            if not crypto_api:
+                return "❌ CryptoAPI tidak tersedia untuk generate futures signals."
 
-            target_symbols = self._get_top_coins_for_signals(crypto_api)
+            print("🔄 Generating futures signals with Coinglass v2 integration...")
 
-            # Get price data for all symbols concurrently from Coinglass
-            price_tasks = [
-                asyncio.to_thread(self._get_coinglass_price, symbol) for symbol in target_symbols
-            ]
-            price_results = await asyncio.gather(*price_tasks, return_exceptions=True)
+            # Target symbols for analysis
+            target_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'AVAX', 'MATIC', 'DOT', 'ATOM', 'LINK']
 
-            # Get Coinglass data for high-quality symbols
-            valid_symbols = []
-            price_data = {}
-
-            for i, result in enumerate(price_results):
-                symbol = target_symbols[i]
-                if isinstance(result, dict) and 'error' not in result:
-                    valid_symbols.append(symbol)
-                    price_data[symbol] = result
-                else:
-                    print(f"⚠️ Price data failed for {symbol}: {result}")
-
-            # Generate signals for valid symbols
+            # Get comprehensive futures data for each symbol
             signal_recommendations = []
 
-            for symbol in valid_symbols[:10]:  # Limit to top 10 for performance
+            for symbol in target_symbols[:8]:  # Limit to top 8 for performance
                 try:
-                    coinglass_data = await self._get_coinglass_data_async(symbol, '1h')
+                    print(f"🔍 Analyzing {symbol}...")
 
-                    if 'error' not in coinglass_data:
-                        signal = await self._analyze_futures_signal(
-                            symbol, price_data[symbol], coinglass_data
-                        )
+                    # Get comprehensive Coinglass v2 data
+                    futures_data = await asyncio.to_thread(
+                        crypto_api.get_comprehensive_futures_data, symbol
+                    )
 
-                        if signal and signal.get('confidence', 0) >= 70:
-                            signal_recommendations.append(signal)
+                    if 'error' not in futures_data:
+                        recommendation = futures_data.get('trading_recommendation', {})
+
+                        # Only include high-confidence signals
+                        if recommendation and recommendation.get('confidence', 0) >= 65:
+                            price_data = futures_data.get('price_data', {})
+                            current_price = price_data.get('price', 0)
+
+                            # Format price
+                            if current_price < 1:
+                                price_str = f"${current_price:.8f}"
+                            elif current_price < 100:
+                                price_str = f"${current_price:.6f}"
+                            else:
+                                price_str = f"${current_price:,.4f}"
+
+                            signal_recommendations.append({
+                                'symbol': symbol,
+                                'direction': recommendation.get('direction', 'HOLD'),
+                                'entry_price': recommendation.get('entry_price', current_price),
+                                'stop_loss': recommendation.get('stop_loss', current_price),
+                                'take_profit_1': recommendation.get('take_profit_1', current_price),
+                                'confidence': recommendation.get('confidence', 50),
+                                'risk_reward': recommendation.get('risk_reward_ratio', 1.0),
+                                'current_price': current_price,
+                                'price_str': price_str,
+                                'sentiment': recommendation.get('analysis', {}).get('sentiment', 'Neutral'),
+                                'long_ratio': futures_data.get('long_short_data', {}).get('long_ratio', 50),
+                                'funding_rate': futures_data.get('funding_rate_data', {}).get('funding_rate', 0)
+                            })
 
                 except Exception as e:
-                    print(f"❌ Error processing signal for {symbol}: {e}")
+                    print(f"⚠️ Error analyzing {symbol}: {e}")
                     continue
 
-            return await self._format_futures_signals_output(signal_recommendations, language)
+            # Sort by confidence
+            signal_recommendations.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+
+            if not signal_recommendations:
+                return self._generate_no_signals_message(language)
+
+            # Format output with Coinglass v2 data
+            return self._format_coinglass_v2_signals_output(signal_recommendations, language)
 
         except Exception as e:
-            print(f"❌ Error in generate_futures_signals: {e}")
-            return "❌ Error generating futures signals. Please try again later."
+            print(f"❌ Error generating futures signals: {e}")
+            return f"❌ Error dalam generate futures signals: {str(e)}"
+
+    def _format_coinglass_v2_signals_output(self, signals, language='id'):
+        """Format Coinglass v2 signals output"""
+        try:
+            if language == 'id':
+                header = f"""🚀 **SINYAL FUTURES COINGLASS v2**
+
+📊 **{len(signals)} Sinyal Berkualitas Tinggi** (Confidence ≥65%)
+🕐 **Waktu**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Source**: Coinglass API v2 Real-time
+
+"""
+            else:
+                header = f"""🚀 **COINGLASS v2 FUTURES SIGNALS**
+
+📊 **{len(signals)} High-Quality Signals** (Confidence ≥65%)
+🕐 **Time**: {datetime.now().strftime('%H:%M:%S UTC')}
+📡 **Source**: Coinglass API v2 Real-time
+
+"""
+
+            signals_text = ""
+
+            for i, signal in enumerate(signals[:6], 1):  # Top 6 signals
+                symbol = signal['symbol']
+                direction = signal['direction']
+                entry = signal['entry_price']
+                sl = signal['stop_loss']
+                tp1 = signal['take_profit_1']
+                confidence = signal['confidence']
+                rr = signal['risk_reward']
+                sentiment = signal['sentiment']
+                long_ratio = signal['long_ratio']
+                funding = signal['funding_rate']
+
+                # Format prices
+                def format_price(price):
+                    if price < 1:
+                        return f"${price:.8f}"
+                    elif price < 100:
+                        return f"${price:.6f}"
+                    else:
+                        return f"${price:,.4f}"
+
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "⚪"
+
+                if language == 'id':
+                    signals_text += f"""**{i}. {symbol} {direction}** {direction_emoji}
+• **Entry**: {format_price(entry)}
+• **Stop Loss**: {format_price(sl)}
+• **Take Profit**: {format_price(tp1)}
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward**: {rr:.2f}:1
+• **Long/Short**: {long_ratio:.1f}%/{100-long_ratio:.1f}%
+• **Funding**: {funding:.4f}%
+• **Sentiment**: {sentiment}
+
+"""
+                else:
+                    signals_text += f"""**{i}. {symbol} {direction}** {direction_emoji}
+• **Entry**: {format_price(entry)}
+• **Stop Loss**: {format_price(sl)}
+• **Take Profit**: {format_price(tp1)}
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward**: {rr:.2f}:1
+• **Long/Short**: {long_ratio:.1f}%/{100-long_ratio:.1f}%
+• **Funding**: {funding:.4f}%
+• **Sentiment**: {sentiment}
+
+"""
+
+            if language == 'id':
+                footer = """⚠️ **RISK MANAGEMENT**
+• Position size: 1-3% dari total capital
+• Selalu set stop loss sebelum entry
+• Take profit bertahap untuk maksimalkan keuntungan
+• Monitor funding rate untuk biaya trading
+
+🎯 **CARA TRADING**
+1. Tunggu konfirmasi price action di level entry
+2. Set stop loss sesuai rekomendasi
+3. Take profit 50% di TP1, hold sisanya untuk TP2
+4. Monitor sentiment change untuk early exit
+
+💡 **Data Coinglass v2**: Long/Short ratio, Open Interest, Funding Rate
+🔄 **Update**: Gunakan `/futures_signals` untuk update terbaru"""
+            else:
+                footer = """⚠️ **RISK MANAGEMENT**
+• Position size: 1-3% of total capital
+• Always set stop loss before entry
+• Take profit gradually to maximize returns
+• Monitor funding rate for trading costs
+
+🎯 **HOW TO TRADE**
+1. Wait for price action confirmation at entry level
+2. Set stop loss as recommended
+3. Take profit 50% at TP1, hold rest for TP2
+4. Monitor sentiment change for early exit
+
+💡 **Coinglass v2 Data**: Long/Short ratio, Open Interest, Funding Rate
+🔄 **Update**: Use `/futures_signals` for latest signals"""
+
+            return header + signals_text + footer
+
+        except Exception as e:
+            print(f"❌ Error formatting Coinglass v2 signals: {e}")
+            return "❌ Error dalam format sinyal futures."
+
+    def _get_top_5_coins_by_market_cap(self, crypto_api=None):
+        """Get top 5 coins by market cap for futures analysis"""
+        try:
+            # Try to get from CoinMarketCap if available
+            if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider:
+                try:
+                    top_coins = crypto_api.cmc_provider.get_top_cryptocurrencies(limit=5)
+                    if 'error' not in top_coins and top_coins.get('data'):
+                        return [coin['symbol'] for coin in top_coins['data']]
+                except Exception as e:
+                    print(f"⚠️ CMC top coins error: {e}")
+
+            # Fallback to hardcoded top coins
+            return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
+        except Exception as e:
+            print(f"❌ Error getting top coins: {e}")
+            return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
+
+    def _get_estimated_price(self, symbol):
+        """Get estimated price from Coinglass or fallback to dummy price"""
+        try:
+            # Try to get real price from Coinglass longShortChart endpoint
+            long_short_data = self._get_coinglass_long_short_data(symbol, '1h')
+            if 'error' not in long_short_data and long_short_data.get('raw_data'):
+                raw_data = long_short_data['raw_data']
+                if 'price' in raw_data:
+                    return float(raw_data['price'])
+                elif 'close' in raw_data:
+                    return float(raw_data['close'])
+
+            # Fallback to dummy price for testing
+            return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
+        except Exception as e:
+            print(f"⚠️ Price estimation error for {symbol}: {e}")
+            return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
+
+    def _get_coinglass_historical_simulation(self, symbol):
+        """Simulate historical data based on current Coinglass price"""
+        try:
+            # Get current price from Coinglass
+            price_data = self._get_coinglass_price(symbol)
+            if 'error' in price_data:
+                return {'error': 'Cannot get base price for historical simulation'}
+
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return {'error': 'Invalid base price for simulation'}
+
+            # Generate 50 simulated historical data points
+            historical_data = []
+            base_price = current_price
+
+            for i in range(50):
+                # Simulate price variation ±2%
+                variation = random.uniform(-0.02, 0.02)
+                simulated_price = base_price * (1 + variation)
+
+                historical_data.append({
+                    'price_close': simulated_price,
+                    'price_open': simulated_price * (1 + random.uniform(-0.005, 0.005)),
+                    'price_high': simulated_price * (1 + abs(random.uniform(0, 0.01))),
+                    'price_low': simulated_price * (1 - abs(random.uniform(0, 0.01))),
+                    'volume_traded': random.uniform(1000000, 10000000),
+                    'timestamp': f"2024-{random.randint(1,12):02d}-{random.randint(1,28):02d}T{random.randint(0,23):02d}:00:00Z"
+                })
+
+                # Slight trend for next iteration
+                base_price = simulated_price
+
+            return {
+                'symbol': symbol,
+                'data': historical_data,
+                'count': len(historical_data),
+                'source': 'coinglass_simulation',
+                'base_price': current_price
+            }
+
+        except Exception as e:
+            return {'error': f'Historical simulation error: {str(e)}'}
+
+    def _format_coinglass_v2_analysis(self, symbol, timeframe, futures_data, language='id'):
+        """Format Coinglass v2 futures analysis output"""
+        try:
+            price_data = futures_data.get('price_data', {})
+            long_short_data = futures_data.get('long_short_data', {})
+            oi_data = futures_data.get('open_interest_data', {})
+            funding_data = futures_data.get('funding_rate_data', {})
+            recommendation = futures_data.get('trading_recommendation', {})
+            smc_analysis = futures_data.get('smc_analysis', {})
+            sentiment_analysis = futures_data.get('sentiment_analysis', {})
+
+            # Format price
+            current_price = price_data.get('price', 0)
+            if current_price < 1:
+                price_str = f"${current_price:.8f}"
+            elif current_price < 100:
+                price_str = f"${current_price:.6f}"
+            else:
+                price_str = f"${current_price:,.4f}"
+
+            # Direction emoji
+            direction = recommendation.get('direction', 'HOLD')
+            if direction == 'LONG':
+                direction_emoji = "🟢"
+                signal_emoji = "📈"
+            elif direction == 'SHORT':
+                direction_emoji = "🔴"
+                signal_emoji = "📉"
+            else:
+                direction_emoji = "⚪"
+                signal_emoji = "📊"
+
+            confidence = recommendation.get('confidence', 50)
+            risk_reward = recommendation.get('risk_reward_ratio', 1.0)
+            long_ratio = long_short_data.get('long_ratio', 50)
+            funding_rate = funding_data.get('funding_rate', 0) * 100
+            sentiment = sentiment_analysis.get('overall', 'Neutral')
+
+            if language == 'id':
+                message = f"""🎯 **ANALISIS FUTURES COINGLASS v2 - {symbol.upper()} ({timeframe})**
+
+💰 **HARGA SAAT INI**: {price_str} (Sumber: Coinglass)
+
+{direction_emoji} **REKOMENDASI: {direction}** {signal_emoji}
+📊 **CONFIDENCE**: {confidence:.0f}%
+🧠 **SENTIMEN**: {sentiment}
+
+💰 **DETAIL TRADING:**"""
+
+                if direction != 'HOLD':
+                    message += f"""
+┣━ 📍 **ENTRY**: {format_price(recommendation.get('entry_price', current_price))}
+┣━ 🎯 **TP 1**: {format_price(recommendation.get('take_profit_1', current_price))}
+┣━ 🎯 **TP 2**: {format_price(recommendation.get('take_profit_2', current_price))}
+┗━ 🛡️ **STOP LOSS**: {format_price(recommendation.get('stop_loss', current_price))} (**WAJIB!**)"""
+                else:
+                    message += f"""
+┣━ ⏸️ **HOLD POSITION** - Tunggu sinyal yang lebih jelas
+┣━ 📊 **MONITOR LEVEL**: {format_price(current_price * 0.98)} - {format_price(current_price * 1.02)}"""
+
+                message += f"""
+
+📊 **DATA COINGLASS v2:**
+• **Long/Short Ratio**: {long_ratio:.1f}% ({'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'})
+• **Open Interest Change**: {oi_data.get('oi_change_percent', 0):+.2f}%
+• **Funding Rate**: {funding_rate:.4f}% ({'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'})
+
+🧠 **ANALISIS SMC:**
+• **Bias**: {smc_analysis.get('smart_money_bias', 'Neutral').title()}
+• **Market Structure**: {smc_analysis.get('market_structure', 'Neutral').title()}"""
+
+                liquidity_zones = smc_analysis.get('liquidity_zones', [])
+                if liquidity_zones:
+                    message += f"\n• **Liquidity Zones**:"
+                    for zone in liquidity_zones[:2]:
+                        message += f"\n  - {zone.get('type', 'N/A').title()}: {format_price(zone.get('price', 0))} ({zone.get('strength', 'medium').title()})"
+
+                message += f"""
+
+⚡ **DETAIL TRADING:**
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward Ratio**: {risk_reward:.2f}:1
+• **Position Size**: {'2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'} Modal
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔄 **Next Update**: Auto-refreshing"""
+
+            else: # English
+                message = f"""🎯 **COINGLASS v2 FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
+
+💰 **CURRENT PRICE**: {price_str} (Source: Coinglass)
+
+{direction_emoji} **RECOMMENDATION: {direction}** {signal_emoji}
+📊 **CONFIDENCE**: {confidence:.0f}%
+🧠 **SENTIMENT**: {sentiment}
+
+💰 **TRADING DETAILS:**"""
+
+                if direction != 'HOLD':
+                    message += f"""
+┣━ 📍 **ENTRY**: {format_price(recommendation.get('entry_price', current_price))}
+┣━ 🎯 **TP 1**: {format_price(recommendation.get('take_profit_1', current_price))}
+┣━ 🎯 **TP 2**: {format_price(recommendation.get('take_profit_2', current_price))}
+┗━ 🛡️ **STOP LOSS**: {format_price(recommendation.get('stop_loss', current_price))} (**MANDATORY!**)"""
+                else:
+                    message += f"""
+┣━ ⏸️ **HOLD POSITION** - Wait for clearer signals
+┣━ 📊 **MONITOR LEVELS**: {format_price(current_price * 0.98)} - {format_price(current_price * 1.02)}"""
+
+                message += f"""
+
+📊 **COINGLASS v2 DATA:**
+• **Long/Short Ratio**: {long_ratio:.1f}% ({'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'})
+• **Open Interest Change**: {oi_data.get('oi_change_percent', 0):+.2f}%
+• **Funding Rate**: {funding_rate:.4f}% ({'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'})
+
+🧠 **SMC ANALYSIS:**
+• **Bias**: {smc_analysis.get('smart_money_bias', 'Neutral').title()}
+• **Market Structure**: {smc_analysis.get('market_structure', 'Neutral').title()}"""
+
+                liquidity_zones = smc_analysis.get('liquidity_zones', [])
+                if liquidity_zones:
+                    message += f"\n• **Liquidity Zones**: "
+                    for zone in liquidity_zones[:2]:
+                        message += f"\n  - {zone.get('type', 'N/A').title()}: {format_price(zone.get('price', 0))} ({zone.get('strength', 'medium').title()})"
+
+                message += f"""
+
+⚡ **TRADING DETAILS:**
+• **Confidence**: {confidence:.0f}%
+• **Risk/Reward Ratio**: {risk_reward:.2f}:1
+• **Position Size**: {'2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'} Capital
+
+⏰ **Update**: {datetime.now().strftime('%H:%M:%S UTC')}
+🔄 **Next Update**: Auto-refreshing"""
+
+            return message
+
+        except Exception as e:
+            print(f"❌ Error formatting Coinglass v2 analysis: {e}")
+            return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
 
     def get_ai_response(self, text, language='id'):
         """Enhanced AI response for crypto beginners and general questions"""
@@ -739,421 +1045,9 @@ I'm here to help you learn about cryptocurrency!
 
 Ask me anything about crypto! 🚀"""
 
-    def _get_top_5_coins_by_market_cap(self, crypto_api=None):
-        """Get top 5 coins by market cap for futures analysis"""
-        try:
-            # Try to get from CoinMarketCap if available
-            if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider:
-                try:
-                    top_coins = crypto_api.cmc_provider.get_top_cryptocurrencies(limit=5)
-                    if 'error' not in top_coins and top_coins.get('data'):
-                        return [coin['symbol'] for coin in top_coins['data']]
-                except Exception as e:
-                    print(f"⚠️ CMC top coins error: {e}")
-
-            # Fallback to hardcoded top coins
-            return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
-        except Exception as e:
-            print(f"❌ Error getting top coins: {e}")
-            return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
-
-    def _get_estimated_price(self, symbol):
-        """Get estimated price from Coinglass or fallback to dummy price"""
-        try:
-            # Try to get real price from Coinglass longShortChart endpoint
-            long_short_data = self._get_coinglass_long_short_data(symbol, '1h')
-            if 'error' not in long_short_data and long_short_data.get('raw_data'):
-                raw_data = long_short_data['raw_data']
-                if 'price' in raw_data:
-                    return float(raw_data['price'])
-                elif 'close' in raw_data:
-                    return float(raw_data['close'])
-
-            # Fallback to dummy price for testing
-            return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
-        except Exception as e:
-            print(f"⚠️ Price estimation error for {symbol}: {e}")
-            return random.uniform(20000, 40000) if symbol == 'BTC' else random.uniform(1000, 3000)
-
-    def _get_coinglass_historical_simulation(self, symbol):
-        """Simulate historical data based on current Coinglass price"""
-        try:
-            # Get current price from Coinglass
-            price_data = self._get_coinglass_price(symbol)
-            if 'error' in price_data:
-                return {'error': 'Cannot get base price for historical simulation'}
-
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                return {'error': 'Invalid base price for simulation'}
-
-            # Generate 50 simulated historical data points
-            historical_data = []
-            base_price = current_price
-
-            for i in range(50):
-                # Simulate price variation ±2%
-                variation = random.uniform(-0.02, 0.02)
-                simulated_price = base_price * (1 + variation)
-
-                historical_data.append({
-                    'price_close': simulated_price,
-                    'price_open': simulated_price * (1 + random.uniform(-0.005, 0.005)),
-                    'price_high': simulated_price * (1 + abs(random.uniform(0, 0.01))),
-                    'price_low': simulated_price * (1 - abs(random.uniform(0, 0.01))),
-                    'volume_traded': random.uniform(1000000, 10000000),
-                    'timestamp': f"2024-{random.randint(1,12):02d}-{random.randint(1,28):02d}T{random.randint(0,23):02d}:00:00Z"
-                })
-
-                # Slight trend for next iteration
-                base_price = simulated_price
-
-            return {
-                'symbol': symbol,
-                'data': historical_data,
-                'count': len(historical_data),
-                'source': 'coinglass_simulation',
-                'base_price': current_price
-            }
-
-        except Exception as e:
-            return {'error': f'Historical simulation error: {str(e)}'}
-
-    async def get_comprehensive_analysis(self, symbol, price_data, additional_data, language='id', crypto_api=None):
-        """Generate comprehensive cryptocurrency analysis with CoinMarketCap integration"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-
-            # Get comprehensive data from CoinMarketCap
-            if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider.api_key:
-                cmc_data = crypto_api.cmc_provider.get_comprehensive_data(symbol)
-
-                if 'error' not in cmc_data:
-                    price = cmc_data.get('price', 0)
-                    market_cap = cmc_data.get('market_cap', 0)
-                    volume_24h = cmc_data.get('volume_24h', 0)
-                    percent_change_24h = cmc_data.get('percent_change_24h', 0)
-                    percent_change_7d = cmc_data.get('percent_change_7d', 0)
-                    percent_change_30d = cmc_data.get('percent_change_30d', 0)
-                    cmc_rank = cmc_data.get('cmc_rank', 0)
-                    circulating_supply = cmc_data.get('circulating_supply', 0)
-                    total_supply = cmc_data.get('total_supply', 0)
-                    max_supply = cmc_data.get('max_supply', 0)
-
-                    # Format price display
-                    if price < 1:
-                        price_display = f"${price:.8f}"
-                    elif price < 100:
-                        price_display = f"${price:.6f}"
-                    else:
-                        price_display = f"${price:,.4f}"
-
-                    # Format market cap
-                    if market_cap > 1000000000:
-                        mc_display = f"${market_cap/1000000000:.2f}B"
-                    elif market_cap > 1000000:
-                        mc_display = f"${market_cap/1000000:.1f}M"
-                    else:
-                        mc_display = f"${market_cap:,.0f}"
-
-                    # Format volume
-                    if volume_24h > 1000000000:
-                        vol_display = f"${volume_24h/1000000000:.2f}B"
-                    elif volume_24h > 1000000:
-                        vol_display = f"${volume_24h/1000000:.1f}M"
-                    else:
-                        vol_display = f"${volume_24h:,.0f}"
-
-                    # Format supply
-                    def format_supply(supply):
-                        if supply > 1000000000:
-                            return f"{supply/1000000000:.2f}B"
-                        elif supply > 1000000:
-                            return f"{supply/1000000:.1f}M"
-                        else:
-                            return f"{supply:,.0f}"
-
-                    # Get description if available
-                    description = cmc_data.get('description', '')
-                    if description and len(description) > 200:
-                        description = description[:200] + "..."
-
-                    # Change indicators
-                    change_24h_emoji = "📈" if percent_change_24h >= 0 else "📉"
-                    change_7d_emoji = "📈" if percent_change_7d >= 0 else "📉"
-                    change_30d_emoji = "📈" if percent_change_30d >= 0 else "📉"
-
-                    if language == 'id':
-                        analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol.upper()} (CoinMarketCap)**
-
-💰 **Data Fundamental (CMC Rank #{cmc_rank}):**
-• **Harga Saat Ini**: {price_display}
-• **Market Cap**: {mc_display}
-• **Volume 24j**: {vol_display}
-• **Circulating Supply**: {format_supply(circulating_supply) if circulating_supply else 'N/A'}
-• **Total Supply**: {format_supply(total_supply) if total_supply else 'N/A'}
-• **Max Supply**: {format_supply(max_supply) if max_supply else 'Unlimited'}
-
-📈 **Performa Harga:**
-• **24 Jam**: {change_24h_emoji} {percent_change_24h:+.2f}%
-• **7 Hari**: {change_7d_emoji} {percent_change_7d:+.2f}%
-• **30 Hari**: {change_30d_emoji} {percent_change_30d:+.2f}%
-
-📊 **Level Kritis:**
-• **Support**: ${price * 0.95:.6f} (-5%)
-• **Resistance**: ${price * 1.05:.6f} (+5%)
-• **Trend**: {'Bullish 🟢' if percent_change_24h > 2 else 'Bearish 🔴' if percent_change_24h < -2 else 'Sideways 🟡'}
-
-🎯 **Trading Signals:**
-• **Signal**: {'STRONG BUY' if percent_change_24h > 5 else 'BUY' if percent_change_24h > 2 else 'HOLD' if percent_change_24h > -2 else 'SELL' if percent_change_24h > -5 else 'STRONG SELL'}
-• **Risk Level**: {'LOW' if abs(percent_change_24h) < 3 else 'MEDIUM' if abs(percent_change_24h) < 7 else 'HIGH'}
-• **Volatilitas**: {'Rendah' if abs(percent_change_24h) < 3 else 'Sedang' if abs(percent_change_24h) < 10 else 'Tinggi'}
-
-{f'🔍 **Tentang Proyek:** {description}' if description else ''}
-
-⏰ **Data Update**: {current_time}
-📡 **Source**: CoinMarketCap Professional API
-💎 **Data Quality**: Real-time & Verified"""
-                    else:
-                        analysis = f"""📊 **COMPREHENSIVE ANALYSIS {symbol.upper()} (CoinMarketCap)**
-
-💰 **Fundamental Data (CMC Rank #{cmc_rank}):**
-• **Current Price**: {price_display}
-• **Market Cap**: {mc_display}
-• **Volume 24h**: {vol_display}
-• **Circulating Supply**: {format_supply(circulating_supply) if circulating_supply else 'N/A'}
-• **Total Supply**: {format_supply(total_supply) if total_supply else 'N/A'}
-• **Max Supply**: {format_supply(max_supply) if max_supply else 'Unlimited'}
-
-📈 **Price Performance:**
-• **24 Hours**: {change_24h_emoji} {percent_change_24h:+.2f}%
-• **7 Days**: {change_7d_emoji} {percent_change_7d:+.2f}%
-• **30 Days**: {change_30d_emoji} {percent_change_30d:+.2f}%
-
-📊 **Critical Levels:**
-• **Support**: ${price * 0.95:.6f} (-5%)
-• **Resistance**: ${price * 1.05:.6f} (+5%)
-• **Trend**: {'Bullish 🟢' if percent_change_24h > 2 else 'Bearish 🔴' if percent_change_24h < -2 else 'Sideways 🟡'}
-
-🎯 **Trading Signals:**
-• **Signal**: {'STRONG BUY' if percent_change_24h > 5 else 'BUY' if percent_change_24h > 2 else 'HOLD' if percent_change_24h > -2 else 'SELL' if percent_change_24h > -5 else 'STRONG SELL'}
-• **Risk Level**: {'LOW' if abs(percent_change_24h) < 3 else 'MEDIUM' if abs(percent_change_24h) < 7 else 'HIGH'}
-• **Volatility**: {'Low' if abs(percent_change_24h) < 3 else 'Medium' if abs(percent_change_24h) < 10 else 'High'}
-
-{f'🔍 **About Project:** {description}' if description else ''}
-
-⏰ **Data Update**: {current_time}
-📡 **Source**: CoinMarketCap Professional API
-💎 **Data Quality**: Real-time & Verified"""
-
-                    return analysis
-
-            # Fallback if CoinMarketCap fails
-            fallback_msg = "⚠️ **Data CoinMarketCap sementara tidak tersedia**\n\n" if language == 'id' else "⚠️ **CoinMarketCap data temporarily unavailable**\n\n"
-            fallback_msg += f"""💡 **Solusi:**
-• Coba lagi dalam beberapa menit
-• Pastikan CMC_API_KEY tersedia di Secrets
-• Contact admin jika masalah berlanjut
-
-🔄 **Reason**: CoinMarketCap API temporarily unavailable or rate limited"""
-
-            return fallback_msg
-
-        except Exception as e:
-            print(f"Error in comprehensive analysis: {e}")
-            return f"❌ Error dalam analisis {symbol}: {str(e)[:100]}..."
-
-    def _format_comprehensive_analysis_id(self, symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time):
-        """Format comprehensive analysis in Indonesian"""
-        formatted_price = self._format_price(current_price)
-        trend = trend_analysis.get('trend', 'neutral')
-        trend_strength = trend_analysis.get('strength', 'medium')
-        sentiment_score = sentiment_analysis.get('sentiment_score', 50)
-        overall_sentiment = sentiment_analysis.get('overall', 'neutral')
-
-        trend_emoji = "📈" if trend == 'bullish' else "📉" if trend == 'bearish' else "📊"
-        sentiment_emoji = "🟢" if overall_sentiment == 'bullish' else "🔴" if overall_sentiment == 'bearish' else "🟡"
-
-        message = f"""🎯 **ANALISIS KOMPREHENSIF {symbol.upper()}**
-
-💰 **HARGA CURRENT**: {formatted_price}
-📡 **SOURCE**: Coinglass Real-time
-
-{trend_emoji} **TREND ANALYSIS**: {trend.upper()} ({trend_strength})
-{sentiment_emoji} **SENTIMENT**: {overall_sentiment.upper()} ({sentiment_score:.0f}/100)
-
-📊 **INSIGHTS COINGLASS:**"""
-
-        signals = sentiment_analysis.get('signals', [])
-        for signal in signals[:3]:
-            message += f"\n• {signal}"
-
-        # Add CMC data if available
-        if 'error' not in cmc_data and cmc_data.get('name'):
-            message += f"""
-
-📋 **INFO FUNDAMENTAL:**
-• **Nama**: {cmc_data.get('name', symbol)}
-• **Rank**: #{cmc_data.get('cmc_rank', 'N/A')}"""
-
-        message += f"""
-
-💡 **REKOMENDASI:**
-• **Trend {trend}** dengan kekuatan {trend_strength}
-• **Sentiment {overall_sentiment}** berdasarkan Coinglass
-• Monitor untuk konfirmasi signal
-
-📡 **DATA SOURCES**: Coinglass + CoinMarketCap
-⏰ **Analysis Time**: {current_time}"""
-
-        return message
-
-    def _format_comprehensive_analysis_en(self, symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time):
-        """Format comprehensive analysis in English"""
-        # Similar structure as Indonesian version
-        formatted_price = self._format_price(current_price)
-
-        return f"""🎯 **COMPREHENSIVE ANALYSIS {symbol.upper()}**
-
-💰 **CURRENT PRICE**: {formatted_price}
-📡 **SOURCE**: Coinglass Real-time
-
-📡 **DATA SOURCES**: Coinglass + CoinMarketCap
-⏰ **Analysis Time**: {current_time}"""
-
-    async def _analyze_futures_signal(self, symbol, price_data, coinglass_data):
-        """Analyze futures signal for a single symbol"""
-        try:
-            if 'error' in price_data or 'error' in coinglass_data:
-                return None
-
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                return None
-
-            # Analyze Coinglass data for signal
-            long_short = coinglass_data.get('long_short', {})
-            open_interest = coinglass_data.get('open_interest', {})
-
-            if 'error' in long_short or 'error' in open_interest:
-                return None
-
-            # Calculate signal confidence
-            long_ratio = long_short.get('long_ratio', 50)
-            oi_change = open_interest.get('oi_change_percent', 0)
-
-            # Simple signal logic
-            confidence = 50
-            direction = 'HOLD'
-
-            if long_ratio > 75:  # Overleveraged longs
-                direction = 'SHORT'
-                confidence = min(85, 60 + (long_ratio - 75))
-            elif long_ratio < 25:  # Overleveraged shorts
-                direction = 'LONG'
-                confidence = min(85, 60 + (25 - long_ratio))
-
-            # Adjust confidence based on OI
-            if abs(oi_change) > 10:
-                confidence += 10
-
-            if confidence >= 70:
-                return {
-                    'symbol': symbol,
-                    'direction': direction,
-                    'confidence': confidence,
-                    'current_price': current_price,
-                    'long_ratio': long_ratio,
-                    'oi_change': oi_change,
-                    'entry_price': current_price * (0.999 if direction == 'LONG' else 1.001),
-                    'stop_loss': current_price * (0.985 if direction == 'LONG' else 1.015),
-                    'take_profit': current_price * (1.025 if direction == 'LONG' else 0.975)
-                }
-
-            return None
-
-        except Exception as e:
-            print(f"❌ Signal analysis error for {symbol}: {e}")
-            return None
-
-    async def _format_futures_signals_output(self, recommendations, language):
-        """Format futures signals output"""
-        if not recommendations:
-            if language == 'id':
-                return "❌ Tidak ada sinyal dengan confidence >70%. Coba lagi nanti."
-            else:
-                return "❌ No signals with confidence >70%. Try again later."
-
-        current_time = datetime.now().strftime('%H:%M:%S WIB')
-
-        if language == 'id':
-            return self._format_signals_output_id(recommendations, current_time)
-        else:
-            return self._format_signals_output_en(recommendations, current_time)
-
-    def _format_signals_output_id(self, recommendations, current_time):
-        """Format multiple signals output in Indonesian"""
-        header = f"""🎯 **SINYAL FUTURES REAL-TIME**
-⏰ {current_time} | 📊 TOP {len(recommendations)} SIGNALS
-
-💡 **STRATEGI**: Coinglass Data
-
-"""
-
-        formatted_signals = []
-        for i, signal in enumerate(recommendations, 1):
-            symbol = signal['symbol']
-            direction = signal['direction']
-            confidence = signal['confidence']
-            current_price = signal['current_price']
-            entry_price = signal['entry_price']
-            tp_price = signal['take_profit']
-            sl_price = signal['stop_loss']
-
-            direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-
-            signal_text = f"""**{i}. {symbol} {direction_emoji} - {direction}**
-💰 Entry: {self._format_price(entry_price)} | Confidence: {confidence:.0f}%
-
-📋 **SETUP:**
-• **TP**: {self._format_price(tp_price)}
-• **SL**: {self._format_price(sl_price)}
-• **Current**: {self._format_price(current_price)}"""
-
-            formatted_signals.append(signal_text)
-
-        footer = """
-
-════════════════════════════════════════
-🎯 **CARA MENGGUNAKAN SINYAL:**
-
-1️⃣ **Entry Setup:**
-   • Entry sesuai level yang diberikan
-   • Set SL WAJIB sebelum entry
-   • Position size maksimal 2% modal
-
-2️⃣ **Risk Management:**
-   • Follow stop loss secara ketat
-   • Take profit di level yang ditentukan
-   • Monitor perubahan market structure
-
-📡 **Data**: Coinglass Real-time
-⚠️ **Warning**: Trading berisiko tinggi, gunakan proper risk management!"""
-
-        return header + "\n\n".join(formatted_signals) + footer
-
-    def _format_signals_output_en(self, recommendations, current_time):
-        """Format multiple signals output in English"""
-        # Similar structure as Indonesian version
-        return f"""🎯 **REAL-TIME FUTURES SIGNALS**
-⏰ {current_time}
-
-📡 **Data**: Coinglass Real-time
-⚠️ **Warning**: Trading involves high risk!"""
-
     def _get_top_coins_for_signals(self, crypto_api=None):
         """Get top coins for signal generation"""
-        return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'MATIC', 'LINK', 'UNI', 'LTC', 'BCH', 'ATOM']
+        return ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'AVAX', 'MATIC', 'DOT', 'ATOM', 'LINK']
 
     def _analyze_coinglass_data(self, coinglass_data, symbol):
         """Analyze Coinglass data for insights"""
@@ -1397,7 +1291,7 @@ Error processing data:
 
 ⏰ **Update**: {current_time}
 📡 **Source**: CoinMarketCap Startup Plan
-💎 **Data Quality**: Real-time Professional"""
+💎 **Data Quality**: Real-time & Verified"""
 
                         return analysis
                     else:
@@ -1442,7 +1336,7 @@ Error processing data:
 
 ⏰ **Update**: {current_time}
 📡 **Source**: CoinMarketCap Startup Plan
-💎 **Data Quality**: Real-time Professional"""
+💎 **Data Quality**: Real-time & Verified"""
 
                         return analysis
 
@@ -1496,3 +1390,10 @@ Error processing data:
 
         except Exception as e:
             return f"• Error formatting movers: {str(e)[:50]}..."
+
+    def _generate_no_signals_message(self, language='id'):
+        """Generate message when no signals are found."""
+        if language == 'id':
+            return "😔 Maaf, saat ini tidak ada sinyal futures dengan confidence tinggi. Coba lagi nanti atau periksa command `/help`."
+        else:
+            return "😔 Sorry, no high-confidence futures signals found at the moment. Please try again later or check `/help`."

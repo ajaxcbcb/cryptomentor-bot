@@ -48,8 +48,8 @@ class CryptoAPI:
             "Connection": "keep-alive"
         }
 
-    def get_coinglass_open_interest(self, symbol, time_type='24h'):
-        """Get open interest data from Coinglass"""
+    def get_coinglass_open_interest(self, symbol):
+        """Get open interest data from Coinglass API v2"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -59,12 +59,14 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]  # Remove USDT suffix
 
-            url = f"{self.coinglass_url}/futures/openInterestVolume"
-            headers = self._get_coinglass_headers()
+            url = "https://open-api.coinglass.com/public/v2/futures/openInterest"
+            headers = {
+                "accept": "application/json",
+                "coinglassSecret": self.coinglass_key
+            }
 
             params = {
-                'symbol': symbol,
-                'timeType': time_type
+                'symbol': symbol
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -74,12 +76,23 @@ class CryptoAPI:
 
             if data.get('success'):
                 result_data = data.get('data', {})
+                total_oi = 0
+                oi_change = 0
+                
+                # Sum up open interest from all exchanges
+                if isinstance(result_data, list):
+                    for exchange_data in result_data:
+                        oi_value = float(exchange_data.get('openInterest', 0))
+                        oi_change_value = float(exchange_data.get('openInterestChange', 0))
+                        total_oi += oi_value
+                        oi_change += oi_change_value
+
                 return {
                     'symbol': symbol,
-                    'open_interest': result_data.get('totalOpenInterest', 0),
-                    'open_interest_change': result_data.get('totalOpenInterestChange', 0),
-                    'time_type': time_type,
-                    'source': 'coinglass',
+                    'open_interest': total_oi,
+                    'open_interest_change': oi_change,
+                    'exchanges_count': len(result_data) if isinstance(result_data, list) else 1,
+                    'source': 'coinglass_v2',
                     'timestamp': datetime.now().isoformat()
                 }
             else:
@@ -178,8 +191,8 @@ class CryptoAPI:
         """Cleanup resources"""
         await self.coinapi_helper.close_session()
 
-    def get_coinglass_long_short_ratio(self, symbol, time_type='24h'):
-        """Get long/short ratio from Coinglass"""
+    def get_coinglass_long_short_ratio(self, symbol, interval_type=2):
+        """Get long/short ratio from Coinglass API v2"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -189,12 +202,16 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]  # Remove USDT suffix
 
-            url = f"{self.coinglass_url}/futures/longShortRatio"
-            headers = self._get_coinglass_headers()
+            # Use v2 public endpoint as specified
+            url = "https://open-api.coinglass.com/public/v2/futures/longShortChart"
+            headers = {
+                "accept": "application/json",
+                "coinglassSecret": self.coinglass_key
+            }
 
             params = {
                 'symbol': symbol,
-                'timeType': time_type
+                'intervalType': interval_type  # 2 = 1 hour
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
@@ -203,19 +220,25 @@ class CryptoAPI:
             data = response.json()
 
             if data.get('success'):
-                result_data = data.get('data', {})
-                long_ratio = result_data.get('longRatio', 50)
-                short_ratio = result_data.get('shortRatio', 50)
+                chart_data = data.get('data', [])
+                if chart_data and len(chart_data) > 0:
+                    # Get latest data point
+                    latest = chart_data[-1]
+                    long_ratio = float(latest.get('longRatio', 50))
+                    short_ratio = float(latest.get('shortRatio', 50))
 
-                return {
-                    'symbol': symbol,
-                    'long_ratio': long_ratio,
-                    'short_ratio': short_ratio,
-                    'long_short_ratio': long_ratio / short_ratio if short_ratio > 0 else 1.0,
-                    'time_type': time_type,
-                    'source': 'coinglass',
-                    'timestamp': datetime.now().isoformat()
-                }
+                    return {
+                        'symbol': symbol,
+                        'long_ratio': long_ratio,
+                        'short_ratio': short_ratio,
+                        'long_short_ratio': long_ratio / short_ratio if short_ratio > 0 else 1.0,
+                        'interval_type': interval_type,
+                        'timestamp': latest.get('createTime', datetime.now().isoformat()),
+                        'data_points': len(chart_data),
+                        'source': 'coinglass_v2'
+                    }
+                else:
+                    return {'error': 'No chart data available from Coinglass'}
             else:
                 return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
 
@@ -265,7 +288,7 @@ class CryptoAPI:
             return {'error': f"Coinglass liquidation error: {str(e)}"}
 
     def get_coinglass_funding_rate(self, symbol):
-        """Get funding rate from Coinglass"""
+        """Get funding rate from Coinglass API v2"""
         try:
             if not self.coinglass_key:
                 return {'error': 'Coinglass API key not found'}
@@ -275,8 +298,11 @@ class CryptoAPI:
             if symbol.endswith('USDT'):
                 symbol = symbol[:-4]
 
-            url = f"{self.coinglass_url}/futures/fundingRate"
-            headers = self._get_coinglass_headers()
+            url = "https://open-api.coinglass.com/public/v2/futures/fundingRate"
+            headers = {
+                "accept": "application/json",
+                "coinglassSecret": self.coinglass_key
+            }
 
             params = {
                 'symbol': symbol
@@ -288,15 +314,30 @@ class CryptoAPI:
             data = response.json()
 
             if data.get('success'):
-                result_data = data.get('data', {})
-                return {
-                    'symbol': symbol,
-                    'funding_rate': result_data.get('fundingRate', 0),
-                    'funding_rate_8h': result_data.get('fundingRate8h', 0),
-                    'next_funding_time': result_data.get('nextFundingTime', 0),
-                    'source': 'coinglass',
-                    'timestamp': datetime.now().isoformat()
-                }
+                result_data = data.get('data', [])
+                if result_data and len(result_data) > 0:
+                    # Calculate average funding rate across exchanges
+                    total_funding = 0
+                    valid_exchanges = 0
+                    
+                    for exchange_data in result_data:
+                        funding_rate = float(exchange_data.get('fundingRate', 0))
+                        if funding_rate != 0:  # Only count non-zero rates
+                            total_funding += funding_rate
+                            valid_exchanges += 1
+                    
+                    avg_funding = total_funding / valid_exchanges if valid_exchanges > 0 else 0
+                    
+                    return {
+                        'symbol': symbol,
+                        'funding_rate': avg_funding,
+                        'funding_rate_8h': avg_funding * 3,  # Approximate 8h rate
+                        'exchanges_count': valid_exchanges,
+                        'source': 'coinglass_v2',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                else:
+                    return {'error': 'No funding rate data available'}
             else:
                 return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
 
@@ -304,38 +345,42 @@ class CryptoAPI:
             return {'error': f"Coinglass funding rate error: {str(e)}"}
 
     def get_comprehensive_futures_data(self, symbol):
-        """Get comprehensive futures data from Coinglass"""
+        """Get comprehensive futures data from Coinglass v2"""
         try:
-            print(f"🔄 Getting comprehensive futures data for {symbol} from Coinglass...")
+            print(f"🔄 Getting comprehensive futures data for {symbol} from Coinglass v2...")
 
-            # Get all Coinglass data
+            # Get all Coinglass v2 data
             oi_data = self.get_coinglass_open_interest(symbol)
-            ls_data = self.get_coinglass_long_short_ratio(symbol)
-            liq_data = self.get_coinglass_liquidation(symbol)
+            ls_data = self.get_coinglass_long_short_ratio(symbol, interval_type=2)  # 1 hour
             funding_data = self.get_coinglass_funding_rate(symbol)
 
-            # Get price data from Binance as fallback
+            # Get price data from Binance
             price_data = self.get_binance_futures_price(symbol)
 
             successful_calls = 0
-            total_calls = 5
+            total_calls = 4
 
             # Count successful API calls
-            for data in [oi_data, ls_data, liq_data, funding_data, price_data]:
+            for data in [oi_data, ls_data, funding_data, price_data]:
                 if 'error' not in data:
                     successful_calls += 1
+
+            # Generate trading recommendation based on Coinglass data
+            recommendation = self._generate_coinglass_recommendation(
+                symbol, ls_data, oi_data, funding_data, price_data
+            )
 
             return {
                 'symbol': symbol,
                 'open_interest_data': oi_data,
                 'long_short_data': ls_data,
-                'liquidation_data': liq_data,
                 'funding_rate_data': funding_data,
                 'price_data': price_data,
+                'trading_recommendation': recommendation,
                 'successful_api_calls': successful_calls,
                 'total_api_calls': total_calls,
-                'data_quality': 'excellent' if successful_calls >= 4 else 'good' if successful_calls >= 3 else 'partial',
-                'source': 'coinglass_comprehensive'
+                'data_quality': 'excellent' if successful_calls >= 3 else 'good' if successful_calls >= 2 else 'partial',
+                'source': 'coinglass_v2_comprehensive'
             }
         except Exception as e:
             return {'error': f"Comprehensive futures data error: {str(e)}"}
@@ -1143,6 +1188,96 @@ class CryptoAPI:
         base_confidence += trend_score * 5
 
         return min(95, max(30, base_confidence))
+
+    def _generate_coinglass_recommendation(self, symbol, ls_data, oi_data, funding_data, price_data):
+        """Generate trading recommendation based on Coinglass data"""
+        try:
+            if 'error' in ls_data or 'error' in price_data:
+                return {'error': 'Insufficient data for recommendation'}
+
+            current_price = price_data.get('price', 0)
+            long_ratio = ls_data.get('long_ratio', 50)
+            short_ratio = ls_data.get('short_ratio', 50)
+            funding_rate = funding_data.get('funding_rate', 0) if 'error' not in funding_data else 0
+            oi_change = oi_data.get('open_interest_change', 0) if 'error' not in oi_data else 0
+
+            # Calculate bias and confidence
+            bias_score = 0
+            confidence = 50
+
+            # Long/Short ratio analysis
+            if long_ratio > 70:  # Too many longs - contrarian signal
+                bias_score -= 2
+                confidence += 15
+            elif long_ratio < 30:  # Too many shorts - bullish signal
+                bias_score += 2
+                confidence += 15
+            elif 45 <= long_ratio <= 55:  # Balanced - neutral
+                confidence -= 10
+
+            # Funding rate analysis
+            if funding_rate > 0.01:  # High positive funding - bearish
+                bias_score -= 1
+                confidence += 10
+            elif funding_rate < -0.01:  # Negative funding - bullish
+                bias_score += 1
+                confidence += 10
+
+            # Open interest analysis
+            if oi_change > 5:  # Increasing OI - trend continuation
+                confidence += 5
+            elif oi_change < -5:  # Decreasing OI - trend reversal
+                confidence += 5
+
+            # Determine direction and levels
+            if bias_score >= 1:
+                direction = 'LONG'
+                entry_price = current_price * 0.998  # Slight discount
+                stop_loss = current_price * 0.985   # 1.5% stop
+                take_profit_1 = current_price * 1.02  # 2% profit
+                take_profit_2 = current_price * 1.04  # 4% profit
+            elif bias_score <= -1:
+                direction = 'SHORT'
+                entry_price = current_price * 1.002  # Slight premium
+                stop_loss = current_price * 1.015   # 1.5% stop
+                take_profit_1 = current_price * 0.98  # 2% profit
+                take_profit_2 = current_price * 0.96  # 4% profit
+            else:
+                direction = 'HOLD'
+                entry_price = current_price
+                stop_loss = current_price * 0.985
+                take_profit_1 = current_price * 1.015
+                take_profit_2 = current_price * 1.03
+                confidence = max(30, confidence - 20)
+
+            # Risk/reward calculation
+            if direction == 'LONG':
+                risk_reward = (take_profit_1 - entry_price) / (entry_price - stop_loss)
+            elif direction == 'SHORT':
+                risk_reward = (entry_price - take_profit_1) / (stop_loss - entry_price)
+            else:
+                risk_reward = 1.0
+
+            return {
+                'direction': direction,
+                'entry_price': entry_price,
+                'stop_loss': stop_loss,
+                'take_profit_1': take_profit_1,
+                'take_profit_2': take_profit_2,
+                'confidence': min(95, max(30, confidence)),
+                'risk_reward_ratio': risk_reward,
+                'bias_score': bias_score,
+                'analysis': {
+                    'long_ratio': long_ratio,
+                    'short_ratio': short_ratio,
+                    'funding_rate': funding_rate,
+                    'oi_change': oi_change,
+                    'sentiment': 'Bullish' if bias_score > 0 else 'Bearish' if bias_score < 0 else 'Neutral'
+                }
+            }
+
+        except Exception as e:
+            return {'error': f"Recommendation generation error: {str(e)}"}
 
     # === NEWS API ===
 
