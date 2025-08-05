@@ -414,6 +414,7 @@ class AIAssistant:
                 source_emoji = "🟡"
 
             # Direction emoji
+            entry_type = trading_levels.get('entry_type', 'HOLD') # Get entry_type from trading_levels
             if entry_type == 'LONG':
                 direction_emoji = "🟢"
                 signal_emoji = "📈"
@@ -434,7 +435,7 @@ class AIAssistant:
 • **Source**: {price_source}
 
 {direction_emoji} **SMART MONEY SIGNAL: {entry_type}** {signal_emoji}
-📊 **Confidence**: {confidence:.0f}%
+📊 **Confidence**: {trading_levels.get('confidence', 50):.0f}%
 🧠 **SMC Bias**: {smc_analysis.get('smart_money_bias', 'neutral').title()}
 
 💰 **REKOMENDASI TRADING COINGLASS:**"""
@@ -564,13 +565,13 @@ class AIAssistant:
 💰 *CURRENT PRICE*: {format_price(current_price)} {source_emoji}
 💰 *SOURCE*: {price_source}
 
-{direction_emoji} *RECOMMENDATION: {direction}* {signal_emoji}
-📊 *CONFIDENCE*: {confidence:.0f}%
+{direction_emoji} *RECOMMENDATION: {entry_type}* {signal_emoji}
+📊 *CONFIDENCE*: {trading_levels.get('confidence', 50):.0f}%
 🧠 *SENTIMENT*: {sentiment}
 
 💰 *TRADING DETAILS:*"""
 
-                if direction != 'HOLD':
+                if entry_type != 'HOLD':
                     entry_price = format_price(trading_levels['entry'])
                     tp1_price = format_price(trading_levels['tp1'])
                     tp2_price = format_price(trading_levels['tp2'])
@@ -588,13 +589,15 @@ class AIAssistant:
 • ⏸️ *HOLD POSITION* \\- Wait for clearer setup
 • 📊 *MONITOR LEVELS*: {monitor_low} \\- {monitor_high}"""
 
+                long_ratio = long_short_data.get('long_ratio', 50) if 'error' not in long_short_data else 0
                 long_status = 'Overleveraged Longs' if long_ratio > 70 else 'Oversold Conditions' if long_ratio < 30 else 'Balanced'
+                funding_rate = oi_data.get('funding_rate', 0) * 100 if 'error' not in oi_data else 0
                 funding_status = 'High Longs Paying' if funding_rate > 1 else 'High Shorts Paying' if funding_rate < -0.5 else 'Neutral'
 
                 message += f"""
 
 📊 *COINGLASS v2 DATA:*
-• *Long/Short Ratio*: {long_ratio:.1f}% \\({long_status}\\)
+• *Long/Short Ratio*: {long_short_data.get('long_ratio', 50):.1f}% \\({long_status}\\)
 • *Open Interest Change*: {oi_data.get('oi_change_percent', 0):+.2f}%
 • *Funding Rate*: {funding_rate:.4f}% \\({funding_status}\\)
 
@@ -627,13 +630,13 @@ class AIAssistant:
                         if smc_note:
                             message += f"\n    {safe_text(smc_note[:40])}{'...' if len(smc_note) > 40 else ''}"
 
-                pos_size = '2-3%' if confidence >= 80 else '1-2%' if confidence >= 70 else '0.5-1%'
+                pos_size = '2-3%' if trading_levels.get('confidence', 50) >= 80 else '1-2%' if trading_levels.get('confidence', 50) >= 70 else '0.5-1%'
                 message += f"""
 
 ⚡ *TRADING DETAILS:*
-• *Confidence*: {confidence:.0f}%
-• *Risk/Reward Ratio*: {risk_reward:.2f}:1
-• *Position Size*: {pos_size} Capital
+• *Confidence*: {trading_levels.get('confidence', 50):.0f}%
+• *Risk/Reward Ratio*: {trading_levels.get('reward_ratio', 2):.1f}:1
+• *Position Size*: {trading_levels.get('position_size', '1-2% capital')} Capital
 
 ⏰ *Update*: {datetime.now().strftime('%H:%M:%S UTC')}
 🔄 *Next Update*: Auto-refreshing"""
@@ -1176,212 +1179,6 @@ Error processing data:
         else:
             return "😔 Sorry, no high-confidence futures signals found at the moment. Please try again later or check `/help`."
 
-    async def get_comprehensive_analysis(self, symbol, historical_data, market_data, language='id', crypto_api=None):
-        """Get comprehensive analysis using CoinMarketCap data"""
-        try:
-            if not crypto_api:
-                return self._generate_emergency_analysis(symbol, language, "CryptoAPI not available")
-
-            print(f"🔄 Starting comprehensive analysis for {symbol} with CoinMarketCap...")
-
-            # Get comprehensive data from CoinMarketCap
-            cmc_data = crypto_api.cmc_provider.get_comprehensive_data(symbol)
-
-            if 'error' in cmc_data:
-                return self._generate_emergency_analysis(symbol, language, cmc_data['error'])
-
-            # Format comprehensive analysis
-            analysis = self._format_comprehensive_analysis(symbol, cmc_data, language)
-
-            return analysis
-
-        except Exception as e:
-            print(f"❌ Error in comprehensive analysis: {e}")
-            return self._generate_emergency_analysis(symbol, language, str(e))
-
-    def _format_comprehensive_analysis(self, symbol, cmc_data, language='id'):
-        """Format comprehensive analysis output"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-
-            # Extract data
-            price = cmc_data.get('price', 0)
-            market_cap = cmc_data.get('market_cap', 0)
-            volume_24h = cmc_data.get('volume_24h', 0)
-            percent_change_24h = cmc_data.get('percent_change_24h', 0)
-            percent_change_7d = cmc_data.get('percent_change_7d', 0)
-            cmc_rank = cmc_data.get('cmc_rank', 0)
-            name = cmc_data.get('name', symbol)
-            circulating_supply = cmc_data.get('circulating_supply', 0)
-            total_supply = cmc_data.get('total_supply', 0)
-            max_supply = cmc_data.get('max_supply', 0)
-
-            # Format numbers
-            def format_currency(amount):
-                if amount > 1000000000:  # Billions
-                    return f"${amount/1000000000:.2f}B"
-                elif amount > 1000000:  # Millions
-                    return f"${amount/1000000:.1f}M"
-                else:
-                    return f"${amount:,.0f}"
-
-            def format_price(price):
-                if price < 1:
-                    return f"${price:.8f}"
-                elif price < 100:
-                    return f"${price:.4f}"
-                else:
-                    return f"${price:,.2f}"
-
-            # Generate basic trading recommendation
-            recommendation = self._generate_trading_recommendation(percent_change_24h, percent_change_7d, market_cap, volume_24h)
-
-            if language == 'id':
-                message = f"""📊 **ANALISIS KOMPREHENSIF {name} ({symbol}) - CoinMarketCap**
-
-💰 **DATA HARGA:**
-• **Harga Saat Ini**: {format_price(price)}
-• **Ranking CMC**: #{cmc_rank}
-• **Market Cap**: {format_currency(market_cap)}
-• **Volume 24j**: {format_currency(volume_24h)}
-• **Perubahan 24j**: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
-• **Perubahan 7 hari**: {percent_change_7d:+.2f}% {'📈' if percent_change_7d >= 0 else '📉'}
-
-📊 **SUPPLY DATA:**"""
-                if circulating_supply > 0:
-                    message += f"\n• **Circulating Supply**: {circulating_supply:,.0f} {symbol}"
-                if total_supply > 0:
-                    message += f"\n• **Total Supply**: {total_supply:,.0f} {symbol}"
-                if max_supply > 0:
-                    message += f"\n• **Max Supply**: {max_supply:,.0f} {symbol}"
-                else:
-                    message += f"\n• **Max Supply**: Unlimited"
-
-                message += f"""
-
-🎯 **REKOMENDASI TRADING:**
-• **Saran**: {recommendation['action']} {recommendation['emoji']}
-• **Confidence**: {recommendation['confidence']}%
-• **Alasan**: {recommendation['reason']}
-
-⚠️ **RISK MANAGEMENT:**
-• Gunakan stop loss 3-5% untuk short term
-• Take profit bertahap di resistance levels
-• Maksimal 2-3% dari total portfolio per trade
-• Monitor volume untuk konfirmasi breakout
-
-📡 **DATA SOURCE:**
-• **Provider**: CoinMarketCap Professional API
-• **Update Time**: {current_time}
-• **Data Quality**: Real-time & Verified
-
-💡 **CATATAN:**
-Analisis ini berdasarkan data fundamental dari CoinMarketCap. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
-
-            else:
-                message = f"""📊 **COMPREHENSIVE ANALYSIS {name} ({symbol}) - CoinMarketCap**
-
-💰 **PRICE DATA:**
-• **Current Price**: {format_price(price)}
-• **CMC Ranking**: #{cmc_rank}
-• **Market Cap**: {format_currency(market_cap)}
-• **Volume 24h**: {format_currency(volume_24h)}
-• **24h Change**: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
-• **7d Change**: {percent_change_7d:+.2f}% {'📈' if percent_change_7d >= 0 else '📉'}
-
-📊 **SUPPLY DATA:**"""
-                if circulating_supply > 0:
-                    message += f"\n• **Circulating Supply**: {circulating_supply:,.0f} {symbol}"
-                if total_supply > 0:
-                    message += f"\n• **Total Supply**: {total_supply:,.0f} {symbol}"
-                if max_supply > 0:
-                    message += f"\n• **Max Supply**: {max_supply:,.0f} {symbol}"
-                else:
-                    message += f"\n• **Max Supply**: Unlimited"
-
-                message += f"""
-
-🎯 **TRADING RECOMMENDATION:**
-• **Suggestion**: {recommendation['action']} {recommendation['emoji']}
-• **Confidence**: {recommendation['confidence']}%
-• **Reason**: {recommendation['reason']}
-
-⚠️ **RISK MANAGEMENT:**
-• Use 3-5% stop loss for short term trades
-• Take profit gradually at resistance levels
-• Maximum 2-3% of total portfolio per trade
-• Monitor volume for breakout confirmation
-
-📡 **DATA SOURCE:**
-• **Provider**: CoinMarketCap Professional API
-• **Update Time**: {current_time}
-• **Data Quality**: Real-time & Verified
-
-💡 **NOTE:**
-This analysis is based on fundamental data from CoinMarketCap. Always combine with technical analysis and latest news for better trading decisions."""
-
-            return message
-
-        except Exception as e:
-            print(f"❌ Error formatting comprehensive analysis: {e}")
-            return self._generate_emergency_analysis(symbol, language, str(e))
-
-    def _generate_trading_recommendation(self, change_24h, change_7d, market_cap, volume_24h):
-        """Generate trading recommendation based on metrics"""
-        try:
-            confidence = 50
-
-            # Volume check
-            volume_strength = "high" if volume_24h > 100000000 else "medium" if volume_24h > 10000000 else "low"
-
-            # Price momentum analysis
-            if change_24h > 5 and change_7d > 15:
-                action = "STRONG BUY"
-                emoji = "🚀"
-                reason = f"Strong bullish momentum (+{change_24h:.1f}% 24h, +{change_7d:.1f}% 7d)"
-                confidence = 85
-            elif change_24h > 2 and change_7d > 5:
-                action = "BUY"
-                emoji = "📈"
-                reason = f"Positive momentum (+{change_24h:.1f}% 24h, +{change_7d:.1f}% 7d)"
-                confidence = 70
-            elif change_24h < -5 and change_7d < -15:
-                action = "SELL"
-                emoji = "📉"
-                reason = f"Strong bearish trend ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
-                confidence = 80
-            elif change_24h < -2 and change_7d < -5:
-                action = "WEAK SELL"
-                emoji = "⚠️"
-                reason = f"Negative momentum ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
-                confidence = 65
-            else:
-                action = "HOLD"
-                emoji = "⏸️"
-                reason = f"Sideways movement ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
-                confidence = 60
-
-            # Adjust confidence based on volume
-            if volume_strength == "high":
-                confidence += 10
-            elif volume_strength == "low":
-                confidence -= 10
-
-            return {
-                'action': action,
-                'emoji': emoji,
-                'reason': reason,
-                'confidence': min(95, max(30, confidence))
-            }
-
-        except Exception as e:
-            return {
-                'action': 'HOLD',
-                'emoji': '⚠️',
-                'reason': f'Analysis error: {str(e)[:50]}...',
-                'confidence': 50
-            }
-
     def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, user_id=None):
         """Get comprehensive analysis using CoinMarketCap API with Smart Money Concepts"""
         try:
@@ -1520,7 +1317,7 @@ Symbol "{html.escape(symbol.upper())}" tidak ditemukan di CoinMarketCap.
 
 🎯 **REKOMENDASI GABUNGAN:** {final_recommendation['emoji']} {final_recommendation['action']}
 💡 **Alasan:** {html.escape(final_recommendation['reason'])}
-📊 **Confidence:** {final_recommendation['confidence']}%
+📊 **Confidence:** {final_recommendation['confidence']:.1f}%
 
 ⚠️ **RISK MANAGEMENT:**
 • Gunakan stop loss 3-5% untuk trading jangka pendek
@@ -1774,3 +1571,84 @@ Error fetching CoinMarketCap data:
 💡 **Alternative**: Use `/futures {symbol.lower()}` for futures analysis"""
 
         return message
+
+    def _estimate_price(self, symbol):
+        """Helper to get an estimated price, fallback to 0 if not found"""
+        # In a real scenario, this would query a reliable price source.
+        # For now, returning a placeholder.
+        print(f"⚠️ Using placeholder price for {symbol}")
+        return 30000.0 # Placeholder value
+
+    # Placeholder for safe_text to avoid NameError
+    def safe_text(self, text, max_length=100):
+        """Safely truncate text and escape HTML characters."""
+        if not isinstance(text, str):
+            return ""
+        text = text[:max_length]
+        text = html.escape(text)
+        return text
+
+    # Placeholder for determine_overall_sentiment to avoid NameError
+    def determine_overall_sentiment(self, cmc_data, smc_analysis, price_data):
+        """Determine overall sentiment based on available data."""
+        # This is a simplified placeholder. A real implementation would combine
+        # price momentum, volume, CMC data, and SMC bias more rigorously.
+        overall_confidence = 50
+        overall_recommendation = "HOLD"
+        reason = "Mixed signals"
+
+        # Use SMC confidence if available and high
+        if smc_analysis and smc_analysis.get('confidence', 0) > 65:
+            overall_confidence = smc_analysis['confidence']
+            smc_bias = smc_analysis.get('smart_money_bias', 'NEUTRAL')
+            if smc_bias == 'BULLISH':
+                overall_recommendation = "BUY"
+                reason = "Strong bullish SMC bias"
+            elif smc_bias == 'BEARISH':
+                overall_recommendation = "SELL"
+                reason = "Strong bearish SMC bias"
+            else:
+                overall_recommendation = "HOLD"
+                reason = "SMC bias is neutral"
+        else:
+            # Use price momentum if SMC is not decisive
+            price_change_24h = cmc_data.get('percent_change_24h', 0) if cmc_data else 0
+            if price_change_24h > 5:
+                overall_recommendation = "BUY"
+                overall_confidence = 75
+                reason = f"Positive price momentum (+{price_change_24h:.1f}%)"
+            elif price_change_24h < -5:
+                overall_recommendation = "SELL"
+                overall_confidence = 75
+                reason = f"Negative price momentum ({price_change_24h:.1f}%)"
+            else:
+                overall_recommendation = "HOLD"
+                overall_confidence = 50
+                reason = "Neutral price movement"
+
+        return {
+            'recommendation': overall_recommendation,
+            'confidence': overall_confidence,
+            'reason': reason
+        }
+
+    # Placeholder for get_smc_analysis to avoid NameError
+    def get_smc_analysis(self, symbol, timeframe):
+        """Placeholder for SMC analysis function."""
+        # In a real scenario, this would call _get_smart_money_analysis and _calculate_smc_levels
+        # and combine them into a meaningful recommendation.
+        print(f"⚠️ Placeholder called: get_smc_analysis for {symbol} {timeframe}")
+        # Simulate some basic SMC analysis for placeholder
+        smc_data = self._get_smart_money_analysis(symbol)
+        smc_levels = self._calculate_smc_levels(symbol, smc_data, {}, {}) # Mock data for levels
+
+        recommendation = smc_data.get('smart_money_bias', 'HOLD')
+        confidence = smc_data.get('confidence', 50)
+        reason = smc_data.get('analysis_text', 'Placeholder analysis')
+
+        return {
+            'recommendation': recommendation,
+            'confidence': confidence,
+            'reason': reason,
+            'levels': smc_levels
+        }

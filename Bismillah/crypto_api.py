@@ -729,7 +729,7 @@ class CryptoAPI:
         """Get comprehensive analysis data using CoinMarketCap + Coinglass + Binance"""
         try:
             # Get comprehensive data from CoinMarketCap
-            cmc_data = self.cmc_provider.get_comprehensive_data(symbol)
+            cmc_data = self.get_coinmarketcap_data(symbol)
 
             # Get futures data from Coinglass
             futures_data = self.get_comprehensive_futures_data(symbol)
