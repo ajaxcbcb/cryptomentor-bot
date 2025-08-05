@@ -1,0 +1,62 @@
+Integrasikan semua endpoint CoinGlass API Startup plan ke dalam sistem, khususnya untuk command `/futures` dan `/futures_signals`.
+
+Lakukan langkah-langkah berikut:
+
+---
+
+1. 📦 Tambahkan pemanggilan data berikut dari CoinGlass API (kalau belum ada):
+
+- `/api/pro/v1/futures/ticker` → untuk real-time price & change
+- `/api/pro/v1/futures/open_interest` → open interest 24h, trend
+- `/api/pro/v1/futures/funding_rate` → funding rate (bearish/bullish bias)
+- `/api/pro/v1/futures/long_short_ratio` → crowd sentiment
+- `/api/pro/v1/futures/liquidation` → total likuidasi long vs short
+- `/api/pro/v1/futures/top_trader_position_ratio` → posisi trader besar
+- `/api/pro/v1/futures/global_position_ratio` → bias mayoritas global
+- `/api/pro/v1/futures/trend_score` → sinyal tren CoinGlass (jika tersedia)
+
+Simpan semua fungsi API di file `crypto_api.py` atau `coinglass_api.py`.
+
+---
+
+2. 🔁 Gunakan data tersebut untuk menyusun sinyal entry seperti:
+
+🧠 **ANALISA FUTURES ADVANCE - ETH (30m)**  
+📊 Funding: +0.01% (Bullish)  
+📈 Open Interest: naik 4.2% dalam 24 jam  
+📉 Likuidasi: $7M long, $1.2M short (market baru koreksi)  
+🧠 Long/Short Ratio: 47% / 53%  
+🔎 Global Bias: Bearish  
+👤 Top Trader: 62% posisi short  
+⚙️ Trend Score: -7.5 → Bearish kuat
+
+📢 Sinyal: **⏸️ HOLD POSITION**  
+📉 Confidence: 55%  
+🛡️ Rekomendasi: Tunggu demand zone baru + volume support  
+🎯 SL & TP tidak direkomendasikan jika setup belum jelas
+
+---
+
+3. ⚠️ Pastikan semua data CoinGlass dipanggil **secara real-time** dan sudah:
+- Menggunakan `coinglassSecret` dari Replit Secrets
+- Ditampilkan secara **profesional dan Telegram-safe**
+- Digabungkan ke dalam analisis logika di `/futures` dan `/futures_signals`
+- Menghapus ketergantungan data dari CoinAPI atau fallback CoinGecko
+
+---
+
+4. 🎯 Tambahkan logika SMC + SnD sebagai layer tambahan untuk validasi:
+- Jika SnD bullish, tapi Global Position Ratio bearish → hasil = HOLD
+- Jika Funding rate positif, OI naik, dan Top trader long → hasil = BUY
+- Confidence level disesuaikan dengan konsistensi sinyal antar sumber
+
+---
+
+5. Simpan perubahan di file berikut:
+- `ai_assistant.py` → untuk logic dan output analisis
+- `crypto_api.py` → untuk semua method pemanggil API CoinGlass
+- `futures_analysis.py` (jika kamu pisahkan modul)
+
+Pastikan **semua fungsi pemanggilan data CoinGlass dipanggil dan diolah dengan logika yang jelas**, dan seluruh output tampil rapi serta Telegram-friendly.
+
+Tujuan akhir: Command `/futures` dan `/futures_signals` menghasilkan sinyal entry yang **superior, berbasis data real-time, confidence score, dan risk management lanjutan dari CoinGlass premium.**

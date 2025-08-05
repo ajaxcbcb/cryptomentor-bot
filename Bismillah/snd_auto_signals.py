@@ -8,363 +8,66 @@ from database import Database
 class SnDAutoSignals:
     def __init__(self, bot_instance):
         self.bot = bot_instance
-        self.crypto_api = CryptoAPI()
-        self.db = Database()
+        self.db = bot_instance.db
+        self.crypto_api = bot_instance.crypto_api
+        self.ai = bot_instance.ai
 
-        # Top market cap coins only (Top 25 by market cap excluding stablecoins)
-        self.target_symbols = [
-            # Top 10 
-            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
-            # Top 11-20
-            'LINK', 'TRX', 'MATIC', 'TON', 'ICP', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
-            # Top 21-25
-            'LEO', 'CRO', 'ATOM', 'FIL', 'ETC'
-        ]
-
-        self.scan_interval = 7200  # 2 hours
-        self.min_confidence = 80   # High confidence for auto signals (changed from 65 to 80)
+        # Configuration
+        self.scan_interval = 30 * 60  # 30 minutes
+        self.min_confidence = 70
+        self.signal_cooldown = 3600  # 1 hour between same signals
         self.is_running = False
         self.last_scan_time = 0
 
+        # Target cryptocurrencies for auto signals (excluding problematic Binance symbols)
+        self.target_symbols = [
+            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
+            'LINK', 'TRX', 'MATIC', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
+            'ATOM', 'FIL', 'ETC', 'ALGO', 'VET', 'MANA', 'SAND'
+        ]
+
         # Anti-spam system
         self.sent_signals = {}  # Track sent signals: {symbol: {direction: timestamp}}
-        self.signal_cooldown = 14400  # 4 hours cooldown per symbol per direction
 
         print(f"🎯 Auto SnD Signals initialized with {len(self.target_symbols)} altcoins")
         print(f"⏰ Scan interval: {self.scan_interval // 60} minutes")
         print(f"📈 Min confidence: {self.min_confidence}%")
 
     async def start_auto_scanner(self):
-        """Start the auto SnD scanner"""
-        self.is_running = True
-        print("🚀 Auto SnD signals scanner started")
+        """Start the auto signal scanner"""
+        try:
+            if self.is_running:
+                print("[AUTO-SIGNAL SND] Scanner sudah berjalan")
+                return
 
-        while self.is_running:
-            try:
-                await self.scan_and_send_signals()
-                await asyncio.sleep(self.scan_interval)
-            except Exception as e:
-                print(f"❌ Error in auto scanner: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes on error
+            self.is_running = True
+            print(f"[AUTO-SIGNAL SND] ✅ Scanner started - Interval: {self.scan_interval//60} minutes")
+
+            while self.is_running:
+                try:
+                    print(f"[AUTO-SIGNAL SND] 🔄 Starting scan cycle...")
+                    await self.scan_and_send_signals()
+
+                    if self.is_running:  # Check if still running after scan
+                        print(f"[AUTO-SIGNAL SND] ⏰ Next scan in {self.scan_interval//60} minutes...")
+                        await asyncio.sleep(self.scan_interval)
+
+                except Exception as scan_error:
+                    print(f"[AUTO-SIGNAL SND] ❌ Scan error: {scan_error}")
+                    # Continue running even if one scan fails
+                    await asyncio.sleep(300)  # Wait 5 minutes before retry
+
+        except Exception as e:
+            print(f"[AUTO-SIGNAL SND] ❌ Scanner error: {e}")
+            self.is_running = False
 
     async def stop_auto_scanner(self):
         """Stop the auto SnD scanner"""
         self.is_running = False
-        print("🛑 Auto SnD signals scanner stopped")
-
-    async def scan_and_send_signals(self):
-        """Scan for SnD signals and send to eligible users"""
-        try:
-            self.last_scan_time = int(time.time())
-            print(f"🔄 Starting auto SnD scan at {datetime.now().strftime('%H:%M:%S')}")
-
-            # Get eligible users (admin + lifetime)
-            eligible_users = self.db.get_eligible_auto_signal_users()
-
-            if not eligible_users:
-                print("👥 No eligible users for auto signals")
-                return
-
-            print(f"👥 Found {len(eligible_users)} eligible users (Admin + Lifetime)")
-
-            # Randomize target symbols for variety
-            scan_symbols = random.sample(self.target_symbols, min(12, len(self.target_symbols)))
-            print(f"🎯 Scanning {len(scan_symbols)} symbols: {scan_symbols}")
-
-            signals = []
-            processed = 0
-
-            for symbol in scan_symbols:
-                try:
-                    processed += 1
-                    print(f"🔄 Processing {symbol} ({processed}/{len(scan_symbols)})")
-
-                    # Get enhanced SnD signal
-                    signal = await self._get_enhanced_signal(symbol)
-
-                    if signal and signal.get('confidence', 0) >= self.min_confidence:
-                        # Check for signal duplication/spam
-                        if self._is_signal_valid_and_new(signal):
-                            signals.append(signal)
-                            print(f"[AUTO-SIGNAL SND] ✅ Valid signal generated for {symbol} (confidence: {signal.get('confidence')}%)")
-                            print(f"[AUTO-SIGNAL SND] Entry Detected on {symbol} - Direction: {signal['direction']} - Confidence: {signal['confidence']:.1f}%")
-
-                            # Mark signal as sent to prevent spam
-                            self._mark_signal_as_sent(signal)
-                        else:
-                            print(f"[AUTO-SIGNAL SND] ⚠️ Signal for {symbol} rejected due to cooldown or duplication")
-                    else:
-                        confidence = signal.get('confidence', 0) if signal else 0
-                        print(f"[AUTO-SIGNAL SND] ❌ Signal for {symbol} rejected - confidence: {confidence:.1f}% < required {self.min_confidence}%")
-
-                    # Rate limiting
-                    await asyncio.sleep(2)
-
-                except Exception as e:
-                    print(f"❌ Error processing {symbol}: {e}")
-                    continue
-
-            if signals:
-                # Send signals to eligible users
-                await self._send_signals_to_users(signals, eligible_users)
-                print(f"📤 Sent {len(signals)} signals to {len(eligible_users)} users")
-            else:
-                print("⚠️ No qualifying signals found in this scan")
-
-        except Exception as e:
-            print(f"💥 Critical error in scan_and_send_signals: {e}")
-            import traceback
-            traceback.print_exc()
-
-    async def _get_enhanced_signal(self, symbol):
-        """Get enhanced SnD signal for a symbol"""
-        try:
-            # Get price from CoinAPI
-            #price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-
-            # Get futures data
-            futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
-            if 'error' in futures_data:
-                return None
-
-            # Check volume filter (only liquid coins)
-            price_data_futures = futures_data.get('price_data', {})
-            if 'error' not in price_data_futures:
-                volume_24h = price_data_futures.get('volume_24h', 0)
-                if volume_24h < 500000:  # Minimum $500k volume
-                    print(f"💧 {symbol} volume too low: ${volume_24h:,.0f}")
-                    return None
-
-            # Analyze SnD
-            snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
-            if 'error' in snd_analysis:
-                return None
-
-            # Generate signal using AI assistant
-            #signal = self.bot.ai._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
-            #return signal
-            signal = self.bot.ai._generate_enhanced_snd_signal(symbol, futures_data, snd_analysis)
-
-            return signal
-
-        except Exception as e:
-            print(f"Error getting signal for {symbol}: {e}")
-            return None
-
-    async def _send_signals_to_users(self, signals, eligible_users):
-        """Send auto signals to eligible users with enhanced logging"""
-        try:
-            print(f"[AUTO-SIGNAL SND] Starting signal broadcast to {len(eligible_users)} eligible users")
-
-            # Format the signals message
-            message = self._format_auto_signals_message(signals)
-
-            # Send to each eligible user
-            sent_count = 0
-            for user_data in eligible_users:
-                try:
-                    # Handle different user data formats
-                    if isinstance(user_data, dict):
-                        user_id = user_data.get('telegram_id') or user_data.get('user_id')
-                        user_name = user_data.get('first_name', 'User')
-                    elif isinstance(user_data, (list, tuple)) and len(user_data) > 0:
-                        user_id = user_data[0]
-                        user_name = user_data[1] if len(user_data) > 1 else 'User'
-                    elif isinstance(user_data, int):
-                        user_id = user_data
-                        user_name = 'User'
-                    else:
-                        print(f"[AUTO-SIGNAL SND] ❌ Invalid user format: {user_data}")
-                        continue
-
-                    if not user_id:
-                        print(f"[AUTO-SIGNAL SND] ❌ No user_id found for user: {user_data}")
-                        continue
-
-                    await self.bot.application.bot.send_message(
-                        chat_id=user_id,
-                        text=message,
-                        parse_mode='Markdown'
-                    )
-                    sent_count += 1
-                    print(f"[AUTO-SIGNAL SND] ✅ Signal sent to user {user_id} ({user_name})")
-
-                    # Log each signal sent
-                    for signal in signals:
-                        print(f"[AUTO-SIGNAL SND] Entry Detected on {signal['symbol']} - Direction: {signal['direction']} - Confidence: {signal['confidence']:.1f}%")
-
-                    await asyncio.sleep(0.5)  # Rate limiting
-
-                except Exception as e:
-                    print(f"[AUTO-SIGNAL SND] ❌ Failed to send to user {user_id}: {e}")
-
-            print(f"[AUTO-SIGNAL SND] ✅ Successfully sent auto signals to {sent_count}/{len(eligible_users)} users")
-
-        except Exception as e:
-            print(f"[AUTO-SIGNAL SND] ❌ Error sending signals to users: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def _is_signal_valid_and_new(self, signal):
-        """Check if signal is valid and not spam"""
-        try:
-            symbol = signal['symbol']
-            direction = signal['direction']
-            current_time = time.time()
-
-            # Check if we've sent this signal recently
-            if symbol in self.sent_signals:
-                if direction in self.sent_signals[symbol]:
-                    last_sent = self.sent_signals[symbol][direction]
-                    if current_time - last_sent < self.signal_cooldown:
-                        remaining_time = self.signal_cooldown - (current_time - last_sent)
-                        print(f"[AUTO-SIGNAL SND] ⏰ Cooldown active for {symbol} {direction}: {remaining_time/3600:.1f}h remaining")
-                        return False
-
-            print(f"[AUTO-SIGNAL SND] ✅ Signal validation passed for {symbol} {direction}")
-            return True
-
-        except Exception as e:
-            print(f"[AUTO-SIGNAL SND] ❌ Error validating signal: {e}")
-            return False
-
-    def _mark_signal_as_sent(self, signal):
-        """Mark signal as sent to prevent spam"""
-        try:
-            symbol = signal['symbol']
-            direction = signal['direction']
-            current_time = time.time()
-
-            if symbol not in self.sent_signals:
-                self.sent_signals[symbol] = {}
-
-            self.sent_signals[symbol][direction] = current_time
-            print(f"[AUTO-SIGNAL SND] 📝 Marked {symbol} {direction} as sent at {datetime.now().strftime('%H:%M:%S')}")
-
-        except Exception as e:
-            print(f"[AUTO-SIGNAL SND] ❌ Error marking signal as sent: {e}")
-
-    def _format_auto_signals_message(self, signals):
-        """Format auto signals message"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
-
-            message = f"""🚨 **AUTO SnD SIGNALS ALERT** (High Confidence Only)
-
-🎯 **Auto-Generated**: {current_time}
-📊 **Signals Found**: {len(signals)} ultra-high confidence setups
-🔍 **Scan**: {len(self.target_symbols)} altcoins analyzed
-⚡ **Min Confidence**: {self.min_confidence}%+ (Ultra-High Only)
-🛡️ **Anti-Spam**: Active (4h cooldown per coin/direction)
-
-"""
-
-            for i, signal in enumerate(signals[:4], 1):  # Max 4 auto signals
-                symbol = signal['symbol']
-                direction = signal['direction']
-                entry = signal['entry_price']
-                tp1 = signal['tp1']
-                tp2 = signal['tp2']
-                sl = signal['sl']
-                confidence = signal['confidence']
-                rr = signal['risk_reward']
-
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-                confidence_emoji = "🔥" if confidence >= 80 else "⚡"
-
-                # Smart price formatting
-                if entry < 1:
-                    entry_fmt = f"${entry:.6f}"
-                    tp1_fmt = f"${tp1:.6f}"
-                    tp2_fmt = f"${tp2:.6f}"
-                    sl_fmt = f"${sl:.6f}"
-                elif entry < 100:
-                    entry_fmt = f"${entry:.4f}"
-                    tp1_fmt = f"${tp1:.4f}"
-                    tp2_fmt = f"${tp2:.4f}"
-                    sl_fmt = f"${sl:.4f}"
-                else:
-                    entry_fmt = f"${entry:,.2f}"
-                    tp1_fmt = f"${tp1:,.2f}"
-                    tp2_fmt = f"${tp2:,.2f}"
-                    sl_fmt = f"${sl:.2f}"
-
-                message += f"""**{i}. {symbol} {direction}** {direction_emoji} {confidence_emoji}
-Entry: {entry_fmt} | TP1: {tp1_fmt} | TP2: {tp2_fmt}
-SL: {sl_fmt} | R/R: {rr:.1f}:1 | Conf: {confidence:.0f}%
-
-"""
-
-            message += f"""⚠️ **Auto Signal Rules:**
-• Verify entry zones before position
-• Use proper position sizing (1-3%)
-• Set stop loss immediately
-• Monitor price action for confirmation
-
-🎯 **Exclusive**: Admin & Lifetime users only
-📡 **Next Scan**: {self.scan_interval // 60} minutes
-
-⚠️ Not financial advice - DYOR"""
-
-            return message
-
-        except Exception as e:
-            return f"❌ Error formatting auto signals: {str(e)}"
-
-def initialize_auto_signals(bot_instance):
-    """Initialize auto signals system"""
-    try:
-        return SnDAutoSignals(bot_instance)
-    except Exception as e:
-        print(f"❌ Failed to initialize auto signals: {e}")
-        return None
-
-class SnDAutoSignals:
-    def __init__(self, bot_instance):
-        self.bot = bot_instance
-        self.crypto_api = CryptoAPI()
-        self.db = Database()
-        self.is_running = False
-        self.scan_interval = 1800  # 30 minutes
-
-        # Top market cap coins only (Top 25 by market cap excluding stablecoins)
-        self.target_symbols = [
-            # Top 10 
-            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
-            # Top 11-20
-            'LINK', 'TRX', 'MATIC', 'TON', 'ICP', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
-            # Top 21-25
-            'LEO', 'CRO', 'ATOM', 'FIL', 'ETC'
-        ]
-
-        self.min_confidence = 70  # Minimum confidence level
-        self.last_scan_time = 0
-
-    async def start_auto_scanner(self):
-        """Start automatic SnD signal scanner"""
-        if self.is_running:
-            print("⚠️ Auto scanner already running")
-            return
-
-        self.is_running = True
-        print(f"🚀 Starting enhanced SnD auto scanner for {len(self.target_symbols)} altcoins...")
-        print(f"📊 Scan interval: {self.scan_interval} seconds ({self.scan_interval/60:.1f} minutes)")
-
-        while self.is_running:
-            try:
-                await self.scan_and_send_signals()
-                await asyncio.sleep(self.scan_interval)
-            except Exception as e:
-                print(f"❌ Error in auto scanner: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes on error
-
-    async def stop_auto_scanner(self):
-        """Stop automatic scanner"""
-        self.is_running = False
         print("🛑 Enhanced SnD auto scanner stopped")
 
     async def scan_and_send_signals(self):
-        """Scan symbols and send high-confidence signals"""
+        """Scan for SnD signals and send to eligible users"""
         scan_start = time.time()
         print(f"🔍 Scanning {len(self.target_symbols)} altcoins for enhanced SnD signals...")
 
@@ -428,7 +131,7 @@ class SnDAutoSignals:
             #    base_confidence += 10
             #    reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
             #elif change_24h < -3:
-            #    direction = "SHORT" 
+            #    direction = "SHORT"
             #    base_confidence += 10
             #    reason = f"Strong bearish momentum ({change_24h:.1f}%)"
             # Secondary logic: Long/Short ratio (contrarian approach)
@@ -466,17 +169,17 @@ class SnDAutoSignals:
             #if direction == "LONG":
             #    entry_price = current_price * 0.997  # Better entry
             #    tp1 = current_price * 1.03   # 3% profit
-            #    tp2 = current_price * 1.055  # 5.5% profit  
+            #    tp2 = current_price * 1.055  # 5.5% profit
             #    sl = current_price * 0.97    # 3% loss
             #else:  # SHORT
-            #    entry_price = current_price * 1.003  # Better entry 
+            #    entry_price = current_price * 1.003  # Better entry
             #    tp1 = current_price * 0.97   # 3% profit
             #    tp2 = current_price * 0.945  # 5.5% profit
             #    sl = current_price * 1.03    # 3% loss
             current_price = 100 #Dummy price
             entry_price = current_price * 0.997  # Better entry
             tp1 = current_price * 1.03   # 3% profit
-            tp2 = current_price * 1.055  # 5.5% profit  
+            tp2 = current_price * 1.055  # 5.5% profit
             sl = current_price * 0.97    # 3% loss
 
             # Risk/Reward calculation
@@ -494,7 +197,7 @@ class SnDAutoSignals:
 
             return {
                 'symbol': symbol,
-                'direction': direction,  
+                'direction': direction,
                 'entry_price': round(entry_price, 6),
                 'tp1': round(tp1, 6),
                 'tp2': round(tp2, 6),
@@ -653,6 +356,237 @@ class SnDAutoSignals:
 
         return message
 
+    def _get_enhanced_snd_analysis(self, symbol):
+        """Get enhanced Supply & Demand analysis with error handling"""
+        try:
+            # Get candlestick data for SnD analysis
+            candlestick_data = self.crypto_api.get_candlestick_data(symbol, '1h', 100)
+
+            if 'error' in candlestick_data:
+                return {'error': candlestick_data['error']}
+
+            candles = candlestick_data.get('data', [])
+            if not candles or len(candles) < 20:
+                return {'error': 'Insufficient candlestick data'}
+
+            # Extract price data with validation
+            try:
+                highs = [float(candle[2]) for candle in candles if len(candle) > 2]
+                lows = [float(candle[3]) for candle in candles if len(candle) > 3]
+                closes = [float(candle[4]) for candle in candles if len(candle) > 4]
+                volumes = [float(candle[5]) for candle in candles if len(candle) > 5]
+
+                # Validate we have enough data
+                if not highs or not lows or not closes or not volumes:
+                    return {'error': 'Invalid candlestick data structure'}
+
+                if len(highs) < 20 or len(lows) < 20 or len(closes) < 20:
+                    return {'error': 'Insufficient price data after filtering'}
+
+            except (ValueError, IndexError) as e:
+                return {'error': f'Price data parsing error: {str(e)}'}
+
+            current_price = closes[-1]
+
+            # Calculate key levels with validation
+            resistance_levels = self._calculate_resistance_levels(highs, closes)
+            support_levels = self._calculate_support_levels(lows, closes)
+
+            # Volume analysis
+            volume_trend = self._analyze_volume_trend(volumes, closes)
+
+            # Generate signals
+            signal = self._generate_snd_signal(
+                current_price, resistance_levels, support_levels,
+                volume_trend, highs, lows, closes
+            )
+
+            return signal
+
+        except Exception as e:
+            return {'error': f'Enhanced SnD analysis error: {str(e)}'}
+
+    def _calculate_resistance_levels(self, highs, closes):
+        """Calculate resistance levels using pivot points"""
+        try:
+            # Validate input data
+            if not highs or len(highs) < 10:
+                return []
+
+            # Find local maxima for resistance
+            resistance_levels = []
+            window = min(5, len(highs) // 4)  # Adaptive window size
+
+            for i in range(window, len(highs) - window):
+                local_highs = highs[i-window:i+window+1]
+                if local_highs and highs[i] == max(local_highs):
+                    resistance_levels.append(highs[i])
+
+            # Get strongest resistance levels
+            if resistance_levels:
+                resistance_levels.sort(reverse=True)
+                return resistance_levels[:3]  # Top 3 resistance levels
+            else:
+                # Fallback: use recent highs
+                recent_highs = sorted(highs[-20:], reverse=True)
+                return recent_highs[:3] if recent_highs else []
+
+        except Exception as e:
+            print(f"❌ Resistance calculation error: {e}")
+            return []
+
+    def _calculate_support_levels(self, lows, closes):
+        """Calculate support levels using pivot points"""
+        try:
+            # Validate input data
+            if not lows or len(lows) < 10:
+                return []
+
+            # Find local minima for support
+            support_levels = []
+            window = min(5, len(lows) // 4)  # Adaptive window size
+
+            for i in range(window, len(lows) - window):
+                local_lows = lows[i-window:i+window+1]
+                if local_lows and lows[i] == min(local_lows):
+                    support_levels.append(lows[i])
+
+            # Get strongest support levels
+            if support_levels:
+                support_levels.sort()
+                return support_levels[:3]  # Top 3 support levels
+            else:
+                # Fallback: use recent lows
+                recent_lows = sorted(lows[-20:])
+                return recent_lows[:3] if recent_lows else []
+
+        except Exception as e:
+            print(f"❌ Support calculation error: {e}")
+            return []
+
+    def _analyze_volume_trend(self, volumes, closes):
+        """Analyze volume trend relative to price"""
+        try:
+            if len(volumes) < 5: return 0
+
+            recent_volumes = volumes[-5:]
+            avg_volume = sum(recent_volumes) / len(recent_volumes)
+
+            # Check for significant volume increase
+            if recent_volumes[-1] > avg_volume * 1.5:
+                if closes[-1] > closes[-2]: # Price increased with volume
+                    return 1 # Bullish volume
+                elif closes[-1] < closes[-2]: # Price decreased with volume
+                    return -1 # Bearish volume
+
+            return 0 # Neutral volume
+
+        except Exception as e:
+            print(f"❌ Volume trend analysis error: {e}")
+            return 0
+
+    def _generate_snd_signal(self, current_price, resistance_levels, support_levels, volume_trend, highs, lows, closes):
+        """Generate an SnD signal based on analysis"""
+        signal = {
+            'symbol': self.current_symbol, # Need to set this from caller
+            'direction': 'LONG', # Default
+            'entry_price': current_price,
+            'tp1': current_price,
+            'tp2': current_price,
+            'sl': current_price,
+            'confidence': 50,
+            'risk_reward': 1.0,
+            'current_price': current_price,
+            'trend': 'neutral',
+            'market_structure': 'sideways',
+            'risk_level': 'medium',
+            'timeframe': '1h',
+            'scan_time': datetime.now().strftime('%H:%M:%S'),
+            'reason': 'Initial analysis',
+            'zone_strength': 50,
+            'long_ratio': 50, # Default if not available
+            #'change_24h': 0 # Default if not available
+        }
+
+        # Determine trend
+        if closes[-1] > closes[-5] and closes[-5] > closes[-10]:
+            signal['trend'] = 'bullish'
+        elif closes[-1] < closes[-5] and closes[-5] < closes[-10]:
+            signal['trend'] = 'bearish'
+
+        # Determine market structure and generate signal
+        is_in_support = any(current_price >= support <= current_price * 1.02 for support in support_levels)
+        is_near_resistance = any(current_price >= resistance * 0.98 and current_price <= resistance for resistance in resistance_levels)
+
+        if is_in_support:
+            signal['direction'] = 'LONG'
+            signal['reason'] = 'Price at support level'
+            signal['market_structure'] = 'uptrend_bias'
+            signal['confidence'] += 15
+            signal['zone_strength'] = 75
+
+            # Set TP/SL for LONG
+            signal['entry_price'] = current_price * 0.995 # Slightly below current
+            signal['sl'] = support_levels[0] * 0.99 if support_levels else current_price * 0.97
+            signal['tp1'] = signal['entry_price'] * 1.02 # 2% profit
+            signal['tp2'] = signal['entry_price'] * 1.04 # 4% profit
+
+            risk = abs(signal['entry_price'] - signal['sl'])
+            reward = abs(signal['tp2'] - signal['entry_price'])
+            signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
+            signal['confidence'] = min(95, signal['confidence'] + int(signal['risk_reward'] * 5))
+
+        elif is_near_resistance:
+            signal['direction'] = 'SHORT'
+            signal['reason'] = 'Price near resistance level'
+            signal['market_structure'] = 'downtrend_bias'
+            signal['confidence'] += 15
+            signal['zone_strength'] = 75
+
+            # Set TP/SL for SHORT
+            signal['entry_price'] = current_price * 1.005 # Slightly above current
+            signal['sl'] = resistance_levels[0] * 1.01 if resistance_levels else current_price * 1.03
+            signal['tp1'] = signal['entry_price'] * 0.98 # 2% profit
+            signal['tp2'] = signal['entry_price'] * 0.96 # 4% profit
+
+            risk = abs(signal['entry_price'] - signal['sl'])
+            reward = abs(signal['tp2'] - signal['entry_price'])
+            signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
+            signal['confidence'] = min(95, signal['confidence'] + int(signal['risk_reward'] * 5))
+
+        else: # Sideways or no clear S/R
+            if signal['trend'] == 'bullish':
+                signal['direction'] = 'LONG'
+                signal['reason'] = 'Bullish trend continuation'
+                signal['market_structure'] = 'uptrend'
+                signal['confidence'] += 5
+            elif signal['trend'] == 'bearish':
+                signal['direction'] = 'SHORT'
+                signal['reason'] = 'Bearish trend continuation'
+                signal['market_structure'] = 'downtrend'
+                signal['confidence'] += 5
+            else:
+                signal['reason'] = 'Consolidation or unclear trend'
+
+        # Incorporate volume trend
+        if volume_trend > 0 and signal['direction'] == 'LONG':
+            signal['confidence'] += 5
+            signal['zone_strength'] = min(90, signal['zone_strength'] + 5)
+        elif volume_trend < 0 and signal['direction'] == 'SHORT':
+            signal['confidence'] += 5
+            signal['zone_strength'] = min(90, signal['zone_strength'] + 5)
+
+        # Ensure confidence is within bounds
+        signal['confidence'] = max(30, min(95, signal['confidence']))
+
+        # Adjust entry for slightly better price if not already set
+        if is_in_support and signal['entry_price'] == current_price:
+            signal['entry_price'] = current_price * 0.995
+        elif is_near_resistance and signal['entry_price'] == current_price:
+            signal['entry_price'] = current_price * 1.005
+
+        return signal
+
 # Initialize function for the auto signals system
 def initialize_auto_signals(bot_instance):
     """Initialize the auto signals system"""
@@ -664,110 +598,110 @@ def initialize_auto_signals(bot_instance):
         print(f"❌ Failed to initialize auto signals: {e}")
         return None
 
-    async def send_auto_signals_to_users(self, signals):
-        """Send signals to eligible users (Admin + Lifetime)"""
-        try:
-            eligible_users = self.db.get_eligible_auto_signal_users()
+async def send_auto_signals_to_users(self, signals):
+    """Send signals to eligible users (Admin + Lifetime)"""
+    try:
+        eligible_users = self.db.get_eligible_auto_signal_users()
 
-            if not eligible_users:
-                print("📊 No eligible users for auto signals")
-                return
+        if not eligible_users:
+            print("📊 No eligible users for auto signals")
+            return
 
-            print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
+        print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
 
-            # Format signals message
-            message = self._format_auto_signals_message(signals)
+        # Format signals message
+        message = self._format_auto_signals_message(signals)
 
-            # Send to each eligible user
-            for user in eligible_users:
-                try:
-                    # Handle different user data formats
-                    if isinstance(user, dict):
-                        user_id = user.get('telegram_id') or user.get('id')
-                    elif isinstance(user, (list, tuple)) and len(user) > 0:
-                        user_id = user[0]  # First element should be telegram_id
-                    elif isinstance(user, (int, str)):
-                        user_id = int(user)
-                    else:
-                        print(f"⚠️ Unknown user format: {user} (type: {type(user)})")
-                        continue
-
-                    if not user_id:
-                        print(f"⚠️ No user_id found for user: {user}")
-                        continue
-
-                    await self.bot.application.bot.send_message(
-                        chat_id=int(user_id),
-                        text=message,
-                        parse_mode='Markdown'
-                    )
-
-                    print(f"✅ Sent auto signals to user {user_id}")
-                    await asyncio.sleep(0.5)  # Rate limiting
-
-                except Exception as e:
-                    print(f"❌ Failed to send to user {user_id}: {e}")
+        # Send to each eligible user
+        for user in eligible_users:
+            try:
+                # Handle different user data formats
+                if isinstance(user, dict):
+                    user_id = user.get('telegram_id') or user.get('id')
+                elif isinstance(user, (list, tuple)) and len(user) > 0:
+                    user_id = user[0]  # First element should be telegram_id
+                elif isinstance(user, (int, str)):
+                    user_id = int(user)
+                else:
+                    print(f"⚠️ Unknown user format: {user} (type: {type(user)})")
                     continue
 
-        except Exception as e:
-            print(f"❌ Error sending auto signals: {e}")
-            import traceback
-            traceback.print_exc()
+                if not user_id:
+                    print(f"⚠️ No user_id found for user: {user}")
+                    continue
+
+                await self.bot.application.bot.send_message(
+                    chat_id=int(user_id),
+                    text=message,
+                    parse_mode='Markdown'
+                )
+
+                print(f"✅ Sent auto signals to user {user_id}")
+                await asyncio.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                print(f"❌ Failed to send to user {user_id}: {e}")
+                continue
+
+    except Exception as e:
+        print(f"❌ Error sending auto signals: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def send_signals_to_users(self, signals):
-        """Send signals to eligible users"""
-        try:
-            if not signals:
-                print("📊 No signals to send")
-                return
+    """Send signals to eligible users"""
+    try:
+        if not signals:
+            print("📊 No signals to send")
+            return
 
-            # Get eligible users (Admin + Lifetime premium)
-            eligible_users = self.db.get_eligible_auto_signal_users()
+        # Get eligible users (Admin + Lifetime premium)
+        eligible_users = self.db.get_eligible_auto_signal_users()
 
-            if not eligible_users:
-                print("👥 No eligible users for auto signals")
-                return
+        if not eligible_users:
+            print("👥 No eligible users for auto signals")
+            return
 
-            print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
+        print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
 
-            # Format signals message
-            message = self._format_auto_signals_message(signals)
+        # Format signals message
+        message = self._format_auto_signals_message(signals)
 
-            # Send to each eligible user
-            for user in eligible_users:
-                try:
-                    # Handle different user data formats
-                    if isinstance(user, dict):
-                        user_id = user.get('telegram_id')
-                        user_name = user.get('first_name', 'User')
-                    elif isinstance(user, (list, tuple)) and len(user) > 0:
-                        user_id = user[0]
-                        user_name = user[1] if len(user) > 1 else 'User'
-                    elif isinstance(user, int):
-                        user_id = user
-                        user_name = 'User'
-                    else:
-                        print(f"❌ Invalid user format: {user}")
-                        continue
+        # Send to each eligible user
+        for user in eligible_users:
+            try:
+                # Handle different user data formats
+                if isinstance(user, dict):
+                    user_id = user.get('telegram_id')
+                    user_name = user.get('first_name', 'User')
+                elif isinstance(user, (list, tuple)) and len(user) > 0:
+                    user_id = user[0]
+                    user_name = user[1] if len(user) > 1 else 'User'
+                elif isinstance(user, int):
+                    user_id = user
+                    user_name = 'User'
+                else:
+                    print(f"❌ Invalid user format: {user}")
+                    continue
 
-                    if not user_id:
-                        print(f"❌ No user_id found for user: {user}")
-                        continue
+                if not user_id:
+                    print(f"❌ No user_id found for user: {user}")
+                    continue
 
-                    await self.bot.application.bot.send_message(
-                        chat_id=user_id,
-                        text=message,
-                        parse_mode='Markdown'
-                    )
-                    print(f"✅ Sent auto signals to user {user_id} ({user_name})")
+                await self.bot.application.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+                print(f"✅ Sent auto signals to user {user_id} ({user_name})")
 
-                    # Log the activity
-                    self.db.log_user_activity(user_id, "auto_signal_received", f"Received {len(signals)} auto SnD signals")
+                # Log the activity
+                self.db.log_user_activity(user_id, "auto_signal_received", f"Received {len(signals)} auto SnD signals")
 
-                except Exception as e:
-                    print(f"❌ Failed to send signals to user {user_id}: {e}")
+            except Exception as e:
+                print(f"❌ Failed to send signals to user {user_id}: {e}")
 
-        except Exception as e:
-            print(f"❌ Error sending auto signals: {e}")
-            import traceback
-            traceback.print_exc()
+    except Exception as e:
+        print(f"❌ Error sending auto signals: {e}")
+        import traceback
+        traceback.print_exc()
