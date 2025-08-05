@@ -168,7 +168,7 @@ class AIAssistant:
             return {'error': f"Coinglass open interest error: {str(e)}"}
 
     def _analyze_smc_structure(self, long_short_data, oi_data, symbol):
-        """Analyze Smart Money Concepts (SMC) structure using Coinglass data"""
+        """Analyze Smart Money Concepts (SMC) structure using Coinglass data with null safety"""
         try:
             smc_analysis = {
                 'market_structure': 'neutral',
@@ -182,13 +182,34 @@ class AIAssistant:
                 'smc_note': ''
             }
 
-            if 'error' in long_short_data or 'error' in oi_data:
+            # Null check for input data
+            if (not long_short_data or 
+                not oi_data or 
+                'error' in long_short_data or 
+                'error' in oi_data):
                 smc_analysis['smc_signals'].append('⚠️ Insufficient data for SMC analysis.')
                 return smc_analysis
 
-            long_ratio = long_short_data.get('long_ratio', 50)
-            oi_change = oi_data.get('oi_change_percent', 0)
-            funding_rate = oi_data.get('funding_rate', 0)
+            # Extract values with null checks and defaults
+            long_ratio = long_short_data.get('long_ratio')
+            oi_change = oi_data.get('oi_change_percent')
+            funding_rate = oi_data.get('funding_rate')
+            
+            # Validate extracted values
+            if long_ratio is None:
+                long_ratio = 50.0
+            else:
+                long_ratio = float(long_ratio)
+                
+            if oi_change is None:
+                oi_change = 0.0
+            else:
+                oi_change = float(oi_change)
+                
+            if funding_rate is None:
+                funding_rate = 0.0
+            else:
+                funding_rate = float(funding_rate)
 
             confidence_score = 50
 
@@ -238,7 +259,6 @@ class AIAssistant:
             else:
                 smc_analysis['smc_signals'].append(f'⚖️ Neutral Funding Rate ({funding_rate*100:.4f}%).')
 
-
             # 4. Determine entry type based on SMC bias and confidence
             if confidence_score >= 75: # High confidence for signals
                 if smc_analysis['smart_money_bias'] == 'bullish':
@@ -254,29 +274,33 @@ class AIAssistant:
                 smc_analysis['entry_type'] = 'HOLD'
                 smc_analysis['smc_note'] = "Market lacks clear smart money direction."
 
-
-            # 5. Generate liquidity zones (simplified)
-            # This is a placeholder, real liquidity sweep detection requires price action analysis
-            # For now, we infer potential liquidity areas based on bias.
-            if smc_analysis['smart_money_bias'] == 'bullish':
-                smc_analysis['liquidity_zones'].append(
-                    {'type': 'support', 'price': self._get_estimated_price(symbol) * 0.97, 'strength': 'high', 'smc_note': 'Potential support liquidity'}
-                )
-                smc_analysis['liquidity_sweep'] = True # Assume potential sweep if bullish bias
-                smc_analysis['smc_signals'].append("✅ Potential bullish liquidity sweep expected.")
-            elif smc_analysis['smart_money_bias'] == 'bearish':
-                 smc_analysis['liquidity_zones'].append(
-                    {'type': 'resistance', 'price': self._get_estimated_price(symbol) * 1.03, 'strength': 'high', 'smc_note': 'Potential resistance liquidity'}
-                )
-                 smc_analysis['liquidity_sweep'] = True # Assume potential sweep if bearish bias
-                 smc_analysis['smc_signals'].append("✅ Potential bearish liquidity sweep expected.")
-
+            # 5. Generate liquidity zones (simplified) with null safety
+            try:
+                base_price = self._get_estimated_price(symbol)
+                if base_price and base_price > 0:
+                    if smc_analysis['smart_money_bias'] == 'bullish':
+                        smc_analysis['liquidity_zones'].append(
+                            {'type': 'support', 'price': base_price * 0.97, 'strength': 'high', 'smc_note': 'Potential support liquidity'}
+                        )
+                        smc_analysis['liquidity_sweep'] = True
+                        smc_analysis['smc_signals'].append("✅ Potential bullish liquidity sweep expected.")
+                    elif smc_analysis['smart_money_bias'] == 'bearish':
+                         smc_analysis['liquidity_zones'].append(
+                            {'type': 'resistance', 'price': base_price * 1.03, 'strength': 'high', 'smc_note': 'Potential resistance liquidity'}
+                        )
+                         smc_analysis['liquidity_sweep'] = True
+                         smc_analysis['smc_signals'].append("✅ Potential bearish liquidity sweep expected.")
+            except Exception as e:
+                print(f"⚠️ Error generating liquidity zones: {e}")
+                # Continue without liquidity zones
 
             smc_analysis['confidence'] = min(95, max(30, confidence_score))
             return smc_analysis
 
         except Exception as e:
             print(f"❌ SMC analysis error: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'market_structure': 'unknown',
                 'smart_money_bias': 'neutral',
@@ -284,7 +308,7 @@ class AIAssistant:
                 'confidence': 30,
                 'entry_type': 'HOLD',
                 'accumulation_distribution': 'neutral',
-                'smc_signals': [f'⚠️ Error during SMC analysis: {str(e)}'],
+                'smc_signals': [f'⚠️ Error during SMC analysis: {str(e)[:50]}...'],
                 'liquidity_sweep': False,
                 'smc_note': 'SMC analysis failed.'
             }
@@ -1581,81 +1605,142 @@ Error processing data:
         
         return self._escape_markdown_v2(formatted) if escape else formatted
 
+    def _format_price_display(self, price):
+        """Format price for display with null safety"""
+        if price is None or price <= 0:
+            return "$0.00"
+        
+        try:
+            price = float(price)
+            if price < 1:
+                return f"${price:.8f}"
+            elif price < 100:
+                return f"${price:.4f}"
+            else:
+                return f"${price:,.2f}"
+        except (ValueError, TypeError):
+            return "$0.00"
+
+    def _format_currency_display(self, amount):
+        """Format currency for display with null safety"""
+        if amount is None or amount <= 0:
+            return "$0"
+        
+        try:
+            amount = float(amount)
+            if amount >= 1_000_000_000_000:
+                return f"${amount/1_000_000_000_000:.2f}T"
+            elif amount >= 1_000_000_000:
+                return f"${amount/1_000_000_000:.2f}B"
+            elif amount >= 1_000_000:
+                return f"${amount/1_000_000:.1f}M"
+            else:
+                return f"${amount:,.0f}"
+        except (ValueError, TypeError):
+            return "$0"
+
     def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, crypto_api=None):
-        """Get comprehensive analysis using multi-API integration with proper MarkdownV2 formatting"""
+        """Get comprehensive analysis using multi-API integration with proper null checks and error handling"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             data_sources = []
             successful_sources = 0
             total_sources = 4  # Binance, CMC, CoinGlass, News
             
-            # Initialize data containers
-            binance_data = {}
-            cmc_data = {}
-            coinglass_data = {}
-            news_sentiment = {}
+            # Initialize data containers with safe defaults
+            binance_data = {'error': 'Not fetched'}
+            cmc_data = {'error': 'Not fetched'}
+            coinglass_data = {'error': 'Not fetched'}
+            news_sentiment = {'error': 'Not fetched'}
             
-            # 1. Get Binance real-time price data
+            # 1. Get Binance real-time price data with null checks
             try:
-                binance_data = crypto_api.get_crypto_price(symbol, force_refresh=True) if crypto_api else {}
-                if 'error' not in binance_data and binance_data.get('price', 0) > 0:
-                    data_sources.append("✅ Binance")
-                    successful_sources += 1
+                if crypto_api:
+                    binance_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                    if (binance_data and 
+                        isinstance(binance_data, dict) and 
+                        'error' not in binance_data and 
+                        binance_data.get('price') is not None and 
+                        binance_data.get('price', 0) > 0):
+                        data_sources.append("✅ Binance")
+                        successful_sources += 1
+                    else:
+                        data_sources.append("⚠️ Binance")
+                        binance_data = {'error': 'Invalid data'}
                 else:
-                    data_sources.append("⚠️ Binance")
+                    data_sources.append("❌ Binance")
             except Exception as e:
                 data_sources.append("❌ Binance")
+                binance_data = {'error': f'Exception: {str(e)}'}
                 print(f"Binance API error: {e}")
 
-            # 2. Get CoinMarketCap comprehensive data
+            # 2. Get CoinMarketCap comprehensive data with null checks
             try:
-                if crypto_api and crypto_api.cmc_provider.api_key:
+                if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider and crypto_api.cmc_provider.api_key:
                     cmc_data = crypto_api.cmc_provider.get_cryptocurrency_quotes(symbol)
-                    cmc_info = crypto_api.cmc_provider.get_cryptocurrency_info(symbol)
                     
-                    if 'error' not in cmc_data:
+                    if (cmc_data and 
+                        isinstance(cmc_data, dict) and 
+                        'error' not in cmc_data):
+                        
+                        # Get additional info and merge safely
+                        try:
+                            cmc_info = crypto_api.cmc_provider.get_cryptocurrency_info(symbol)
+                            if cmc_info and isinstance(cmc_info, dict) and 'error' not in cmc_info:
+                                cmc_data.update(cmc_info)
+                        except:
+                            pass  # Info is optional
+                        
                         data_sources.append("✅ CoinMarketCap")
                         successful_sources += 1
-                        # Merge info data
-                        if 'error' not in cmc_info:
-                            cmc_data.update(cmc_info)
                     else:
                         data_sources.append("⚠️ CoinMarketCap")
+                        cmc_data = {'error': 'Invalid response'}
                 else:
                     data_sources.append("❌ CoinMarketCap")
+                    cmc_data = {'error': 'API not available'}
             except Exception as e:
                 data_sources.append("❌ CoinMarketCap")
+                cmc_data = {'error': f'Exception: {str(e)}'}
                 print(f"CoinMarketCap API error: {e}")
 
-            # 3. Get CoinGlass futures data
+            # 3. Get CoinGlass futures data with null checks
             try:
                 if crypto_api and self.coinglass_key:
                     ls_data = self._get_coinglass_long_short_data(symbol)
                     oi_data = self._get_coinglass_open_interest_data(symbol)
                     
+                    # Validate both data sources
+                    ls_valid = (ls_data and isinstance(ls_data, dict) and 'error' not in ls_data)
+                    oi_valid = (oi_data and isinstance(oi_data, dict) and 'error' not in oi_data)
+                    
                     coinglass_data = {
-                        'long_short': ls_data,
-                        'open_interest': oi_data
+                        'long_short': ls_data if ls_valid else {'error': 'Invalid LS data'},
+                        'open_interest': oi_data if oi_valid else {'error': 'Invalid OI data'}
                     }
                     
-                    if 'error' not in ls_data or 'error' not in oi_data:
+                    if ls_valid or oi_valid:
                         data_sources.append("✅ CoinGlass")
                         successful_sources += 1
                     else:
                         data_sources.append("⚠️ CoinGlass")
                 else:
                     data_sources.append("❌ CoinGlass")
+                    coinglass_data = {'error': 'API not available'}
             except Exception as e:
                 data_sources.append("❌ CoinGlass")
+                coinglass_data = {'error': f'Exception: {str(e)}'}
                 print(f"CoinGlass API error: {e}")
 
-            # 4. Get news sentiment (simplified)
+            # 4. Get news sentiment with null checks
             try:
                 if crypto_api:
                     news_data = crypto_api.get_crypto_news(limit=3)
-                    if news_data and len(news_data) > 0:
+                    if (news_data and 
+                        isinstance(news_data, list) and 
+                        len(news_data) > 0):
                         news_sentiment = {
-                            'sentiment_score': 7,  # Simplified scoring
+                            'sentiment_score': 7,
                             'articles_count': len(news_data),
                             'overall_tone': 'Neutral'
                         }
@@ -1663,10 +1748,13 @@ Error processing data:
                         successful_sources += 1
                     else:
                         data_sources.append("⚠️ CryptoNews")
+                        news_sentiment = {'error': 'No news data'}
                 else:
                     data_sources.append("❌ CryptoNews")
+                    news_sentiment = {'error': 'API not available'}
             except Exception as e:
                 data_sources.append("❌ CryptoNews")
+                news_sentiment = {'error': f'Exception: {str(e)}'}
                 print(f"News API error: {e}")
 
             # Determine data quality
@@ -1680,38 +1768,49 @@ Error processing data:
                 quality = "LIMITED"
                 quality_emoji = "⚠️"
 
-            # Extract price data (prioritize CMC, fallback to Binance)
+            # Extract price data with null checks (prioritize CMC, fallback to Binance)
             current_price = 0
             change_24h = 0
             volume_24h = 0
+            price_source = "Estimasi"
             
-            if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
-                current_price = cmc_data.get('price', 0)
-                change_24h = cmc_data.get('percent_change_24h', 0)
-                volume_24h = cmc_data.get('volume_24h', 0)
-            elif 'error' not in binance_data and binance_data.get('price', 0) > 0:
-                current_price = binance_data.get('price', 0)
-                change_24h = binance_data.get('change_24h', 0)
-                volume_24h = binance_data.get('volume_24h', 0)
+            # Try CMC first
+            if ('error' not in cmc_data and 
+                cmc_data.get('price') is not None and 
+                cmc_data.get('price', 0) > 0):
+                current_price = float(cmc_data.get('price', 0))
+                change_24h = float(cmc_data.get('percent_change_24h', 0))
+                volume_24h = float(cmc_data.get('volume_24h', 0))
+                price_source = "CoinMarketCap"
+            # Fallback to Binance
+            elif ('error' not in binance_data and 
+                  binance_data.get('price') is not None and 
+                  binance_data.get('price', 0) > 0):
+                current_price = float(binance_data.get('price', 0))
+                change_24h = float(binance_data.get('change_24h', 0))
+                volume_24h = float(binance_data.get('volume_24h', 0))
+                price_source = "Binance"
+            # Final fallback to estimated price
             else:
-                current_price = self._get_estimated_price(symbol)
+                current_price = float(self._get_estimated_price(symbol))
+                change_24h = 0
+                volume_24h = 0
+                price_source = "Estimasi"
 
-            # Build comprehensive analysis with proper escaping
-            symbol_safe = self._escape_markdown_v2(symbol.upper())
-            
-            analysis = f"""🎯 *ANALISIS KOMPREHENSIF MULTI\\-API {symbol_safe}*
+            # Build comprehensive analysis (plain text to avoid MarkdownV2 issues)
+            analysis = f"""🎯 **ANALISIS KOMPREHENSIF MULTI-API {symbol.upper()}**
 
-🔍 *Kualitas Data*: {quality_emoji} {self._escape_markdown_v2(quality)} \\({successful_sources}/{total_sources} sumber berhasil\\)
-📡 *Sumber*: {self._escape_markdown_v2(' + '.join(data_sources))}
+🔍 **Kualitas Data**: {quality_emoji} {quality} ({successful_sources}/{total_sources} sumber berhasil)
+📡 **Sumber**: {', '.join(data_sources)}
 
-💰 *1\\. Harga Terkini*
-• Real\\-time Price: {self._format_price_safe(current_price)} \\(Binance\\)
-• 24h Change: {self._escape_markdown_v2(f'{change_24h:+.2f}%')}
-• Volume 24h: {self._format_currency_safe(volume_24h)}
+💰 **1. Harga Terkini**
+• Real-time Price: {self._format_price_display(current_price)} ({price_source})
+• 24h Change: {change_24h:+.2f}%
+• Volume 24h: {self._format_currency_display(volume_24h)}
 
-📈 *2\\. Market Overview \\(CoinMarketCap\\)*"""
+📈 **2. Market Overview (CoinMarketCap)**"""
 
-            # Add CMC data if available
+            # Add CMC data if available with null checks
             if 'error' not in cmc_data:
                 market_cap = cmc_data.get('market_cap', 0)
                 rank = cmc_data.get('cmc_rank', 0)
@@ -1720,129 +1819,153 @@ Error processing data:
                 change_7d = cmc_data.get('percent_change_7d', 0)
                 change_30d = cmc_data.get('percent_change_30d', 0)
                 
-                analysis += f"""
-• Market Cap: {self._format_currency_safe(market_cap)}
-• Rank: #{self._escape_markdown_v2(str(rank))}
-• Supply Beredar: {self._escape_markdown_v2(f'{circulating_supply:,.0f}')} {symbol_safe}
-• Max Supply: {self._escape_markdown_v2(f'{max_supply:,.0f}' if max_supply > 0 else '∞')}
-• 7d: {self._escape_markdown_v2(f'{change_7d:+.1f}%')}, 30d: {self._escape_markdown_v2(f'{change_30d:+.1f}%')}"""
+                # Null check for each value
+                if market_cap is not None and market_cap > 0:
+                    analysis += f"\n• Market Cap: {self._format_currency_display(market_cap)}"
+                if rank is not None and rank > 0:
+                    analysis += f"\n• Rank: #{rank}"
+                if circulating_supply is not None and circulating_supply > 0:
+                    analysis += f"\n• Supply Beredar: {circulating_supply:,.0f} {symbol.upper()}"
+                if max_supply is not None:
+                    if max_supply > 0:
+                        analysis += f"\n• Max Supply: {max_supply:,.0f}"
+                    else:
+                        analysis += f"\n• Max Supply: ∞"
+                if change_7d is not None and change_30d is not None:
+                    analysis += f"\n• 7d: {change_7d:+.1f}%, 30d: {change_30d:+.1f}%"
             else:
-                analysis += """
-• ⚠️ Data CoinMarketCap tidak tersedia"""
+                analysis += "\n• ⚠️ Data CoinMarketCap tidak tersedia"
 
             # Add global market context
             analysis += f"""
 
-🌍 *3\\. Kesehatan Pasar Global*
-• BTC Dominance: {self._escape_markdown_v2('52.3%')}
-• Market Cap Global: {self._escape_markdown_v2('$2.35 Trillion')}
-• Total Crypto Aktif: {self._escape_markdown_v2('12,000+')}
-• Sentimen Pasar Umum: {self._escape_markdown_v2('Bullish/Neutral')}"""
+🌍 **3. Kesehatan Pasar Global**
+• BTC Dominance: 52.3%
+• Market Cap Global: $2.35 Trillion
+• Total Crypto Aktif: 12,000+
+• Sentimen Pasar Umum: Bullish/Neutral"""
 
-            # Add news sentiment
+            # Add sentiment analysis with null checks
             analysis += f"""
 
-📰 *4\\. Analisis Sentimen \\(Multi\\-Source\\)*
-• Binance: Momentum Score {self._escape_markdown_v2('8/10')}
-• CoinMarketCap: Fundamental Score {self._escape_markdown_v2('7/10')}"""
+📰 **4. Analisis Sentimen (Multi-Source)**
+• Binance: Momentum Score 8/10
+• CoinMarketCap: Fundamental Score 7/10"""
             
-            if news_sentiment:
+            if 'error' not in news_sentiment:
                 sentiment_score = news_sentiment.get('sentiment_score', 7)
-                analysis += f"""
-• News: Sentiment Score {self._escape_markdown_v2(f'{sentiment_score}/10')}
-→ Confidence: {self._escape_markdown_v2('High')} \\| Bias: {self._escape_markdown_v2('Bullish')}"""
+                if sentiment_score is not None:
+                    analysis += f"\n• News: Sentiment Score {sentiment_score}/10"
+                    analysis += f"\n→ Confidence: High | Bias: Bullish"
             else:
-                analysis += f"""
-• News: {self._escape_markdown_v2('⚠️ Data tidak tersedia')}
-→ Confidence: {self._escape_markdown_v2('Medium')} \\| Bias: {self._escape_markdown_v2('Neutral')}"""
+                analysis += f"\n• News: ⚠️ Data tidak tersedia"
+                analysis += f"\n→ Confidence: Medium | Bias: Neutral"
 
-            # Add CoinGlass futures data
+            # Add CoinGlass futures data with null checks
             analysis += f"""
 
-📊 *5\\. Futures Insight \\(CoinGlass\\)*"""
+📊 **5. Futures Insight (CoinGlass)**"""
             
-            if 'error' not in coinglass_data.get('long_short', {}) and 'error' not in coinglass_data.get('open_interest', {}):
-                ls_data = coinglass_data['long_short']
-                oi_data = coinglass_data['open_interest']
+            cg_ls_data = coinglass_data.get('long_short', {})
+            cg_oi_data = coinglass_data.get('open_interest', {})
+            
+            if ('error' not in cg_ls_data or 'error' not in cg_oi_data):
+                # Process long/short data
+                if 'error' not in cg_ls_data:
+                    long_ratio = cg_ls_data.get('long_ratio', 50)
+                    if long_ratio is not None:
+                        short_ratio = 100 - long_ratio
+                        analysis += f"\n• Long/Short Ratio: {long_ratio:.0f}% / {short_ratio:.0f}%"
                 
-                long_ratio = ls_data.get('long_ratio', 50)
-                short_ratio = 100 - long_ratio
-                oi_change = oi_data.get('oi_change_percent', 0)
-                funding_rate = oi_data.get('funding_rate', 0) * 100
+                # Process OI data
+                if 'error' not in cg_oi_data:
+                    oi_change = cg_oi_data.get('oi_change_percent', 0)
+                    funding_rate = cg_oi_data.get('funding_rate', 0)
+                    
+                    if oi_change is not None:
+                        analysis += f"\n• OI Change: {oi_change:+.1f}% (24h)"
+                    if funding_rate is not None:
+                        analysis += f"\n• Funding Rate: {funding_rate*100:.3f}%"
                 
-                analysis += f"""
-• Long/Short Ratio: {self._escape_markdown_v2(f'{long_ratio:.0f}%')} / {self._escape_markdown_v2(f'{short_ratio:.0f}%')}
-• Funding Rate: {self._escape_markdown_v2(f'{funding_rate:.3f}%')}
-• Open Interest: {self._escape_markdown_v2('$1.2B')}
-• OI Change: {self._escape_markdown_v2(f'{oi_change:+.1f}%')} \\(24h\\)"""
+                analysis += f"\n• Open Interest: $1.2B (estimasi)"
             else:
-                analysis += f"""
-• ⚠️ Data CoinGlass tidak tersedia sementara
-• Menggunakan estimasi berdasarkan trend pasar"""
+                analysis += f"\n• ⚠️ Data CoinGlass tidak tersedia sementara"
+                analysis += f"\n• Menggunakan estimasi berdasarkan trend pasar"
 
-            # Risk assessment
+            # Risk assessment with null checks
             risk_level = "🟠 Sedang"
-            if change_24h > 10:
-                risk_level = "🔴 Tinggi"
-            elif change_24h < -10:
-                risk_level = "🔴 Tinggi"
-            elif abs(change_24h) < 3:
-                risk_level = "🟢 Rendah"
+            risk_note = "Volatilitas normal untuk crypto"
+            
+            if change_24h is not None:
+                if change_24h > 10:
+                    risk_level = "🔴 Tinggi"
+                    risk_note = "Volatilitas tinggi, gunakan posisi kecil"
+                elif change_24h < -10:
+                    risk_level = "🔴 Tinggi"
+                    risk_note = "Koreksi tajam, hati-hati entry"
+                elif abs(change_24h) < 3:
+                    risk_level = "🟢 Rendah"
+                    risk_note = "Pergerakan stabil"
 
             analysis += f"""
 
-⚠️ *6\\. Risk Assessment*
-• Risk Level: {self._escape_markdown_v2(risk_level)}
-• Notes: {self._escape_markdown_v2('Volatilitas normal untuk crypto')}
-• Tips: {self._escape_markdown_v2('Gunakan SL & Risk/Reward optimal')}"""
+⚠️ **6. Risk Assessment**
+• Risk Level: {risk_level}
+• Notes: {risk_note}
+• Tips: Gunakan SL & Risk/Reward optimal"""
 
-            # Generate recommendation
-            if change_24h > 5 and successful_sources >= 2:
-                recommendation = "BUY/LONG"
-                rec_emoji = "🟢"
-                fundamental = "Bullish"
-                sentiment = "Positif"
-                final_rec = "Pertimbangkan posisi LONG dengan SL ketat"
-            elif change_24h < -5:
-                recommendation = "WAIT/SHORT"
-                rec_emoji = "🔴"
-                fundamental = "Bearish"
-                sentiment = "Negatif"
-                final_rec = "Tunggu konfirmasi atau pertimbangkan SHORT"
-            else:
-                recommendation = "HOLD/WAIT"
-                rec_emoji = "🟡"
-                fundamental = "Neutral"
-                sentiment = "Mixed"
-                final_rec = "Tunggu setup yang lebih jelas"
+            # Generate recommendation with null checks
+            recommendation = "HOLD/WAIT"
+            rec_emoji = "🟡"
+            fundamental = "Neutral"
+            sentiment = "Mixed"
+            final_rec = "Tunggu setup yang lebih jelas"
+            
+            if change_24h is not None and successful_sources >= 2:
+                if change_24h > 5:
+                    recommendation = "BUY/LONG"
+                    rec_emoji = "🟢"
+                    fundamental = "Bullish"
+                    sentiment = "Positif"
+                    final_rec = "Pertimbangkan posisi LONG dengan SL ketat"
+                elif change_24h < -5:
+                    recommendation = "WAIT/SHORT"
+                    rec_emoji = "🔴"
+                    fundamental = "Bearish"
+                    sentiment = "Negatif"
+                    final_rec = "Tunggu konfirmasi atau pertimbangkan SHORT"
 
             analysis += f"""
 
-📌 *7\\. Kesimpulan & Rekomendasi*
-• Teknikal: {rec_emoji} {self._escape_markdown_v2(recommendation)}
-• Fundamental: {self._escape_markdown_v2(fundamental)}
-• Sentimen: {self._escape_markdown_v2(sentiment)}
-• Rekomendasi: {self._escape_markdown_v2(final_rec)}
+📌 **7. Kesimpulan & Rekomendasi**
+• Teknikal: {rec_emoji} {recommendation}
+• Fundamental: {fundamental}
+• Sentimen: {sentiment}
+• Rekomendasi: {final_rec}
 
-🕐 *Update*: {self._escape_markdown_v2(current_time)} WIB
-⭐️ *Status Premium* – Startup Plan API Active"""
+🕐 **Update**: {current_time} WIB
+⭐️ **Status Premium** – Startup Plan API Active"""
 
             return analysis
 
         except Exception as e:
             error_msg = str(e)[:100]
-            return f"""❌ *ANALISIS ERROR*
+            print(f"❌ Error in comprehensive analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            return f"""❌ **ANALISIS ERROR**
 
-Terjadi kesalahan saat memproses data multi\\-API\\.
+Terjadi kesalahan saat memproses data multi-API.
 
-*Error*: {self._escape_markdown_v2(error_msg)}
+**Error**: {error_msg}
 
-🔄 *Solusi*:
+🔄 **Solusi**:
 • Coba lagi dalam beberapa menit
 • Verifikasi koneksi API
 • Gunakan `/futures {symbol.lower()}` sebagai alternatif
 
-💡 *Note*: Beberapa sumber data mungkin sedang maintenance"""
+💡 **Note**: Beberapa sumber data mungkin sedang maintenance"""
 
     def _get_enhanced_smart_money_analysis(self, symbol, crypto_api=None):
         """Get enhanced Smart Money analysis with proper data validation"""
