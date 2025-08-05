@@ -565,12 +565,12 @@ class TelegramBot:
         help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinMarketCap Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
-• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
+• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinMarketCap
 • `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinMarketCap data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
 📊 **Harga & Data Pasar:**
-• `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
+• `/price <symbol>` - Harga real-time dari CoinMarketCap **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
 • `/market` - Overview pasar global dari CoinMarketCap (20 credit) ⭐
   Data: Total market cap, dominance, volume global, fear & greed
@@ -622,8 +622,8 @@ class TelegramBot:
 - No credit limits
 
 🚀 **Data Sources:**
-- **Fundamental**: CoinMarketCap (Startup Plan)
-- **Prices**: Binance Real-time
+- **Fundamental**: CoinMarketCap Professional
+- **Prices**: CoinMarketCap Real-time
 - **Futures**: Coinglass API
 - **SnD Analysis**: Internal algorithm + Binance candlesticks"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -646,7 +646,7 @@ class TelegramBot:
         mode_text = "🌐 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
         loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinMarketCap... ({mode_text})")
 
-        # Get real-time data from CoinMarketCap (prioritized) or CoinAPI
+        # Get real-time data from CoinMarketCap
         print(f"🔄 Fetching real-time data for {symbol} from CoinMarketCap...")
 
         # Force refresh in deployment to ensure real-time data
@@ -666,7 +666,7 @@ class TelegramBot:
             change_emoji = "📈" if change_24h >= 0 else "📉"
             change_color = "+" if change_24h >= 0 else ""
 
-            message = f"""📊 **{symbol} Real-Time CoinAPI Data**
+            message = f"""📊 **{symbol} Real-Time CoinMarketCap Data**
 
 💰 **Harga**: {price_format}
 {change_emoji} **Perubahan 24j**: {change_color}{change_24h:.2f}%
@@ -702,9 +702,6 @@ class TelegramBot:
             if data_source == 'coinmarketcap':
                 source_text = "🟢 CoinMarketCap Professional"
                 api_status = "✅ CoinMarketCap Real-time"
-            elif data_source == 'coinapi':
-                source_text = "🟢 CoinAPI Real-Time"
-                api_status = "✅ CoinAPI Live Data"
             else:
                 source_text = "🟢 Binance Exchange"
                 api_status = "✅ Binance Live Data"
@@ -727,7 +724,7 @@ class TelegramBot:
 • API sedang mengalami gangguan sementara
 • Pastikan CMC_API_KEY tersedia di Secrets
 
-💡 **Info**: Bot menggunakan CoinMarketCap → CoinAPI → Binance (berurutan)"""
+💡 **Info**: Bot menggunakan CoinMarketCap → Binance (berurutan)"""
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
@@ -754,7 +751,7 @@ class TelegramBot:
         symbol = context.args[0].upper()
 
         # Show loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
+        loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinMarketCap real-time...")
 
         try:
             # Get comprehensive analysis using CoinMarketCap data
@@ -764,7 +761,7 @@ class TelegramBot:
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinAPI: -20 credit)"
+                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinMarketCap: -20 credit)"
             elif is_premium:
                 analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
@@ -780,7 +777,7 @@ class TelegramBot:
                 await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinMarketCap)\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
             import traceback
@@ -889,7 +886,7 @@ class TelegramBot:
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinMarketCap + Coinglass{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
@@ -1033,7 +1030,7 @@ class TelegramBot:
 
                     # Show loading
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass...\n\n"
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinMarketCap + Coinglass...\n\n"
                         "🔍 Memproses data real-time...",
                         parse_mode='Markdown'
                     )
