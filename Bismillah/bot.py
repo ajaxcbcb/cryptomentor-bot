@@ -775,7 +775,7 @@ class TelegramBot:
         loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
 
         try:
-            # Get comprehensive analysis using new async method
+            # Get comprehensive analysis using CoinMarketCap data
             analysis = await self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
 
             # Deduct credit only for non-premium, non-admin users

@@ -1653,3 +1653,250 @@ Error processing data:
             return "😔 Maaf, saat ini tidak ada sinyal futures dengan confidence tinggi. Coba lagi nanti atau periksa command `/help`."
         else:
             return "😔 Sorry, no high-confidence futures signals found at the moment. Please try again later or check `/help`."
+
+    async def get_comprehensive_analysis(self, symbol, historical_data, market_data, language='id', crypto_api=None):
+        """Get comprehensive analysis using CoinMarketCap data"""
+        try:
+            if not crypto_api:
+                return self._generate_emergency_analysis(symbol, language, "CryptoAPI not available")
+
+            print(f"🔄 Starting comprehensive analysis for {symbol} with CoinMarketCap...")
+
+            # Get comprehensive data from CoinMarketCap
+            cmc_data = crypto_api.cmc_provider.get_comprehensive_data(symbol)
+            
+            if 'error' in cmc_data:
+                return self._generate_emergency_analysis(symbol, language, cmc_data['error'])
+
+            # Format comprehensive analysis
+            analysis = self._format_comprehensive_analysis(symbol, cmc_data, language)
+            
+            return analysis
+
+        except Exception as e:
+            print(f"❌ Error in comprehensive analysis: {e}")
+            return self._generate_emergency_analysis(symbol, language, str(e))
+
+    def _format_comprehensive_analysis(self, symbol, cmc_data, language='id'):
+        """Format comprehensive analysis output"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            # Extract data
+            price = cmc_data.get('price', 0)
+            market_cap = cmc_data.get('market_cap', 0)
+            volume_24h = cmc_data.get('volume_24h', 0)
+            percent_change_24h = cmc_data.get('percent_change_24h', 0)
+            percent_change_7d = cmc_data.get('percent_change_7d', 0)
+            cmc_rank = cmc_data.get('cmc_rank', 0)
+            name = cmc_data.get('name', symbol)
+            circulating_supply = cmc_data.get('circulating_supply', 0)
+            total_supply = cmc_data.get('total_supply', 0)
+            max_supply = cmc_data.get('max_supply', 0)
+
+            # Format numbers
+            def format_currency(amount):
+                if amount > 1000000000:  # Billions
+                    return f"${amount/1000000000:.2f}B"
+                elif amount > 1000000:  # Millions
+                    return f"${amount/1000000:.1f}M"
+                else:
+                    return f"${amount:,.0f}"
+
+            def format_price(price):
+                if price < 1:
+                    return f"${price:.8f}"
+                elif price < 100:
+                    return f"${price:.4f}"
+                else:
+                    return f"${price:,.2f}"
+
+            # Generate trading recommendation
+            recommendation = self._generate_trading_recommendation(percent_change_24h, percent_change_7d, market_cap, volume_24h)
+
+            if language == 'id':
+                message = f"""📊 **ANALISIS KOMPREHENSIF {name} ({symbol}) - CoinMarketCap**
+
+💰 **DATA HARGA:**
+• **Harga Saat Ini**: {format_price(price)}
+• **Ranking CMC**: #{cmc_rank}
+• **Market Cap**: {format_currency(market_cap)}
+• **Volume 24j**: {format_currency(volume_24h)}
+
+📈 **PERFORMA:**
+• **Perubahan 24j**: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
+• **Perubahan 7 hari**: {percent_change_7d:+.2f}% {'📈' if percent_change_7d >= 0 else '📉'}
+
+📊 **SUPPLY DATA:**"""
+                
+                if circulating_supply > 0:
+                    message += f"\n• **Circulating Supply**: {circulating_supply:,.0f} {symbol}"
+                if total_supply > 0:
+                    message += f"\n• **Total Supply**: {total_supply:,.0f} {symbol}"
+                if max_supply > 0:
+                    message += f"\n• **Max Supply**: {max_supply:,.0f} {symbol}"
+                else:
+                    message += f"\n• **Max Supply**: Unlimited"
+
+                message += f"""
+
+🎯 **REKOMENDASI TRADING:**
+• **Saran**: {recommendation['action']} {recommendation['emoji']}
+• **Confidence**: {recommendation['confidence']}%
+• **Alasan**: {recommendation['reason']}
+
+⚠️ **RISK MANAGEMENT:**
+• Gunakan stop loss 3-5% untuk short term
+• Take profit bertahap di resistance levels
+• Maksimal 2-3% dari total portfolio per trade
+• Monitor volume untuk konfirmasi breakout
+
+📡 **DATA SOURCE:**
+• **Provider**: CoinMarketCap Professional API
+• **Update Time**: {current_time}
+• **Data Quality**: Real-time & Verified
+
+💡 **CATATAN:**
+Analisis ini berdasarkan data fundamental dari CoinMarketCap. Selalu kombinasikan dengan technical analysis dan berita terkini untuk keputusan trading yang lebih baik."""
+
+            else:
+                message = f"""📊 **COMPREHENSIVE ANALYSIS {name} ({symbol}) - CoinMarketCap**
+
+💰 **PRICE DATA:**
+• **Current Price**: {format_price(price)}
+• **CMC Ranking**: #{cmc_rank}
+• **Market Cap**: {format_currency(market_cap)}
+• **Volume 24h**: {format_currency(volume_24h)}
+
+📈 **PERFORMANCE:**
+• **24h Change**: {percent_change_24h:+.2f}% {'📈' if percent_change_24h >= 0 else '📉'}
+• **7d Change**: {percent_change_7d:+.2f}% {'📈' if percent_change_7d >= 0 else '📉'}
+
+📊 **SUPPLY DATA:**"""
+                
+                if circulating_supply > 0:
+                    message += f"\n• **Circulating Supply**: {circulating_supply:,.0f} {symbol}"
+                if total_supply > 0:
+                    message += f"\n• **Total Supply**: {total_supply:,.0f} {symbol}"
+                if max_supply > 0:
+                    message += f"\n• **Max Supply**: {max_supply:,.0f} {symbol}"
+                else:
+                    message += f"\n• **Max Supply**: Unlimited"
+
+                message += f"""
+
+🎯 **TRADING RECOMMENDATION:**
+• **Suggestion**: {recommendation['action']} {recommendation['emoji']}
+• **Confidence**: {recommendation['confidence']}%
+• **Reason**: {recommendation['reason']}
+
+⚠️ **RISK MANAGEMENT:**
+• Use 3-5% stop loss for short term trades
+• Take profit gradually at resistance levels
+• Maximum 2-3% of total portfolio per trade
+• Monitor volume for breakout confirmation
+
+📡 **DATA SOURCE:**
+• **Provider**: CoinMarketCap Professional API
+• **Update Time**: {current_time}
+• **Data Quality**: Real-time & Verified
+
+💡 **NOTE:**
+This analysis is based on fundamental data from CoinMarketCap. Always combine with technical analysis and latest news for better trading decisions."""
+
+            return message
+
+        except Exception as e:
+            print(f"❌ Error formatting comprehensive analysis: {e}")
+            return self._generate_emergency_analysis(symbol, language, str(e))
+
+    def _generate_trading_recommendation(self, change_24h, change_7d, market_cap, volume_24h):
+        """Generate trading recommendation based on metrics"""
+        try:
+            confidence = 50
+            
+            # Volume check
+            volume_strength = "high" if volume_24h > 100000000 else "medium" if volume_24h > 10000000 else "low"
+            
+            # Price momentum analysis
+            if change_24h > 5 and change_7d > 15:
+                action = "STRONG BUY"
+                emoji = "🚀"
+                reason = f"Strong bullish momentum (+{change_24h:.1f}% 24h, +{change_7d:.1f}% 7d)"
+                confidence = 85
+            elif change_24h > 2 and change_7d > 5:
+                action = "BUY"
+                emoji = "📈"
+                reason = f"Positive momentum (+{change_24h:.1f}% 24h, +{change_7d:.1f}% 7d)"
+                confidence = 70
+            elif change_24h < -5 and change_7d < -15:
+                action = "SELL"
+                emoji = "📉"
+                reason = f"Strong bearish trend ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
+                confidence = 80
+            elif change_24h < -2 and change_7d < -5:
+                action = "WEAK SELL"
+                emoji = "⚠️"
+                reason = f"Negative momentum ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
+                confidence = 65
+            else:
+                action = "HOLD"
+                emoji = "⏸️"
+                reason = f"Sideways movement ({change_24h:.1f}% 24h, {change_7d:.1f}% 7d)"
+                confidence = 60
+
+            # Adjust confidence based on volume
+            if volume_strength == "high":
+                confidence += 10
+            elif volume_strength == "low":
+                confidence -= 10
+
+            return {
+                'action': action,
+                'emoji': emoji,
+                'reason': reason,
+                'confidence': min(95, max(30, confidence))
+            }
+
+        except Exception as e:
+            return {
+                'action': 'HOLD',
+                'emoji': '⚠️',
+                'reason': f'Analysis error: {str(e)[:50]}...',
+                'confidence': 50
+            }
+
+    def _generate_emergency_analysis(self, symbol, language, error_message):
+        """Generate fallback analysis in case of errors"""
+        current_time = datetime.now().strftime('%H:%M:%S WIB')
+        
+        if language == 'id':
+            message = f"""❌ **ANALISIS GAGAL - {symbol.upper()}**
+⏰ {current_time}
+
+Terjadi kesalahan saat mengambil data CoinMarketCap:
+{error_message[:100]}...
+
+🔄 **Solusi:**
+• Coba lagi dalam beberapa menit
+• Gunakan `/price {symbol.lower()}` untuk harga basic
+• Pastikan CMC_API_KEY tersedia di Secrets
+• Contact admin jika masalah berlanjut
+
+💡 **Alternative**: Gunakan `/futures {symbol.lower()}` untuk analisis futures"""
+        else:
+            message = f"""❌ **ANALYSIS FAILED - {symbol.upper()}**
+⏰ {current_time}
+
+Error fetching CoinMarketCap data:
+{error_message[:100]}...
+
+🔄 **Solutions:**
+• Try again in a few minutes
+• Use `/price {symbol.lower()}` for basic price
+• Ensure CMC_API_KEY is available in Secrets
+• Contact admin if issue persists
+
+💡 **Alternative**: Use `/futures {symbol.lower()}` for futures analysis"""
+
+        return message
