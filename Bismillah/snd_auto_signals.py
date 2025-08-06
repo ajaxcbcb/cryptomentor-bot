@@ -282,24 +282,37 @@ class SnDAutoSignals:
 
             print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
 
-            # Format signals message
+            # Format signals message with better handling
             signals_message = self._format_signals_message(signals)
 
             success_count = 0
             for user_data in eligible_users:
-                user_id = user_data.get('user_id')
+                # Handle different user data formats
+                if isinstance(user_data, dict):
+                    user_id = user_data.get('user_id') or user_data.get('telegram_id') or user_data.get('id')
+                elif isinstance(user_data, (list, tuple)) and len(user_data) > 0:
+                    user_id = user_data[0]
+                elif isinstance(user_data, (int, str)):
+                    user_id = int(user_data)
+                else:
+                    print(f"⚠️ Unknown user format: {user_data}")
+                    continue
+
                 if not user_id:
+                    print(f"⚠️ No user_id found for: {user_data}")
                     continue
 
                 try:
+                    # Send with plain text first to avoid markdown issues
                     await self.bot.application.bot.send_message(
-                        chat_id=user_id,
+                        chat_id=int(user_id),
                         text=signals_message,
-                        parse_mode='Markdown',
+                        parse_mode=None,  # No markdown to avoid parsing errors
                         disable_web_page_preview=True
                     )
                     success_count += 1
-                    await asyncio.sleep(0.1)  # Rate limiting
+                    print(f"✅ Sent signals to user {user_id}")
+                    await asyncio.sleep(0.2)  # Rate limiting
 
                 except Exception as e:
                     print(f"❌ Failed to send signal to user {user_id}: {e}")
@@ -308,17 +321,22 @@ class SnDAutoSignals:
             print(f"✅ Auto signals sent to {success_count}/{len(eligible_users)} users")
 
             # Log the broadcast
-            self.db.log_auto_signals_broadcast(len(signals), success_count, len(eligible_users))
+            try:
+                self.db.log_auto_signals_broadcast(len(signals), success_count, len(eligible_users))
+            except:
+                pass  # Don't fail if logging fails
 
         except Exception as e:
             print(f"❌ Error sending auto signals: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _format_signals_message(self, signals):
-        """Format signals into a readable message"""
-        message = f"""🚨 **AUTO SIGNALS - SUPPLY & DEMAND ANALYSIS**
+        """Format signals into a readable message (plain text to avoid parsing errors)"""
+        message = f"""🚨 AUTO SIGNALS - SUPPLY & DEMAND ANALYSIS
 
-🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
-📊 **Signals Found**: {len(signals)}
+🕐 Scan Time: {datetime.now().strftime('%H:%M:%S WIB')}
+📊 Signals Found: {len(signals)}
 
 """
 
@@ -326,28 +344,28 @@ class SnDAutoSignals:
             direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
             confidence_emoji = "🔥" if signal['confidence'] >= 85 else "⭐" if signal['confidence'] >= 75 else "💡"
 
-            message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
-{confidence_emoji} **Confidence**: {signal['confidence']:.1f}%
-💰 **Entry sesuai Market Bias**: ${signal['entry_price']:.6f}
-🛑 **Stop Loss**: ${signal['sl']:.6f}
-🎯 **TP1**: ${signal['tp1']:.6f}
-🎯 **TP2**: ${signal['tp2']:.6f}
-📊 **R/R Ratio**: {signal['risk_reward']:.1f}:1
-🔄 **Market Trend**: {signal['trend'].title()}
-⚡ **Structure**: {signal['market_structure'].replace('_', ' ').title()}
-🧠 **Reasoning**: {signal['reason']}
-📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
+            message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
+{confidence_emoji} Confidence: {signal['confidence']:.1f}%
+💰 Entry: ${signal['entry_price']:.6f}
+🛑 Stop Loss: ${signal['sl']:.6f}
+🎯 TP1: ${signal['tp1']:.6f}
+🎯 TP2: ${signal['tp2']:.6f}
+📊 R/R Ratio: {signal['risk_reward']:.1f}:1
+🔄 Trend: {signal['trend'].title()}
+⚡ Structure: {signal['market_structure'].replace('_', ' ').title()}
+🧠 Reason: {signal['reason']}
+📈 24h Change: {signal.get('change_24h', 0):.1f}%
 
 """
 
-        message += f"""⚠️ **TRADING DISCLAIMER:**
+        message += f"""⚠️ TRADING DISCLAIMER:
 • Signals berbasis Supply & Demand analysis
 • Gunakan proper risk management
 • Position sizing sesuai risk level
 • DYOR sebelum trading
 
-🎯 **Auto Signals hanya untuk Admin & Lifetime users**
-📡 **Next scan in {self.scan_interval/60:.0f} minutes**"""
+🎯 Auto Signals hanya untuk Admin & Lifetime users
+📡 Next scan in {self.scan_interval/60:.0f} minutes"""
 
         return message
 

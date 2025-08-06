@@ -65,24 +65,24 @@ class Database:
         except Exception as e:
             print(f"❌ CRITICAL: Error in table schema migration: {e}")
             print("🔧 SAFE MODE: Preserving all user data...")
-            
+
             # SAFE RECOVERY: Always backup before any changes
             try:
                 # Create timestamp for backup
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_table = f"users_backup_{timestamp}"
-                
+
                 # Always create backup first
                 self.cursor.execute(f"CREATE TABLE {backup_table} AS SELECT * FROM users")
                 print(f"✅ Emergency backup created: {backup_table}")
-                
+
                 # Check if we have users to preserve
                 self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
                 user_count = self.cursor.fetchone()[0]
-                
+
                 if user_count > 0:
                     print(f"⚠️ PRESERVING {user_count} users during schema update...")
-                    
+
                     # Recreate table with correct schema
                     self.cursor.execute("DROP TABLE users")
                     self.cursor.execute("""
@@ -103,7 +103,7 @@ class Database:
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     """)
-                    
+
                     # Restore ALL data preserving premium status
                     self.cursor.execute(f"""
                         INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
@@ -125,21 +125,21 @@ class Database:
                         FROM {backup_table}
                         WHERE telegram_id IS NOT NULL AND telegram_id != 0
                     """)
-                    
+
                     restored_count = self.cursor.rowcount
                     print(f"✅ RESTORED {restored_count} users with ALL PREMIUM STATUS PRESERVED")
-                    
+
                     # Verify premium users were restored
                     self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
                     premium_count = self.cursor.fetchone()[0]
                     print(f"✅ Premium users verified: {premium_count}")
-                    
+
                 else:
                     # Safe to recreate empty table
                     self.cursor.execute("DROP TABLE IF EXISTS users")
                     self.cursor.execute("""
                         CREATE TABLE users (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER PRIMARYKEY AUTOINCREMENT,
                             telegram_id INTEGER UNIQUE,
                             first_name TEXT,
                             last_name TEXT,
@@ -156,7 +156,7 @@ class Database:
                         )
                     """)
                     print("✅ Empty table recreated with complete schema")
-                    
+
             except Exception as recovery_error:
                 print(f"❌ RECOVERY FAILED: {recovery_error}")
                 # Emergency: Don't drop the table if recovery fails
@@ -180,7 +180,7 @@ class Database:
         try:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS portfolio (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARYKEY AUTOINCREMENT,
                     telegram_id INTEGER,
                     symbol TEXT,
                     amount REAL,
@@ -205,11 +205,11 @@ class Database:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_activity (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER,
+                    user_id INTEGER,
                     action TEXT,
                     details TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (telegram_id) REFERENCES users (telegram_id)
+                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
                 )
             """)
 
@@ -230,12 +230,12 @@ class Database:
                 )
             """)
 
-            # Check if telegram_id column exists in user_activity
+            # Check if user_id column exists in user_activity
             self.cursor.execute("PRAGMA table_info(user_activity)")
             activity_columns = [column[1] for column in self.cursor.fetchall()]
-            if 'telegram_id' not in activity_columns:
-                print("Adding missing telegram_id column to user_activity table...")
-                self.cursor.execute("ALTER TABLE user_activity ADD COLUMN telegram_id INTEGER")
+            if 'user_id' not in activity_columns:
+                print("Adding missing user_id column to user_activity table...")
+                self.cursor.execute("ALTER TABLE user_activity ADD COLUMN user_id INTEGER")
 
         except Exception as e:
             print(f"Error with user_activity table: {e}")
@@ -536,13 +536,13 @@ class Database:
             print(f"DB Error (add_portfolio_item): {e}")
             return False
 
-    def log_user_activity(self, telegram_id, action, details=None):
+    def log_user_activity(self, user_id, action, details=None):
         """Log user activity"""
         try:
             self.cursor.execute("""
-                INSERT INTO user_activity (telegram_id, action, details, timestamp)
+                INSERT INTO user_activity (user_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
-            """, (telegram_id, action, details, datetime.now().isoformat()))
+            """, (user_id, action, details, datetime.now().isoformat()))
             self.conn.commit()
             return True
         except Exception as e:
@@ -554,7 +554,7 @@ class Database:
         try:
             details = f"Signals: {signals_count}, Reached: {users_reached}/{total_eligible}"
             self.cursor.execute("""
-                INSERT INTO user_activity (telegram_id, action, details, timestamp)
+                INSERT INTO user_activity (user_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
             """, (0, "auto_signal_broadcast", details, datetime.now().isoformat()))
             self.conn.commit()
@@ -668,7 +668,7 @@ class Database:
 
             # Active today (users with activity in last 24 hours)
             self.cursor.execute("""
-                SELECT COUNT(DISTINCT telegram_id) FROM user_activity 
+                SELECT COUNT(DISTINCT user_id) FROM user_activity 
                 WHERE timestamp >= datetime('now', '-1 day')
             """)
             active_today = self.cursor.fetchone()[0]
@@ -732,7 +732,7 @@ class Database:
         """Update user language preference"""
         try:
             self.cursor.execute("""
-                UPDATE users SET language = ? WHERE telegram_id = ?
+                UPDATE users SET language_code = ? WHERE telegram_id = ?
             """, (language, telegram_id))
             self.conn.commit()
             return True
@@ -756,7 +756,7 @@ class Database:
 
             # Active today (users with activity in last 24 hours) - fixed column name
             self.cursor.execute("""
-                SELECT COUNT(DISTINCT telegram_id) FROM user_activity 
+                SELECT COUNT(DISTINCT user_id) FROM user_activity 
                 WHERE timestamp >= datetime('now', '-1 day')
             """)
             active_today = self.cursor.fetchone()[0]
@@ -807,7 +807,7 @@ class Database:
         """Get recent user activity"""
         try:
             self.cursor.execute("""
-                SELECT telegram_id, action, details, timestamp 
+                SELECT user_id, action, details, timestamp 
                 FROM user_activity 
                 ORDER BY timestamp DESC 
                 LIMIT ?
@@ -892,11 +892,11 @@ class Database:
             # Check if user has restart_required flag and hasn't cleared it
             self.cursor.execute("""
                 SELECT COUNT(*) FROM user_activity 
-                WHERE telegram_id = ? AND action = 'restart_required' 
+                WHERE user_id = ? AND action = 'restart_required' 
                 AND timestamp > (
                     SELECT COALESCE(MAX(timestamp), '1970-01-01') 
                     FROM user_activity 
-                    WHERE telegram_id = ? AND action = 'user_reactivated'
+                    WHERE user_id = ? AND action = 'user_reactivated'
                 )
             """, (user_id, user_id))
 
@@ -940,7 +940,7 @@ class Database:
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
-                INSERT INTO user_activity (telegram_id, action, details, timestamp)
+                INSERT INTO user_activity (user_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
             """, (admin_id, "auto_signals_broadcast", details, datetime.now().isoformat()))
 
@@ -1041,24 +1041,24 @@ class Database:
         try:
             # Calculate earnings (Rp 10,000 per premium subscription)
             earnings = 10000
-            
+
             self.cursor.execute("""
                 INSERT INTO premium_referrals 
                 (referrer_id, referred_id, subscription_type, subscription_amount, earnings, status, created_at)
                 VALUES (?, ?, ?, ?, ?, 'paid', datetime('now'))
             """, (referrer_id, referred_id, subscription_type, package_amount, earnings))
-            
+
             # Update referrer's premium earnings
             self.cursor.execute("""
                 UPDATE users SET premium_earnings = premium_earnings + ? WHERE telegram_id = ?
             """, (earnings, referrer_id))
-            
+
             self.conn.commit()
-            
+
             # Log the reward
             self.log_user_activity(referrer_id, "premium_referral_reward", 
                                  f"Earned Rp {earnings:,} from {referred_id} subscribing {subscription_type}")
-            
+
             return True
         except Exception as e:
             print(f"Error recording premium referral reward: {e}")
@@ -1149,23 +1149,23 @@ class Database:
         """Create automatic backup of critical user data"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
+
             # Backup users table
             self.cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS users_backup_{timestamp} AS 
                 SELECT * FROM users WHERE telegram_id IS NOT NULL
             """)
-            
+
             # Backup premium referrals
             self.cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS premium_referrals_backup_{timestamp} AS 
                 SELECT * FROM premium_referrals
             """)
-            
+
             self.conn.commit()
             print(f"✅ Automatic backup created: users_backup_{timestamp}")
             return timestamp
-            
+
         except Exception as e:
             print(f"❌ Error creating automatic backup: {e}")
             return None
@@ -1176,25 +1176,25 @@ class Database:
             # Check for premium users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
             premium_count = self.cursor.fetchone()[0]
-            
+
             # Check for lifetime users (subscription_end IS NULL)
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND subscription_end IS NULL")
             lifetime_count = self.cursor.fetchone()[0]
-            
+
             # Check for data corruption
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
             corrupt_count = self.cursor.fetchone()[0]
-            
+
             integrity_report = {
                 'premium_users': premium_count,
                 'lifetime_users': lifetime_count,
                 'corrupt_entries': corrupt_count,
                 'integrity_ok': corrupt_count == 0
             }
-            
+
             print(f"📊 Data Integrity: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
             return integrity_report
-            
+
         except Exception as e:
             print(f"❌ Error verifying data integrity: {e}")
             return {'integrity_ok': False, 'error': str(e)}
