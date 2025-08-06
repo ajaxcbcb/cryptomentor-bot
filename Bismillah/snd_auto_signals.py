@@ -502,7 +502,7 @@ class SnDAutoSignals:
     def _generate_snd_signal(self, current_price, resistance_levels, support_levels, volume_trend, highs, lows, closes):
         """Generate an SnD signal based on analysis"""
         signal = {
-            'symbol': self.current_symbol, # Need to set this from caller
+            'symbol': self.current_symbol, # Set this from caller
             'direction': 'LONG', # Default
             'entry_price': current_price,
             'tp1': current_price,

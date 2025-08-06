@@ -79,30 +79,35 @@ class CryptoAPI:
             return {'error': f'Coinglass V4 ticker error: {str(e)}'}
 
     def get_open_interest(self, symbol):
-        """Get open interest from Coinglass V4 - REAL DATA"""
+        """Get open interest from Coinglass V4 - REAL DATA with proper symbol format"""
         try:
             if not self.coinglass_key:
                 print(f"❌ CoinGlass API key not found for {symbol}")
                 return {'error': 'Coinglass API key not found'}
 
-            # Clean symbol to basic format (BTC, ETH, etc.)
-            clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
+            # Use proper symbol format for CoinGlass V4 (BTCUSDT, ETHUSDT, etc.)
+            clean_symbol = self.coinglass_provider._clean_symbol(symbol)
             print(f"🔄 Getting REAL open interest for {clean_symbol} from CoinGlass V4...")
 
             # Use the coinglass_provider for real API calls
             result = self.coinglass_provider.get_open_interest_chart(clean_symbol)
             
             if result and 'error' not in result:
+                oi_value = result.get('open_interest', 0)
+                oi_change = result.get('oi_change_percent', 0)
+                print(f"✅ Real OI data: ${oi_value/1000000:.1f}M ({oi_change:+.1f}%)")
+                
                 return {
                     'symbol': clean_symbol,
-                    'open_interest': result.get('open_interest', 0),
-                    'oi_change_percent': result.get('oi_change_percent', 0),
+                    'open_interest': oi_value,
+                    'oi_change_percent': oi_change,
                     'timestamp': result.get('timestamp', int(time.time() * 1000)),
                     'source': 'coinglass_v4_realtime'
                 }
             else:
-                print(f"❌ CoinGlass V4 open interest error: {result.get('error', 'Unknown error')}")
-                return result if result else {'error': f'No open interest data for {clean_symbol}'}
+                error_msg = result.get('error', 'Unknown error') if result else f'No open interest data for {clean_symbol}'
+                print(f"❌ CoinGlass V4 open interest error: {error_msg}")
+                return {'error': error_msg}
 
         except Exception as e:
             print(f"❌ Open interest error for {symbol}: {e}")
@@ -458,41 +463,170 @@ class CryptoAPI:
         return fallback_news[:limit]
 
     def analyze_supply_demand(self, symbol, timeframe="15m"):
-        """Analyze supply and demand zones for a cryptocurrency"""
+        """Analyze supply and demand zones using real CoinGlass V4 and price data"""
         try:
-            # Get price data from CoinMarketCap or Binance
-            price_data = self.get_crypto_price(symbol)
-
-            if 'error' in price_data:
-                return {'error': f'Failed to get price data: {price_data["error"]}'}
-
-            current_price = price_data.get('price', 0)
-
-            if current_price <= 0:
-                return {'error': 'Invalid price data'}
-
-            # Simple supply/demand analysis based on price action
-            # This is a basic implementation - in production you'd use more sophisticated algorithms
-            price_change_24h = price_data.get('change_24h', 0)
-
-            # Determine trend and zones
-            if price_change_24h > 2:
-                trend = 'BULLISH'
-                signal = 'LONG'
-                confidence = min(70 + abs(price_change_24h) * 2, 95)
-            elif price_change_24h < -2:
-                trend = 'BEARISH' 
-                signal = 'SHORT'
-                confidence = min(70 + abs(price_change_24h) * 2, 95)
+            print(f"🔄 Analyzing supply/demand for {symbol} using real data...")
+            
+            # Get comprehensive futures data from CoinGlass V4
+            futures_data = self.get_comprehensive_futures_data(symbol)
+            
+            if 'error' in futures_data:
+                print(f"⚠️ CoinGlass data unavailable, using price data only")
+                # Fallback to price-only analysis
+                price_data = self.get_crypto_price(symbol)
+                if 'error' in price_data:
+                    return {'error': f'Failed to get any data: {price_data["error"]}'}
+                
+                current_price = price_data.get('price', 0)
+                price_change_24h = price_data.get('change_24h', 0)
+                
+                # Basic analysis without futures data
+                if price_change_24h > 2:
+                    trend = 'BULLISH'
+                    signal = 'LONG'
+                    confidence = 60
+                elif price_change_24h < -2:
+                    trend = 'BEARISH'
+                    signal = 'SHORT'
+                    confidence = 60
+                else:
+                    trend = 'SIDEWAYS'
+                    signal = 'HOLD'
+                    confidence = 40
+                
+                return {
+                    'symbol': symbol.upper(),
+                    'current_price': current_price,
+                    'trend': trend,
+                    'signal': signal,
+                    'confidence': confidence,
+                    'support_level': current_price * 0.97,
+                    'resistance_level': current_price * 1.03,
+                    'price_change_24h': price_change_24h,
+                    'timeframe': timeframe,
+                    'source': 'basic_price_analysis',
+                    'timestamp': time.time()
+                }
+            
+            # Extract real data from CoinGlass V4
+            ticker_data = futures_data.get('ticker_data', {})
+            ls_data = futures_data.get('long_short_data', {})
+            oi_data = futures_data.get('open_interest_data', {})
+            funding_data = futures_data.get('funding_rate_data', {})
+            liq_data = futures_data.get('liquidation_data', {})
+            
+            # Get current price from ticker or fallback
+            current_price = 0
+            price_change_24h = 0
+            
+            if 'error' not in ticker_data:
+                current_price = ticker_data.get('price', 0)
+                price_change_24h = ticker_data.get('price_change_24h', 0)
             else:
-                trend = 'SIDEWAYS'
+                # Fallback to price API
+                price_data = self.get_crypto_price(symbol)
+                if 'error' not in price_data:
+                    current_price = price_data.get('price', 0)
+                    price_change_24h = price_data.get('change_24h', 0)
+            
+            if current_price <= 0:
+                return {'error': 'Unable to get valid price data'}
+            
+            # Advanced supply/demand analysis using real futures data
+            confidence = 50
+            trend = 'SIDEWAYS'
+            signal = 'HOLD'
+            analysis_factors = []
+            
+            # 1. Long/Short Ratio Analysis
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                if long_ratio > 70:
+                    # High long ratio = potential distribution/supply zone
+                    confidence += 15
+                    trend = 'BEARISH'
+                    signal = 'SHORT'
+                    analysis_factors.append(f"High long ratio ({long_ratio:.1f}%) indicates supply pressure")
+                elif long_ratio < 30:
+                    # Low long ratio = potential accumulation/demand zone
+                    confidence += 15
+                    trend = 'BULLISH'
+                    signal = 'LONG'
+                    analysis_factors.append(f"Low long ratio ({long_ratio:.1f}%) indicates demand building")
+                else:
+                    analysis_factors.append(f"Balanced long/short ratio ({long_ratio:.1f}%)")
+            
+            # 2. Open Interest Analysis
+            if 'error' not in oi_data:
+                oi_change = oi_data.get('oi_change_percent', 0)
+                if oi_change > 5:
+                    confidence += 10
+                    analysis_factors.append(f"Rising OI ({oi_change:+.1f}%) confirms trend strength")
+                elif oi_change < -5:
+                    confidence -= 5
+                    analysis_factors.append(f"Falling OI ({oi_change:+.1f}%) suggests weakening")
+            
+            # 3. Funding Rate Analysis
+            if 'error' not in funding_data:
+                funding_rate = funding_data.get('funding_rate', 0)
+                if funding_rate > 0.01:  # High positive funding
+                    confidence += 10
+                    if trend != 'BULLISH':
+                        trend = 'BEARISH'
+                        signal = 'SHORT'
+                    analysis_factors.append(f"High funding rate ({funding_rate*100:.3f}%) = overheated longs")
+                elif funding_rate < -0.005:  # Negative funding
+                    confidence += 10
+                    if trend != 'BEARISH':
+                        trend = 'BULLISH'
+                        signal = 'LONG'
+                    analysis_factors.append(f"Negative funding ({funding_rate*100:.3f}%) = oversold")
+            
+            # 4. Liquidation Analysis
+            if 'error' not in liq_data:
+                dominant_side = liq_data.get('dominant_side', 'Balanced')
+                total_liq = liq_data.get('total_liquidation', 0)
+                if total_liq > 10000000:  # $10M+ liquidations
+                    confidence += 8
+                    analysis_factors.append(f"High liquidations (${total_liq/1000000:.1f}M) - {dominant_side} heavy")
+            
+            # 5. Price momentum confirmation
+            if price_change_24h > 3:
+                if trend == 'BULLISH':
+                    confidence += 10
+                analysis_factors.append(f"Strong price momentum (+{price_change_24h:.1f}%)")
+            elif price_change_24h < -3:
+                if trend == 'BEARISH':
+                    confidence += 10
+                analysis_factors.append(f"Strong bearish momentum ({price_change_24h:.1f}%)")
+            
+            # Calculate support/resistance based on liquidation zones
+            support_level = current_price * 0.95
+            resistance_level = current_price * 1.05
+            
+            if 'error' not in liq_data and liq_data.get('zones'):
+                zones = liq_data['zones']
+                for zone in zones[:3]:  # Check top 3 zones
+                    zone_price = zone.get('price', 0)
+                    if zone_price > 0:
+                        if zone_price < current_price:
+                            support_level = max(support_level, zone_price)
+                        else:
+                            resistance_level = min(resistance_level, zone_price)
+            
+            # Final confidence adjustment
+            confidence = min(95, max(30, confidence))
+            
+            # Override signal if confidence too low
+            if confidence < 60:
                 signal = 'HOLD'
-                confidence = 50
-
-            # Calculate basic support/resistance levels
-            support_level = current_price * 0.97  # 3% below current price
-            resistance_level = current_price * 1.03  # 3% above current price
-
+                trend = 'SIDEWAYS'
+            
+            successful_endpoints = futures_data.get('successful_calls', 0)
+            data_quality = futures_data.get('data_quality', 'poor')
+            
+            print(f"✅ Supply/Demand analysis: {signal} ({confidence}%) using {successful_endpoints}/5 real endpoints")
+            
             return {
                 'symbol': symbol.upper(),
                 'current_price': current_price,
@@ -502,20 +636,33 @@ class CryptoAPI:
                 'support_level': support_level,
                 'resistance_level': resistance_level,
                 'price_change_24h': price_change_24h,
+                'analysis_factors': analysis_factors,
+                'data_quality': data_quality,
+                'successful_endpoints': successful_endpoints,
                 'timeframe': timeframe,
-                'timestamp': time.time(),
-                'source': 'supply_demand_analysis'
+                'source': 'advanced_snd_analysis_coinglass_v4',
+                'timestamp': time.time()
             }
 
         except Exception as e:
+            print(f"❌ Supply/demand analysis error: {e}")
             return {'error': f'Supply/demand analysis failed: {str(e)}'}
 
     # === BACKWARD COMPATIBILITY METHODS ===
 
     def get_binance_long_short_ratio(self, symbol):
-        """Backward compatibility: redirect to get_long_short_ratio"""
+        """Backward compatibility: redirect to get_long_short_ratio with real CoinGlass V4 data"""
         print(f"✅ get_binance_long_short_ratio called for {symbol}, using CoinGlass V4 REAL data...")
-        return self.get_long_short_ratio(symbol)
+        result = self.get_long_short_ratio(symbol)
+        
+        # Add extra logging for debugging
+        if 'error' not in result:
+            long_ratio = result.get('long_ratio', 50)
+            print(f"🎯 Real L/S Ratio: {long_ratio:.1f}% Long / {100-long_ratio:.1f}% Short")
+        else:
+            print(f"❌ L/S Ratio error: {result['error']}")
+        
+        return result
 
     def get_binance_open_interest(self, symbol):
         """Backward compatibility: redirect to get_open_interest"""
