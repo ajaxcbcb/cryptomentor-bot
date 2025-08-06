@@ -1,0 +1,83 @@
+Ubah seluruh isi file `coinglass_provider.py` menjadi seperti berikut:
+
+```python
+import os
+import requests
+
+# Mapping symbol user-friendly ke CoinGlass format
+SYMBOL_MAP = {
+    "BTC": "BINANCE_BTCUSDT",
+    "ETH": "BINANCE_ETHUSDT",
+    "BNB": "BINANCE_BNBUSDT",
+    "SOL": "BINANCE_SOLUSDT",
+    "XRP": "BINANCE_XRPUSDT",
+    "ADA": "BINANCE_ADAUSDT",
+    "DOGE": "BINANCE_DOGEUSDT",
+    "AVAX": "BINANCE_AVAXUSDT",
+    "DOT": "BINANCE_DOTUSDT",
+    "LINK": "BINANCE_LINKUSDT",
+    "MATIC": "BINANCE_MATICUSDT",
+}
+
+BASE_URL = "https://open-api-v4.coinglass.com/public/v4/futures/"
+HEADERS = {
+    "accept": "application/json",
+    "X-API-KEY": os.getenv("COINGLASS_API_KEY")
+}
+
+def map_symbol(symbol: str) -> str:
+    return SYMBOL_MAP.get(symbol.upper(), symbol.upper())
+
+def safe_request(endpoint: str, symbol: str, interval: str = "15min") -> dict | None:
+    url = BASE_URL + endpoint
+    symbol = map_symbol(symbol)
+    params = {
+        "symbol": symbol,
+        "time_type": interval,
+        "currency": "USDT"
+    }
+
+    try:
+        res = requests.get(url, headers=HEADERS, params=params)
+        if res.status_code != 200:
+            print(f"❌ HTTP {res.status_code}: {res.text}")
+            return None
+        data = res.json()
+        if "data" not in data:
+            print("⚠️ No data returned:", data)
+            return None
+        return data["data"]
+    except Exception as e:
+        print("❌ Gagal ambil data Coinglass:", e)
+        return None
+
+def get_open_interest_chart(symbol: str = "BTC", interval: str = "15min"):
+    return safe_request("open_interest/chart", symbol, interval)
+
+def get_funding_rate_chart(symbol: str = "BTC", interval: str = "15min"):
+    return safe_request("funding_rate/chart", symbol, interval)
+
+def get_long_short_ratio(symbol: str = "BTC", interval: str = "15min"):
+    return safe_request("long_short_account/chart", symbol, interval)
+
+def get_liquidation_chart(symbol: str = "BTC", interval: str = "15min"):
+    return safe_request("liquidation/chart", symbol, interval)
+
+def get_price_from_coinglass(symbol: str = "BTC"):
+    symbol = map_symbol(symbol)
+    url = BASE_URL + "ticker"
+    params = {"symbol": symbol}
+    try:
+        res = requests.get(url, headers=HEADERS, params=params)
+        if res.status_code != 200:
+            print(f"❌ Ticker error {res.status_code}: {res.text}")
+            return None
+        data = res.json()
+        if "data" in data and "close" in data["data"]:
+            return float(data["data"]["close"])
+        else:
+            print("⚠️ Data harga tidak ditemukan:", data)
+            return None
+    except Exception as e:
+        print("❌ Error ambil harga:", e)
+        return None
