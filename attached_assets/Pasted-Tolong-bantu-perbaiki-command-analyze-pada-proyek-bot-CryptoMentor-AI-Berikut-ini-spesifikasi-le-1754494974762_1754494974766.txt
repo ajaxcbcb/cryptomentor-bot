@@ -1,0 +1,73 @@
+Tolong bantu perbaiki command `/analyze` pada proyek bot CryptoMentor AI. Berikut ini spesifikasi lengkap yang harus kamu kerjakan:
+
+🧩 MASALAH SAAT INI:
+- Saat user mengirim `/analyze BTC`, bot membalas dengan error:
+  ❌ Error: Can't parse entities: can't find end of the entity starting at byte offset 95
+  - Ini disebabkan karena markup HTML/Markdown Telegram yang tidak aman atau tidak tertutup
+  - Format pesan Telegram harus aman dan valid
+
+🎯 TARGET YANG DIHARAPKAN:
+Ketika user mengetik `/analyze BTC`, maka bot membalas dengan analisis yang rapi seperti berikut:
+
+📊 ANALISA BTC/USDT
+
+💰 Harga Spot: $29,430  
+🛡️ Support: $28,500  
+🔺 Resistance: $30,500  
+📦 Area Supply: $30,300 - $30,700  
+📥 Area Demand: $28,000 - $28,400
+
+✅ Semua data diambil **hanya dari API CoinMarketCap**, tanpa CoinGlass.
+
+---
+
+📌 LANGKAH YANG HARUS DILAKUKAN:
+
+1. **Gunakan API CoinMarketCap untuk ambil harga spot**
+   - Endpoint: `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest`
+   - Header: `'X-CMC_PRO_API_KEY': os.getenv("COINMARKETCAP_API_KEY")`
+   - Ambil harga berdasarkan `symbol` dari user input `/analyze BTC`
+
+2. **Hitung Support dan Resistance otomatis**
+   - Support = Harga sekarang × 0.97 (turun 3%)
+   - Resistance = Harga sekarang × 1.03 (naik 3%)
+
+3. **Tambahkan deteksi Area Supply & Demand (SnD)** berbasis logika sederhana:
+   - Area Demand = harga sekarang - 3.5% s.d. -2.5%
+   - Area Supply = harga sekarang + 2.5% s.d. +3.5%
+   - Contoh jika harga $29,000:
+     - Demand: $27,985 - $28,275
+     - Supply: $29,725 - $30,015
+
+4. **Perbaiki format Telegram agar tidak error:**
+   - Gunakan `parse_mode="HTML"` dan pastikan:
+     - Tidak ada simbol `<` atau `>` di teks biasa
+     - Tidak ada tag HTML seperti `<b>` tanpa penutup
+     - Hindari karakter `_`, `*`, `[`, `]` jika pakai `Markdown`
+
+5. **Tambahkan error handler:**
+   - Jika gagal ambil data dari API, tampilkan:
+     ❌ Gagal mengambil data analisis untuk BTC
+
+---
+
+🧪 CONTOH OUTPUT YANG BENAR:
+
+📊 ANALISA BTC/USDT
+
+💰 Harga Spot: $29,430  
+🛡️ Support: $28,547  
+🔺 Resistance: $30,313  
+📦 Area Supply: $30,166 - $30,600  
+📥 Area Demand: $28,450 - $28,900
+
+---
+
+🔚 Tolong perbaiki semua file terkait:
+- `commands.py` atau `bot.py` (tempat handler /analyze berada)
+- `coinmarketcap_provider.py` (pastikan class `CoinMarketCapProvider` bekerja dan return harga)
+
+Pastikan setelah semua perbaikan:
+✅ Tidak ada error di Telegram  
+✅ Semua data tampil akurat dan tidak bernilai 0  
+✅ Format rapi, mudah dibaca oleh user  
