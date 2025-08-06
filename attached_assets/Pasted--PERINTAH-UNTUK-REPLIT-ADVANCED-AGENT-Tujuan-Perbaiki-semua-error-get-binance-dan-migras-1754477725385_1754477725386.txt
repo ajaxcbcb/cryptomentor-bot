@@ -1,0 +1,54 @@
+# 🔧 PERINTAH UNTUK REPLIT ADVANCED AGENT
+# Tujuan: Perbaiki semua error 'get_binance_*' dan migrasi penuh ke Coinglass V4 API
+
+# 1. Ubah isi crypto_api.py
+write_file("crypto_api.py", '''
+from coinglass_provider import (
+    get_long_short_ratio,
+    get_open_interest_chart,
+    get_funding_rate_chart,
+    get_liquidation_chart,
+    get_price_from_coinglass
+)
+from coinmarketcap_provider import get_price_from_cmc
+
+class CryptoAPI:
+    def __init__(self):
+        pass
+
+    def get_price(self, symbol):
+        try:
+            return get_price_from_cmc(symbol)
+        except:
+            return get_price_from_coinglass(symbol)
+
+    def get_long_short(self, symbol, interval='15m'):
+        return get_long_short_ratio(symbol, interval)
+
+    def get_open_interest(self, symbol, interval='15m'):
+        return get_open_interest_chart(symbol, interval)
+
+    def get_funding_rate(self, symbol, interval='15m'):
+        return get_funding_rate_chart(symbol, interval)
+
+    def get_liquidation(self, symbol, interval='15m'):
+        return get_liquidation_chart(symbol, interval)
+''')
+
+# 2. Cari dan ganti semua pemanggilan fungsi lama dalam ai_assistant.py atau futures_analysis.py
+replace_in_file("ai_assistant.py", "get_binance_long_short_ratio", "api.get_long_short")
+replace_in_file("ai_assistant.py", "get_binance_oi", "api.get_open_interest")
+replace_in_file("ai_assistant.py", "get_binance_funding_rate", "api.get_funding_rate")
+replace_in_file("ai_assistant.py", "get_binance_liquidation", "api.get_liquidation")
+
+replace_in_file("futures_analysis.py", "get_binance_long_short_ratio", "api.get_long_short")
+replace_in_file("futures_analysis.py", "get_binance_oi", "api.get_open_interest")
+replace_in_file("futures_analysis.py", "get_binance_funding_rate", "api.get_funding_rate")
+replace_in_file("futures_analysis.py", "get_binance_liquidation", "api.get_liquidation")
+
+# 3. Tambahan opsional jika masih pakai simbol seperti binance_btcusdt
+replace_in_file("ai_assistant.py", "binance_btcusdt", "BTC")
+replace_in_file("futures_analysis.py", "binance_btcusdt", "BTC")
+
+# ✅ Siap jalan! Setelah ini, RESTART BOT kamu
+print("✅ CryptoAPI dan pemanggilan Coinglass telah diperbaiki. Silakan restart bot.")
