@@ -5,10 +5,8 @@ import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Add missing imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode

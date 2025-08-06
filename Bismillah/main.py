@@ -57,7 +57,7 @@ except ImportError as e:
 
 async def main():
     """Main bot execution with error handling and auto-restart"""
-    max_retries = 3 if is_deployment else 2
+    max_retries = 2
     retry_count = 0
 
     while retry_count < max_retries:
