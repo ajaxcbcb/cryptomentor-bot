@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Add missing imports
+# Import required modules
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -16,7 +16,13 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
-from snd_auto_signals import initialize_auto_signals
+
+# Import auto signals with error handling
+try:
+    from snd_auto_signals import initialize_auto_signals
+except ImportError as e:
+    print(f"⚠️ Auto signals module not available: {e}")
+    initialize_auto_signals = None
 
 # Enhanced deployment detection with verification
 deployment_env_checks = {
@@ -175,22 +181,27 @@ class TelegramBot:
 
             # Initialize and start auto signals system for BOTH development and deployment
             try:
-                print("[AUTO-SIGNAL SND] Initializing auto signals system...")
-                self.auto_signals = initialize_auto_signals(self)
-                if self.auto_signals:
-                    # Start auto signals in BOTH modes
-                    asyncio.create_task(self.auto_signals.start_auto_scanner())
-                    mode_text = "DEPLOYMENT" if IS_DEPLOYMENT else "DEVELOPMENT"
-                    print(f"[AUTO-SIGNAL SND] ✅ Auto SnD signals scanner started in {mode_text} mode")
-                    print(f"[AUTO-SIGNAL SND] 📊 Eligible users: Admin & Lifetime premium users")
-                    print(f"[AUTO-SIGNAL SND] 🎯 Target coins: {len(self.auto_signals.target_symbols)}")
-                    print(f"[AUTO-SIGNAL SND] ⚡ Min confidence: {self.auto_signals.min_confidence}%")
-                    print(f"[AUTO-SIGNAL SND] 🔄 Scan interval: {self.auto_signals.scan_interval // 60} minutes")
-                    print(f"[AUTO-SIGNAL SND] 🛡️ Anti-spam: {self.auto_signals.signal_cooldown // 3600}h cooldown")
+                if initialize_auto_signals:
+                    print("[AUTO-SIGNAL SND] Initializing auto signals system...")
+                    self.auto_signals = initialize_auto_signals(self)
+                    if self.auto_signals:
+                        # Start auto signals in BOTH modes
+                        asyncio.create_task(self.auto_signals.start_auto_scanner())
+                        mode_text = "DEPLOYMENT" if IS_DEPLOYMENT else "DEVELOPMENT"
+                        print(f"[AUTO-SIGNAL SND] ✅ Auto SnD signals scanner started in {mode_text} mode")
+                        print(f"[AUTO-SIGNAL SND] 📊 Eligible users: Admin & Lifetime premium users")
+                        print(f"[AUTO-SIGNAL SND] 🎯 Target coins: {len(self.auto_signals.target_symbols)}")
+                        print(f"[AUTO-SIGNAL SND] ⚡ Min confidence: {self.auto_signals.min_confidence}%")
+                        print(f"[AUTO-SIGNAL SND] 🔄 Scan interval: {self.auto_signals.scan_interval // 60} minutes")
+                        print(f"[AUTO-SIGNAL SND] 🛡️ Anti-spam: {self.auto_signals.signal_cooldown // 3600}h cooldown")
+                    else:
+                        print("[AUTO-SIGNAL SND] ❌ Auto signals system failed to initialize")
                 else:
-                    print("[AUTO-SIGNAL SND] ❌ Auto signals system failed to initialize")
+                    print("[AUTO-SIGNAL SND] ⚠️ Auto signals module not available")
+                    self.auto_signals = None
             except Exception as e:
                 print(f"⚠️ Auto signals initialization failed: {e}")
+                self.auto_signals = None
                 import traceback
                 traceback.print_exc()
 
@@ -764,6 +775,7 @@ class TelegramBot:
 
         try:
             # Get comprehensive analysis using new async method
+            self.ai.crypto_api = self.crypto_api
             analysis = await self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
 
             # Deduct credit only for non-premium, non-admin users
@@ -821,6 +833,7 @@ class TelegramBot:
 
             # Get comprehensive market overview with CoinMarketCap real-time data
             print("📊 Calling AI market sentiment analysis with CoinMarketCap...")
+            self.ai.crypto_api = self.crypto_api
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
 
             if not market_data or len(market_data.strip()) < 50:
@@ -886,6 +899,7 @@ class TelegramBot:
             print(f"🔄 Starting futures signals generation for user {user_id}")
 
             # Generate signals using new async method
+            self.ai.crypto_api = self.crypto_api
             signals = await self.ai.generate_futures_signals('id', self.crypto_api)
 
             if not signals or len(signals.strip()) < 50:
@@ -1011,7 +1025,8 @@ class TelegramBot:
                     try:
                         print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
                         
-                        # Get futures analysis using new async method
+                        # Get futures analysis - set crypto_api reference first
+                        self.ai.crypto_api = self.crypto_api
                         analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
 
                         # Deduct credits

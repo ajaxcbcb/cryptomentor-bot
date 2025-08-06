@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import requests
 import random
@@ -9,14 +8,14 @@ from datetime import datetime
 from coinapi_helper import CoinAPIHelper
 
 class AIAssistant:
-    def __init__(self, name="CryptoMentor AI"):
-        self.name = name
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+    def __init__(self):
+        self.openai_key = os.getenv("OPENAI_API_KEY")
+        print(f"🤖 AI Assistant initialized: {'✅ OpenAI' if self.openai_key else '❌ No OpenAI'}")
+        print("🎯 Crypto analysis with CoinAPI + Coinglass integration")
+
+        # Initialize CoinAPI helper
         self.coinapi_helper = CoinAPIHelper()
-        
-        if not self.coinglass_key:
-            print("⚠️ COINGLASS_API_KEY not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+        self.crypto_api = None  # Will be set when needed
 
     def greet(self):
         return f"Halo! Saya {self.name}, siap membantu analisis dan informasi crypto kamu."
@@ -332,9 +331,9 @@ class AIAssistant:
                 self.coinapi_helper.get_coinapi_price(symbol, force_refresh=True),
                 self._get_coinglass_data_async(symbol, timeframe)
             ]
-            
+
             price_data, coinglass_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Handle exceptions
             if isinstance(price_data, Exception):
                 price_data = {'error': str(price_data)}
@@ -345,7 +344,7 @@ class AIAssistant:
             analysis = await self._generate_futures_analysis(
                 symbol, timeframe, price_data, coinglass_data, language
             )
-            
+
             return analysis
 
         except Exception as e:
@@ -562,17 +561,17 @@ class AIAssistant:
             print(f"🎯 Generating futures signals for top coins")
 
             target_symbols = self._get_top_coins_for_signals(crypto_api)
-            
+
             # Get price data for all symbols concurrently
             price_tasks = [
                 self.coinapi_helper.get_coinapi_price(symbol) for symbol in target_symbols
             ]
             price_results = await asyncio.gather(*price_tasks, return_exceptions=True)
-            
+
             # Get Coinglass data for high-quality symbols
             valid_symbols = []
             price_data = {}
-            
+
             for i, result in enumerate(price_results):
                 symbol = target_symbols[i]
                 if isinstance(result, dict) and 'error' not in result:
@@ -580,26 +579,26 @@ class AIAssistant:
                     price_data[symbol] = result
                 else:
                     print(f"⚠️ Price data failed for {symbol}: {result}")
-            
+
             # Generate signals for valid symbols
             signal_recommendations = []
-            
+
             for symbol in valid_symbols[:10]:  # Limit to top 10 for performance
                 try:
                     coinglass_data = await self._get_coinglass_data_async(symbol, '1h')
-                    
+
                     if 'error' not in coinglass_data:
                         signal = await self._analyze_futures_signal(
                             symbol, price_data[symbol], coinglass_data
                         )
-                        
+
                         if signal and signal.get('confidence', 0) >= 70:
                             signal_recommendations.append(signal)
-                
+
                 except Exception as e:
                     print(f"❌ Error processing signal for {symbol}: {e}")
                     continue
-            
+
             return await self._format_futures_signals_output(signal_recommendations, language)
 
         except Exception as e:
@@ -847,9 +846,9 @@ Ask me anything about crypto! 🚀"""
                 self.coinapi_helper.get_coinapi_historical(symbol, "1HRS", 50),
                 self._get_coinglass_comprehensive_async(symbol)
             ]
-            
+
             price_data, historical_data, coinglass_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # Handle exceptions gracefully
             for i, result in enumerate([price_data, historical_data, coinglass_data]):
                 if isinstance(result, Exception):
@@ -873,7 +872,7 @@ Ask me anything about crypto! 🚀"""
             analysis = await self._format_comprehensive_analysis(
                 symbol, price_data, historical_data, coinglass_data, cmc_data, language
             )
-            
+
             return analysis
 
         except Exception as e:
@@ -903,11 +902,11 @@ Ask me anything about crypto! 🚀"""
         direction = analysis_result.get('direction', 'HOLD')
         confidence = analysis_result.get('confidence', 50)
         reason = analysis_result.get('reason', 'Market analysis')
-        
+
         direction_emoji = "🟢" if direction == 'LONG' else "🔴" if direction == 'SHORT' else "⏸️"
-        
+
         formatted_price = self.coinapi_helper.format_price(current_price)
-        
+
         message = f"""🎯 **ANALISIS FUTURES {symbol.upper()} ({timeframe})**
 
 💰 **HARGA REAL-TIME**: {formatted_price}
@@ -924,7 +923,7 @@ Ask me anything about crypto! 🚀"""
             entry_price = current_price * (0.999 if direction == 'LONG' else 1.001)
             tp_price = current_price * (1.025 if direction == 'LONG' else 0.975)
             sl_price = current_price * (0.985 if direction == 'LONG' else 1.015)
-            
+
             message += f"""
 ┣━ 📍 **ENTRY**: {self.coinapi_helper.format_price(entry_price)}
 ┣━ 🎯 **TAKE PROFIT**: {self.coinapi_helper.format_price(tp_price)}
@@ -936,7 +935,7 @@ Ask me anything about crypto! 🚀"""
         if 'long_ratio' in analysis_result:
             long_ratio = analysis_result['long_ratio']
             oi_change = analysis_result.get('oi_change', 0)
-            
+
             message += f"""
 
 📊 **DATA COINGLASS:**
@@ -954,7 +953,7 @@ Ask me anything about crypto! 🚀"""
 ⏰ **Analysis Time**: {current_time}"""
 
         return message
-    
+
     def _format_comprehensive_analysis_id(self, symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time):
         """Format comprehensive analysis in Indonesian"""
         formatted_price = self.coinapi_helper.format_price(current_price)
@@ -962,10 +961,10 @@ Ask me anything about crypto! 🚀"""
         trend_strength = trend_analysis.get('strength', 'medium')
         sentiment_score = sentiment_analysis.get('sentiment_score', 50)
         overall_sentiment = sentiment_analysis.get('overall', 'neutral')
-        
+
         trend_emoji = "📈" if trend == 'bullish' else "📉" if trend == 'bearish' else "📊"
         sentiment_emoji = "🟢" if overall_sentiment == 'bullish' else "🔴" if overall_sentiment == 'bearish' else "🟡"
-        
+
         message = f"""🎯 **ANALISIS KOMPREHENSIF {symbol.upper()}**
 
 💰 **HARGA CURRENT**: {formatted_price}
@@ -999,7 +998,7 @@ Ask me anything about crypto! 🚀"""
 ⏰ **Analysis Time**: {current_time}"""
 
         return message
-    
+
     def _format_signals_output_id(self, recommendations, current_time):
         """Format multiple signals output in Indonesian"""
         header = f"""🎯 **SINYAL FUTURES REAL-TIME**
@@ -1018,9 +1017,9 @@ Ask me anything about crypto! 🚀"""
             entry_price = signal['entry_price']
             tp_price = signal['take_profit']
             sl_price = signal['stop_loss']
-            
+
             direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-            
+
             signal_text = f"""**{i}. {symbol} {direction_emoji} - {direction}**
 💰 Entry: {self.coinapi_helper.format_price(entry_price)} | Confidence: {confidence:.0f}%
 
@@ -1208,7 +1207,7 @@ An error occurred while processing data:
 • Contact admin if issue persists
 
 📡 **Source**: API Error Handler"""
-    
+
     async def cleanup(self):
         """Cleanup resources"""
         if hasattr(self, 'coinapi_helper'):
@@ -1222,16 +1221,16 @@ An error occurred while processing data:
                 asyncio.to_thread(self._get_coinglass_long_short_data, symbol, timeframe),
                 asyncio.to_thread(self._get_coinglass_open_interest_data, symbol, timeframe)
             ]
-            
+
             long_short_data, oi_data = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             return {
                 'long_short': long_short_data if not isinstance(long_short_data, Exception) else {'error': str(long_short_data)},
                 'open_interest': oi_data if not isinstance(oi_data, Exception) else {'error': str(oi_data)}
             }
         except Exception as e:
             return {'error': f'Coinglass data error: {str(e)}'}
-    
+
     async def _get_coinglass_comprehensive_async(self, symbol):
         """Get comprehensive Coinglass data asynchronously"""
         try:
@@ -1241,9 +1240,9 @@ An error occurred while processing data:
                 asyncio.to_thread(self._get_coinglass_liquidation, symbol, '24h'),
                 asyncio.to_thread(self._get_coinglass_funding_rate, symbol)
             ]
-            
+
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             return {
                 'long_short': results[0] if not isinstance(results[0], Exception) else {'error': str(results[0])},
                 'open_interest': results[1] if not isinstance(results[1], Exception) else {'error': str(results[1])},
@@ -1252,22 +1251,22 @@ An error occurred while processing data:
             }
         except Exception as e:
             return {'error': f'Comprehensive Coinglass error: {str(e)}'}
-    
+
     async def _generate_futures_analysis(self, symbol, timeframe, price_data, coinglass_data, language):
         """Generate clean futures analysis"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
+
             # Extract price info
             current_price = 0
             price_source = "Estimated"
             if 'error' not in price_data:
                 current_price = price_data.get('price', 0)
                 price_source = "CoinAPI Real-time"
-            
+
             # Analyze Coinglass data
             analysis_result = self._analyze_coinglass_data(coinglass_data, symbol)
-            
+
             # Format analysis
             if language == 'id':
                 return self._format_futures_analysis_id(
@@ -1277,28 +1276,28 @@ An error occurred while processing data:
                 return self._format_futures_analysis_en(
                     symbol, timeframe, current_price, price_source, analysis_result, current_time
                 )
-                
+
         except Exception as e:
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
-    
+
     async def _format_comprehensive_analysis(self, symbol, price_data, historical_data, coinglass_data, cmc_data, language):
         """Format comprehensive analysis output"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
-            
+
             # Extract current price
             current_price = 0
             price_change_24h = 0
-            
+
             if 'error' not in price_data:
                 current_price = price_data.get('price', 0)
-            
+
             # Analyze historical trends
             trend_analysis = self._analyze_historical_trend(historical_data)
-            
+
             # Analyze Coinglass sentiment
             sentiment_analysis = self._analyze_coinglass_comprehensive(coinglass_data)
-            
+
             # Format output based on language
             if language == 'id':
                 return self._format_comprehensive_analysis_id(
@@ -1308,46 +1307,46 @@ An error occurred while processing data:
                 return self._format_comprehensive_analysis_en(
                     symbol, current_price, trend_analysis, sentiment_analysis, cmc_data, current_time
                 )
-                
+
         except Exception as e:
             return self._generate_emergency_analysis(symbol, language, str(e))
-    
+
     async def _analyze_futures_signal(self, symbol, price_data, coinglass_data):
         """Analyze futures signal for a single symbol"""
         try:
             if 'error' in price_data or 'error' in coinglass_data:
                 return None
-            
+
             current_price = price_data.get('price', 0)
             if current_price <= 0:
                 return None
-            
+
             # Analyze Coinglass data for signal
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
-            
+
             if 'error' in long_short or 'error' in open_interest:
                 return None
-            
+
             # Calculate signal confidence
             long_ratio = long_short.get('long_ratio', 50)
             oi_change = open_interest.get('oi_change_percent', 0)
-            
+
             # Simple signal logic
             confidence = 50
             direction = 'HOLD'
-            
+
             if long_ratio > 75:  # Overleveraged longs
                 direction = 'SHORT'
                 confidence = min(85, 60 + (long_ratio - 75))
             elif long_ratio < 25:  # Overleveraged shorts
                 direction = 'LONG'
                 confidence = min(85, 60 + (25 - long_ratio))
-            
+
             # Adjust confidence based on OI
             if abs(oi_change) > 10:
                 confidence += 10
-            
+
             if confidence >= 70:
                 return {
                     'symbol': symbol,
@@ -1360,13 +1359,13 @@ An error occurred while processing data:
                     'stop_loss': current_price * (0.985 if direction == 'LONG' else 1.015),
                     'take_profit': current_price * (1.025 if direction == 'LONG' else 0.975)
                 }
-            
+
             return None
-            
+
         except Exception as e:
             print(f"❌ Signal analysis error for {symbol}: {e}")
             return None
-    
+
     async def _format_futures_signals_output(self, recommendations, language):
         """Format futures signals output"""
         if not recommendations:
@@ -1374,34 +1373,34 @@ An error occurred while processing data:
                 return "❌ Tidak ada sinyal dengan confidence >70%. Coba lagi nanti."
             else:
                 return "❌ No signals with confidence >70%. Try again later."
-        
+
         current_time = datetime.now().strftime('%H:%M:%S WIB')
-        
+
         if language == 'id':
             return self._format_signals_output_id(recommendations, current_time)
         else:
             return self._format_signals_output_en(recommendations, current_time)
-    
+
     def _get_top_coins_for_signals(self, crypto_api=None):
         """Get top coins for signal generation"""
         return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'MATIC', 'LINK', 'UNI', 'LTC', 'BCH', 'ATOM']
-    
+
     def _analyze_coinglass_data(self, coinglass_data, symbol):
         """Analyze Coinglass data for insights"""
         try:
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
-            
+
             if 'error' in long_short or 'error' in open_interest:
                 return {
                     'direction': 'HOLD',
                     'confidence': 30,
                     'reason': 'Insufficient data'
                 }
-            
+
             long_ratio = long_short.get('long_ratio', 50)
             oi_change = open_interest.get('oi_change_percent', 0)
-            
+
             # Analysis logic
             if long_ratio > 70:
                 return {
@@ -1427,54 +1426,54 @@ An error occurred while processing data:
                     'long_ratio': long_ratio,
                     'oi_change': oi_change
                 }
-                
+
         except Exception as e:
             return {
                 'direction': 'HOLD',
                 'confidence': 30,
                 'reason': f'Analysis error: {str(e)}'
             }
-    
+
     def _analyze_historical_trend(self, historical_data):
         """Analyze historical price trend"""
         try:
             if 'error' in historical_data or not historical_data.get('data'):
                 return {'trend': 'neutral', 'strength': 'low'}
-            
+
             data = historical_data['data']
             if len(data) < 10:
                 return {'trend': 'neutral', 'strength': 'low'}
-            
+
             # Simple trend analysis
             closes = [float(candle.get('price_close', 0)) for candle in data[-10:]]
-            
+
             if len(closes) >= 5:
                 recent_avg = sum(closes[-5:]) / 5
                 older_avg = sum(closes[:5]) / 5
-                
+
                 change = (recent_avg - older_avg) / older_avg * 100
-                
+
                 if change > 2:
                     return {'trend': 'bullish', 'strength': 'strong' if change > 5 else 'medium'}
                 elif change < -2:
                     return {'trend': 'bearish', 'strength': 'strong' if change < -5 else 'medium'}
-            
+
             return {'trend': 'neutral', 'strength': 'medium'}
-            
+
         except Exception as e:
             return {'trend': 'neutral', 'strength': 'low'}
-    
+
     def _analyze_coinglass_comprehensive(self, coinglass_data):
         """Analyze comprehensive Coinglass data"""
         try:
             sentiment_score = 50  # Neutral
             signals = []
-            
+
             # Analyze each data component
             long_short = coinglass_data.get('long_short', {})
             open_interest = coinglass_data.get('open_interest', {})
             liquidation = coinglass_data.get('liquidation', {})
-            
+
             if 'error' not in long_short:
                 long_ratio = long_short.get('long_ratio', 50)
                 if long_ratio > 65:
@@ -1483,7 +1482,7 @@ An error occurred while processing data:
                 elif long_ratio < 35:
                     sentiment_score += 10
                     signals.append('Low long ratio suggests bullish sentiment')
-            
+
             if 'error' not in open_interest:
                 oi_change = open_interest.get('oi_change_percent', 0)
                 if oi_change > 10:
@@ -1492,20 +1491,20 @@ An error occurred while processing data:
                 elif oi_change < -10:
                     sentiment_score -= 5
                     signals.append('Falling open interest suggests weakening')
-            
+
             return {
                 'sentiment_score': max(0, min(100, sentiment_score)),
                 'signals': signals,
                 'overall': 'bullish' if sentiment_score > 60 else 'bearish' if sentiment_score < 40 else 'neutral'
             }
-            
+
         except Exception as e:
             return {
                 'sentiment_score': 50,
                 'signals': [f'Analysis error: {str(e)}'],
                 'overall': 'neutral'
             }
-    
+
     def _generate_emergency_futures_signal(self, symbol, timeframe, language, error_message):
         """Generate a fallback signal in case of errors."""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
