@@ -70,22 +70,39 @@ class AIAssistant:
         }
 
     def _get_estimated_price(self, symbol):
-        """Get estimated price for a symbol"""
+        """Get real-time price with proper fallback"""
         try:
-            # Use crypto_api to get price
-            price_data = self.crypto_api.get_crypto_price(symbol)
-            if 'error' not in price_data and price_data.get('price', 0) > 0:
-                return price_data['price']
+            # Primary: Use crypto_api to get real price
+            if self.crypto_api:
+                price_data = self.crypto_api.get_crypto_price(symbol)
+                if 'error' not in price_data and price_data.get('price', 0) > 0:
+                    real_price = price_data['price']
+                    print(f"✅ Real price for {symbol}: ${real_price:.4f}")
+                    return real_price
             
-            # Fallback prices for common symbols
-            fallback_prices = {
-                'BTC': 112000, 'ETH': 3500, 'BNB': 650, 'SOL': 240,
-                'ADA': 1.2, 'AVAX': 45, 'MATIC': 1.1, 'DOT': 8.5,
-                'ATOM': 12, 'LINK': 22, 'UNI': 15, 'DOGE': 0.4
+            # Secondary: Try CoinGlass ticker
+            if self.coinglass_key:
+                ticker_data = self.crypto_api.coinglass_provider.get_futures_ticker(symbol)
+                if 'error' not in ticker_data and ticker_data.get('price', 0) > 0:
+                    real_price = ticker_data['price']
+                    print(f"✅ CoinGlass price for {symbol}: ${real_price:.4f}")
+                    return real_price
+            
+            # Fallback: Current market estimates (updated regularly)
+            current_estimates = {
+                'BTC': 67500, 'ETH': 3200, 'BNB': 580, 'SOL': 185,
+                'ADA': 0.48, 'AVAX': 28, 'MATIC': 0.85, 'DOT': 6.8,
+                'ATOM': 9.5, 'LINK': 18, 'UNI': 11, 'DOGE': 0.12,
+                'XRP': 0.58, 'LTC': 95, 'BCH': 485, 'ALGO': 0.22
             }
-            return fallback_prices.get(symbol.upper(), 100)
-        except:
-            return 100
+            
+            fallback_price = current_estimates.get(symbol.upper(), 50)
+            print(f"⚠️ Using fallback estimate for {symbol}: ${fallback_price:.4f}")
+            return fallback_price
+            
+        except Exception as e:
+            print(f"❌ Price estimation error for {symbol}: {e}")
+            return 50
 
     def _get_coinglass_price(self, symbol):
         """Get price data for Coinglass analysis using Coinglass API"""
@@ -2921,7 +2938,7 @@ Error processing data:
         return message
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market sentiment with CoinMarketCap integration"""
+        """Get market sentiment with CoinMarketCap integration - Fixed markdown parsing"""
         try:
             if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider.api_key:
                 # Get comprehensive market data from CoinMarketCap
@@ -2934,7 +2951,7 @@ Error processing data:
 
                     current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-                    # Format large numbers
+                    # Format large numbers - fixed for markdown
                     def format_currency(amount):
                         if amount > 1000000000000:  # Trillions
                             return f"${amount/1000000000000:.2f}T"
@@ -2944,6 +2961,19 @@ Error processing data:
                             return f"${amount/1000000:.1f}M"
                         else:
                             return f"${amount:,.0f}"
+
+                    # Safe text function untuk mencegah markdown errors
+                    def safe_text(text):
+                        if not isinstance(text, str):
+                            return str(text)
+                        # Escape karakter yang bermasalah untuk Telegram
+                        text = text.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                        text = text.replace('(', '\\(').replace(')', '\\)').replace('~', '\\~')
+                        text = text.replace('`', '\\`').replace('>', '\\>').replace('#', '\\#')
+                        text = text.replace('+', '\\+').replace('-', '\\-').replace('=', '\\=')
+                        text = text.replace('|', '\\|').replace('{', '\\{').replace('}', '\\}')
+                        text = text.replace('.', '\\.').replace('!', '\\!')
+                        return text
 
                     total_market_cap = global_metrics.get('total_market_cap', 0)
                     total_volume = global_metrics.get('total_volume_24h', 0)
@@ -2972,28 +3002,28 @@ Error processing data:
                         sentiment_text = "Bearish"
 
                     if language == 'id':
-                        analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL (CoinMarketCap)**
+                        analysis = f"""🌍 OVERVIEW PASAR CRYPTO GLOBAL (CoinMarketCap)
 
-💰 **Statistik Pasar:**
-• **Total Market Cap**: {format_currency(total_market_cap)}
-• **Perubahan 24j**: {sentiment_emoji} {market_cap_change:+.2f}%
-• **Volume 24j**: {format_currency(total_volume)}
-• **Sentiment**: {sentiment_text}
+💰 Statistik Pasar:
+• Total Market Cap: {format_currency(total_market_cap)}
+• Perubahan 24j: {sentiment_emoji} {market_cap_change:+.2f}%
+• Volume 24j: {format_currency(total_volume)}
+• Sentiment: {sentiment_text}
 
-🪙 **Dominasi Crypto:**
-• **Bitcoin (BTC)**: {btc_dominance:.1f}%
-• **Ethereum (ETH)**: {eth_dominance:.1f}%
-• **Altcoins**: {100-btc_dominance-eth_dominance:.1f}%
+🪙 Dominasi Crypto:
+• Bitcoin (BTC): {btc_dominance:.1f}%
+• Ethereum (ETH): {eth_dominance:.1f}%
+• Altcoins: {100-btc_dominance-eth_dominance:.1f}%
 
-📊 **Aktivitas Pasar:**
-• **Cryptocurrency Aktif**: {active_cryptos:,}
-• **Exchange Aktif**: {active_exchanges:,}
-• **Market Pairs**: {global_metrics.get('active_market_pairs', 0):,}
+📊 Aktivitas Pasar:
+• Cryptocurrency Aktif: {active_cryptos:,}
+• Exchange Aktif: {active_exchanges:,}
+• Market Pairs: {global_metrics.get('active_market_pairs', 0):,}
 
-😨😱 **Fear & Greed Index:**
-• **Nilai**: {fng_value}/100
-• **Status**: {fng_classification}
-• **Indikator**: {'Extreme Fear' if fng_value < 20 else 'Fear' if fng_value < 40 else 'Neutral' if fng_value < 60 else 'Greed' if fng_value < 80 else 'Extreme Greed'}"""
+😨😱 Fear & Greed Index:
+• Nilai: {fng_value}/100
+• Status: {safe_text(fng_classification)}
+• Indikator: {'Extreme Fear' if fng_value < 20 else 'Fear' if fng_value < 40 else 'Neutral' if fng_value < 60 else 'Greed' if fng_value < 80 else 'Extreme Greed'}"""
 
                         # Add top movers if available
                         if 'data' in top_cryptos and top_cryptos['data']:
