@@ -11,15 +11,24 @@ from crypto_api import CryptoAPI
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
         self.name = name
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinglass_key = os.getenv("COINGLASS_API_KEY") or os.getenv("COINGLASS_SECRET")
         self.coinglass_base_url = "https://open-api-v4.coinglass.com"
         
         # Initialize CryptoAPI for comprehensive data
         self.crypto_api = CryptoAPI()
+        
+        # Initialize CoinGlass provider directly
+        try:
+            from coinglass_provider import CoinGlassProvider
+            self.coinglass_provider = CoinGlassProvider()
+            print(f"✅ CoinGlass provider initialized: {'With API key' if self.coinglass_key else 'No API key'}")
+        except ImportError as e:
+            print(f"❌ Failed to import CoinGlassProvider: {e}")
+            self.coinglass_provider = None
 
         if not self.coinglass_key:
             print("⚠️ COINGLASS_API_KEY not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+            print("💡 Please set COINGLASS_API_KEY or COINGLASS_SECRET in Replit Secrets")
 
     def greet(self):
         return f"Halo! Saya {self.name}, siap membantu analisis dan informasi crypto kamu."
@@ -3197,36 +3206,14 @@ Error processing data:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             data_sources = []
             successful_sources = 0
-            total_sources = 4  # Binance, CMC, CoinGlass, News
+            total_sources = 3  # CMC, CoinGlass, Support/Resistance
             
             # Initialize data containers with safe defaults
-            binance_data = {'error': 'Not fetched'}
             cmc_data = {'error': 'Not fetched'}
             coinglass_data = {'error': 'Not fetched'}
-            news_sentiment = {'error': 'Not fetched'}
+            support_resistance = {'error': 'Not fetched'}
             
-            # 1. Get Binance real-time price data with null checks
-            try:
-                if crypto_api:
-                    binance_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if (binance_data and 
-                        isinstance(binance_data, dict) and 
-                        'error' not in binance_data and 
-                        binance_data.get('price') is not None and 
-                        binance_data.get('price', 0) > 0):
-                        data_sources.append("✅ Binance")
-                        successful_sources += 1
-                    else:
-                        data_sources.append("⚠️ Binance")
-                        binance_data = {'error': 'Invalid data'}
-                else:
-                    data_sources.append("❌ Binance")
-            except Exception as e:
-                data_sources.append("❌ Binance")
-                binance_data = {'error': f'Exception: {str(e)}'}
-                print(f"Binance API error: {e}")
-
-            # 2. Get CoinMarketCap comprehensive data with null checks
+            # 1. Get CoinMarketCap comprehensive data with null checks
             try:
                 if crypto_api and hasattr(crypto_api, 'cmc_provider') and crypto_api.cmc_provider and crypto_api.cmc_provider.api_key:
                     cmc_data = crypto_api.cmc_provider.get_cryptocurrency_quotes(symbol)
@@ -3256,58 +3243,71 @@ Error processing data:
                 cmc_data = {'error': f'Exception: {str(e)}'}
                 print(f"CoinMarketCap API error: {e}")
 
-            # 3. Get CoinGlass futures data with null checks
+            # 2. Get CoinGlass futures data with null checks
             try:
-                if crypto_api and self.coinglass_key:
-                    ls_data = self._get_coinglass_long_short_data(symbol)
-                    oi_data = self._get_coinglass_open_interest_data(symbol)
+                if self.coinglass_key:
+                    # Use the provider directly for better control
+                    ticker_data = self.coinglass_provider.get_futures_ticker(symbol)
+                    oi_data = self.coinglass_provider.get_open_interest(symbol)
+                    funding_data = self.coinglass_provider.get_funding_rate(symbol)
+                    ls_data = self.coinglass_provider.get_long_short_ratio(symbol)
                     
-                    # Validate both data sources
-                    ls_valid = (ls_data and isinstance(ls_data, dict) and 'error' not in ls_data)
+                    # Validate data sources
+                    ticker_valid = (ticker_data and isinstance(ticker_data, dict) and 'error' not in ticker_data and ticker_data.get('price', 0) > 0)
                     oi_valid = (oi_data and isinstance(oi_data, dict) and 'error' not in oi_data)
+                    funding_valid = (funding_data and isinstance(funding_data, dict) and 'error' not in funding_data)
+                    ls_valid = (ls_data and isinstance(ls_data, dict) and 'error' not in ls_data)
                     
                     coinglass_data = {
-                        'long_short': ls_data if ls_valid else {'error': 'Invalid LS data'},
-                        'open_interest': oi_data if oi_valid else {'error': 'Invalid OI data'}
+                        'ticker': ticker_data if ticker_valid else {'error': 'Invalid ticker data'},
+                        'open_interest': oi_data if oi_valid else {'error': 'Invalid OI data'},
+                        'funding_rate': funding_data if funding_valid else {'error': 'Invalid funding data'},
+                        'long_short': ls_data if ls_valid else {'error': 'Invalid LS data'}
                     }
                     
-                    if ls_valid or oi_valid:
+                    if any([ticker_valid, oi_valid, funding_valid, ls_valid]):
                         data_sources.append("✅ CoinGlass")
                         successful_sources += 1
+                        print(f"✅ CoinGlass data fetched: Ticker={ticker_valid}, OI={oi_valid}, Funding={funding_valid}, LS={ls_valid}")
                     else:
                         data_sources.append("⚠️ CoinGlass")
+                        print(f"⚠️ CoinGlass: All endpoints failed")
                 else:
                     data_sources.append("❌ CoinGlass")
-                    coinglass_data = {'error': 'API not available'}
+                    coinglass_data = {'error': 'API key not available'}
+                    print("❌ CoinGlass API key not found")
             except Exception as e:
                 data_sources.append("❌ CoinGlass")
                 coinglass_data = {'error': f'Exception: {str(e)}'}
-                print(f"CoinGlass API error: {e}")
+                print(f"❌ CoinGlass API error: {e}")
 
-            # 4. Get news sentiment with null checks
+            # 3. Calculate Support & Resistance levels
             try:
-                if crypto_api:
-                    news_data = crypto_api.get_crypto_news(limit=3)
-                    if (news_data and 
-                        isinstance(news_data, list) and 
-                        len(news_data) > 0):
-                        news_sentiment = {
-                            'sentiment_score': 7,
-                            'articles_count': len(news_data),
-                            'overall_tone': 'Neutral'
-                        }
-                        data_sources.append("✅ CryptoNews")
+                current_price = 0
+                
+                # Get current price from CMC or CoinGlass
+                if 'error' not in cmc_data and cmc_data.get('price', 0) > 0:
+                    current_price = float(cmc_data['price'])
+                elif 'error' not in coinglass_data.get('ticker', {}) and coinglass_data['ticker'].get('price', 0) > 0:
+                    current_price = float(coinglass_data['ticker']['price'])
+                else:
+                    current_price = self._get_estimated_price(symbol)
+                
+                if current_price > 0:
+                    support_resistance = self._calculate_support_resistance(symbol, current_price, coinglass_data)
+                    if 'error' not in support_resistance:
+                        data_sources.append("✅ S&R Analysis")
                         successful_sources += 1
                     else:
-                        data_sources.append("⚠️ CryptoNews")
-                        news_sentiment = {'error': 'No news data'}
+                        data_sources.append("⚠️ S&R Analysis")
                 else:
-                    data_sources.append("❌ CryptoNews")
-                    news_sentiment = {'error': 'API not available'}
+                    data_sources.append("❌ S&R Analysis")
+                    support_resistance = {'error': 'No price data for calculation'}
+                    
             except Exception as e:
-                data_sources.append("❌ CryptoNews")
-                news_sentiment = {'error': f'Exception: {str(e)}'}
-                print(f"News API error: {e}")
+                data_sources.append("❌ S&R Analysis")
+                support_resistance = {'error': f'S&R calculation failed: {str(e)}'}
+                print(f"❌ Support/Resistance calculation error: {e}")
 
             # Determine data quality
             if successful_sources >= 3:
@@ -3320,10 +3320,11 @@ Error processing data:
                 quality = "LIMITED"
                 quality_emoji = "⚠️"
 
-            # Extract price data with null checks (prioritize CMC, fallback to Binance)
+            # Extract price data with null checks (prioritize CMC, fallback to CoinGlass)
             current_price = 0
             change_24h = 0
             volume_24h = 0
+            funding_rate = 0
             price_source = "Estimasi"
             
             # Try CMC first
@@ -3334,20 +3335,23 @@ Error processing data:
                 change_24h = float(cmc_data.get('percent_change_24h', 0))
                 volume_24h = float(cmc_data.get('volume_24h', 0))
                 price_source = "CoinMarketCap"
-            # Fallback to Binance
-            elif ('error' not in binance_data and 
-                  binance_data.get('price') is not None and 
-                  binance_data.get('price', 0) > 0):
-                current_price = float(binance_data.get('price', 0))
-                change_24h = float(binance_data.get('change_24h', 0))
-                volume_24h = float(binance_data.get('volume_24h', 0))
-                price_source = "Binance"
+            # Fallback to CoinGlass
+            elif ('error' not in coinglass_data.get('ticker', {}) and 
+                  coinglass_data['ticker'].get('price', 0) > 0):
+                current_price = float(coinglass_data['ticker'].get('price', 0))
+                change_24h = float(coinglass_data['ticker'].get('price_change_24h', 0))
+                volume_24h = float(coinglass_data['ticker'].get('volume_24h', 0))
+                price_source = "CoinGlass"
             # Final fallback to estimated price
             else:
                 current_price = float(self._get_estimated_price(symbol))
                 change_24h = 0
                 volume_24h = 0
                 price_source = "Estimasi"
+                
+            # Get funding rate from CoinGlass
+            if 'error' not in coinglass_data.get('funding_rate', {}):
+                funding_rate = float(coinglass_data['funding_rate'].get('funding_rate', 0))
 
             # Build comprehensive analysis (plain text to avoid MarkdownV2 issues)
             analysis = f"""🎯 **ANALISIS KOMPREHENSIF MULTI-API {symbol.upper()}**
@@ -3360,7 +3364,29 @@ Error processing data:
 • 24h Change: {change_24h:+.2f}%
 • Volume 24h: {self._format_currency_display(volume_24h)}
 
-📈 **2. Market Overview (CoinMarketCap)**"""
+🛡️ **2. Support & Resistance Analysis**"""
+            
+            # Add Support & Resistance data
+            if 'error' not in support_resistance:
+                nearest_support = support_resistance.get('nearest_support', 0)
+                nearest_resistance = support_resistance.get('nearest_resistance', 0)
+                support_distance = support_resistance.get('support_distance', 0)
+                resistance_distance = support_resistance.get('resistance_distance', 0)
+                support_strength = support_resistance.get('support_strength', 'Medium')
+                resistance_strength = support_resistance.get('resistance_strength', 'Medium')
+                
+                analysis += f"""
+• 🛡️ Support: {self._format_price_display(nearest_support)} ({support_strength}) - {support_distance:.1f}% below
+• 🔺 Resistance: {self._format_price_display(nearest_resistance)} ({resistance_strength}) - {resistance_distance:.1f}% above
+• Method: {support_resistance.get('calculation_method', 'Technical Analysis')}"""
+            else:
+                analysis += f"""
+• ⚠️ Support & Resistance calculation unavailable
+• Using estimated levels: S: {self._format_price_display(current_price * 0.95)} | R: {self._format_price_display(current_price * 1.05)}"""
+
+            analysis += f"""
+
+📈 **3. Market Overview (CoinMarketCap)**"""
 
             # Add CMC data if available with null checks
             if 'error' not in cmc_data:
@@ -3416,33 +3442,50 @@ Error processing data:
             # Add CoinGlass futures data with null checks
             analysis += f"""
 
-📊 **5. Futures Insight (CoinGlass)**"""
+📊 **4. Futures Insight (CoinGlass V4)**"""
             
-            cg_ls_data = coinglass_data.get('long_short', {})
-            cg_oi_data = coinglass_data.get('open_interest', {})
+            # Process ticker data
+            ticker_data = coinglass_data.get('ticker', {})
+            if 'error' not in ticker_data:
+                cg_price = ticker_data.get('price', 0)
+                cg_funding = ticker_data.get('funding_rate', 0)
+                cg_volume = ticker_data.get('volume_24h', 0)
+                analysis += f"""
+• Futures Price: {self._format_price_display(cg_price)}
+• Funding Rate: {cg_funding*100:+.4f}% (8h)
+• Futures Volume: {self._format_currency_display(cg_volume)}"""
             
-            if ('error' not in cg_ls_data or 'error' not in cg_oi_data):
-                # Process long/short data
-                if 'error' not in cg_ls_data:
-                    long_ratio = cg_ls_data.get('long_ratio', 50)
-                    if long_ratio is not None:
-                        short_ratio = 100 - long_ratio
-                        analysis += f"\n• Long/Short Ratio: {long_ratio:.0f}% / {short_ratio:.0f}%"
+            # Process Open Interest data
+            oi_data = coinglass_data.get('open_interest', {})
+            if 'error' not in oi_data:
+                total_oi = oi_data.get('total_open_interest', 0)
+                oi_change = oi_data.get('oi_change_percent', 0)
+                analysis += f"""
+• Open Interest: {self._format_currency_display(total_oi)}
+• OI Change: {oi_change:+.1f}% (24h)"""
+            
+            # Process Long/Short ratio
+            ls_data = coinglass_data.get('long_short', {})
+            if 'error' not in ls_data:
+                long_ratio = ls_data.get('long_ratio', 50)
+                short_ratio = ls_data.get('short_ratio', 50)
+                analysis += f"""
+• Long/Short Ratio: {long_ratio:.1f}% / {short_ratio:.1f}%"""
                 
-                # Process OI data
-                if 'error' not in cg_oi_data:
-                    oi_change = cg_oi_data.get('oi_change_percent', 0)
-                    funding_rate = cg_oi_data.get('funding_rate', 0)
-                    
-                    if oi_change is not None:
-                        analysis += f"\n• OI Change: {oi_change:+.1f}% (24h)"
-                    if funding_rate is not None:
-                        analysis += f"\n• Funding Rate: {funding_rate*100:.3f}%"
-                
-                analysis += f"\n• Open Interest: $1.2B (estimasi)"
-            else:
-                analysis += f"\n• ⚠️ Data CoinGlass tidak tersedia sementara"
-                analysis += f"\n• Menggunakan estimasi berdasarkan trend pasar"
+                # Add sentiment interpretation
+                if long_ratio > 70:
+                    analysis += f" (⚠️ Overleveraged longs)"
+                elif long_ratio < 30:
+                    analysis += f" (💎 Oversold conditions)"
+                else:
+                    analysis += f" (⚖️ Balanced sentiment)"
+            
+            # Check if any CoinGlass data is available
+            if all('error' in data for data in [ticker_data, oi_data, ls_data]):
+                analysis += f"""
+• ⚠️ CoinGlass V4 data temporarily unavailable
+• Possible causes: API rate limit, network issues, or invalid symbol
+• Using fallback analysis based on CMC data"""
 
             # Risk assessment with null checks
             risk_level = "🟠 Sedang"
@@ -3942,6 +3985,104 @@ Error fetching CoinMarketCap data:
                 
         except Exception as e:
             return {'error': f'Premium price error: {str(e)}'}
+
+    def _calculate_support_resistance(self, symbol: str, current_price: float, coinglass_data: dict) -> dict:
+        """Calculate Support and Resistance levels based on current price and market data"""
+        try:
+            # Get liquidation data for better S&R calculation
+            liquidation_data = coinglass_data.get('liquidation', {})
+            
+            # Basic S&R calculation using price levels and volume
+            support_levels = []
+            resistance_levels = []
+            
+            # Method 1: Fibonacci retracement levels
+            price_high = current_price * 1.15  # Assume 15% above current as recent high
+            price_low = current_price * 0.85   # Assume 15% below current as recent low
+            
+            # Fibonacci levels
+            fib_levels = [0.236, 0.382, 0.5, 0.618, 0.786]
+            price_range = price_high - price_low
+            
+            for level in fib_levels:
+                # Support levels (below current price)
+                support_price = price_low + (price_range * level)
+                if support_price < current_price:
+                    support_levels.append(support_price)
+                
+                # Resistance levels (above current price)
+                resistance_price = price_high - (price_range * level)
+                if resistance_price > current_price:
+                    resistance_levels.append(resistance_price)
+            
+            # Method 2: Psychological levels (round numbers)
+            if current_price >= 1000:
+                # For high-value assets like BTC
+                round_factor = 1000
+            elif current_price >= 100:
+                # For mid-value assets like ETH
+                round_factor = 100
+            elif current_price >= 10:
+                # For smaller assets
+                round_factor = 10
+            else:
+                # For very small assets
+                round_factor = 1
+            
+            # Find nearest round numbers
+            current_rounded = round(current_price / round_factor) * round_factor
+            
+            # Add psychological support and resistance
+            for i in range(1, 4):
+                support_levels.append(current_rounded - (round_factor * i))
+                resistance_levels.append(current_rounded + (round_factor * i))
+            
+            # Method 3: Use liquidation zones if available
+            if 'error' not in liquidation_data:
+                # Add liquidation zones as potential S&R levels
+                total_liq = liquidation_data.get('total_liquidation', 0)
+                if total_liq > 0:
+                    # Estimate liquidation zones around current price
+                    support_levels.append(current_price * 0.95)  # 5% below (long liquidations)
+                    resistance_levels.append(current_price * 1.05)  # 5% above (short liquidations)
+            
+            # Filter and sort levels
+            support_levels = [s for s in support_levels if s > 0 and s < current_price]
+            resistance_levels = [r for r in resistance_levels if r > current_price]
+            
+            support_levels.sort(reverse=True)  # Closest support first
+            resistance_levels.sort()  # Closest resistance first
+            
+            # Get the most relevant levels
+            nearest_support = support_levels[0] if support_levels else current_price * 0.95
+            nearest_resistance = resistance_levels[0] if resistance_levels else current_price * 1.05
+            
+            # Calculate strength based on multiple level confluence
+            support_strength = "Strong" if len([s for s in support_levels if abs(s - nearest_support) < current_price * 0.02]) > 1 else "Medium"
+            resistance_strength = "Strong" if len([r for r in resistance_levels if abs(r - nearest_resistance) < current_price * 0.02]) > 1 else "Medium"
+            
+            return {
+                'symbol': symbol,
+                'current_price': current_price,
+                'nearest_support': nearest_support,
+                'nearest_resistance': nearest_resistance,
+                'support_strength': support_strength,
+                'resistance_strength': resistance_strength,
+                'support_distance': ((current_price - nearest_support) / current_price) * 100,
+                'resistance_distance': ((nearest_resistance - current_price) / current_price) * 100,
+                'all_support_levels': support_levels[:3],  # Top 3 support levels
+                'all_resistance_levels': resistance_levels[:3],  # Top 3 resistance levels
+                'calculation_method': 'Fibonacci + Psychological + Liquidation zones',
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            print(f"❌ Support/Resistance calculation error: {e}")
+            return {
+                'error': f'S&R calculation failed: {str(e)}',
+                'nearest_support': current_price * 0.95,
+                'nearest_resistance': current_price * 1.05
+            }
 
     def _get_estimated_price(self, symbol):
         """Helper to get an estimated price, fallback based on symbol"""

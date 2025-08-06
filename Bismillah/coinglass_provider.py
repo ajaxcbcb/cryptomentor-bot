@@ -20,13 +20,15 @@ class CoinGlassProvider:
         # Headers untuk authentication
         self.headers = {
             "accept": "application/json",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "CryptoMentor-Bot/1.0"
         }
         
         if self.api_key:
             self.headers["X-API-KEY"] = self.api_key
-            # Alternative header name yang mungkin digunakan
-            self.headers["coinglassSecret"] = self.api_key
+            print(f"✅ CoinGlass API key configured: {self.api_key[:8]}...")
+        else:
+            print("⚠️ CoinGlass API key not found")
         
         # Cache untuk mengurangi API calls
         self._cache = {}
@@ -78,15 +80,15 @@ class CoinGlassProvider:
                 if (datetime.now().timestamp() - timestamp) < self._cache_timeout:
                     return cached_data
             
-            # Try Pro API first
-            pro_url = f"{self.base_url_pro}/futures/ticker"
+            # Try V4 API first (most recent)
+            v4_url = f"{self.base_url_v4}/api/futures/symbol-mark-price"
             params = {'symbol': symbol}
             
-            response_data = self._make_request(pro_url, params)
+            response_data = self._make_request(v4_url, params)
             
             if 'error' not in response_data:
                 data_list = response_data.get('data', [])
-                if data_list:
+                if data_list and isinstance(data_list, list):
                     # Get primary exchange data (usually Binance)
                     primary_data = data_list[0]
                     
@@ -100,12 +102,41 @@ class CoinGlassProvider:
                         'high_24h': float(primary_data.get('high24h', 0)),
                         'low_24h': float(primary_data.get('low24h', 0)),
                         'exchange_name': primary_data.get('exchangeName', 'Binance'),
-                        'source': 'coinglass_v4_pro',
+                        'source': 'coinglass_v4',
                         'timestamp': datetime.now().isoformat()
                     }
                     
                     # Cache the result
                     self._cache[cache_key] = (result, datetime.now().timestamp())
+                    print(f"✅ CoinGlass V4 ticker for {symbol}: ${result['price']:.2f}")
+                    return result
+                
+            # Fallback to Pro API
+            pro_url = f"{self.base_url_pro}/futures/ticker"
+            response_data = self._make_request(pro_url, params)
+            
+            if 'error' not in response_data:
+                data_list = response_data.get('data', [])
+                if data_list:
+                    primary_data = data_list[0]
+                    
+                    result = {
+                        'symbol': symbol,
+                        'price': float(primary_data.get('price', 0)),
+                        'funding_rate': float(primary_data.get('fundingRate', 0)),
+                        'funding_time': primary_data.get('fundingTime', ''),
+                        'volume_24h': float(primary_data.get('volume24h', 0)),
+                        'price_change_24h': float(primary_data.get('priceChangePercent', 0)),
+                        'high_24h': float(primary_data.get('high24h', 0)),
+                        'low_24h': float(primary_data.get('low24h', 0)),
+                        'exchange_name': primary_data.get('exchangeName', 'Binance'),
+                        'source': 'coinglass_pro',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    
+                    # Cache the result
+                    self._cache[cache_key] = (result, datetime.now().timestamp())
+                    print(f"✅ CoinGlass Pro ticker for {symbol}: ${result['price']:.2f}")
                     return result
             
             # Fallback to public V2 API
