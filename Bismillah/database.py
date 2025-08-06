@@ -205,12 +205,12 @@ class Database:
         try:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_activity (
-                    id INTEGER PRIMARYKEY AUTOINCREMENT,
-                    user_id INTEGER,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER,
                     action TEXT,
                     details TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+                    FOREIGN KEY (telegram_id) REFERENCES users (telegram_id)
                 )
             """)
 
@@ -231,12 +231,15 @@ class Database:
                 )
             """)
 
-            # Check if user_id column exists in user_activity
+            # Check if telegram_id column exists in user_activity
             self.cursor.execute("PRAGMA table_info(user_activity)")
             activity_columns = [column[1] for column in self.cursor.fetchall()]
-            if 'user_id' not in activity_columns:
-                print("Adding missing user_id column to user_activity table...")
-                self.cursor.execute("ALTER TABLE user_activity ADD COLUMN user_id INTEGER")
+            if 'telegram_id' not in activity_columns and 'user_id' in activity_columns:
+                print("Migrating user_id to telegram_id column in user_activity table...")
+                self.cursor.execute("ALTER TABLE user_activity RENAME COLUMN user_id TO telegram_id")
+            elif 'telegram_id' not in activity_columns:
+                print("Adding missing telegram_id column to user_activity table...")
+                self.cursor.execute("ALTER TABLE user_activity ADD COLUMN telegram_id INTEGER")
 
         except Exception as e:
             print(f"Error with user_activity table: {e}")
@@ -537,13 +540,13 @@ class Database:
             print(f"DB Error (add_portfolio_item): {e}")
             return False
 
-    def log_user_activity(self, user_id, action, details=None):
+    def log_user_activity(self, telegram_id, action, details=None):
         """Log user activity"""
         try:
             self.cursor.execute("""
-                INSERT INTO user_activity (user_id, action, details, timestamp)
+                INSERT INTO user_activity (telegram_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
-            """, (user_id, action, details, datetime.now().isoformat()))
+            """, (telegram_id, action, details, datetime.now().isoformat()))
             self.conn.commit()
             return True
         except Exception as e:
@@ -757,7 +760,7 @@ class Database:
 
             # Active today (users with activity in last 24 hours) - fixed column name
             self.cursor.execute("""
-                SELECT COUNT(DISTINCT user_id) FROM user_activity 
+                SELECT COUNT(DISTINCT telegram_id) FROM user_activity 
                 WHERE timestamp >= datetime('now', '-1 day')
             """)
             active_today = self.cursor.fetchone()[0]
@@ -808,7 +811,7 @@ class Database:
         """Get recent user activity"""
         try:
             self.cursor.execute("""
-                SELECT user_id, action, details, timestamp 
+                SELECT telegram_id, action, details, timestamp 
                 FROM user_activity 
                 ORDER BY timestamp DESC 
                 LIMIT ?
@@ -817,7 +820,7 @@ class Database:
             results = []
             for row in self.cursor.fetchall():
                 results.append({
-                    'user_id': row[0],
+                    'telegram_id': row[0],
                     'action': row[1],
                     'details': row[2],
                     'timestamp': row[3]
@@ -893,11 +896,11 @@ class Database:
             # Check if user has restart_required flag and hasn't cleared it
             self.cursor.execute("""
                 SELECT COUNT(*) FROM user_activity 
-                WHERE user_id = ? AND action = 'restart_required' 
+                WHERE telegram_id = ? AND action = 'restart_required' 
                 AND timestamp > (
                     SELECT COALESCE(MAX(timestamp), '1970-01-01') 
                     FROM user_activity 
-                    WHERE user_id = ? AND action = 'user_reactivated'
+                    WHERE telegram_id = ? AND action = 'user_reactivated'
                 )
             """, (user_id, user_id))
 
@@ -941,7 +944,7 @@ class Database:
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
-                INSERT INTO user_activity (user_id, action, details, timestamp)
+                INSERT INTO user_activity (telegram_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
             """, (admin_id, "auto_signals_broadcast", details, datetime.now().isoformat()))
 

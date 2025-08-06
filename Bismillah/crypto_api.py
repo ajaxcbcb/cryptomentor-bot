@@ -1,5 +1,3 @@
-
-
 import requests
 import os
 import time
@@ -32,7 +30,7 @@ class CryptoAPI:
         print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
         print("⭐ Data Sources: CoinGlass V4 Startup Plan + CoinMarketCap")
-        
+
         # Verify and patch missing methods
         self._verify_and_patch_methods()
 
@@ -57,7 +55,7 @@ class CryptoAPI:
             params = {'symbol': clean_symbol}
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get('success') and data.get('data'):
@@ -66,7 +64,7 @@ class CryptoAPI:
                         primary_data = ticker_data[0]
                     else:
                         primary_data = ticker_data
-                    
+
                     return {
                         'symbol': clean_symbol,
                         'price': float(primary_data.get('price', 0)),
@@ -75,7 +73,7 @@ class CryptoAPI:
                         'exchange': primary_data.get('exchangeName', 'Binance'),
                         'source': 'coinglass_v4'
                     }
-            
+
             return {'error': f'Coinglass V4 ticker error: {response.status_code}'}
         except Exception as e:
             return {'error': f'Coinglass V4 ticker error: {str(e)}'}
@@ -90,7 +88,7 @@ class CryptoAPI:
             # Clean symbol to basic format (BTC, ETH, etc.)
             clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
             print(f"🔄 Getting open interest for {clean_symbol} from CoinGlass V4...")
-            
+
             # Use the coinglass_provider for consistent API calls
             result = self.coinglass_provider.get_open_interest_chart(clean_symbol)
             if result and 'error' not in result:
@@ -106,40 +104,6 @@ class CryptoAPI:
         except Exception as e:
             print(f"❌ Open interest error for {symbol}: {e}")
             return {'error': f'Open interest error: {str(e)}'}
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success') and data.get('data'):
-                    oi_data = data['data']
-                    
-                    total_oi = 0
-                    oi_change = 0
-                    exchanges_count = 0
-                    
-                    if isinstance(oi_data, list):
-                        for exchange_data in oi_data:
-                            oi_value = float(exchange_data.get('openInterest', 0))
-                            oi_change_value = float(exchange_data.get('openInterestChange24h', 0))
-                            total_oi += oi_value
-                            oi_change += oi_change_value
-                            exchanges_count += 1
-                    else:
-                        total_oi = float(oi_data.get('openInterest', 0))
-                        oi_change = float(oi_data.get('openInterestChange24h', 0))
-                        exchanges_count = 1
-
-                    return {
-                        'symbol': clean_symbol,
-                        'open_interest': total_oi,
-                        'open_interest_change': oi_change,
-                        'exchanges_count': exchanges_count,
-                        'source': 'coinglass_v4',
-                        'timestamp': datetime.now().isoformat()
-                    }
-            
-            return {'error': f'Coinglass V4 OI error: {response.status_code}'}
-        except Exception as e:
-            return {'error': f'Coinglass V4 OI error: {str(e)}'}
 
     def get_funding_rate(self, symbol):
         """Get funding rate from Coinglass V4"""
@@ -151,7 +115,7 @@ class CryptoAPI:
             # Clean symbol to basic format (BTC, ETH, etc.)
             clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
             print(f"🔄 Getting funding rate for {clean_symbol} from CoinGlass V4...")
-            
+
             # Use the coinglass_provider for consistent API calls
             result = self.coinglass_provider.get_funding_rate_chart(clean_symbol)
             if result and 'error' not in result:
@@ -167,41 +131,6 @@ class CryptoAPI:
         except Exception as e:
             print(f"❌ Funding rate error for {symbol}: {e}")
             return {'error': f'Funding rate error: {str(e)}'}
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success') and data.get('data'):
-                    funding_data = data['data']
-                    
-                    total_funding = 0
-                    valid_exchanges = 0
-                    
-                    if isinstance(funding_data, list):
-                        for exchange_data in funding_data:
-                            funding_rate = float(exchange_data.get('fundingRate', 0))
-                            if funding_rate != 0:
-                                total_funding += funding_rate
-                                valid_exchanges += 1
-                    else:
-                        funding_rate = float(funding_data.get('fundingRate', 0))
-                        if funding_rate != 0:
-                            total_funding = funding_rate
-                            valid_exchanges = 1
-
-                    avg_funding = total_funding / valid_exchanges if valid_exchanges > 0 else 0
-
-                    return {
-                        'symbol': clean_symbol,
-                        'funding_rate': avg_funding,
-                        'funding_rate_8h': avg_funding * 3,
-                        'exchanges_count': valid_exchanges,
-                        'source': 'coinglass_v4',
-                        'timestamp': datetime.now().isoformat()
-                    }
-            
-            return {'error': f'Coinglass V4 funding error: {response.status_code}'}
-        except Exception as e:
-            return {'error': f'Coinglass V4 funding error: {str(e)}'}
 
     def get_long_short_ratio(self, symbol):
         """Get long/short ratio from Coinglass V4"""
@@ -213,7 +142,7 @@ class CryptoAPI:
             # Clean symbol to basic format (BTC, ETH, etc.)
             clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
             print(f"🔄 Getting long/short ratio for {clean_symbol} from CoinGlass V4...")
-            
+
             # Use the coinglass_provider for consistent API calls
             result = self.coinglass_provider.get_long_short_ratio(clean_symbol)
             if result and 'error' not in result:
@@ -229,32 +158,6 @@ class CryptoAPI:
         except Exception as e:
             print(f"❌ Long/short ratio error for {symbol}: {e}")
             return {'error': f'Long/short ratio error: {str(e)}'}
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success') and data.get('data'):
-                    ls_data = data['data']
-                    
-                    if isinstance(ls_data, list) and len(ls_data) > 0:
-                        latest = ls_data[-1]
-                    else:
-                        latest = ls_data
-                    
-                    long_ratio = float(latest.get('longRatio', 50))
-                    short_ratio = float(latest.get('shortRatio', 50))
-
-                    return {
-                        'symbol': clean_symbol,
-                        'long_ratio': long_ratio,
-                        'short_ratio': short_ratio,
-                        'long_short_ratio': long_ratio / short_ratio if short_ratio > 0 else 1.0,
-                        'timestamp': latest.get('timestamp', datetime.now().isoformat()),
-                        'source': 'coinglass_v4'
-                    }
-            
-            return {'error': f'Coinglass V4 L/S error: {response.status_code}'}
-        except Exception as e:
-            return {'error': f'Coinglass V4 L/S error: {str(e)}'}
 
     def get_liquidation_price_range(self, symbol):
         """Get liquidation price ranges from Coinglass V4"""
@@ -268,21 +171,21 @@ class CryptoAPI:
             params = {'symbol': clean_symbol}
 
             response = requests.get(url, headers=headers, params=params, timeout=15)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get('success') and data.get('data'):
                     liq_data = data['data']
-                    
+
                     if isinstance(liq_data, list) and len(liq_data) > 0:
                         latest = liq_data[-1]
                     else:
                         latest = liq_data
-                    
+
                     total_liquidation = float(latest.get('totalLiquidation', 0))
                     long_liquidation = float(latest.get('longLiquidation', 0))
                     short_liquidation = float(latest.get('shortLiquidation', 0))
-                    
+
                     return {
                         'symbol': clean_symbol,
                         'total_liquidation': total_liquidation,
@@ -293,7 +196,7 @@ class CryptoAPI:
                         'price_ranges': latest.get('priceRanges', []),
                         'source': 'coinglass_v4'
                     }
-            
+
             return {'error': f'Coinglass V4 liquidation error: {response.status_code}'}
         except Exception as e:
             return {'error': f'Coinglass V4 liquidation error: {str(e)}'}
@@ -303,12 +206,15 @@ class CryptoAPI:
         try:
             print(f"🔄 Getting comprehensive futures data for {symbol} from Coinglass V4...")
 
-            # Get all data from V4 endpoints
-            price_data = self.get_futures_price(symbol)
-            oi_data = self.get_open_interest(symbol)
-            funding_data = self.get_funding_rate(symbol)
-            ls_data = self.get_long_short_ratio(symbol)
-            liquidation_data = self.get_liquidation_price_range(symbol)
+            # Clean symbol for consistency
+            clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
+
+            # Get all data from V4 endpoints using coinglass_provider
+            price_data = self.get_futures_price(clean_symbol)
+            oi_data = self.get_open_interest(clean_symbol)
+            funding_data = self.get_funding_rate(clean_symbol)
+            ls_data = self.get_long_short_ratio(clean_symbol)
+            liquidation_data = self.get_liquidation_price_range(clean_symbol)
 
             successful_calls = 0
             total_calls = 5
@@ -318,8 +224,18 @@ class CryptoAPI:
                 if isinstance(data, dict) and 'error' not in data:
                     successful_calls += 1
 
+            # Determine data quality based on success rate
+            if successful_calls >= 4:
+                data_quality = 'excellent'
+            elif successful_calls >= 2:
+                data_quality = 'good'
+            elif successful_calls >= 1:
+                data_quality = 'fair'
+            else:
+                data_quality = 'poor'
+
             return {
-                'symbol': symbol,
+                'symbol': clean_symbol,
                 'price_data': price_data,
                 'open_interest_data': oi_data,
                 'funding_rate_data': funding_data,
@@ -327,10 +243,12 @@ class CryptoAPI:
                 'liquidation_data': liquidation_data,
                 'successful_api_calls': successful_calls,
                 'total_api_calls': total_calls,
-                'data_quality': 'excellent' if successful_calls >= 4 else 'good' if successful_calls >= 3 else 'fair',
-                'source': 'coinglass_v4_comprehensive'
+                'data_quality': data_quality,
+                'source': 'coinglass_v4_comprehensive',
+                'timestamp': datetime.now().isoformat()
             }
         except Exception as e:
+            print(f"❌ Comprehensive futures data error: {e}")
             return {'error': f"Coinglass V4 comprehensive data error: {str(e)}"}
 
     # === COINMARKETCAP API METHODS ===
@@ -348,7 +266,7 @@ class CryptoAPI:
 
             # Get info data
             info_data = self.cmc_provider.get_cryptocurrency_info(symbol)
-            
+
             # Combine data
             result = {
                 'symbol': symbol.upper(),
@@ -391,7 +309,7 @@ class CryptoAPI:
 
             # Get top cryptocurrencies
             top_cryptos = self.cmc_provider.get_top_cryptocurrencies(5)
-            
+
             # Get Fear & Greed Index
             fng_data = self.cmc_provider.get_fear_greed_index()
 
@@ -558,19 +476,19 @@ class CryptoAPI:
         try:
             # Get price data from CoinMarketCap or Binance
             price_data = self.get_crypto_price(symbol)
-            
+
             if 'error' in price_data:
                 return {'error': f'Failed to get price data: {price_data["error"]}'}
-            
+
             current_price = price_data.get('price', 0)
-            
+
             if current_price <= 0:
                 return {'error': 'Invalid price data'}
-            
+
             # Simple supply/demand analysis based on price action
             # This is a basic implementation - in production you'd use more sophisticated algorithms
             price_change_24h = price_data.get('change_24h', 0)
-            
+
             # Determine trend and zones
             if price_change_24h > 2:
                 trend = 'BULLISH'
@@ -584,11 +502,11 @@ class CryptoAPI:
                 trend = 'SIDEWAYS'
                 signal = 'HOLD'
                 confidence = 50
-            
+
             # Calculate basic support/resistance levels
             support_level = current_price * 0.97  # 3% below current price
             resistance_level = current_price * 1.03  # 3% above current price
-            
+
             return {
                 'symbol': symbol.upper(),
                 'current_price': current_price,
@@ -602,27 +520,27 @@ class CryptoAPI:
                 'timestamp': time.time(),
                 'source': 'supply_demand_analysis'
             }
-            
+
         except Exception as e:
             return {'error': f'Supply/demand analysis failed: {str(e)}'}
 
     # === BACKWARD COMPATIBILITY METHODS ===
-    
+
     def get_binance_long_short_ratio(self, symbol):
         """Backward compatibility: redirect to get_long_short_ratio"""
         print(f"🔄 get_binance_long_short_ratio called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_long_short_ratio(symbol)
-    
+
     def get_binance_open_interest(self, symbol):
         """Backward compatibility: redirect to get_open_interest"""
         print(f"🔄 get_binance_open_interest called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_open_interest(symbol)
-    
+
     def get_binance_funding_rate(self, symbol):
         """Backward compatibility: redirect to get_funding_rate"""
         print(f"🔄 get_binance_funding_rate called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_funding_rate(symbol)
-    
+
     def get_liquidation_zones(self, symbol, interval='15m', limit=100):
         """Get liquidation zones - redirect to liquidation price range"""
         print(f"🔄 get_liquidation_zones called for {symbol}, redirecting to CoinGlass V4...")
@@ -632,11 +550,11 @@ class CryptoAPI:
         """Backward compatibility: redirect to get_open_interest"""
         print(f"🔄 get_binance_oi called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_open_interest(symbol)
-    
+
     def get_coinglass_futures_data(self, symbol):
         """Get comprehensive Coinglass futures data"""
         return self.get_comprehensive_futures_data(symbol)
-    
+
     def get_candlestick_data(self, symbol, timeframe='1h', limit=100):
         """Get candlestick data for technical analysis"""
         try:
@@ -644,11 +562,11 @@ class CryptoAPI:
             price_data = self.get_crypto_price(symbol)
             if 'error' in price_data:
                 return {'error': price_data['error']}
-            
+
             current_price = price_data.get('price', 0)
             if current_price <= 0:
                 return {'error': 'Invalid price data'}
-            
+
             # Generate simulated OHLCV data for analysis
             candlesticks = []
             for i in range(limit):
@@ -659,7 +577,7 @@ class CryptoAPI:
                 open_price = current_price * (1 + ((i % 5) - 2) * variance / 5)
                 close_price = current_price * (1 + ((i % 4) - 1.5) * variance / 4)
                 volume = 1000000 * (1 + (i % 7) * 0.1)  # Simulated volume
-                
+
                 candlesticks.append([
                     int(time.time() - (limit - i) * 3600),  # timestamp
                     open_price,   # open
@@ -668,14 +586,14 @@ class CryptoAPI:
                     close_price,  # close
                     volume        # volume
                 ])
-            
+
             return {
                 'symbol': symbol,
                 'timeframe': timeframe,
                 'data': candlesticks,
                 'source': 'simulated_candlesticks'
             }
-            
+
         except Exception as e:
             return {'error': f'Candlestick data error: {str(e)}'}
 
@@ -689,20 +607,20 @@ class CryptoAPI:
             'get_liquidation_zones',
             'analyze_supply_demand'
         ]
-        
+
         patched_methods = []
-        
+
         for method_name in required_methods:
             if not hasattr(self, method_name):
                 print(f"🔧 Patching missing method: {method_name}")
                 patched_methods.append(method_name)
                 self._patch_method(method_name)
-        
+
         if patched_methods:
             print(f"✅ Patched methods: {', '.join(patched_methods)}")
         else:
             print("✅ All required methods are present")
-        
+
         return patched_methods
 
     def _patch_method(self, method_name):
@@ -724,4 +642,3 @@ class CryptoAPI:
     async def cleanup(self):
         """Cleanup resources"""
         pass
-

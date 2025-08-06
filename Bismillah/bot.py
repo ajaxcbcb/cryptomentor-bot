@@ -839,17 +839,28 @@ class TelegramBot:
 
             print(f"✅ Market analysis completed, sending response ({len(market_data)} chars)")
 
-            # Handle long messages
+            # Handle long messages with safe Markdown parsing
             if len(market_data) > 4000:
                 # Split into chunks
                 chunks = [market_data[i:i+4000] for i in range(0, len(market_data), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
-
-                for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                try:
+                    await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode='Markdown')
+                except Exception as markdown_error:
+                    print(f"⚠️ Markdown error in market command: {markdown_error}")
+                    # Fallback to plain text
+                    await loading_msg.edit_text(chunks[0], parse_mode=None)
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode=None)
             else:
-                # Edit loading message with the comprehensive overview
-                await loading_msg.edit_text(market_data, parse_mode='Markdown')
+                # Edit loading message with safe Markdown parsing
+                try:
+                    await loading_msg.edit_text(market_data, parse_mode='Markdown')
+                except Exception as markdown_error:
+                    print(f"⚠️ Markdown error in market command: {markdown_error}")
+                    # Fallback to plain text
+                    await loading_msg.edit_text(market_data, parse_mode=None)
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinMarketCap)\n• `/futures_signals` (SnD)"
@@ -920,7 +931,7 @@ class TelegramBot:
             elif is_admin:
                 signals += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Handle long messages
+            # Handle long messages with improved error handling
             if len(signals) > 4000:
                 chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
                 try:
@@ -928,7 +939,7 @@ class TelegramBot:
                     for chunk in chunks[1:]:
                         await update.message.reply_text(chunk, parse_mode='Markdown')
                 except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
+                    print(f"⚠️ Markdown error in futures_signals, sending as plain text: {e}")
                     await loading_msg.edit_text(chunks[0], parse_mode=None)
                     for chunk in chunks[1:]:
                         await update.message.reply_text(chunk, parse_mode=None)
@@ -936,7 +947,7 @@ class TelegramBot:
                 try:
                     await loading_msg.edit_text(signals, parse_mode='Markdown')
                 except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
+                    print(f"⚠️ Markdown error in futures_signals, sending as plain text: {e}")
                     await loading_msg.edit_text(signals, parse_mode=None)
 
         except Exception as e:

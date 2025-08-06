@@ -243,4 +243,33 @@ class CoinMarketCapProvider:
                 'error': f'FNG API failed: {str(e)}'
             }
 
+    def get_enhanced_market_overview(self):
+        """Get enhanced market overview combining multiple CMC endpoints"""
+        try:
+            if not self.api_key:
+                return {'error': 'CMC API key not found'}
+
+            # Get global metrics
+            global_data = self.get_global_metrics()
+            if 'error' in global_data:
+                return global_data
+
+            # Get top cryptos
+            top_cryptos = self.get_top_cryptocurrencies(10)
+            if 'error' in top_cryptos:
+                top_cryptos = {'data': []}
+
+            # Get fear & greed index
+            fng_data = self.get_fear_greed_index()
+
+            return {
+                'global_metrics': global_data,
+                'top_cryptocurrencies': top_cryptos.get('data', []),
+                'fear_greed_index': fng_data,
+                'source': 'coinmarketcap_enhanced'
+            }
+
+        except Exception as e:
+            return {'error': f'Enhanced market overview error: {str(e)}'}
+
 print("✅ CoinMarketCapProvider loaded successfully")
