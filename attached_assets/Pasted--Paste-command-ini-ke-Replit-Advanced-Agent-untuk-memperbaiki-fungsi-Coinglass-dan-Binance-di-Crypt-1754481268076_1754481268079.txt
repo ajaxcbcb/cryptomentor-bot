@@ -1,0 +1,77 @@
+# Paste command ini ke Replit Advanced Agent untuk memperbaiki fungsi Coinglass dan Binance di CryptoAPI
+
+from crypto_api import CryptoAPI
+
+def patch_cryptoapi_with_missing_methods():
+    import requests, os
+
+    COINGLASS_API_KEY = os.environ.get("COINGLASS_API_KEY")
+    COINGLASS_BASE_URL = "https://open-api-v4.coinglass.com/public/v4"
+
+    def get_long_short_ratio(self, symbol="BTC"):
+        url = f"{COINGLASS_BASE_URL}/futures/longShortAccountRatio"
+        headers = {"accept": "application/json", "coinglassSecret": COINGLASS_API_KEY}
+        params = {"symbol": symbol, "interval": "5m"}
+        res = requests.get(url, headers=headers, params=params)
+        data = res.json()
+        try:
+            ratio = data["data"]["longShortAccountRatioList"][-1]["longShortRatio"]
+            return float(ratio)
+        except:
+            return None
+
+    def get_open_interest(self, symbol="BTC"):
+        url = f"{COINGLASS_BASE_URL}/futures/openInterest"
+        headers = {"accept": "application/json", "coinglassSecret": COINGLASS_API_KEY}
+        params = {"symbol": symbol, "intervalType": "FIFTEEN_MIN"}
+        res = requests.get(url, headers=headers, params=params)
+        data = res.json()
+        try:
+            latest = data["data"]["list"][-1]
+            return {
+                "oi": float(latest["sumOpenInterest"]),
+                "change": float(latest["openInterestChangeRate"])
+            }
+        except:
+            return None
+
+    def get_funding_rate(self, symbol="BTC"):
+        url = f"{COINGLASS_BASE_URL}/futures/fundingRate"
+        headers = {"accept": "application/json", "coinglassSecret": COINGLASS_API_KEY}
+        params = {"symbol": symbol}
+        res = requests.get(url, headers=headers, params=params)
+        data = res.json()
+        try:
+            return float(data["data"]["binance"]["fundingRate"])
+        except:
+            return None
+
+    def get_liquidation_zones(self, symbol="BTC"):
+        url = f"{COINGLASS_BASE_URL}/futures/liquidationMap"
+        headers = {"accept": "application/json", "coinglassSecret": COINGLASS_API_KEY}
+        params = {"symbol": symbol}
+        res = requests.get(url, headers=headers, params=params)
+        try:
+            return res.json()["data"]
+        except:
+            return None
+
+    def analyze_supply_demand(self, price, support_levels, resistance_levels):
+        closest_support = min(support_levels, key=lambda x: abs(x - price)) if support_levels else None
+        closest_resist = min(resistance_levels, key=lambda x: abs(x - price)) if resistance_levels else None
+        if not closest_support or not closest_resist:
+            return "Neutral"
+        if price <= closest_support:
+            return "Demand Zone"
+        elif price >= closest_resist:
+            return "Supply Zone"
+        return "Neutral"
+
+    CryptoAPI.get_binance_long_short_ratio = get_long_short_ratio
+    CryptoAPI.get_binance_open_interest = get_open_interest
+    CryptoAPI.get_binance_funding_rate = get_funding_rate
+    CryptoAPI.get_liquidation_zones = get_liquidation_zones
+    CryptoAPI.analyze_supply_demand = analyze_supply_demand
+
+patch_cryptoapi_with_missing_methods()
+print("✅ CryptoAPI successfully patched with Coinglass V4 endpoints.")
