@@ -110,11 +110,12 @@ class SnDAutoSignals:
             futures_data = self.crypto_api.get_long_short_ratio(symbol)
 
             if 'error' in price_data:
-                print(f"❌ Price data error for {symbol}")
+                print(f"❌ Price data error for {symbol}: {price_data.get('error', 'Unknown error')}")
                 return None
 
             current_price = price_data.get('price', 0)
             if current_price <= 0:
+                print(f"❌ Invalid price data for {symbol}: {current_price}")
                 return None
 
             change_24h = price_data.get('change_24h', 0)

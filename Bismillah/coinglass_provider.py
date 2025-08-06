@@ -42,8 +42,12 @@ class CoinGlassProvider:
                     error_msg = data.get('msg', data.get('message', 'Unknown API error'))
                     print(f"❌ CoinGlass V4 API Error: {error_msg}")
                     return {'error': f"API Error: {error_msg}"}
+            elif response.status_code == 404:
+                symbol = params.get('symbol', 'unknown') if params else 'unknown'
+                print(f"⚠️ Symbol {symbol} not available on CoinGlass V4")
+                return {'error': f'Data tidak tersedia untuk pair {symbol}'}
             else:
-                error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+                error_msg = f"HTTP {response.status_code}: Service temporarily unavailable"
                 print(f"❌ CoinGlass V4 HTTP Error: {error_msg}")
                 return {'error': error_msg}
                 
@@ -56,12 +60,13 @@ class CoinGlassProvider:
 
     def _clean_symbol(self, symbol):
         """Clean and standardize symbol for CoinGlass API"""
-        # Bersihkan symbol dan tambahkan USDT jika perlu
+        # Bersihkan symbol dan standardisasi
         clean_symbol = symbol.upper().replace('BINANCE_', '').replace('USD', '')
         
-        # Untuk CoinGlass V4, gunakan format BTCUSDT, ETHUSDT, etc.
-        if not clean_symbol.endswith('USDT') and clean_symbol not in ['BTC', 'ETH', 'BNB']:
-            if len(clean_symbol) <= 5:  # Pastikan bukan sudah format lengkap
+        # Jika belum ada USDT, tambahkan
+        if not clean_symbol.endswith('USDT'):
+            # Hanya untuk symbol yang tidak mengandung karakter khusus
+            if clean_symbol.isalpha() and len(clean_symbol) <= 10:
                 clean_symbol = clean_symbol + 'USDT'
         
         print(f"🔄 Symbol mapping: {symbol} -> {clean_symbol}")
