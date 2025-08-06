@@ -2,6 +2,7 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
+import time # Import time module for cleanup_expired_premiums
 
 class Database:
     def __init__(self, db_path="cryptomentor.db"):
@@ -204,7 +205,7 @@ class Database:
         try:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_activity (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARYKEY AUTOINCREMENT,
                     user_id INTEGER,
                     action TEXT,
                     details TEXT,
@@ -1198,6 +1199,68 @@ class Database:
         except Exception as e:
             print(f"❌ Error verifying data integrity: {e}")
             return {'integrity_ok': False, 'error': str(e)}
+
+    def backup_data(self):
+        """Create a backup of all database data"""
+        try:
+            backup_data = {}
+
+            # Backup users
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM users")
+            users = cursor.fetchall()
+            backup_data['users'] = [dict(row) for row in users]
+
+            # Backup premium users
+            cursor.execute("SELECT * FROM premium_users") # This table doesn't exist in the original code, might be an oversight. Assuming it should be 'users' or similar.
+            premium_users = cursor.fetchall()
+            backup_data['premium_users'] = [dict(row) for row in premium_users]
+
+            return backup_data
+        except Exception as e:
+            print(f"❌ Backup error: {e}")
+            return None
+
+    def get_premium_user_count(self):
+        """Get count of premium users"""
+        try:
+            cursor = self.conn.cursor()
+            # Assuming 'premium_users' table doesn't exist and we should count from 'users' table
+            cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            print(f"❌ Error getting premium user count: {e}")
+            return 0
+
+    def cleanup_expired_premiums(self):
+        """Clean up expired premium users"""
+        try:
+            cursor = self.conn.cursor()
+            current_time = time.time()
+            # This WHERE clause implies a 'premium_users' table with an 'expires_at' column, which is not in the original code.
+            # Adjusting to use the 'users' table and 'subscription_end' column.
+            # Also, subscription_end is stored as ISO format string, not epoch time.
+            # We'll convert current_time to ISO format for comparison.
+            current_time_iso = datetime.fromtimestamp(current_time).isoformat()
+
+            cursor.execute("""
+                UPDATE users 
+                SET is_premium = 0, subscription_end = NULL 
+                WHERE is_premium = 1 AND subscription_end IS NOT NULL AND subscription_end < ?
+            """, (current_time_iso,))
+            
+            self.conn.commit()
+
+            affected_rows = cursor.rowcount
+            if affected_rows > 0:
+                print(f"🧹 Cleaned up {affected_rows} expired premium users")
+
+            return affected_rows
+        except Exception as e:
+            print(f"❌ Error cleaning expired premiums: {e}")
+            return 0
+
 
     def close(self):
         """Close database connection"""

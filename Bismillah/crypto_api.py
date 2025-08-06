@@ -32,6 +32,9 @@ class CryptoAPI:
         print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
         print("⭐ Data Sources: CoinGlass V4 Startup Plan + CoinMarketCap")
+        
+        # Verify and patch missing methods
+        self._verify_and_patch_methods()
 
     # === COINGLASS V4 API METHODS ===
 
@@ -81,14 +84,28 @@ class CryptoAPI:
         """Get open interest from Coinglass V4"""
         try:
             if not self.coinglass_key:
+                print(f"❌ CoinGlass API key not found for {symbol}")
                 return {'error': 'Coinglass API key not found'}
 
-            clean_symbol = symbol.upper().replace('USDT', '')
-            url = f"{self.coinglass_base_url}/open_interest"
-            headers = self._get_coinglass_headers()
-            params = {'symbol': clean_symbol}
+            # Clean symbol to basic format (BTC, ETH, etc.)
+            clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
+            print(f"🔄 Getting open interest for {clean_symbol} from CoinGlass V4...")
+            
+            # Use the coinglass_provider for consistent API calls
+            result = self.coinglass_provider.get_open_interest_chart(clean_symbol)
+            if result and 'error' not in result:
+                return {
+                    'symbol': clean_symbol,
+                    'data': result,
+                    'source': 'coinglass_v4_openinterest',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return result if result else {'error': f'No open interest data for {clean_symbol}'}
 
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+        except Exception as e:
+            print(f"❌ Open interest error for {symbol}: {e}")
+            return {'error': f'Open interest error: {str(e)}'}
             
             if response.status_code == 200:
                 data = response.json()
@@ -128,14 +145,28 @@ class CryptoAPI:
         """Get funding rate from Coinglass V4"""
         try:
             if not self.coinglass_key:
+                print(f"❌ CoinGlass API key not found for {symbol}")
                 return {'error': 'Coinglass API key not found'}
 
-            clean_symbol = symbol.upper().replace('USDT', '')
-            url = f"{self.coinglass_base_url}/funding_rate"
-            headers = self._get_coinglass_headers()
-            params = {'symbol': clean_symbol}
+            # Clean symbol to basic format (BTC, ETH, etc.)
+            clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
+            print(f"🔄 Getting funding rate for {clean_symbol} from CoinGlass V4...")
+            
+            # Use the coinglass_provider for consistent API calls
+            result = self.coinglass_provider.get_funding_rate_chart(clean_symbol)
+            if result and 'error' not in result:
+                return {
+                    'symbol': clean_symbol,
+                    'data': result,
+                    'source': 'coinglass_v4_fundingrate',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return result if result else {'error': f'No funding rate data for {clean_symbol}'}
 
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+        except Exception as e:
+            print(f"❌ Funding rate error for {symbol}: {e}")
+            return {'error': f'Funding rate error: {str(e)}'}
             
             if response.status_code == 200:
                 data = response.json()
@@ -176,14 +207,28 @@ class CryptoAPI:
         """Get long/short ratio from Coinglass V4"""
         try:
             if not self.coinglass_key:
+                print(f"❌ CoinGlass API key not found for {symbol}")
                 return {'error': 'Coinglass API key not found'}
 
-            clean_symbol = symbol.upper().replace('USDT', '')
-            url = f"{self.coinglass_base_url}/long_short_ratio"
-            headers = self._get_coinglass_headers()
-            params = {'symbol': clean_symbol}
+            # Clean symbol to basic format (BTC, ETH, etc.)
+            clean_symbol = symbol.upper().replace('USDT', '').replace('BINANCE_', '').replace('USD', '')
+            print(f"🔄 Getting long/short ratio for {clean_symbol} from CoinGlass V4...")
+            
+            # Use the coinglass_provider for consistent API calls
+            result = self.coinglass_provider.get_long_short_ratio(clean_symbol)
+            if result and 'error' not in result:
+                return {
+                    'symbol': clean_symbol,
+                    'data': result,
+                    'source': 'coinglass_v4_longshortratio',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return result if result else {'error': f'No long/short ratio data for {clean_symbol}'}
 
-            response = requests.get(url, headers=headers, params=params, timeout=15)
+        except Exception as e:
+            print(f"❌ Long/short ratio error for {symbol}: {e}")
+            return {'error': f'Long/short ratio error: {str(e)}'}
             
             if response.status_code == 200:
                 data = response.json()
@@ -565,19 +610,28 @@ class CryptoAPI:
     
     def get_binance_long_short_ratio(self, symbol):
         """Backward compatibility: redirect to get_long_short_ratio"""
+        print(f"🔄 get_binance_long_short_ratio called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_long_short_ratio(symbol)
     
     def get_binance_open_interest(self, symbol):
         """Backward compatibility: redirect to get_open_interest"""
+        print(f"🔄 get_binance_open_interest called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_open_interest(symbol)
     
     def get_binance_funding_rate(self, symbol):
         """Backward compatibility: redirect to get_funding_rate"""
+        print(f"🔄 get_binance_funding_rate called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_funding_rate(symbol)
     
-    def get_liquidation_zones(self, symbol):
+    def get_liquidation_zones(self, symbol, interval='15m', limit=100):
         """Get liquidation zones - redirect to liquidation price range"""
+        print(f"🔄 get_liquidation_zones called for {symbol}, redirecting to CoinGlass V4...")
         return self.get_liquidation_price_range(symbol)
+
+    def get_binance_oi(self, symbol):
+        """Backward compatibility: redirect to get_open_interest"""
+        print(f"🔄 get_binance_oi called for {symbol}, redirecting to CoinGlass V4...")
+        return self.get_open_interest(symbol)
     
     def get_coinglass_futures_data(self, symbol):
         """Get comprehensive Coinglass futures data"""
@@ -624,6 +678,48 @@ class CryptoAPI:
             
         except Exception as e:
             return {'error': f'Candlestick data error: {str(e)}'}
+
+    def _verify_and_patch_methods(self):
+        """Verify all required methods exist and patch missing ones"""
+        required_methods = [
+            'get_binance_long_short_ratio',
+            'get_binance_open_interest', 
+            'get_binance_funding_rate',
+            'get_binance_oi',
+            'get_liquidation_zones',
+            'analyze_supply_demand'
+        ]
+        
+        patched_methods = []
+        
+        for method_name in required_methods:
+            if not hasattr(self, method_name):
+                print(f"🔧 Patching missing method: {method_name}")
+                patched_methods.append(method_name)
+                self._patch_method(method_name)
+        
+        if patched_methods:
+            print(f"✅ Patched methods: {', '.join(patched_methods)}")
+        else:
+            print("✅ All required methods are present")
+        
+        return patched_methods
+
+    def _patch_method(self, method_name):
+        """Dynamically patch a missing method"""
+        if method_name == 'get_binance_long_short_ratio':
+            setattr(self, method_name, self.get_long_short_ratio)
+        elif method_name == 'get_binance_open_interest':
+            setattr(self, method_name, self.get_open_interest)
+        elif method_name == 'get_binance_funding_rate':
+            setattr(self, method_name, self.get_funding_rate)
+        elif method_name == 'get_binance_oi':
+            setattr(self, method_name, self.get_open_interest)
+        elif method_name == 'get_liquidation_zones':
+            setattr(self, method_name, self.get_liquidation_price_range)
+        elif method_name == 'analyze_supply_demand':
+            if not hasattr(self, 'analyze_supply_demand'):
+                setattr(self, method_name, self.analyze_supply_demand)
 
     async def cleanup(self):
         """Cleanup resources"""
