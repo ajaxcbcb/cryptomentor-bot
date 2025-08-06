@@ -106,18 +106,18 @@ class SnDAutoSignals:
         try:
             # Get comprehensive data
             snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
-            #price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
-            futures_data = self.crypto_api.get_binance_long_short_ratio(symbol)
+            price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = self.crypto_api.get_long_short_ratio(symbol)
 
-            #if 'error' in price_data:
-            #    print(f"❌ Price data error for {symbol}")
-            #    return None
+            if 'error' in price_data:
+                print(f"❌ Price data error for {symbol}")
+                return None
 
-            #current_price = price_data.get('price', 0)
-            #if current_price <= 0:
-            #    return None
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return None
 
-            #change_24h = price_data.get('change_24h', 0)
+            change_24h = price_data.get('change_24h', 0)
             long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
 
             # FORCED DECISION LOGIC - Always choose LONG or SHORT
@@ -126,14 +126,14 @@ class SnDAutoSignals:
             reason = "Auto signal analysis"
 
             # Primary logic: 24h price change
-            #if change_24h > 3:
-            #    direction = "LONG"
-            #    base_confidence += 10
-            #    reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
-            #elif change_24h < -3:
-            #    direction = "SHORT"
-            #    base_confidence += 10
-            #    reason = f"Strong bearish momentum ({change_24h:.1f}%)"
+            if change_24h > 3:
+                direction = "LONG"
+                base_confidence += 10
+                reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
+            elif change_24h < -3:
+                direction = "SHORT"
+                base_confidence += 10
+                reason = f"Strong bearish momentum ({change_24h:.1f}%)"
             # Secondary logic: Long/Short ratio (contrarian approach)
             if long_ratio > 75:
                 direction = "SHORT"
@@ -166,21 +166,16 @@ class SnDAutoSignals:
                 reason = f"Sentiment-based {direction}"
 
             # Calculate entry, TP, SL with better risk management
-            #if direction == "LONG":
-            #    entry_price = current_price * 0.997  # Better entry
-            #    tp1 = current_price * 1.03   # 3% profit
-            #    tp2 = current_price * 1.055  # 5.5% profit
-            #    sl = current_price * 0.97    # 3% loss
-            #else:  # SHORT
-            #    entry_price = current_price * 1.003  # Better entry
-            #    tp1 = current_price * 0.97   # 3% profit
-            #    tp2 = current_price * 0.945  # 5.5% profit
-            #    sl = current_price * 1.03    # 3% loss
-            current_price = 100 #Dummy price
-            entry_price = current_price * 0.997  # Better entry
-            tp1 = current_price * 1.03   # 3% profit
-            tp2 = current_price * 1.055  # 5.5% profit
-            sl = current_price * 0.97    # 3% loss
+            if direction == "LONG":
+                entry_price = current_price * 0.997  # Better entry
+                tp1 = current_price * 1.03   # 3% profit
+                tp2 = current_price * 1.055  # 5.5% profit
+                sl = current_price * 0.97    # 3% loss
+            else:  # SHORT
+                entry_price = current_price * 1.003  # Better entry
+                tp1 = current_price * 0.97   # 3% profit
+                tp2 = current_price * 0.945  # 5.5% profit
+                sl = current_price * 1.03    # 3% loss
 
             # Risk/Reward calculation
             risk = abs(entry_price - sl)
@@ -213,7 +208,7 @@ class SnDAutoSignals:
                 'reason': reason,
                 'zone_strength': 75,
                 'long_ratio': long_ratio,
-                #'change_24h': change_24h
+                'change_24h': change_24h
             }
 
         except Exception as e:
