@@ -341,7 +341,7 @@ class SnDAutoSignals:
 🔄 **Market Trend**: {signal['trend'].title()}
 ⚡ **Structure**: {signal['market_structure'].replace('_', ' ').title()}
 🧠 **Reasoning**: {signal['reason']}
-#📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
+📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
 
 """
 
