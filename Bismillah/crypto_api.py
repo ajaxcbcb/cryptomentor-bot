@@ -20,7 +20,7 @@ class CryptoAPI:
             print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
 
         # Coinglass V4 Official API
-        self.coinglass_base_url = "https://open-api.coinglass.com/public/v4"
+        self.coinglass_base_url = "https://open-api-v4.coinglass.com"
         
         # Initialize Binance URLs for fallback
         self.binance_spot_url = "https://api.binance.com/api/v3"

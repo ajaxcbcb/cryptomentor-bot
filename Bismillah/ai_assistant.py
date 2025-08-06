@@ -11,15 +11,15 @@ from crypto_api import CryptoAPI
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
         self.name = name
-        self.coinglass_key = os.getenv("COINGLASS_SECRET")
-        self.coinglass_base_url = "https://open-api.coinglass.com/public/v4"
+        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
+        self.coinglass_base_url = "https://open-api-v4.coinglass.com"
         
         # Initialize CryptoAPI for comprehensive data
         self.crypto_api = CryptoAPI()
 
         if not self.coinglass_key:
-            print("⚠️ COINGLASS_SECRET not found in environment variables")
-            print("💡 Please set COINGLASS_SECRET in Replit Secrets")
+            print("⚠️ COINGLASS_API_KEY not found in environment variables")
+            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
 
     def greet(self):
         return f"Halo! Saya {self.name}, siap membantu analisis dan informasi crypto kamu."
