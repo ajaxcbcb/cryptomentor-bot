@@ -108,6 +108,7 @@ async def main():
 if __name__ == "__main__":
     try:
         print("🚀 Starting CryptoMentor AI Bot...")
+        print(f"📍 Working Directory: {os.getcwd()}")
 
         # Check Python version
         if sys.version_info < (3, 8):
@@ -116,7 +117,14 @@ if __name__ == "__main__":
 
         print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 
+        # Validate essential environment variables
+        if not os.getenv('TOKEN') and not os.getenv('TELEGRAM_BOT_TOKEN'):
+            print("❌ TELEGRAM_BOT_TOKEN tidak ditemukan!")
+            print("💡 Please set TOKEN in Replit Secrets")
+            sys.exit(1)
+
         # Run main async function
+        print("🎯 Starting main async function...")
         asyncio.run(main())
 
     except KeyboardInterrupt:
@@ -124,6 +132,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"💥 Fatal error: {e}")
         logger.error(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     finally:
         print("👋 CryptoMentor AI Bot shutdown complete")

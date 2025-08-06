@@ -77,47 +77,7 @@ def check_telegram_bot_token():
         print(f"❌ Bot Token Check Error: {str(e)}")
         return False
 
-def check_coinapi_key():
-    """Check CoinAPI Key"""
-    print("\n💰 CHECKING COINAPI KEY")
-    print("=" * 40)
-    
-    coinapi_key = os.getenv("COINAPI_KEY")
-    if not coinapi_key:
-        print("❌ COINAPI_KEY tidak ditemukan di environment variables")
-        return False
-    
-    # Mask API key for security
-    masked_key = f"{coinapi_key[:8]}...{coinapi_key[-4:]}" if len(coinapi_key) > 12 else "SET"
-    print(f"🔑 CoinAPI Key: {masked_key}")
-    
-    try:
-        # Test CoinAPI
-        headers = {'X-CoinAPI-Key': coinapi_key}
-        response = requests.get(
-            "https://rest.coinapi.io/v1/exchangerate/BTC/USDT",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            btc_price = data.get('rate', 0)
-            print(f"✅ CoinAPI Key VALID")
-            print(f"💰 BTC Price Test: ${btc_price:,.2f}")
-            return True
-        elif response.status_code == 401:
-            print("❌ CoinAPI Key INVALID - Unauthorized")
-            return False
-        elif response.status_code == 429:
-            print("⚠️ CoinAPI Rate Limit Exceeded")
-            return True  # Key is valid but rate limited
-        else:
-            print(f"❌ CoinAPI Error - HTTP {response.status_code}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ CoinAPI Check Error: {str(e)}")
+❌ CoinAPI Check Error: {str(e)}")
         return False
 
 def check_coingecko_key():
