@@ -755,7 +755,7 @@ class TelegramBot:
 
         try:
             # Get comprehensive analysis using CoinMarketCap data
-            analysis = self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
+            analysis = self.ai.get_comprehensive_analysis(symbol, None, None, 'id', self.crypto_api)
 
             # Deduct credit only for non-premium, non-admin users
             if not is_premium and not is_admin:
@@ -763,22 +763,39 @@ class TelegramBot:
                 remaining_credits = self.db.get_user_credits(user_id)
                 analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinMarketCap: -20 credit)"
             elif is_premium:
-                analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
+                analysis += f"\n\n⭐ *Status Premium* - Unlimited Access"
             elif is_admin:
-                analysis += f"\n\n👑 **Admin Access** - Unlimited"
+                analysis += f"\n\n👑 *Admin Access* - Unlimited"
 
-            # Handle long messages
+            # Handle long messages with safe Telegram formatting
             if len(analysis) > 4000:
                 chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
-                for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                try:
+                    await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode='Markdown')
+                except Exception as markdown_error:
+                    print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                    # Remove all markdown formatting and send as plain text
+                    plain_chunks = [chunk.replace('*', '').replace('_', '') for chunk in chunks]
+                    await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
+                    for chunk in plain_chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode=None)
             else:
-                await loading_msg.edit_text(analysis, parse_mode='Markdown')
+                try:
+                    await loading_msg.edit_text(analysis, parse_mode='Markdown')
+                except Exception as markdown_error:
+                    print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                    # Remove all markdown formatting and send as plain text
+                    plain_analysis = analysis.replace('*', '').replace('_', '')
+                    await loading_msg.edit_text(plain_analysis, parse_mode=None)
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinMarketCap)\n• Contact admin jika masalah berlanjut"
-            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\nError: {str(e)[:100]}{'...' if len(str(e)) > 100 else ''}\n\n💡 Coba alternatif:\n• /price {symbol.lower()} untuk harga basic (CoinMarketCap)\n• Contact admin jika masalah berlanjut"
+            try:
+                await loading_msg.edit_text(error_msg, parse_mode=None)
+            except:
+                await loading_msg.edit_text("❌ Terjadi kesalahan dalam analisis. Silakan coba lagi.", parse_mode=None)
             print(f"Error in analyze command: {e}")
             import traceback
             traceback.print_exc()
