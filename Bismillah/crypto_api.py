@@ -471,13 +471,16 @@ class CryptoAPI:
             futures_data = self.get_comprehensive_futures_data(symbol)
             
             if 'error' in futures_data:
-                print(f"⚠️ CoinGlass data unavailable, using price data only")
+                print(f"⚠️ CoinGlass data unavailable: {futures_data['error']}")
                 # Fallback to price-only analysis
                 price_data = self.get_crypto_price(symbol)
                 if 'error' in price_data:
-                    return {'error': f'Failed to get any data: {price_data["error"]}'}
+                    return {'error': f'Tidak dapat mengambil data untuk {symbol}. Silakan coba lagi nanti.'}
                 
                 current_price = price_data.get('price', 0)
+                if current_price <= 0:
+                    return {'error': f'Data harga tidak valid untuk {symbol}'}
+                    
                 price_change_24h = price_data.get('change_24h', 0)
                 
                 # Basic analysis without futures data
@@ -504,7 +507,8 @@ class CryptoAPI:
                     'resistance_level': current_price * 1.03,
                     'price_change_24h': price_change_24h,
                     'timeframe': timeframe,
-                    'source': 'basic_price_analysis',
+                    'source': 'price_only_analysis',
+                    'data_limitation': 'CoinGlass futures data tidak tersedia',
                     'timestamp': time.time()
                 }
             

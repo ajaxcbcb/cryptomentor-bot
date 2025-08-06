@@ -22,14 +22,14 @@ def escape_markdown_v2(text):
     """Escape special characters for MarkdownV2"""
     if not text:
         return ""
-    
+
     # Characters that need escaping in MarkdownV2
     escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    
+
     escaped_text = str(text)
     for char in escape_chars:
         escaped_text = escaped_text.replace(char, f'\\{char}')
-    
+
     return escaped_text
 
 def safe_send_message(update, message, parse_mode='MarkdownV2'):
@@ -179,7 +179,7 @@ class TelegramBot:
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
             print("🤖 Bot handlers registered successfully")
-            mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
+            mode_text = "🌐 DEPLOYMENT (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT (Workspace)"
             print(f"🌍 Environment: {mode_text}")
             print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
             print("🚀 Starting bot polling with Coinglass V4 integration...")
@@ -1494,10 +1494,9 @@ Harga akan diambil real-time dari CoinAPI."""
 
 🚀 **Keuntungan yang Anda nikmati:**
 • ♾️ Unlimited analisis CoinAPI + SnD
-• 🎯 Akses prioritas ke semua fitur
 • 📊 Data real-time CoinAPI tanpa batas
+• 🎯 Support prioritas
 • {auto_signals_status}
-• 🛡️ Support premium
 
 ✨ **Terima kasih telah menjadi {premium_type} Member!**
 Nikmati semua fitur tanpa batasan credit."""

@@ -70,7 +70,7 @@ class AIAssistant:
         }
 
     def _get_estimated_price(self, symbol):
-        """Get real-time price with proper fallback"""
+        """Get real-time price without dummy fallbacks"""
         try:
             # Primary: Use crypto_api to get real price
             if self.crypto_api:
@@ -88,21 +88,13 @@ class AIAssistant:
                     print(f"✅ CoinGlass price for {symbol}: ${real_price:.4f}")
                     return real_price
             
-            # Fallback: Current market estimates (updated regularly)
-            current_estimates = {
-                'BTC': 67500, 'ETH': 3200, 'BNB': 580, 'SOL': 185,
-                'ADA': 0.48, 'AVAX': 28, 'MATIC': 0.85, 'DOT': 6.8,
-                'ATOM': 9.5, 'LINK': 18, 'UNI': 11, 'DOGE': 0.12,
-                'XRP': 0.58, 'LTC': 95, 'BCH': 485, 'ALGO': 0.22
-            }
-            
-            fallback_price = current_estimates.get(symbol.upper(), 50)
-            print(f"⚠️ Using fallback estimate for {symbol}: ${fallback_price:.4f}")
-            return fallback_price
+            # No fallback dummy prices - return None if no real data available
+            print(f"❌ No real price data available for {symbol}")
+            return None
             
         except Exception as e:
             print(f"❌ Price estimation error for {symbol}: {e}")
-            return 50
+            return None
 
     def _get_coinglass_price(self, symbol):
         """Get price data for Coinglass analysis using Coinglass API"""
@@ -1297,21 +1289,21 @@ class AIAssistant:
             smc_bias = 'Bullish Bias' if signal_direction == 'LONG' else 'Bearish Bias' if signal_direction == 'SHORT' else 'Neutral'
             
             if language == 'id':
-                message = f"""🎯 *FUTURES ADVANCED ANALYSIS \\- {symbol.upper()} \\({timeframe}\\)*
+                message = f"""🎯 <b>FUTURES ADVANCED ANALYSIS - {symbol.upper()} ({timeframe})</b>
 
-💰 *Harga Coinglass*: {format_price(current_price)}
-📊 *Long/Short Ratio*: {ls_data.get('ratio_value', 1.0):.2f} \\({'Bullish Crowd' if ls_data.get('ratio_value', 1.0) > 1.2 else 'Bearish Crowd' if ls_data.get('ratio_value', 1.0) < 0.8 else 'Balanced Crowd'}\\)
-📈 *Open Interest*: {format_currency(oi_data.get('total_oi', 0))} \\(⬆ {oi_data.get('oi_change_percent', 0):+.1f}%\\)
-📉 *Funding Rate*: {funding_rate*100:+.3f}% \\({'Positif' if funding_rate > 0 else 'Negatif' if funding_rate < 0 else 'Netral'}\\)
-🧨 *Zona Likuidasi Dominan*: {liq_zones_display}
-🔎 *Trend Struktur Market \\(SMC\\)*: {smc_bias}
+💰 <b>Harga Coinglass</b>: {format_price(current_price)}
+📊 <b>Long/Short Ratio</b>: {ls_data.get('ratio_value', 1.0):.2f} ({'Bullish Crowd' if ls_data.get('ratio_value', 1.0) > 1.2 else 'Bearish Crowd' if ls_data.get('ratio_value', 1.0) < 0.8 else 'Balanced Crowd'})
+📈 <b>Open Interest</b>: {format_currency(oi_data.get('total_oi', 0))} (⬆ {oi_data.get('oi_change_percent', 0):+.1f}%)
+📉 <b>Funding Rate</b>: {funding_rate*100:+.3f}% ({'Positif' if funding_rate > 0 else 'Negatif' if funding_rate < 0 else 'Netral'})
+🧨 <b>Zona Likuidasi Dominan</b>: {liq_zones_display}
+🔎 <b>Trend Struktur Market (SMC)</b>: {smc_bias}
 
-🧠 *Smart Entry Plan \\(SnD \\+ Coinglass Data\\)* {signal_emoji}
+🧠 <b>Smart Entry Plan (SnD + Coinglass Data)</b> {signal_emoji}
 • Entry: {format_price(entry_price)}
 • TP 1: {format_price(tp1)}
 • TP 2: {format_price(tp2)}
 • SL: {format_price(sl)}
-• Confidence: {confidence}% \\({'Strong' if confidence >= 80 else 'Medium' if confidence >= 65 else 'Weak'}\\)
+• Confidence: {confidence}% ({'Strong' if confidence >= 80 else 'Medium' if confidence >= 65 else 'Weak'})
 • Sinyal: {signal_status}"""
 
                 if entry_reason:
