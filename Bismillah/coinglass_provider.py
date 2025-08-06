@@ -9,10 +9,11 @@ class CoinGlassProvider:
     
     def __init__(self):
         self.api_key = os.getenv("COINGLASS_API_KEY")
-        self.base_url = "https://open-api-v4.coinglass.com/public/v4"
+        self.base_url = "https://open-api-v4.coinglass.com/api"
         self.headers = {
             'X-API-KEY': self.api_key,
-            'accept': 'application/json'
+            'accept': 'application/json',
+            'Content-Type': 'application/json'
         }
         
         if not self.api_key:
@@ -60,34 +61,48 @@ class CoinGlassProvider:
 
     def _clean_symbol(self, symbol):
         """Clean and standardize symbol for CoinGlass API"""
-        # Bersihkan symbol dan standardisasi
-        clean_symbol = symbol.upper().replace('BINANCE_', '').replace('USD', '')
+        # Bersihkan symbol tanpa mengubah format standar
+        clean_symbol = symbol.upper().replace('BINANCE_', '').strip()
         
-        # Jika belum ada USDT, tambahkan
-        if not clean_symbol.endswith('USDT'):
-            # Hanya untuk symbol yang tidak mengandung karakter khusus
-            if clean_symbol.isalpha() and len(clean_symbol) <= 10:
-                clean_symbol = clean_symbol + 'USDT'
+        # Jangan ubah symbol yang sudah dalam format USDT
+        if clean_symbol.endswith('USDT'):
+            print(f"🔄 Symbol mapping: {symbol} -> {clean_symbol} (kept as-is)")
+            return clean_symbol
+        
+        # Untuk symbol dasar seperti BTC, ETH, tambahkan USDT
+        if clean_symbol.isalpha() and len(clean_symbol) <= 10 and not clean_symbol.endswith('USD'):
+            clean_symbol = clean_symbol + 'USDT'
         
         print(f"🔄 Symbol mapping: {symbol} -> {clean_symbol}")
         return clean_symbol
 
     def get_long_short_ratio(self, symbol):
-        """Get long/short ratio from CoinGlass V4 - endpoint: futures/longShortRate"""
+        """Get long/short ratio from CoinGlass V4 - endpoint: futures/top-long-short-account-ratio/history"""
         try:
             clean_symbol = self._clean_symbol(symbol)
             print(f"🔄 Getting long/short ratio for {clean_symbol} from CoinGlass V4...")
             
-            result = self._make_request('futures/longShortRate', {'symbol': clean_symbol})
+            # Try account ratio first
+            result = self._make_request('futures/top-long-short-account-ratio/history', {
+                'symbol': clean_symbol,
+                'interval': '1h'
+            })
+            
+            if 'error' in result:
+                # Fallback to position ratio
+                print(f"⚠️ Account ratio failed, trying position ratio...")
+                result = self._make_request('futures/top-long-short-position-ratio/history', {
+                    'symbol': clean_symbol,
+                    'interval': '1h'
+                })
             
             if 'error' in result:
                 print(f"❌ Long/Short ratio error: {result['error']}")
                 return result
             
-            # Parse CoinGlass V4 response structure
             data = result.get('data', [])
             if not data:
-                return {'error': f'No long/short data for {clean_symbol}'}
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
             # Get latest data point
             if isinstance(data, list) and len(data) > 0:
@@ -96,8 +111,17 @@ class CoinGlassProvider:
                 latest = data
             
             # Parse the response format
-            long_ratio = float(latest.get('longRate', latest.get('longRatio', 50)))
-            short_ratio = 100 - long_ratio
+            long_ratio = float(latest.get('longAccount', latest.get('longRatio', latest.get('longRate', 50))))
+            short_ratio = float(latest.get('shortAccount', latest.get('shortRatio', latest.get('shortRate', 50))))
+            
+            # Normalize to 100%
+            total = long_ratio + short_ratio
+            if total > 0:
+                long_ratio = (long_ratio / total) * 100
+                short_ratio = (short_ratio / total) * 100
+            else:
+                long_ratio = 50
+                short_ratio = 50
             
             print(f"✅ Long/Short data: {long_ratio:.1f}% / {short_ratio:.1f}%")
             
@@ -115,12 +139,12 @@ class CoinGlassProvider:
             return {'error': f'Long/short ratio error: {str(e)}'}
 
     def get_open_interest_chart(self, symbol):
-        """Get open interest from CoinGlass V4 - endpoint: futures/openInterest"""
+        """Get open interest from CoinGlass V4 - endpoint: futures/openInterest/exchange-list"""
         try:
             clean_symbol = self._clean_symbol(symbol)
             print(f"🔄 Getting open interest for {clean_symbol} from CoinGlass V4...")
             
-            result = self._make_request('futures/openInterest', {'symbol': clean_symbol})
+            result = self._make_request('futures/openInterest/exchange-list', {'symbol': clean_symbol})
             
             if 'error' in result:
                 print(f"❌ Open interest error: {result['error']}")
@@ -128,30 +152,33 @@ class CoinGlassProvider:
             
             data = result.get('data', [])
             if not data:
-                return {'error': f'No open interest data for {clean_symbol}'}
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
-            # Handle different response formats
-            if isinstance(data, list) and len(data) > 0:
-                latest = data[-1]
-                previous = data[-2] if len(data) > 1 else latest
-            else:
-                latest = data
-                previous = latest
+            # Calculate total OI across exchanges
+            total_oi = 0
+            latest_timestamp = 0
             
-            current_oi = float(latest.get('openInterest', latest.get('oi', 0)))
-            previous_oi = float(previous.get('openInterest', previous.get('oi', current_oi)))
+            for exchange_data in data:
+                oi_value = float(exchange_data.get('openInterest', exchange_data.get('oi', 0)))
+                total_oi += oi_value
+                
+                # Get latest timestamp
+                timestamp = exchange_data.get('time', exchange_data.get('timestamp', 0))
+                if timestamp > latest_timestamp:
+                    latest_timestamp = timestamp
             
-            oi_change_percent = ((current_oi - previous_oi) / max(previous_oi, 1)) * 100 if previous_oi > 0 else 0
+            # Simple change calculation (mock for now)
+            oi_change_percent = 0  # Will be calculated properly with historical data
             
-            print(f"✅ Open Interest: ${current_oi/1000000:.1f}M ({oi_change_percent:+.1f}%)")
+            print(f"✅ Open Interest: ${total_oi/1000000:.1f}M")
             
             return {
                 'symbol': clean_symbol,
-                'open_interest': current_oi,
+                'open_interest': total_oi,
                 'oi_change_percent': oi_change_percent,
-                'timestamp': latest.get('time', latest.get('timestamp', int(time.time() * 1000))),
+                'timestamp': latest_timestamp or int(time.time() * 1000),
                 'source': 'coinglass_v4_realtime',
-                'raw_data': latest
+                'raw_data': data
             }
             
         except Exception as e:
@@ -159,12 +186,12 @@ class CoinGlassProvider:
             return {'error': f'Open interest error: {str(e)}'}
 
     def get_funding_rate_chart(self, symbol):
-        """Get funding rate from CoinGlass V4 - endpoint: futures/fundingRate"""
+        """Get funding rate from CoinGlass V4 - endpoint: futures/fundingRate/exchange-list"""
         try:
             clean_symbol = self._clean_symbol(symbol)
             print(f"🔄 Getting funding rate for {clean_symbol} from CoinGlass V4...")
             
-            result = self._make_request('futures/fundingRate', {'symbol': clean_symbol})
+            result = self._make_request('futures/fundingRate/exchange-list', {'symbol': clean_symbol})
             
             if 'error' in result:
                 print(f"❌ Funding rate error: {result['error']}")
@@ -172,14 +199,23 @@ class CoinGlassProvider:
             
             data = result.get('data', [])
             if not data:
-                return {'error': f'No funding rate data for {clean_symbol}'}
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
-            if isinstance(data, list) and len(data) > 0:
-                latest = data[-1]
-            else:
-                latest = data
+            # Get funding rate from primary exchange (usually Binance)
+            primary_exchange = None
+            for exchange_data in data:
+                if exchange_data.get('exchangeName', '').lower() == 'binance':
+                    primary_exchange = exchange_data
+                    break
             
-            funding_rate = float(latest.get('fundingRate', latest.get('rate', 0)))
+            # Fallback to first exchange if Binance not found
+            if not primary_exchange and data:
+                primary_exchange = data[0]
+            
+            if not primary_exchange:
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
+            
+            funding_rate = float(primary_exchange.get('fundingRate', primary_exchange.get('rate', 0)))
             
             print(f"✅ Funding Rate: {funding_rate*100:.4f}%")
             
@@ -187,9 +223,9 @@ class CoinGlassProvider:
                 'symbol': clean_symbol,
                 'funding_rate': funding_rate,
                 'funding_rate_percent': funding_rate * 100,
-                'timestamp': latest.get('time', latest.get('timestamp', int(time.time() * 1000))),
+                'timestamp': primary_exchange.get('time', primary_exchange.get('timestamp', int(time.time() * 1000))),
                 'source': 'coinglass_v4_realtime',
-                'raw_data': latest
+                'raw_data': primary_exchange
             }
             
         except Exception as e:
@@ -197,12 +233,18 @@ class CoinGlassProvider:
             return {'error': f'Funding rate error: {str(e)}'}
 
     def get_liquidation_map(self, symbol):
-        """Get liquidation zones from CoinGlass V4 - endpoint: futures/liquidationMap"""
+        """Get liquidation zones from CoinGlass V4 - endpoint: futures/liquidation/aggregated-map"""
         try:
             clean_symbol = self._clean_symbol(symbol)
             print(f"🔄 Getting liquidation zones for {clean_symbol} from CoinGlass V4...")
             
-            result = self._make_request('futures/liquidationMap', {'symbol': clean_symbol})
+            # Try aggregated map first
+            result = self._make_request('futures/liquidation/aggregated-map', {'symbol': clean_symbol})
+            
+            if 'error' in result:
+                # Fallback to pair-level map
+                print(f"⚠️ Aggregated map failed, trying pair-level map...")
+                result = self._make_request('futures/liquidation/map', {'symbol': clean_symbol})
             
             if 'error' in result:
                 print(f"❌ Liquidation map error: {result['error']}")
@@ -210,7 +252,7 @@ class CoinGlassProvider:
             
             data = result.get('data', {})
             if not data:
-                return {'error': f'No liquidation data for {clean_symbol}'}
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
             # Parse liquidation data
             if isinstance(data, list) and len(data) > 0:
@@ -218,8 +260,8 @@ class CoinGlassProvider:
             else:
                 latest_data = data
             
-            long_liquidation = float(latest_data.get('longLiquidation', latest_data.get('longs', 0)))
-            short_liquidation = float(latest_data.get('shortLiquidation', latest_data.get('shorts', 0)))
+            long_liquidation = float(latest_data.get('longLiquidation', latest_data.get('longs', latest_data.get('buyLiquidation', 0))))
+            short_liquidation = float(latest_data.get('shortLiquidation', latest_data.get('shorts', latest_data.get('sellLiquidation', 0))))
             total_liquidation = long_liquidation + short_liquidation
             
             dominant_side = 'Long' if long_liquidation > short_liquidation else 'Short'
@@ -234,7 +276,7 @@ class CoinGlassProvider:
                 'long_percentage': (long_liquidation / max(total_liquidation, 1)) * 100,
                 'short_percentage': (short_liquidation / max(total_liquidation, 1)) * 100,
                 'dominant_side': dominant_side,
-                'zones': latest_data.get('priceRanges', latest_data.get('zones', [])),
+                'zones': latest_data.get('priceRanges', latest_data.get('zones', latest_data.get('liquidationData', []))),
                 'source': 'coinglass_v4_realtime',
                 'raw_data': latest_data
             }
@@ -244,12 +286,12 @@ class CoinGlassProvider:
             return {'error': f'Liquidation map error: {str(e)}'}
 
     def get_futures_ticker(self, symbol):
-        """Get futures ticker from CoinGlass V4 - endpoint: futures/ticker"""
+        """Get futures ticker from CoinGlass V4 - endpoint: futures/price-change-list"""
         try:
             clean_symbol = self._clean_symbol(symbol)
             print(f"🔄 Getting futures ticker for {clean_symbol} from CoinGlass V4...")
             
-            result = self._make_request('futures/ticker', {'symbol': clean_symbol})
+            result = self._make_request('futures/price-change-list', {'symbol': clean_symbol})
             
             if 'error' in result:
                 print(f"❌ Futures ticker error: {result['error']}")
@@ -257,7 +299,7 @@ class CoinGlassProvider:
             
             data = result.get('data', [])
             if not data:
-                return {'error': f'No ticker data for {clean_symbol}'}
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
             # Get primary exchange data (usually first in array)
             if isinstance(data, list) and len(data) > 0:
@@ -265,9 +307,13 @@ class CoinGlassProvider:
             else:
                 ticker_data = data
             
-            price = float(ticker_data.get('price', ticker_data.get('lastPrice', 0)))
-            volume_24h = float(ticker_data.get('volume24h', ticker_data.get('volume', 0)))
-            price_change_24h = float(ticker_data.get('priceChangePercent', ticker_data.get('change', 0)))
+            price = float(ticker_data.get('price', ticker_data.get('lastPrice', ticker_data.get('last', 0))))
+            volume_24h = float(ticker_data.get('volume24h', ticker_data.get('volume', ticker_data.get('vol', 0))))
+            price_change_24h = float(ticker_data.get('priceChangePercent', ticker_data.get('change', ticker_data.get('changePercent', 0))))
+            
+            # Ensure we don't return dummy data
+            if price <= 0:
+                return {'error': f'⚠️ Data tidak tersedia untuk pair {clean_symbol} di CoinGlass'}
             
             print(f"✅ Ticker: ${price:.2f} ({price_change_24h:+.2f}%)")
             

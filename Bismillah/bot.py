@@ -32,24 +32,30 @@ def escape_markdown_v2(text):
 
     return escaped_text
 
-def safe_send_message(update, message, parse_mode='MarkdownV2'):
-    """Safely send message with fallback to HTML or plain text"""
+def safe_send_message(update, message, parse_mode='HTML'):
+    """Safely send message with fallback to plain text"""
     try:
-        if parse_mode == 'MarkdownV2':
+        if parse_mode == 'HTML':
+            # Convert markdown to HTML
+            html_message = message.replace('**', '<b>').replace('**', '</b>')
+            html_message = html_message.replace('*', '<i>').replace('*', '</i>')
+            # Clean up problematic characters
+            html_message = html_message.replace('_', '')
+            return update.message.reply_text(html_message, parse_mode='HTML')
+        elif parse_mode == 'MarkdownV2':
             escaped_message = escape_markdown_v2(message)
             return update.message.reply_text(escaped_message, parse_mode='MarkdownV2')
         else:
             return update.message.reply_text(message, parse_mode=parse_mode)
     except Exception as e:
-        print(f"⚠️ MarkdownV2 failed, trying HTML: {e}")
+        print(f"⚠️ {parse_mode} failed, trying plain text: {e}")
         try:
-            # Convert basic markdown to HTML
-            html_message = message.replace('**', '<b>').replace('**', '</b>')
-            html_message = html_message.replace('*', '<i>').replace('*', '</i>')
-            return update.message.reply_text(html_message, parse_mode='HTML')
+            # Remove all markdown formatting
+            clean_message = message.replace('**', '').replace('*', '').replace('_', '').replace('`', '')
+            return update.message.reply_text(clean_message, parse_mode=None)
         except Exception as e2:
-            print(f"⚠️ HTML failed, sending plain text: {e2}")
-            return update.message.reply_text(message, parse_mode=None)
+            print(f"⚠️ Plain text also failed: {e2}")
+            return update.message.reply_text("❌ Terjadi kesalahan dalam mengirim pesan.", parse_mode=None)
 
 # Enhanced deployment detection with verification
 deployment_env_checks = {
