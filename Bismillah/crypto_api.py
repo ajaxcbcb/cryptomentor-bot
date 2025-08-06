@@ -47,42 +47,6 @@ class CryptoAPI:
     def get_coinglass_open_interest(self, symbol, time_type='24h'):
         """Get open interest data from Coinglass"""
         try:
-            if not self.coinglass_key:
-                return {'error': 'Coinglass API key not found'}
-
-            # Convert symbol format for Coinglass
-            symbol = symbol.upper()
-            if symbol.endswith('USDT'):
-                symbol = symbol[:-4]  # Remove USDT suffix
-
-            url = f"{self.coinglass_url}/futures/openInterestVolume"
-            headers = self._get_coinglass_headers()
-
-            params = {
-                'symbol': symbol,
-                'timeType': time_type
-            }
-
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-
-            data = response.json()
-
-            if data.get('success'):
-                result_data = data.get('data', {})
-                return {
-                    'symbol': symbol,
-                    'open_interest': result_data.get('totalOpenInterest', 0),
-                    'open_interest_change': result_data.get('totalOpenInterestChange', 0),
-                    'time_type': time_type,
-                    'source': 'coinglass',
-                    'timestamp': datetime.now().isoformat()
-                }
-            else:
-                return {'error': f"Coinglass API error: {data.get('msg', 'Unknown error')}"}
-
-        except Exception as e:
-            return {'error': f"Coinglass open interest error: {str(e)}"}
 
     # === COINAPI METHODS ===
     
