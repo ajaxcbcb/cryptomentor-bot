@@ -36,7 +36,7 @@ def test_coinglass_v4_connection():
         return False
     
     # Test endpoints
-    base_url = "https://api.coinglass.dev/v4"
+    base_url = "https://open-api.coinglass.com/public/v4"
     headers = {
         "accept": "application/json",
         "X-API-KEY": coinglass_key
@@ -96,7 +96,7 @@ def show_migration_guide():
     print("\n🌐 API URL Changes:")
     print("  OLD: https://open-api.coinglass.com/api/pro/v1/")
     print("  OLD: https://open-api.coinglass.com/public/v2/")  
-    print("  NEW: https://api.coinglass.dev/v4/")
+    print("  NEW: https://open-api.coinglass.com/public/v4/")
     
     print("\n🔑 Header Changes:")
     print("  OLD: {'coinglassSecret': api_key}")

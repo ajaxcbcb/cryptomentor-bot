@@ -12,7 +12,7 @@ class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
         self.name = name
         self.coinglass_key = os.getenv("COINGLASS_SECRET")
-        self.coinglass_base_url = "https://open-api.coinglass.com/public/v2"
+        self.coinglass_base_url = "https://open-api.coinglass.com/public/v4"
         
         # Initialize CryptoAPI for comprehensive data
         self.crypto_api = CryptoAPI()
@@ -66,7 +66,7 @@ class AIAssistant:
         """Get headers for Coinglass API requests"""
         return {
             "accept": "application/json",
-            "coinglassSecret": self.coinglass_key
+            "X-API-KEY": self.coinglass_key
         }
 
     def _get_estimated_price(self, symbol):
