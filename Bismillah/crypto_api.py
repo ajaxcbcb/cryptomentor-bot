@@ -7,21 +7,15 @@ import asyncio
 from datetime import datetime, timezone
 from binance_provider import BinanceFuturesProvider
 from coinmarketcap_provider import CoinMarketCapProvider
+from coinglass_provider import CoinGlassProvider
 
 class CryptoAPI:
     def __init__(self):
         self.provider = BinanceFuturesProvider()
         self.cryptonews_key = os.getenv("CRYPTONEWS_API_KEY")
-        self.coinglass_key = os.getenv("COINGLASS_API_KEY")
         self.cmc_provider = CoinMarketCapProvider()
+        self.coinglass_provider = CoinGlassProvider()
 
-        if not self.coinglass_key:
-            print("⚠️ Coinglass API key not found in environment variables")
-            print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
-
-        # Coinglass V4 Official API
-        self.coinglass_base_url = "https://open-api-v4.coinglass.com"
-        
         # Initialize Binance URLs for fallback
         self.binance_spot_url = "https://api.binance.com/api/v3"
         self.binance_futures_url = "https://fapi.binance.com/fapi/v1"
@@ -29,12 +23,12 @@ class CryptoAPI:
         self.cache = {}
         self.cache_duration = 30
 
-        print("🚀 CryptoAPI initialized with Coinglass V4 + CoinMarketCap")
-        print(f"📊 Coinglass V4 API: {self.coinglass_base_url}")
-        print(f"🔑 Coinglass Key: {'✅ Enabled' if self.coinglass_key else '❌ Disabled'}")
+        print("🚀 CryptoAPI initialized with CoinGlass V4 + CoinMarketCap")
+        print(f"📊 CoinGlass V4 API: {self.coinglass_provider.base_url}")
+        print(f"🔑 CoinGlass Key: {'✅ Enabled' if self.coinglass_provider.api_key else '❌ Disabled'}")
         print(f"📊 CoinMarketCap: {'✅ Enabled' if self.cmc_provider.api_key else '❌ Disabled'}")
         print(f"📰 CryptoNews API: {'✅ Enabled' if self.cryptonews_key else '❌ Disabled'}")
-        print("⭐ Data Sources: Coinglass V4 Startup Plan + CoinMarketCap")
+        print("⭐ Data Sources: CoinGlass V4 Startup Plan + CoinMarketCap")
 
     # === COINGLASS V4 API METHODS ===
 
