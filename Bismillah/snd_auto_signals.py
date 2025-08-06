@@ -25,7 +25,7 @@ class SnDAutoSignals:
         self.min_confidence = 80   # High confidence for auto signals (changed from 65 to 80)
         self.is_running = False
         self.last_scan_time = 0
-
+        
         # Anti-spam system
         self.sent_signals = {}  # Track sent signals: {symbol: {direction: timestamp}}
         self.signal_cooldown = 14400  # 4 hours cooldown per symbol per direction
@@ -88,7 +88,7 @@ class SnDAutoSignals:
                             signals.append(signal)
                             print(f"[AUTO-SIGNAL SND] ✅ Valid signal generated for {symbol} (confidence: {signal.get('confidence')}%)")
                             print(f"[AUTO-SIGNAL SND] Entry Detected on {symbol} - Direction: {signal['direction']} - Confidence: {signal['confidence']:.1f}%")
-
+                            
                             # Mark signal as sent to prevent spam
                             self._mark_signal_as_sent(signal)
                         else:
@@ -120,7 +120,7 @@ class SnDAutoSignals:
         """Get enhanced SnD signal for a symbol"""
         try:
             # Get price from CoinAPI
-            #price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
 
             # Get futures data
             futures_data = self.crypto_api.get_comprehensive_futures_data(symbol)
@@ -141,9 +141,7 @@ class SnDAutoSignals:
                 return None
 
             # Generate signal using AI assistant
-            #signal = self.bot.ai._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
-            #return signal
-            signal = self.bot.ai._generate_enhanced_snd_signal(symbol, futures_data, snd_analysis)
+            signal = self.bot.ai._generate_enhanced_snd_signal(symbol, price_data, futures_data, snd_analysis)
 
             return signal
 
@@ -155,7 +153,7 @@ class SnDAutoSignals:
         """Send auto signals to eligible users with enhanced logging"""
         try:
             print(f"[AUTO-SIGNAL SND] Starting signal broadcast to {len(eligible_users)} eligible users")
-
+            
             # Format the signals message
             message = self._format_auto_signals_message(signals)
 
@@ -188,11 +186,11 @@ class SnDAutoSignals:
                     )
                     sent_count += 1
                     print(f"[AUTO-SIGNAL SND] ✅ Signal sent to user {user_id} ({user_name})")
-
+                    
                     # Log each signal sent
                     for signal in signals:
                         print(f"[AUTO-SIGNAL SND] Entry Detected on {signal['symbol']} - Direction: {signal['direction']} - Confidence: {signal['confidence']:.1f}%")
-
+                    
                     await asyncio.sleep(0.5)  # Rate limiting
 
                 except Exception as e:
@@ -211,7 +209,7 @@ class SnDAutoSignals:
             symbol = signal['symbol']
             direction = signal['direction']
             current_time = time.time()
-
+            
             # Check if we've sent this signal recently
             if symbol in self.sent_signals:
                 if direction in self.sent_signals[symbol]:
@@ -220,27 +218,27 @@ class SnDAutoSignals:
                         remaining_time = self.signal_cooldown - (current_time - last_sent)
                         print(f"[AUTO-SIGNAL SND] ⏰ Cooldown active for {symbol} {direction}: {remaining_time/3600:.1f}h remaining")
                         return False
-
+            
             print(f"[AUTO-SIGNAL SND] ✅ Signal validation passed for {symbol} {direction}")
             return True
-
+            
         except Exception as e:
             print(f"[AUTO-SIGNAL SND] ❌ Error validating signal: {e}")
             return False
-
+    
     def _mark_signal_as_sent(self, signal):
         """Mark signal as sent to prevent spam"""
         try:
             symbol = signal['symbol']
             direction = signal['direction']
             current_time = time.time()
-
+            
             if symbol not in self.sent_signals:
                 self.sent_signals[symbol] = {}
-
+            
             self.sent_signals[symbol][direction] = current_time
             print(f"[AUTO-SIGNAL SND] 📝 Marked {symbol} {direction} as sent at {datetime.now().strftime('%H:%M:%S')}")
-
+            
         except Exception as e:
             print(f"[AUTO-SIGNAL SND] ❌ Error marking signal as sent: {e}")
 
@@ -287,7 +285,7 @@ class SnDAutoSignals:
                     entry_fmt = f"${entry:,.2f}"
                     tp1_fmt = f"${tp1:,.2f}"
                     tp2_fmt = f"${tp2:,.2f}"
-                    sl_fmt = f"${sl:.2f}"
+                    sl_fmt = f"${sl:,.2f}"
 
                 message += f"""**{i}. {symbol} {direction}** {direction_emoji} {confidence_emoji}
 Entry: {entry_fmt} | TP1: {tp1_fmt} | TP2: {tp2_fmt}
@@ -403,18 +401,18 @@ class SnDAutoSignals:
         try:
             # Get comprehensive data
             snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
-            #price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
+            price_data = self.crypto_api.get_coinapi_price(symbol, force_refresh=True)
             futures_data = self.crypto_api.get_binance_long_short_ratio(symbol)
 
-            #if 'error' in price_data:
-            #    print(f"❌ Price data error for {symbol}")
-            #    return None
+            if 'error' in price_data:
+                print(f"❌ Price data error for {symbol}")
+                return None
 
-            #current_price = price_data.get('price', 0)
-            #if current_price <= 0:
-            #    return None
+            current_price = price_data.get('price', 0)
+            if current_price <= 0:
+                return None
 
-            #change_24h = price_data.get('change_24h', 0)
+            change_24h = price_data.get('change_24h', 0)
             long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
 
             # FORCED DECISION LOGIC - Always choose LONG or SHORT
@@ -423,16 +421,16 @@ class SnDAutoSignals:
             reason = "Auto signal analysis"
 
             # Primary logic: 24h price change
-            #if change_24h > 3:
-            #    direction = "LONG"
-            #    base_confidence += 10
-            #    reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
-            #elif change_24h < -3:
-            #    direction = "SHORT" 
-            #    base_confidence += 10
-            #    reason = f"Strong bearish momentum ({change_24h:.1f}%)"
+            if change_24h > 3:
+                direction = "LONG"
+                base_confidence += 10
+                reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
+            elif change_24h < -3:
+                direction = "SHORT" 
+                base_confidence += 10
+                reason = f"Strong bearish momentum ({change_24h:.1f}%)"
             # Secondary logic: Long/Short ratio (contrarian approach)
-            if long_ratio > 75:
+            elif long_ratio > 75:
                 direction = "SHORT"
                 base_confidence += 8
                 reason = f"Extremely overcrowded longs ({long_ratio:.1f}%)"
@@ -463,21 +461,16 @@ class SnDAutoSignals:
                 reason = f"Sentiment-based {direction}"
 
             # Calculate entry, TP, SL with better risk management
-            #if direction == "LONG":
-            #    entry_price = current_price * 0.997  # Better entry
-            #    tp1 = current_price * 1.03   # 3% profit
-            #    tp2 = current_price * 1.055  # 5.5% profit  
-            #    sl = current_price * 0.97    # 3% loss
-            #else:  # SHORT
-            #    entry_price = current_price * 1.003  # Better entry 
-            #    tp1 = current_price * 0.97   # 3% profit
-            #    tp2 = current_price * 0.945  # 5.5% profit
-            #    sl = current_price * 1.03    # 3% loss
-            current_price = 100 #Dummy price
-            entry_price = current_price * 0.997  # Better entry
-            tp1 = current_price * 1.03   # 3% profit
-            tp2 = current_price * 1.055  # 5.5% profit  
-            sl = current_price * 0.97    # 3% loss
+            if direction == "LONG":
+                entry_price = current_price * 0.997  # Better entry
+                tp1 = current_price * 1.03   # 3% profit
+                tp2 = current_price * 1.055  # 5.5% profit  
+                sl = current_price * 0.97    # 3% loss
+            else:  # SHORT
+                entry_price = current_price * 1.003  # Better entry 
+                tp1 = current_price * 0.97   # 3% profit
+                tp2 = current_price * 0.945  # 5.5% profit
+                sl = current_price * 1.03    # 3% loss
 
             # Risk/Reward calculation
             risk = abs(entry_price - sl)
@@ -486,7 +479,7 @@ class SnDAutoSignals:
 
             # Final confidence (auto signals need minimum 80% for reduced spam)
             final_confidence = min(95, max(80, base_confidence))
-
+            
             # Only return signal if it meets our strict confidence requirement
             if final_confidence < self.min_confidence:
                 print(f"[AUTO-SIGNAL SND] ❌ Signal rejected for {symbol}: confidence {final_confidence:.1f}% < required {self.min_confidence}%")
@@ -510,7 +503,7 @@ class SnDAutoSignals:
                 'reason': reason,
                 'zone_strength': 75,
                 'long_ratio': long_ratio,
-                #'change_24h': change_24h
+                'change_24h': change_24h
             }
 
         except Exception as e:
@@ -638,7 +631,7 @@ class SnDAutoSignals:
 🔄 **Market Trend**: {signal['trend'].title()}
 ⚡ **Structure**: {signal['market_structure'].replace('_', ' ').title()}
 🧠 **Reasoning**: {signal['reason']}
-#📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
+📈 **24h Change**: {signal.get('change_24h', 0):.1f}%
 
 """
 

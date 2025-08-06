@@ -148,8 +148,8 @@ class TelegramBot:
             print("🤖 Bot handlers registered successfully")
             mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
             print(f"🌍 Environment: {mode_text}")
-            print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass Primary + Binance + CryptoNews)")
-            print("🚀 Starting bot polling with Coinglass integration...")
+            print(f"🔑 API Status: CN=✅, BIN=✅, NEWS=✅ (CoinAPI Primary + Binance Futures + CryptoNews)")
+            print("🚀 Starting bot polling with CoinAPI integration...")
 
             # Test bot connection before starting with shorter timeout
             try:
@@ -606,7 +606,7 @@ class TelegramBot:
   Multiple coins dengan konfirmasi Supply/Demand zones
 
 💼 **Portfolio & Credit:**
-• `/portfolio` - Lihat portfolio dengan Binance prices
+• `/portfolio` - Lihat portfolio dengan CoinAPI prices
 • `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
 • `/credits` - Cek sisa credit
@@ -627,7 +627,7 @@ class TelegramBot:
 - `/market` = 20 credit (Global overview)
 
 🎯 **Langkah untuk Pemula:**
-1. **Mulai dengan `/price btc`** (gratis) - harga real-time Binance
+1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
 2. **Coba `/market`** (20 credit) - overview pasar global CoinMarketCap
 3. **Test `/analyze btc`** (20 credit) - fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
@@ -641,8 +641,8 @@ class TelegramBot:
 
 🚀 **Data Sources:**
 - **Fundamental**: CoinMarketCap (Startup Plan)
-- **Prices**: Binance Real-time
-- **Futures**: Coinglass API
+- **Prices**: CoinAPI Real-time
+- **Futures**: Binance API
 - **SnD Analysis**: Internal algorithm + Binance candlesticks"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -660,7 +660,7 @@ class TelegramBot:
 
         symbol = context.args[0].upper()
 
-        # Show loading with Binance status
+        # Show loading with CoinAPI status
         mode_text = "🌐 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
         loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinAPI... ({mode_text})")
 
@@ -717,11 +717,11 @@ class TelegramBot:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             message += f"""
 ⏰ **Update**: {current_time}
-🔄 **Source**: 🟢 Binance Real-Time Exchange Rate
-🌐 **API Status**: ✅ Binance Live Data
+🔄 **Source**: 🟢 CoinAPI Real-Time Exchange Rate
+🌐 **API Status**: ✅ CoinAPI Live Data
 🔗 **Mode**: {'🌐 Always On (Deployment)' if IS_DEPLOYMENT else '🔧 Development Workspace'}"""
         else:
-            # Binance API error handling
+            # CoinAPI error handling
             error_reason = price_data.get('error', 'Unknown error') if price_data else 'CoinAPI completely unavailable'
             message = f"""❌ **CoinAPI data tidak tersedia untuk {symbol}**
 
