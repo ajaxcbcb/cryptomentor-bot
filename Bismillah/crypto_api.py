@@ -504,6 +504,59 @@ class CryptoAPI:
         ]
         return fallback_news[:limit]
 
+    def analyze_supply_demand(self, symbol, timeframe="15m"):
+        """Analyze supply and demand zones for a cryptocurrency"""
+        try:
+            # Get price data from CoinMarketCap or Binance
+            price_data = self.get_crypto_price(symbol)
+            
+            if 'error' in price_data:
+                return {'error': f'Failed to get price data: {price_data["error"]}'}
+            
+            current_price = price_data.get('price', 0)
+            
+            if current_price <= 0:
+                return {'error': 'Invalid price data'}
+            
+            # Simple supply/demand analysis based on price action
+            # This is a basic implementation - in production you'd use more sophisticated algorithms
+            price_change_24h = price_data.get('change_24h', 0)
+            
+            # Determine trend and zones
+            if price_change_24h > 2:
+                trend = 'BULLISH'
+                signal = 'LONG'
+                confidence = min(70 + abs(price_change_24h) * 2, 95)
+            elif price_change_24h < -2:
+                trend = 'BEARISH' 
+                signal = 'SHORT'
+                confidence = min(70 + abs(price_change_24h) * 2, 95)
+            else:
+                trend = 'SIDEWAYS'
+                signal = 'HOLD'
+                confidence = 50
+            
+            # Calculate basic support/resistance levels
+            support_level = current_price * 0.97  # 3% below current price
+            resistance_level = current_price * 1.03  # 3% above current price
+            
+            return {
+                'symbol': symbol.upper(),
+                'current_price': current_price,
+                'trend': trend,
+                'signal': signal,
+                'confidence': confidence,
+                'support_level': support_level,
+                'resistance_level': resistance_level,
+                'price_change_24h': price_change_24h,
+                'timeframe': timeframe,
+                'timestamp': time.time(),
+                'source': 'supply_demand_analysis'
+            }
+            
+        except Exception as e:
+            return {'error': f'Supply/demand analysis failed: {str(e)}'}
+
     async def cleanup(self):
         """Cleanup resources"""
         pass
