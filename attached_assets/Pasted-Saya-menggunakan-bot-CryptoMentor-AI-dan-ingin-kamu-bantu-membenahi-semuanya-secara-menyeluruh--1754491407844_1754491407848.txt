@@ -1,0 +1,43 @@
+Saya menggunakan bot CryptoMentor AI dan ingin kamu bantu membenahi semuanya secara menyeluruh.
+
+📌 Tujuan:
+- Bot ini menggunakan 2 API utama:
+  1. CoinMarketCap (untuk harga spot dan data umum crypto)
+  2. CoinGlass V4 (untuk data futures dan analisis Smart Money Concepts)
+- Saat ini, semua data value crypto (harga, volume, funding rate) muncul sebagai 0 atau dummy.
+- Saya ingin kamu pastikan semuanya aktif, berfungsi, dan akurat.
+
+🛠️ Tugas kamu:
+1. **coinmarketcap_provider.py**
+   - Pastikan ada class bernama `CoinMarketCapProvider` yang:
+     - Mengambil data harga crypto via REST API CoinMarketCap.
+     - Mendapatkan harga **real-time** berdasarkan symbol (BTC, ETH, dll).
+     - Gunakan header: `'X-CMC_PRO_API_KEY': os.getenv("COINMARKETCAP_API_KEY")`
+     - Endpoint contoh: `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest`
+
+2. **coinglass_provider.py**
+   - Pastikan pakai **CoinGlass V4 API**.
+   - Gunakan endpoint dari versi terbaru (v4), misalnya: `/api/futures/symbol-mark-price`
+   - Header: `'X-API-KEY': os.getenv("COINGLASS_API_KEY")`
+   - Perbaiki parsing data agar funding rate, open interest, dll **tidak 0**.
+
+3. **crypto_api.py**
+   - Gabungkan penggunaan dari kedua provider:
+     - CoinMarketCap untuk spot price
+     - CoinGlass V4 untuk futures data
+   - Buat fungsi seperti: `get_price(symbol)`, `get_funding_rate(symbol)`, dll.
+   - Jika gagal ambil data, tampilkan log kesalahan (jangan pakai data dummy atau nol).
+
+4. **Periksa semua file yang mengimpor CoinMarketCapProvider & CoinGlass**
+   - Pastikan tidak ada error: `cannot import name`
+   - Perbaiki semua penggunaan class atau fungsi yang rusak akibat struktur yang salah.
+
+5. **Jalankan dan uji bot**
+   - Pastikan ketika saya menjalankan bot, harga crypto **tidak 0**, dan semua data funding, OI, dll muncul sesuai API.
+
+🎯 Fokus pada:
+- Kode rapi dan modular
+- Tidak ada hardcoded API Key (gunakan os.getenv)
+- Semua fungsi penting diberi docstring agar jelas fungsinya
+
+Setelah selesai, beri tahu saya file mana saja yang diperbaiki dan pastikan tidak ada error yang muncul saat dijalankan.
