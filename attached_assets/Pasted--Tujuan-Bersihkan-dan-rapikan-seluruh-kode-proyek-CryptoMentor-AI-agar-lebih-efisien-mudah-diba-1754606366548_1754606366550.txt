@@ -1,0 +1,49 @@
+🎯 Tujuan:
+Bersihkan dan rapikan seluruh kode proyek CryptoMentor AI agar lebih efisien, mudah dibaca, dan bebas dari bug. Pastikan semua fungsi berjalan normal setelah perbaikan.
+
+---
+
+📌 Langkah yang harus dilakukan:
+
+1. **Hapus semua kode, import, variabel, dan fungsi yang tidak digunakan**  
+   - Gunakan analisis linting untuk menemukan *unused imports*, *dead code*, dan fungsi yang tidak dipanggil.
+   - Pastikan kode yang dihapus memang benar-benar tidak digunakan oleh fitur aktif.
+
+2. **Perbaiki struktur project**  
+   - Pastikan semua modul punya fungsi yang jelas (misalnya `ai_assistant.py` untuk AI logic, `binance_provider.py` untuk Binance API, dll.).
+   - Pisahkan fungsi yang terlalu panjang menjadi fungsi-fungsi kecil yang lebih fokus.
+
+3. **Standarisasi penamaan variabel dan fungsi**  
+   - Gunakan snake_case untuk Python.
+   - Nama variabel/fungsi harus deskriptif, misalnya `get_futures_data()` daripada `getData()`.
+
+4. **Perbaiki format & style code**  
+   - Terapkan PEP8 (indentasi 4 spasi, jarak antar fungsi, dll.).
+   - Hapus komentar yang tidak relevan atau sudah kadaluarsa.
+   - Gabungkan import yang terpisah untuk library yang sama.
+
+5. **Optimalkan pemanggilan API**  
+   - Pastikan tidak ada request API yang ganda atau tidak diperlukan.
+   - Pastikan semua API Key diambil dari `os.getenv()` dengan nama yang sudah konsisten di Secrets Replit.
+
+6. **Error Handling**  
+   - Pastikan setiap API request punya `try-except` untuk menghindari crash.
+   - Tampilkan pesan error yang ramah ke user.
+
+7. **Jangan menghapus fitur aktif**
+   - Fitur yang harus tetap ada:  
+     - `/futures`
+     - Harga realtime coin
+     - Analisis momentum (CoinAPI)
+     - Semua integrasi API aktif (CMC Startup, CoinAPI, Binance jika dipakai)
+
+8. **Testing setelah cleanup**  
+   - Jalankan semua perintah utama untuk memastikan tidak ada error setelah pembersihan kode.
+   - Jika ada error, perbaiki langsung.
+
+---
+
+📌 Catatan:
+- Semua perubahan difokuskan untuk membuat kode **lebih ringan, cepat, dan mudah dirawat**.
+- Jangan ubah logika bisnis utama atau cara command bekerja, kecuali ada bug.
+- Pastikan semua dependensi di `requirements.txt` adalah yang benar-benar digunakan.
