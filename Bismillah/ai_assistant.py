@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 import requests
 import random
@@ -863,117 +864,6 @@ Ask me anything about crypto! 🚀"""
             else:
                 return f"❌ **Error fetching market data**\n\n**Detail**: {str(e)[:100]}...\n\n💡 Try again in a few minutes"
 
-    def _format_top_movers(self, market_data, language='id'):
-        """Format top movers from market data"""
-        try:
-            if 'top_gainers' in market_data and 'top_losers' in market_data:
-                gainers = market_data['top_gainers'][:3]
-                losers = market_data['top_losers'][:3]
-
-                if language == 'id':
-                    output = "**Top Gainers:**\n"
-                    for gainer in gainers:
-                        output += f"• {gainer.get('symbol', 'N/A')}: +{gainer.get('percent_change_24h', 0):.1f}%\n"
-
-                    output += "\n**Top Losers:**\n"
-                    for loser in losers:
-                        output += f"• {loser.get('symbol', 'N/A')}: {loser.get('percent_change_24h', 0):.1f}%\n"
-
-                    return output
-                else:
-                    output = "**Top Gainers:**\n"
-                    for gainer in gainers:
-                        output += f"• {gainer.get('symbol', 'N/A')}: +{gainer.get('percent_change_24h', 0):.1f}%\n"
-
-                    output += "\n**Top Losers:**\n"
-                    for loser in losers:
-                        output += f"• {loser.get('symbol', 'N/A')}: {loser.get('percent_change_24h', 0):.1f}%\n"
-
-                    return output
-
-            return "• Data movers tidak tersedia" if language == 'id' else "• Movers data unavailable"
-
-        except Exception as e:
-            return f"• Error formatting movers: {str(e)[:50]}..."
-
-    def _generate_no_signals_message(self, language='id'):
-        """Generate message when no signals are found."""
-        if language == 'id':
-            return "😔 Maaf, saat ini tidak ada sinyal futures dengan confidence tinggi. Coba lagi nanti atau periksa command `/help`."
-        else:
-            return "😔 Sorry, no high-confidence futures signals found at the moment. Please try again later or check `/help`."
-
-    def _escape_markdown_v2(self, text):
-        """Escape special characters for MarkdownV2"""
-        if not isinstance(text, str):
-            return str(text)
-
-        # Characters that need to be escaped in MarkdownV2
-        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-
-        for char in escape_chars:
-            text = text.replace(char, f'\\{char}')
-
-        return text
-
-    def _format_price_safe(self, price, escape=True):
-        """Format price with optional MarkdownV2 escaping"""
-        if price < 1:
-            formatted = f"${price:.8f}"
-        elif price < 100:
-            formatted = f"${price:.4f}"
-        else:
-            formatted = f"${price:,.2f}"
-
-        return self._escape_markdown_v2(formatted) if escape else formatted
-
-    def _format_currency_safe(self, amount, escape=True):
-        """Format currency with optional MarkdownV2 escaping"""
-        if amount >= 1_000_000_000_000:
-            formatted = f"${amount/1_000_000_000_000:.2f}T"
-        elif amount >= 1_000_000_000:
-            formatted = f"${amount/1_000_000_000:.2f}B"
-        elif amount >= 1_000_000:
-            formatted = f"${amount/1_000_000:.1f}M"
-        else:
-            formatted = f"${amount:,.0f}"
-
-        return self._escape_markdown_v2(formatted) if escape else formatted
-
-    def _format_price_display(self, price):
-        """Format price for display with null safety"""
-        if price is None or price <= 0:
-            return "$0.00"
-
-        try:
-            price = float(price)
-            if price < 1:
-                return f"${price:.8f}"
-            elif price < 100:
-                return f"${price:.4f}"
-            else:
-                return f"${price:,.2f}"
-        except (ValueError, TypeError):
-            return "$0.00"
-
-    def _format_currency_display(self, amount):
-        """Format currency for display with null safety"""
-        if amount is None or amount <= 0:
-            return "$0"
-
-        try:
-            amount = float(amount)
-            if amount >= 1_000_000_000_000:
-                return f"${amount/1_000_000_000_000:.2f}T"
-            elif amount >= 1_000_000_000:
-                return f"${amount/1_000_000_000:.2f}B"
-            elif amount >= 1_000_000:
-                return f"${amount/1_000_000:.1f}M"
-            else:
-                return f"${amount:,.0f}"
-        except (ValueError, TypeError):
-            return "$0"
-
     def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, risk=None, crypto_api=None):
         """Get comprehensive analysis using Binance + CoinMarketCap integration"""
         try:
@@ -1081,9 +971,9 @@ Ask me anything about crypto! 🚀"""
 📡 **Sumber**: {', '.join(data_sources)}
 
 💰 **1. Harga Terkini**
-• Real-time Price: {self.format_price_display(current_price)} ({price_source})
+• Real-time Price: {self._format_price_display(current_price)} ({price_source})
 • 24h Change: {change_24h:+.2f}%
-• Volume 24h: {self.format_currency_display(volume_24h)}"""
+• Volume 24h: {self._format_currency_display(volume_24h)}"""
 
             # Add CMC data if available
             if 'error' not in cmc_data:
@@ -1096,7 +986,7 @@ Ask me anything about crypto! 🚀"""
 📈 **2. Market Overview (CoinMarketCap)**"""
 
                 if market_cap and market_cap > 0:
-                    analysis += f"\n• Market Cap: {self.format_currency_display(market_cap)}"
+                    analysis += f"\n• Market Cap: {self._format_currency_display(market_cap)}"
                 if rank and rank > 0:
                     analysis += f"\n• Rank: #{rank}"
                 if circulating_supply and circulating_supply > 0:
@@ -1114,7 +1004,7 @@ Ask me anything about crypto! 🚀"""
 📊 **3. Futures Data (Binance)**
 • Funding Rate: {funding_rate*100:+.4f}%
 • Long/Short Ratio: {long_ratio:.2f}
-• Open Interest: {self.format_currency_display(open_interest)}"""
+• Open Interest: {self._format_currency_display(open_interest)}"""
 
                 if long_ratio > 1.3:
                     analysis += f" (⚠️ Overleveraged longs)"
@@ -1236,7 +1126,7 @@ Terjadi kesalahan saat memproses data multi-API.
             message = f"""🎯 **FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
 ⚠️ **Data API tidak tersedia**
-💰 **Harga Estimasi**: {self.format_price_display(self._get_estimated_price(symbol))}
+💰 **Harga Estimasi**: {self._format_price_display(self._get_estimated_price(symbol))}
 
 📊 **Status**: Menggunakan analisa fallback
 🧠 **Rekomendasi**: ⏸️ HOLD
@@ -1256,7 +1146,7 @@ Terjadi kesalahan saat memproses data multi-API.
             message = f"""🎯 **FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
 ⚠️ **API data unavailable**
-💰 **Estimated Price**: {self.format_price_display(self._get_estimated_price(symbol))}
+💰 **Estimated Price**: {self._format_price_display(self._get_estimated_price(symbol))}
 
 📊 **Status**: Using fallback analysis
 🧠 **Recommendation**: ⏸️ HOLD
