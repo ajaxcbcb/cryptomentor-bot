@@ -1,0 +1,197 @@
+# 📌 Fokus Utama:
+Lakukan seluruh modifikasi HANYA di file `ai_assistant.py`. Jangan ubah file lain.
+
+---
+
+## ✅ Tujuan Perubahan:
+1. Hapus seluruh referensi terhadap Coinglass (v1, v2, v4)
+2. Gantikan semua fungsi dan pemanggilan data Coinglass dengan Binance API
+3. Pastikan tidak ada error, dan semua fitur tetap berjalan (terutama `/futures` dan analisis)
+
+---
+
+## 🔁 Langkah-Langkah yang Harus Dilakukan:
+
+### 1. Hapus Semua Coinglass
+- Hapus semua:
+  - `import` yang berkaitan dengan `coinglass_provider` atau sejenis
+  - Fungsi seperti: `get_comprehensive_coinglass_data`, `get_futures_from_coinglass`, `get_liquidation_zones`, dll
+  - Seluruh kode yang menyebut `coinglass`, termasuk variabel, logika, dan pemrosesan
+  - Jangan panggil `COINGLASS_API_KEY` lagi
+
+### 2. Tambahkan Fungsi Pengganti dari Binance
+- Tambahkan fungsi-fungsi baru berbasis **Binance Futures REST API**, misalnya:
+
+```python
+import requests
+
+def get_binance_futures_data(symbol="BTCUSDT"):
+    base_url = "https://fapi.binance.com"
+    long_short_url = f"{base_url}/futures/data/globalLongShortAccountRatio?symbol={symbol}&period=30m&limit=1"
+    funding_url = f"{base_url}/fapi/v1/fundingRate?symbol={symbol}&limit=1"
+    oi_url = f"{base_url}/fapi/v1/openInterest?symbol={symbol}"
+
+    long_short = requests.get(long_short_url).json()[0]
+    funding = requests.get(funding_url).json()[0]
+    oi = requests.get(oi_url).json()
+
+    return {
+        "long_short_ratio": float(long_short['longShortRatio']),
+        "long_account": float(long_short['longAccount']),
+        "short_account": float(long_short['shortAccount']),
+        "funding_rate": float(funding['fundingRate']),
+        "open_interest": float(oi['openInterest'])
+    }
+3. Ganti Semua Pemanggilan Coinglass → Binance
+Ganti fungsi-fungsi analisis atau handler command seperti /futures agar menggunakan get_binance_futures_data
+
+Contoh pengganti logika futures signal:
+
+python
+Copy
+Edit
+def analyze_futures_binance(symbol="BTCUSDT"):
+    data = get_binance_futures_data(symbol)
+
+    trend = "Bullish" if data["long_short_ratio"] > 1.2 else "Bearish" if data["long_short_ratio"] < 0.8 else "Neutral"
+
+    return f"""
+🎯 FUTURES ANALYSIS - {symbol}
+
+📊 Long/Short Ratio: {data['long_short_ratio']:.2f}
+📈 Funding Rate: {data['funding_rate']*100:.4f}%
+💰 Open Interest: ${float(data['open_interest']):,.2f}
+📈 Trend: {trend}
+
+📡 Source: Binance Futures API
+"""
+4. Perbarui Semua Output
+Ganti label sumber dari 📡 Source: Coinglass → 📡 Source: Binance
+
+Hilangkan label seperti "Zona Likuidasi", "Coinglass Premium", dll
+
+Tambahkan 📡 API: Binance REST Futures di akhir output jika perlu
+
+🧹 Final Cleanup
+Pastikan tidak ada lagi coinglass di file ai_assistant.py
+
+Validasi semua fungsi command terkait signal/analysis berjalan dengan Binance
+
+❗PENTING:
+Jangan ubah file lain selain ai_assistant.py
+
+Jangan gunakan API lain (hanya Binance)
+
+Jangan simpan COINGLASS_API_KEY lagi
+
+yaml
+Copy
+Edit
+
+---
+
+Kalau kamu mau, aku juga bisa bantu review hasil AI Agent setelah dijalankan untuk validasi. Ingin lanjut?
+
+
+
+
+
+
+
+You said:
+aku balik lagi menggunakan api coinapi, siapkan prompt untuk mengganti api binance dengan coinapi
+
+
+ChatGPT said:
+Berikut adalah prompt AI Agent Replit lengkap untuk mengganti seluruh penggunaan Binance API menjadi CoinAPI (https://www.coinapi.io) di file ai_assistant.py, sesuai dengan pengaturan kamu sebelumnya.
+
+🔁 Prompt AI Agent Replit – Ganti Binance API → CoinAPI
+markdown
+Copy
+Edit
+# 🎯 TUJUAN:
+Gantikan seluruh penggunaan Binance API dengan CoinAPI di file `ai_assistant.py`.
+
+---
+
+## 🔁 LANGKAH-LANGKAH YANG HARUS DILAKUKAN:
+
+### 1. Hapus Seluruh Binance API
+- Hapus semua:
+  - `import` atau pemanggilan ke `https://fapi.binance.com` atau endpoint Binance lainnya
+  - Fungsi seperti `get_binance_futures_data`, `get_binance_price`, dll
+  - Variabel atau logika terkait Binance seperti long/short ratio, funding rate dari Binance
+
+---
+
+### 2. Gunakan CoinAPI Sebagai Pengganti
+- Tambahkan import CoinAPI berbasis `requests` dan panggil key dari environment:
+
+```python
+import os
+import requests
+
+COINAPI_KEY = os.getenv("COINAPI_API_KEY")
+
+headers = {
+    "X-CoinAPI-Key": COINAPI_KEY
+}
+3. Tambahkan Fungsi CoinAPI Baru
+Tambahkan fungsi berikut ke dalam ai_assistant.py:
+
+python
+Copy
+Edit
+def get_coinapi_price(symbol="BTC/USD"):
+    url = f"https://rest.coinapi.io/v1/exchangerate/{symbol}"
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    return data["rate"]
+
+def get_coinapi_market_data(symbol="BTC/USD"):
+    url = f"https://rest.coinapi.io/v1/quotes/{symbol}"
+    response = requests.get(url, headers=headers)
+    return response.json()
+4. Ubah Fungsi /futures dan Analisis
+Ubah fungsi analisis (seperti /futures) agar menggunakan get_coinapi_price untuk mengambil harga real-time
+
+Contoh output format:
+
+python
+Copy
+Edit
+def analyze_futures_coinapi(symbol="BTC/USD"):
+    price = get_coinapi_price(symbol)
+    
+    return f"""
+🎯 FUTURES ANALYSIS - {symbol}
+💰 Harga Saat Ini: ${price:,.2f}
+📊 Sumber: CoinAPI (Startup Tier)
+⏰ Update Otomatis | Akurat & Real-time
+"""
+5. Update Semua Output
+Ganti label 📡 API: Binance menjadi 📡 API: CoinAPI
+
+Ganti semua simbol seperti BTCUSDT menjadi format CoinAPI: BTC/USD, ETH/USD, dsb
+
+🧹 CLEANUP
+Pastikan:
+
+Tidak ada fapi.binance.com di file
+
+Semua fungsi get_binance_* dihapus
+
+Semua output menggunakan data dari CoinAPI
+
+Jangan gunakan COINGLASS_API_KEY atau Binance lagi
+
+❗ CATATAN:
+Fokuskan semua perubahan hanya pada ai_assistant.py
+
+Pastikan semua API CoinAPI menggunakan header X-CoinAPI-Key
+
+Gunakan environment variable COINAPI_API_KEY dari Secrets Replit
+
+yaml
+Copy
+Edit
