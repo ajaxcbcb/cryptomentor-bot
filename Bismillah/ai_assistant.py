@@ -134,6 +134,49 @@ class AIAssistant:
         except Exception as e:
             return {'error': f'CoinAPI historical data failed: {str(e)}', 'symbol': symbol}
 
+    def get_coinapi_candlestick_data(self, symbol="BTC", period_id="1HRS", limit=200):
+        """Get candlestick data from CoinAPI for SnD analysis"""
+        try:
+            # Symbol mapping for major cryptocurrencies
+            symbol_mapping = {
+                'BTC': 'BITSTAMP_SPOT_BTC_USD',
+                'ETH': 'BITSTAMP_SPOT_ETH_USD',
+                'LTC': 'BITSTAMP_SPOT_LTC_USD',
+                'XRP': 'BITSTAMP_SPOT_XRP_USD',
+                'SOL': 'COINBASE_SPOT_SOL_USD',
+                'ADA': 'COINBASE_SPOT_ADA_USD',
+                'DOT': 'COINBASE_SPOT_DOT_USD',
+                'LINK': 'COINBASE_SPOT_LINK_USD',
+                'MATIC': 'COINBASE_SPOT_MATIC_USD',
+                'AVAX': 'COINBASE_SPOT_AVAX_USD'
+            }
+
+            # Get the mapped symbol or use default format
+            coinapi_symbol = symbol_mapping.get(symbol.upper(), f"COINBASE_SPOT_{symbol.upper()}_USD")
+
+            url = f"https://rest.coinapi.io/v1/ohlcv/{coinapi_symbol}/history"
+            params = {
+                'period_id': period_id,
+                'limit': limit
+            }
+            
+            response = requests.get(url, headers=self.coinapi_headers, params=params, timeout=20)
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    'symbol': symbol,
+                    'coinapi_symbol': coinapi_symbol,
+                    'data': data,
+                    'source': 'coinapi_candlestick',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                return {'error': f'CoinAPI candlestick error: {response.status_code}', 'symbol': symbol}
+
+        except Exception as e:
+            return {'error': f'CoinAPI candlestick failed: {str(e)}', 'symbol': symbol}
+
     def get_market_dominance(self):
         """Calculate market dominance for BTC, ETH, and ALT"""
         try:
@@ -779,15 +822,17 @@ Ask me anything about crypto! 🚀"""
             return error_msg
 
     def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, language='id', crypto_api=None):
-        """Get comprehensive analysis with CoinAPI data and SnD zones"""
+        """Get comprehensive analysis with CoinAPI candlestick data and SnD zones"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
 
+            # Get extended candlestick data for SnD analysis
+            candlestick_data = self.get_coinapi_candlestick_data(symbol, '1HRS', 200)
             price_data = self.get_coinapi_price(symbol)
             market_data = self.get_coinapi_market_data(symbol)
-            historical_data = self.get_coinapi_historical_data(symbol, 50)
 
-            snd_analysis = self.analyze_supply_demand_zones(symbol, historical_data)
+            # Analyze Supply & Demand zones from candlestick data
+            snd_analysis = self.analyze_supply_demand_from_candlesticks(symbol, candlestick_data)
 
             successful_sources = 0
             data_sources = []
@@ -804,11 +849,11 @@ Ask me anything about crypto! 🚀"""
             else:
                 data_sources.append("❌ CoinAPI Market")
 
-            if 'error' not in historical_data:
-                data_sources.append("✅ CoinAPI Historical")
+            if 'error' not in candlestick_data:
+                data_sources.append("✅ CoinAPI Candlestick")
                 successful_sources += 1
             else:
-                data_sources.append("❌ CoinAPI Historical")
+                data_sources.append("❌ CoinAPI Candlestick")
 
             # Determine data quality
             if successful_sources >= 3:
@@ -829,14 +874,14 @@ Ask me anything about crypto! 🚀"""
             ask_price = market_data.get('ask', current_price) if 'error' not in market_data else current_price
             volume_24h = market_data.get('volume_24h', 0) if 'error' not in market_data else 0
 
-            # Enhanced technical analysis
-            if 'error' not in historical_data and historical_data.get('data'):
-                recent_data = historical_data['data'][-20:]
-                if len(recent_data) >= 10:
-                    prices = [float(candle.get('price_close', current_price)) for candle in recent_data]
-                    volumes = [float(candle.get('volume_traded', 0)) for candle in recent_data if candle.get('volume_traded', 0) > 0]
+            # Enhanced technical analysis from candlestick data
+            if 'error' not in candlestick_data and candlestick_data.get('data'):
+                candles = candlestick_data['data'][-20:]
+                if len(candles) >= 10:
+                    closes = [float(candle.get('price_close', current_price)) for candle in candles]
+                    volumes = [float(candle.get('volume_traded', 0)) for candle in candles if candle.get('volume_traded', 0) > 0]
 
-                    price_change = ((current_price - prices[0]) / prices[0]) * 100 if prices[0] > 0 else 0
+                    price_change = ((current_price - closes[0]) / closes[0]) * 100 if closes[0] > 0 else 0
 
                     if len(volumes) >= 6:
                         recent_vol_avg = sum(volumes[-3:]) / 3
@@ -845,9 +890,9 @@ Ask me anything about crypto! 🚀"""
                     else:
                         volume_trend = 0
 
-                    if len(prices) >= 5:
-                        short_ma = sum(prices[-5:]) / 5
-                        long_ma = sum(prices[:10]) / 10
+                    if len(closes) >= 5:
+                        short_ma = sum(closes[-5:]) / 5
+                        long_ma = sum(closes[:10]) / 10
                         momentum = ((short_ma - long_ma) / long_ma) * 100 if long_ma > 0 else 0
                     else:
                         momentum = 0
@@ -867,9 +912,9 @@ Ask me anything about crypto! 🚀"""
 📡 **Sumber**: {', '.join(data_sources)}
 
 💰 **1. HARGA REAL-TIME (CoinAPI)**
-• **Current Price**: ${current_price:,.2f}
-• **Bid Price**: ${bid_price:,.2f}
-• **Ask Price**: ${ask_price:,.2f}"""
+• **Current Price**: ${self._format_price(current_price)}
+• **Bid Price**: ${self._format_price(bid_price)}
+• **Ask Price**: ${self._format_price(ask_price)}"""
 
             if price_change != 0:
                 change_emoji = "📈" if price_change >= 0 else "📉"
@@ -927,56 +972,46 @@ Ask me anything about crypto! 🚀"""
 
             analysis += f"""
 
-🎯 **4. SUPPLY & DEMAND ZONES**"""
+🎯 **4. SUPPLY & DEMAND ZONES (CoinAPI Candlestick)**"""
 
-            # Add SnD analysis
+            # Add SnD analysis from candlestick data
             if 'error' not in snd_analysis:
                 supply_zones = snd_analysis.get('supply_zones', [])
                 demand_zones = snd_analysis.get('demand_zones', [])
 
-                if supply_zones:
+                if supply_zones and len(supply_zones) >= 2:
                     analysis += f"""
-📉 **SUPPLY ZONES (Resistance Areas):**"""
-                    for i, zone in enumerate(supply_zones[:3], 1):
-                        distance = ((zone.get('price', 0) - current_price) / current_price) * 100
-                        strength_emoji = "🔥" if zone.get('strength', 0) > 70 else "⭐" if zone.get('strength', 0) > 50 else "💡"
-                        analysis += f"""
-• **Supply {i}**: ${zone.get('price', 0):.4f} {strength_emoji}
-  - Strength: {zone.get('strength', 0):.1f}%
-  - Distance: {distance:+.2f}% from current price"""
+📉 **SUPPLY ZONES:**
+• **Supply 1**: ${self._format_price(supply_zones[0]['price'])} 🔥
+• **Supply 2**: ${self._format_price(supply_zones[1]['price'])} ⭐"""
 
-                if demand_zones:
+                if demand_zones and len(demand_zones) >= 2:
                     analysis += f"""
 
-📈 **DEMAND ZONES (Support Areas):**"""
-                    for i, zone in enumerate(demand_zones[:3], 1):
-                        distance = ((current_price - zone.get('price', 0)) / current_price) * 100
-                        strength_emoji = "🔥" if zone.get('strength', 0) > 70 else "⭐" if zone.get('strength', 0) > 50 else "💡"
-                        analysis += f"""
-• **Demand {i}**: ${zone.get('price', 0):.4f} {strength_emoji}
-  - Strength: {zone.get('strength', 0):.1f}%
-  - Distance: {distance:+.2f}% from current price"""
+📈 **DEMAND ZONES:**
+• **Demand 1**: ${self._format_price(demand_zones[0]['price'])} 🔥
+• **Demand 2**: ${self._format_price(demand_zones[1]['price'])} ⭐"""
 
-                setup_recommendation = self.generate_enhanced_snd_setup_recommendation(current_price, supply_zones, demand_zones, trend)
-                analysis += f"""
+                # Add detailed zone analysis
+                if supply_zones or demand_zones:
+                    setup_recommendation = self.generate_snd_trading_setup(current_price, supply_zones, demand_zones, trend)
+                    analysis += f"""
 
-🎯 **TRADING SETUP RECOMMENDATION:**
+🎯 **TRADING SETUP:**
 {setup_recommendation}"""
-
-                zone_summary = self.analyze_zone_proximity(current_price, supply_zones, demand_zones)
-                analysis += f"""
-
-📊 **ZONE ANALYSIS:**
-{zone_summary}"""
             else:
-                # Fallback: Generate basic SnD zones
-                basic_snd = self.generate_supply_demand_zone(current_price)
+                # Generate fallback SnD zones when CoinAPI data fails
+                fallback_snd = self.generate_fallback_snd_zones(current_price)
                 analysis += f"""
-• **Status**: SnD analysis unavailable, using fallback zones
-• **Reason**: {snd_analysis.get('error', 'Data insufficient')}
+⚠️ **Gagal mengambil data dari CoinAPI.**
 
-**FALLBACK ZONES:**
-{basic_snd}"""
+📉 **SUPPLY ZONES (Estimasi):**
+• **Supply 1**: ${self._format_price(fallback_snd['supply_1'])}
+• **Supply 2**: ${self._format_price(fallback_snd['supply_2'])}
+
+📈 **DEMAND ZONES (Estimasi):**
+• **Demand 1**: ${self._format_price(fallback_snd['demand_1'])}
+• **Demand 2**: ${self._format_price(fallback_snd['demand_2'])}"""
 
             analysis += f"""
 
@@ -987,12 +1022,12 @@ Ask me anything about crypto! 🚀"""
 
 💡 **Trading Notes:**
 • Focus pada Supply & Demand zones untuk entry/exit
-• Data real-time dari CoinAPI Professional
+• Data candlestick real-time dari CoinAPI
 • Monitor price action di key zones
 • Gunakan proper risk management
 
 🕐 **Update**: {current_time} WIB
-⭐️ **Professional Analysis** – CoinAPI Real-time Data + SnD Zones
+⭐️ **Professional Analysis** – CoinAPI Candlestick Data + SnD Zones
 💎 **Next**: Gunakan `/futures {symbol.lower()}` untuk trading signals"""
 
             return analysis
@@ -1059,162 +1094,137 @@ Terjadi kesalahan saat memproses data CoinAPI.
 
         return message
 
-    def analyze_supply_demand_zones(self, symbol, historical_data):
-        """Analyze Supply and Demand zones from historical data"""
+    def analyze_supply_demand_from_candlesticks(self, symbol, candlestick_data):
+        """Analyze Supply and Demand zones from CoinAPI candlestick data"""
         try:
-            if 'error' in historical_data or not historical_data.get('data'):
-                return {'error': 'Insufficient historical data for SnD analysis'}
+            if 'error' in candlestick_data or not candlestick_data.get('data'):
+                return {'error': 'Insufficient candlestick data for SnD analysis'}
 
-            candles = historical_data['data']
-            if len(candles) < 20:
-                return {'error': 'Not enough candles for SnD analysis'}
+            candles = candlestick_data['data']
+            if len(candles) < 50:
+                return {'error': 'Not enough candles for SnD analysis (need 50+)'}
 
             supply_zones = []
             demand_zones = []
 
-            # Analyze recent price action for SnD zones
+            # Analyze candlesticks for swing highs and lows
             for i in range(2, len(candles) - 2):
-                candle = candles[i]
-                prev_candle = candles[i-1]
-                next_candle = candles[i+1]
+                current = candles[i]
+                prev1 = candles[i-1]
+                prev2 = candles[i-2]
+                next1 = candles[i+1]
+                next2 = candles[i+2]
 
-                high = float(candle.get('price_high', candle.get('high', 0)))
-                low = float(candle.get('price_low', candle.get('low', 0)))
-                close = float(candle.get('price_close', candle.get('close', 0)))
-                volume = float(candle.get('volume_traded', candle.get('volume', 0)))
+                high = float(current.get('price_high', 0))
+                low = float(current.get('price_low', 0))
+                volume = float(current.get('volume_traded', 0))
 
-                # Supply zone detection (resistance areas)
-                if high > float(prev_candle.get('price_high', prev_candle.get('high', 0))) and \
-                   high > float(next_candle.get('price_high', next_candle.get('high', 0))) and \
-                   volume > 0:
+                # Swing High detection for Supply zones
+                prev1_high = float(prev1.get('price_high', 0))
+                prev2_high = float(prev2.get('price_high', 0))
+                next1_high = float(next1.get('price_high', 0))
+                next2_high = float(next2.get('price_high', 0))
+
+                if (high > prev1_high and high > prev2_high and 
+                    high > next1_high and high > next2_high and 
+                    volume > 0):
                     supply_zones.append({
                         'price': high,
-                        'strength': min(90, volume / 1000000 * 10),  # Volume-based strength
+                        'strength': min(100, (volume / 1000000) * 5 + 50),
                         'type': 'supply',
-                        'distance_pct': ((high - close) / close) * 100
+                        'candle_index': i
                     })
 
-                # Demand zone detection (support areas)
-                if low < float(prev_candle.get('price_low', prev_candle.get('low', 0))) and \
-                   low < float(next_candle.get('price_low', next_candle.get('low', 0))) and \
-                   volume > 0:
+                # Swing Low detection for Demand zones
+                prev1_low = float(prev1.get('price_low', 0))
+                prev2_low = float(prev2.get('price_low', 0))
+                next1_low = float(next1.get('price_low', 0))
+                next2_low = float(next2.get('price_low', 0))
+
+                if (low < prev1_low and low < prev2_low and 
+                    low < next1_low and low < next2_low and 
+                    volume > 0):
                     demand_zones.append({
                         'price': low,
-                        'strength': min(90, volume / 1000000 * 10),  # Volume-based strength
+                        'strength': min(100, (volume / 1000000) * 5 + 50),
                         'type': 'demand',
-                        'distance_pct': ((close - low) / close) * 100
+                        'candle_index': i
                     })
 
             # Sort zones by proximity to current price
-            current_price = float(candles[-1].get('price_close', candles[-1].get('close', 0)))
+            current_price = float(candles[-1].get('price_close', 0))
+            
+            # Sort supply zones (ascending - nearest first)
             supply_zones.sort(key=lambda x: abs(x['price'] - current_price))
+            # Sort demand zones (ascending - nearest first)
             demand_zones.sort(key=lambda x: abs(x['price'] - current_price))
 
             return {
-                'supply_zones': supply_zones[:3],  # Top 3 nearest supply zones
-                'demand_zones': demand_zones[:3],  # Top 3 nearest demand zones
+                'supply_zones': supply_zones[:5],  # Top 5 supply zones
+                'demand_zones': demand_zones[:5],  # Top 5 demand zones
                 'current_price': current_price,
+                'total_candles': len(candles),
                 'analysis_time': datetime.now().isoformat()
             }
 
         except Exception as e:
-            return {'error': f'SnD analysis failed: {str(e)}'}
+            return {'error': f'SnD candlestick analysis failed: {str(e)}'}
 
-    def generate_enhanced_snd_setup_recommendation(self, current_price, supply_zones, demand_zones, trend):
-        """Generate enhanced trading setup recommendations based on SnD analysis"""
+    def generate_fallback_snd_zones(self, current_price):
+        """Generate fallback SnD zones when CoinAPI fails"""
+        try:
+            # Calculate percentage-based zones
+            supply_1 = current_price * 1.025  # 2.5% above current
+            supply_2 = current_price * 1.05   # 5% above current
+            demand_1 = current_price * 0.975  # 2.5% below current
+            demand_2 = current_price * 0.95   # 5% below current
+
+            return {
+                'supply_1': supply_1,
+                'supply_2': supply_2,
+                'demand_1': demand_1,
+                'demand_2': demand_2
+            }
+
+        except Exception as e:
+            return {
+                'supply_1': current_price * 1.03,
+                'supply_2': current_price * 1.06,
+                'demand_1': current_price * 0.97,
+                'demand_2': current_price * 0.94
+            }
+
+    def generate_snd_trading_setup(self, current_price, supply_zones, demand_zones, trend):
+        """Generate trading setup recommendations based on SnD zones"""
         try:
             recommendations = []
 
-            # Setup for approaching Supply zones
-            if supply_zones:
-                nearest_supply = supply_zones[0]
-                supply_distance_pct = ((nearest_supply['price'] - current_price) / current_price) * 100
+            # Find nearest zones
+            nearest_supply = supply_zones[0] if supply_zones else None
+            nearest_demand = demand_zones[0] if demand_zones else None
 
-                if 0 < supply_distance_pct < 3:  # Approaching supply within 3%
-                    strength_emoji = "🔥" if nearest_supply.get('strength', 0) > 70 else "⭐"
-                    recommendations.append(f"• **SHORT Setup**: Approaching Supply ${nearest_supply['price']:.4f} {strength_emoji}")
-                    recommendations.append(f"  - Entry Zone: Around ${current_price:.4f} (expecting rejection)")
-                    recommendations.append(f"  - Stop Loss: Above Supply ${nearest_supply['price'] * 1.005:.4f}")
-                    if demand_zones:
-                        target = demand_zones[0]['price']
-                        recommendations.append(f"  - Target: Nearest Demand ${target:.4f}")
+            if nearest_supply:
+                supply_distance = ((nearest_supply['price'] - current_price) / current_price) * 100
+                if 0 < supply_distance < 5:  # Within 5% of supply
+                    recommendations.append(f"⚠️ Approaching Supply Zone (${self._format_price(nearest_supply['price'])})")
+                    recommendations.append(f"📉 Consider SHORT setup with tight SL")
 
-            # Setup for approaching Demand zones
-            if demand_zones:
-                nearest_demand = demand_zones[0]
-                demand_distance_pct = ((current_price - nearest_demand['price']) / current_price) * 100
+            if nearest_demand:
+                demand_distance = ((current_price - nearest_demand['price']) / current_price) * 100
+                if 0 < demand_distance < 5:  # Within 5% of demand
+                    recommendations.append(f"⚠️ Approaching Demand Zone (${self._format_price(nearest_demand['price'])})")
+                    recommendations.append(f"📈 Consider LONG setup with tight SL")
 
-                if 0 < demand_distance_pct < 3:  # Approaching demand within 3%
-                    strength_emoji = "🔥" if nearest_demand.get('strength', 0) > 70 else "⭐"
-                    recommendations.append(f"• **LONG Setup**: Approaching Demand ${nearest_demand['price']:.4f} {strength_emoji}")
-                    recommendations.append(f"  - Entry Zone: Around ${current_price:.4f} (expecting support)")
-                    recommendations.append(f"  - Stop Loss: Below Demand ${nearest_demand['price'] * 0.995:.4f}")
-                    if supply_zones:
-                        target = supply_zones[0]['price']
-                        recommendations.append(f"  - Target: Nearest Supply ${target:.4f}")
-
-            # Default recommendation if no specific setup is triggered
             if not recommendations:
-                if trend == "Strong Bullish":
-                    recommendations.append("• **Trend**: Strong Bullish")
-                    recommendations.append("• **Setup**: Monitor for pullbacks to demand zones")
-                elif trend == "Bullish":
-                    recommendations.append("• **Trend**: Bullish")
-                    recommendations.append("• **Setup**: Look for dips to buy")
-                elif trend == "Strong Bearish":
-                    recommendations.append("• **Trend**: Strong Bearish")
-                    recommendations.append("• **Setup**: Monitor for rallies to supply zones")
-                elif trend == "Bearish":
-                    recommendations.append("• **Trend**: Bearish")
-                    recommendations.append("• **Setup**: Look for bounces to sell")
+                if trend in ["Strong Bullish", "Bullish"]:
+                    recommendations.append("🚀 Bullish trend - look for pullbacks to demand")
                 else:
-                    recommendations.append("• **Trend**: Neutral/Sideways")
-                    recommendations.append("• **Setup**: Wait for clear breakout or zone interaction")
+                    recommendations.append("📉 Bearish trend - look for bounces to supply")
 
-                recommendations.append("• **Action**: Exercise caution, await clear signals")
-
-            return "\n".join(recommendations)
+            return "\n".join(recommendations) if recommendations else "⚖️ Monitor price action near key zones"
 
         except Exception as e:
-            return f"• **Setup Error**: {str(e)[:50]}"
-
-    def analyze_zone_proximity(self, current_price, supply_zones, demand_zones):
-        """Analyze the proximity of current price to supply and demand zones"""
-        try:
-            analysis_points = []
-
-            # Proximity to Supply Zones
-            if supply_zones:
-                nearest_supply = supply_zones[0]
-                distance_pct = ((nearest_supply['price'] - current_price) / current_price) * 100
-
-                if 0.1 < distance_pct < 3:
-                    analysis_points.append(f"Close to Supply ${nearest_supply['price']:.4f} ({distance_pct:+.2f}%)")
-                elif distance_pct < 0.1:
-                    analysis_points.append(f"Past Supply ${nearest_supply['price']:.4f}")
-                else:
-                    analysis_points.append(f"Supply ${nearest_supply['price']:.4f} is distant")
-            else:
-                analysis_points.append("No Supply zones analyzed")
-
-            # Proximity to Demand Zones
-            if demand_zones:
-                nearest_demand = demand_zones[0]
-                distance_pct = ((current_price - nearest_demand['price']) / current_price) * 100
-
-                if 0.1 < distance_pct < 3:
-                    analysis_points.append(f"Close to Demand ${nearest_demand['price']:.4f} ({distance_pct:+.2f}%)")
-                elif distance_pct < 0.1:
-                    analysis_points.append(f"Past Demand ${nearest_demand['price']:.4f}")
-                else:
-                    analysis_points.append(f"Demand ${nearest_demand['price']:.4f} is distant")
-            else:
-                analysis_points.append("No Demand zones analyzed")
-
-            return "• " + "\n• ".join(analysis_points) if analysis_points else "• No zone proximity data."
-
-        except Exception as e:
-            return f"• **Proximity Analysis Error**: {str(e)[:50]}"
+            return f"Setup error: {str(e)[:50]}"
 
     def generate_supply_demand_zone(self, price: float):
         """Generate Supply & Demand Zones analysis"""
