@@ -15,7 +15,7 @@ try:
     from database import Database
 except ImportError as e:
     print(f"❌ Cannot import Database: {e}")
-    sys.exit(1)
+    sys.exit(1)1)
 
 def fix_database_users():
     """Fix common database user issues"""
@@ -56,7 +56,7 @@ def fix_database_users():
         # Fix NULL telegram_id (remove invalid users)
         if null_telegram_id > 0:
             db.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
-            print(f"✅ Removed {null_telegram_id} users with invalid telegram_id")
+            print(f"✅ Removed {null_telegram_id} users with invalid telegram_id")ith invalid telegram_id")
 
         # Fix NULL credits (set to default 100)
         if null_credits > 0:

@@ -118,3 +118,4 @@ def cleanup_old_files(directory, max_age_days=7):
     except Exception as e:
         print(f"❌ Error cleaning up files: {e}")
         return 0
+        return 0

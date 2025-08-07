@@ -53,13 +53,27 @@ def test_coinglass_v4_startup():
                 change_24h = ticker_result.get('change_24h', 0)
                 print(f"✅ {symbol} Ticker: ${price:,.2f} ({change_24h:+.2f}%)")
                 
+                # Test individual symbols
+        for symbol in test_symbols:
+            print(f"\n📊 Testing {symbol}:")
+            
+            # Test ticker
+            ticker_result = provider.get_futures_ticker(symbol)
+            if 'error' not in ticker_result:
+                price = ticker_result.get('price', 0)
+                funding = ticker_result.get('funding_rate', 0)
+                print(f"✅ {symbol} Ticker: ${price:.2f}, Funding: {funding*100:.4f}%")
+                
                 # Check if data looks real
                 if price > 0 and price not in [1, 1000]:
                     print(f"✅ {symbol} price data appears real-time")
+                    test_results[f'{symbol}_ticker'] = True
                 else:
                     print(f"⚠️ {symbol} price data may be dummy: ${price}")
+                    test_results[f'{symbol}_ticker'] = False
             else:
                 print(f"❌ {symbol} ticker failed: {ticker_result.get('error')}")
+                test_results[f'{symbol}_ticker'] = False
             
             # Test OI
             oi_result = provider.get_open_interest(symbol)
@@ -67,8 +81,10 @@ def test_coinglass_v4_startup():
                 oi_value = oi_result.get('open_interest', 0)
                 oi_change = oi_result.get('oi_change_percent', 0)
                 print(f"✅ {symbol} OI: ${oi_value/1000000:.1f}M ({oi_change:+.1f}%)")
+                test_results[f'{symbol}_oi'] = True
             else:
                 print(f"❌ {symbol} OI failed: {oi_result.get('error')}")
+                test_results[f'{symbol}_oi'] = False
             
             # Test funding
             funding_result = provider.get_funding_rate(symbol)
@@ -76,13 +92,17 @@ def test_coinglass_v4_startup():
                 funding_rate = funding_result.get('funding_rate', 0)
                 exchange = funding_result.get('exchange', 'Unknown')
                 print(f"✅ {symbol} Funding: {funding_rate*100:.4f}% ({exchange})")
+                test_results[f'{symbol}_funding'] = True
             else:
                 print(f"❌ {symbol} funding failed: {funding_result.get('error')}")
+                test_results[f'{symbol}_funding'] = False
                 
             time.sleep(0.5)  # Rate limiting
         
         # Test with AI Assistant
         print(f"\n🤖 Testing AI Assistant integration:")
+        try:
+            from ai_assistant import # Test with AI Assistant
         try:
             from ai_assistant import AIAssistant
             
@@ -106,7 +126,11 @@ def test_coinglass_v4_startup():
             print(f"❌ AI Assistant test failed: {e}")
         
         # Final verdict
-        if test_results['success_rate'] >= 66:
+        success_count = sum(1 for result in test_results.values() if result)
+        total_tests = len(test_results)
+        success_rate = (success_count / total_tests) * 100 if total_tests > 0 else 0
+        
+        if success_rate >= 66:
             print(f"\n🎉 CoinGlass V4 STARTUP Plan is working well!")
             print(f"✅ Real-time data access confirmed")
             print(f"✅ Integration successful")
@@ -115,12 +139,15 @@ def test_coinglass_v4_startup():
             print(f"\n⚠️ CoinGlass V4 STARTUP Plan has issues")
             print(f"❌ Some endpoints failing")
             print(f"💡 Check API key permissions and plan limits")
+            return Falsets")
             return False
             
     except ImportError as e:
         print(f"❌ Import error: {e}")
         return False
     except Exception as e:
+        print(f"❌ Test error: {e}")
+        return False Exception as e:
         print(f"❌ Test failed: {e}")
         return False
 
