@@ -1,0 +1,138 @@
+
+#!/usr/bin/env python3
+"""
+Test CoinGlass V4 STARTUP Plan Integration
+Verify real-time data access and endpoint functionality
+"""
+
+import os
+import sys
+import time
+from datetime import datetime
+
+# Add the current directory to the path so we can import modules
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+def test_coinglass_v4_startup():
+    """Test CoinGlass V4 STARTUP plan integration"""
+    print("🚀 Testing CoinGlass V4 STARTUP Plan Integration...\n")
+    
+    # Check API key
+    api_key = os.getenv("COINGLASS_API_KEY")
+    if not api_key:
+        print("❌ COINGLASS_API_KEY not found in environment variables")
+        print("💡 Please set COINGLASS_API_KEY in Replit Secrets")
+        return False
+    
+    print(f"✅ API Key found: {api_key[:8]}...{api_key[-4:]}")
+    
+    try:
+        # Import and test CoinGlass provider
+        from coinglass_provider import CoinGlassProvider
+        
+        provider = CoinGlassProvider()
+        
+        # Test STARTUP plan access
+        test_results = provider.test_startup_plan_access()
+        
+        print(f"\n📊 Test Summary:")
+        print(f"Success Rate: {test_results['success_rate']:.1f}%")
+        print(f"Working Endpoints: {test_results['successful_endpoints']}/{test_results['total_endpoints']}")
+        
+        # Test specific symbols
+        test_symbols = ['BTC', 'ETH', 'BNB']
+        print(f"\n🎯 Testing specific symbols:")
+        
+        for symbol in test_symbols:
+            print(f"\n--- Testing {symbol} ---")
+            
+            # Test ticker
+            ticker_result = provider.get_futures_ticker(symbol)
+            if 'error' not in ticker_result:
+                price = ticker_result.get('price', 0)
+                change_24h = ticker_result.get('change_24h', 0)
+                print(f"✅ {symbol} Ticker: ${price:,.2f} ({change_24h:+.2f}%)")
+                
+                # Check if data looks real
+                if price > 0 and price not in [1, 1000]:
+                    print(f"✅ {symbol} price data appears real-time")
+                else:
+                    print(f"⚠️ {symbol} price data may be dummy: ${price}")
+            else:
+                print(f"❌ {symbol} ticker failed: {ticker_result.get('error')}")
+            
+            # Test OI
+            oi_result = provider.get_open_interest(symbol)
+            if 'error' not in oi_result:
+                oi_value = oi_result.get('open_interest', 0)
+                oi_change = oi_result.get('oi_change_percent', 0)
+                print(f"✅ {symbol} OI: ${oi_value/1000000:.1f}M ({oi_change:+.1f}%)")
+            else:
+                print(f"❌ {symbol} OI failed: {oi_result.get('error')}")
+            
+            # Test funding
+            funding_result = provider.get_funding_rate(symbol)
+            if 'error' not in funding_result:
+                funding_rate = funding_result.get('funding_rate', 0)
+                exchange = funding_result.get('exchange', 'Unknown')
+                print(f"✅ {symbol} Funding: {funding_rate*100:.4f}% ({exchange})")
+            else:
+                print(f"❌ {symbol} funding failed: {funding_result.get('error')}")
+                
+            time.sleep(0.5)  # Rate limiting
+        
+        # Test with AI Assistant
+        print(f"\n🤖 Testing AI Assistant integration:")
+        try:
+            from ai_assistant import AIAssistant
+            
+            ai = AIAssistant()
+            if ai.coinglass_provider:
+                print("✅ AI Assistant CoinGlass V4 provider initialized")
+                
+                # Test comprehensive analysis
+                analysis = ai._get_advanced_coinglass_startup_data('BTC')
+                if 'error' not in analysis:
+                    print(f"✅ AI comprehensive analysis working")
+                    print(f"📊 Data quality: {analysis.get('data_quality', 'unknown')}")
+                    print(f"📡 Plan: {analysis.get('plan', 'unknown')}")
+                    print(f"✅ Successful endpoints: {analysis.get('endpoints_successful', 0)}/{analysis.get('endpoints_called', 0)}")
+                else:
+                    print(f"❌ AI analysis failed: {analysis.get('error')}")
+            else:
+                print("❌ AI Assistant CoinGlass provider not initialized")
+                
+        except Exception as e:
+            print(f"❌ AI Assistant test failed: {e}")
+        
+        # Final verdict
+        if test_results['success_rate'] >= 66:
+            print(f"\n🎉 CoinGlass V4 STARTUP Plan is working well!")
+            print(f"✅ Real-time data access confirmed")
+            print(f"✅ Integration successful")
+            return True
+        else:
+            print(f"\n⚠️ CoinGlass V4 STARTUP Plan has issues")
+            print(f"❌ Some endpoints failing")
+            print(f"💡 Check API key permissions and plan limits")
+            return False
+            
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        return False
+
+if __name__ == "__main__":
+    print(f"⏰ Test started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    success = test_coinglass_v4_startup()
+    
+    if success:
+        print(f"\n🎯 Result: STARTUP Plan integration successful!")
+        print(f"💡 You can now use CoinGlass V4 real-time data in your bot")
+    else:
+        print(f"\n❌ Result: Integration needs attention")
+        print(f"💡 Check your COINGLASS_API_KEY and plan status")
+    
+    print(f"⏰ Test completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

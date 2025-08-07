@@ -1,0 +1,71 @@
+"""
+🎯 Tujuan:
+AI Agent harus memanggil CoinGlass V4 API dengan plan STARTUP (bukan PRO) dan mengambil data futures real-time yang bisa diakses oleh tier STARTUP.
+
+✅ Tugas:
+1. Ambil API Key dari secrets: COINGLASS_API_KEY
+2. Panggil endpoint yang tersedia di STARTUP plan:
+   - /public/v1/futures/tickers
+   - /public/v1/oi-change-statistics
+3. Periksa status response dan isi data:
+   - Jika datanya berubah-ubah atau logis → tampilkan sebagai real-time
+   - Jika tidak berubah / dummy → tampilkan peringatan dummy
+"""
+
+import os
+import requests
+import time
+
+API_KEY = os.getenv("COINGLASS_API_KEY")
+
+headers = {
+    "X-API-Key": API_KEY
+}
+
+def check_futures_tickers():
+    print("🔍 Memanggil endpoint /futures/tickers")
+    url = "https://open-api-v4.coinglass.com/public/v1/futures/tickers"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            tickers = data.get("data", [])
+            btc = next((item for item in tickers if item["symbol"] == "BTC"), None)
+            if btc:
+                print(f"✅ BTC Price: {btc['price']}, 24H Change: {btc['change24h']}%")
+                if btc["price"] in [0, 1, 1000, None]:
+                    print("⚠ Terindikasi dummy data (harga tidak wajar).")
+                else:
+                    print("✅ Data kemungkinan besar real-time.")
+            else:
+                print("⚠ BTC tidak ditemukan di hasil.")
+        except Exception as e:
+            print("❌ Gagal parsing data:", e)
+    else:
+        print("❌ Gagal panggil API:", response.status_code, response.text)
+
+
+def check_oi_change_statistics():
+    print("\n🔍 Memanggil endpoint /oi-change-statistics")
+    url = "https://open-api-v4.coinglass.com/public/v1/oi-change-statistics"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            result = data.get("data", [])
+            print(f"✅ Total coins dengan data OI: {len(result)}")
+            for coin in result[:3]:  # tampilkan 3 coin pertama
+                print(f"{coin['symbol']}: Change 24H = {coin['changeRate24h']}%")
+        except Exception as e:
+            print("❌ Parsing error:", e)
+    else:
+        print("❌ Gagal panggil API:", response.status_code, response.text)
+
+
+# 🚀 Eksekusi
+print("🚀 Menjalankan CoinGlass V4 STARTUP Analysis...\n")
+check_futures_tickers()
+time.sleep(1)
+check_oi_change_statistics()

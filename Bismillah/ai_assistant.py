@@ -17,11 +17,21 @@ class AIAssistant:
         # Initialize CryptoAPI for comprehensive data
         self.crypto_api = CryptoAPI()
         
-        # Initialize CoinGlass provider directly
+        # Initialize CoinGlass V4 STARTUP provider
         try:
             from coinglass_provider import CoinGlassProvider
             self.coinglass_provider = CoinGlassProvider()
-            print(f"✅ CoinGlass provider initialized: {'With API key' if self.coinglass_key else 'No API key'}")
+            if self.coinglass_key:
+                print(f"✅ CoinGlass V4 STARTUP provider initialized with API key")
+                # Test STARTUP plan access on initialization
+                test_result = self.coinglass_provider.test_startup_plan_access()
+                if test_result['success_rate'] >= 50:
+                    print(f"✅ CoinGlass V4 STARTUP: {test_result['successful_endpoints']}/{test_result['total_endpoints']} endpoints working")
+                else:
+                    print(f"⚠️ CoinGlass V4 STARTUP: Limited access ({test_result['success_rate']:.1f}% success rate)")
+            else:
+                print("❌ CoinGlass V4: No API key found")
+                self.coinglass_provider = None
         except ImportError as e:
             print(f"❌ Failed to import CoinGlassProvider: {e}")
             self.coinglass_provider = None
@@ -466,83 +476,69 @@ class AIAssistant:
             return self._generate_emergency_futures_signal(symbol, timeframe, language, str(e))
 
     def _get_advanced_coinglass_startup_data(self, symbol):
-        """Fetch comprehensive data from all CoinGlass Startup Plan endpoints"""
+        """Fetch comprehensive data from CoinGlass V4 STARTUP Plan endpoints"""
         try:
-            if not self.coinglass_key:
-                return {'error': 'Coinglass API key not found. Please set COINGLASS_SECRET in Replit Secrets.'}
+            if not self.coinglass_key or not self.coinglass_provider:
+                return {'error': 'CoinGlass V4 API key not found or provider not initialized. Please set COINGLASS_API_KEY in Replit Secrets.'}
 
             clean_symbol = symbol.upper().replace('USDT', '')
             startup_data = {
                 'symbol': clean_symbol,
                 'endpoints_called': 0,
                 'endpoints_successful': 0,
-                'data_quality': 'unknown'
+                'data_quality': 'unknown',
+                'plan': 'STARTUP_V4'
             }
             
-            headers = self._get_coinglass_headers()
-            base_url_pro = "https://open-api.coinglass.com/api/pro/v1"
-            base_url_public = "https://open-api.coinglass.com/public/v2"
-            
-            # 1. Get ticker data (price + funding rate) - PRO API
+            # 1. Get ticker data using V4 STARTUP plan
             try:
-                ticker_url = f"{base_url_pro}/futures/ticker"
-                params = {'symbol': clean_symbol}
-                
-                response = requests.get(ticker_url, headers=headers, params=params, timeout=15)
+                print(f"🔄 Fetching V4 STARTUP ticker data for {clean_symbol}")
+                ticker_result = self.coinglass_provider.get_futures_ticker(clean_symbol)
                 startup_data['endpoints_called'] += 1
                 
-                if response.status_code == 200:
-                    ticker_data = response.json()
-                    if ticker_data.get('success') and ticker_data.get('data'):
-                        primary_data = ticker_data['data'][0] if ticker_data['data'] else {}
-                        startup_data['ticker'] = {
-                            'price': float(primary_data.get('price', 0)),
-                            'funding_rate': float(primary_data.get('fundingRate', 0)),
-                            'volume_24h': float(primary_data.get('volume24h', 0)),
-                            'price_change_24h': float(primary_data.get('priceChangePercent', 0)),
-                            'exchange': primary_data.get('exchangeName', 'Binance')
-                        }
-                        startup_data['endpoints_successful'] += 1
-                        print(f"✅ CoinGlass Ticker: ${startup_data['ticker']['price']:.2f}")
+                if 'error' not in ticker_result:
+                    startup_data['ticker'] = {
+                        'price': ticker_result.get('price', 0),
+                        'funding_rate': ticker_result.get('funding_rate', 0),
+                        'volume_24h': ticker_result.get('volume_24h', 0),
+                        'price_change_24h': ticker_result.get('change_24h', 0),
+                        'exchange': 'Binance',
+                        'source': 'coinglass_v4_startup'
+                    }
+                    startup_data['endpoints_successful'] += 1
+                    print(f"✅ CoinGlass V4 Ticker: ${startup_data['ticker']['price']:.2f}")
+                    
+                    # Validate real-time data
+                    price = startup_data['ticker']['price']
+                    if price in [0, 1, 1000] or price is None:
+                        print("⚠️ Warning: Ticker data may be dummy/placeholder")
+                        startup_data['ticker']['data_quality'] = 'dummy_detected'
                     else:
-                        startup_data['ticker'] = {'error': 'No ticker data'}
+                        startup_data['ticker']['data_quality'] = 'real_time'
                 else:
-                    startup_data['ticker'] = {'error': f'HTTP {response.status_code}'}
+                    startup_data['ticker'] = {'error': ticker_result.get('error', 'Unknown ticker error')}
             except Exception as e:
                 startup_data['ticker'] = {'error': str(e)}
                 print(f"❌ Ticker API error: {e}")
             
-            # 2. Get open interest data - PUBLIC API
+            # 2. Get open interest data using V4 STARTUP
             try:
-                oi_url = f"{base_url_public}/futures/openInterest"
-                response = requests.get(oi_url, headers=headers, params=params, timeout=15)
+                print(f"🔄 Fetching V4 STARTUP OI data for {clean_symbol}")
+                oi_result = self.coinglass_provider.get_open_interest(clean_symbol)
                 startup_data['endpoints_called'] += 1
                 
-                if response.status_code == 200:
-                    oi_data = response.json()
-                    if oi_data.get('success') and oi_data.get('data'):
-                        oi_list = oi_data['data']
-                        total_oi = sum(float(item.get('openInterest', 0)) for item in oi_list)
-                        
-                        # Calculate OI change (simplified)
-                        if len(oi_list) > 1:
-                            current_val = float(oi_list[-1].get('openInterest', 0))
-                            previous_val = float(oi_list[-2].get('openInterest', 0))
-                            oi_change = ((current_val - previous_val) / previous_val * 100) if previous_val > 0 else 0
-                        else:
-                            oi_change = 0
-                        
-                        startup_data['open_interest'] = {
-                            'total_oi': total_oi,
-                            'oi_change_percent': oi_change,
-                            'exchanges_count': len(oi_list)
-                        }
-                        startup_data['endpoints_successful'] += 1
-                        print(f"✅ Open Interest: ${total_oi/1000000:.1f}M ({oi_change:+.1f}%)")
-                    else:
-                        startup_data['open_interest'] = {'error': 'No OI data'}
+                if 'error' not in oi_result:
+                    startup_data['open_interest'] = {
+                        'total_oi': oi_result.get('open_interest', 0),
+                        'oi_change_percent': oi_result.get('oi_change_percent', 0),
+                        'source': 'coinglass_v4_startup'
+                    }
+                    startup_data['endpoints_successful'] += 1
+                    oi_value = startup_data['open_interest']['total_oi']
+                    oi_change = startup_data['open_interest']['oi_change_percent']
+                    print(f"✅ V4 Open Interest: ${oi_value/1000000:.1f}M ({oi_change:+.1f}%)")
                 else:
-                    startup_data['open_interest'] = {'error': f'HTTP {response.status_code}'}
+                    startup_data['open_interest'] = {'error': oi_result.get('error', 'No OI data')}
             except Exception as e:
                 startup_data['open_interest'] = {'error': str(e)}
                 print(f"❌ Open Interest API error: {e}")
@@ -650,38 +646,26 @@ class AIAssistant:
                 startup_data['liquidation_map'] = {'error': str(e)}
                 print(f"❌ Liquidation Map API error: {e}")
                 
-            # 5. Get funding rate history - PRO API
+            # 3. Get funding rate using V4 STARTUP
             try:
-                funding_url = f"{base_url_pro}/futures/funding_rate"
-                response = requests.get(funding_url, headers=headers, params=params, timeout=15)
+                print(f"🔄 Fetching V4 STARTUP funding data for {clean_symbol}")
+                funding_result = self.coinglass_provider.get_funding_rate(clean_symbol)
                 startup_data['endpoints_called'] += 1
                 
-                if response.status_code == 200:
-                    funding_data = response.json()
-                    if funding_data.get('success') and funding_data.get('data'):
-                        funding_list = funding_data['data']
-                        
-                        # Calculate average funding across exchanges
-                        valid_rates = []
-                        for item in funding_list:
-                            rate = float(item.get('fundingRate', 0))
-                            if rate != 0:
-                                valid_rates.append(rate)
-                        
-                        avg_funding = sum(valid_rates) / len(valid_rates) if valid_rates else 0
-                        
-                        startup_data['funding_detail'] = {
-                            'avg_funding_rate': avg_funding,
-                            'exchanges_count': len(valid_rates),
-                            'funding_trend': 'Positive' if avg_funding > 0.005 else 'Negative' if avg_funding < -0.002 else 'Neutral',
-                            'funding_history': funding_list[:5]  # Last 5 records
-                        }
-                        startup_data['endpoints_successful'] += 1
-                        print(f"✅ Funding Rate: {avg_funding*100:.4f}% (avg across {len(valid_rates)} exchanges)")
-                    else:
-                        startup_data['funding_detail'] = {'error': 'No funding data'}
+                if 'error' not in funding_result:
+                    funding_rate = funding_result.get('funding_rate', 0)
+                    startup_data['funding_detail'] = {
+                        'avg_funding_rate': funding_rate,
+                        'funding_rate': funding_rate,
+                        'exchange': funding_result.get('exchange', 'Binance'),
+                        'next_funding_time': funding_result.get('next_funding_time', ''),
+                        'funding_trend': 'Positive' if funding_rate > 0.005 else 'Negative' if funding_rate < -0.002 else 'Neutral',
+                        'source': 'coinglass_v4_startup'
+                    }
+                    startup_data['endpoints_successful'] += 1
+                    print(f"✅ V4 Funding Rate: {funding_rate*100:.4f}% ({funding_result.get('exchange', 'Binance')})")
                 else:
-                    startup_data['funding_detail'] = {'error': f'HTTP {response.status_code}'}
+                    startup_data['funding_detail'] = {'error': funding_result.get('error', 'No funding data')}
             except Exception as e:
                 startup_data['funding_detail'] = {'error': str(e)}
                 print(f"❌ Funding Rate API error: {e}")

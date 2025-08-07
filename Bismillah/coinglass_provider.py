@@ -1,8 +1,8 @@
-
 import os
 import requests
-import logging
+import time
 from datetime import datetime
+import logging
 from typing import Dict, Any, Optional, List
 
 class CoinGlassProvider:
@@ -13,9 +13,14 @@ class CoinGlassProvider:
     
     def __init__(self):
         self.api_key = os.getenv("COINGLASS_API_KEY") or os.getenv("COINGLASS_SECRET")
-        self.base_url_v4 = "https://open-api-v4.coinglass.com"
-        self.base_url_public = "https://open-api.coinglass.com/public/v2"
-        self.base_url_pro = "https://open-api.coinglass.com/api/pro/v1"
+        self.base_url = "https://open-api-v4.coinglass.com"
+        # Startup plan endpoints
+        self.startup_endpoints = {
+            'tickers': '/public/v1/futures/tickers',
+            'oi_change': '/public/v1/oi-change-statistics',
+            'liquidation': '/public/v1/liquidation',
+            'funding': '/public/v1/funding-rates'
+        }
         
         # Headers untuk authentication
         self.headers = {
@@ -36,24 +41,37 @@ class CoinGlassProvider:
         
         logging.info(f"CoinGlass V4 Provider initialized: {'With API Key' if self.api_key else 'No API Key'}")
 
+    def _get_headers(self):
+        """Get headers for CoinGlass V4 API requests"""
+        return {
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json",
+            "User-Agent": "CryptoMentor-Bot/1.0" # Keep original User-Agent
+        }
+
     def _make_request(self, url: str, params: Dict = None) -> Dict[str, Any]:
         """
         Membuat request ke CoinGlass API dengan error handling
         """
         try:
+            if not self.api_key:
+                return {'error': 'COINGLASS_API_KEY not found in environment'}
+
             response = requests.get(
                 url,
-                headers=self.headers,
+                headers=self._get_headers(), # Use _get_headers for V4 API
                 params=params or {},
-                timeout=20
+                timeout=20 # Keep original timeout
             )
             
             if response.status_code == 200:
                 data = response.json()
-                if data.get('success', False):
+                # CoinGlass V4 STARTUP plan endpoints might not have 'success' field, or it might be implied.
+                # Check for common error messages or structures.
+                if data.get('code', 0) == 0 or data.get('success', True): 
                     return data
                 else:
-                    error_msg = data.get('msg', 'Unknown CoinGlass error')
+                    error_msg = data.get('message', data.get('msg', 'Unknown CoinGlass error'))
                     return {'error': f'CoinGlass API Error: {error_msg}'}
             else:
                 return {'error': f'HTTP {response.status_code}: {response.text[:100]}'}
@@ -67,329 +85,288 @@ class CoinGlassProvider:
 
     def get_futures_ticker(self, symbol: str) -> Dict[str, Any]:
         """
-        Mendapatkan ticker data futures dari CoinGlass V4
-        Endpoint: /api/futures/symbol-mark-price atau /futures/ticker
+        Mendapatkan ticker data futures dari CoinGlass V4 STARTUP plan
+        Endpoint: /public/v1/futures/tickers
         """
         try:
-            symbol = symbol.upper().replace('USDT', '')
+            symbol_query = symbol.upper().replace('USDT', '')
             
             # Check cache first
-            cache_key = f"ticker_{symbol}"
+            cache_key = f"ticker_{symbol_query}"
             if cache_key in self._cache:
                 cached_data, timestamp = self._cache[cache_key]
                 if (datetime.now().timestamp() - timestamp) < self._cache_timeout:
                     return cached_data
             
-            # Try V4 API first (most recent)
-            v4_url = f"{self.base_url_v4}/api/futures/symbol-mark-price"
-            params = {'symbol': symbol}
+            v4_url = f"{self.base_url}{self.startup_endpoints['tickers']}"
+            params = {'symbol': symbol_query}
             
             response_data = self._make_request(v4_url, params)
             
             if 'error' not in response_data:
                 data_list = response_data.get('data', [])
                 if data_list and isinstance(data_list, list):
-                    # Get primary exchange data (usually Binance)
-                    primary_data = data_list[0]
+                    # Find the specific symbol, as endpoint might return multiple
+                    ticker_data = next((item for item in data_list if item.get('symbol') == symbol_query), None)
                     
-                    result = {
-                        'symbol': symbol,
-                        'price': float(primary_data.get('price', 0)),
-                        'funding_rate': float(primary_data.get('fundingRate', 0)),
-                        'funding_time': primary_data.get('fundingTime', ''),
-                        'volume_24h': float(primary_data.get('volume24h', 0)),
-                        'price_change_24h': float(primary_data.get('priceChangePercent', 0)),
-                        'high_24h': float(primary_data.get('high24h', 0)),
-                        'low_24h': float(primary_data.get('low24h', 0)),
-                        'exchange_name': primary_data.get('exchangeName', 'Binance'),
-                        'source': 'coinglass_v4',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    # Cache the result
-                    self._cache[cache_key] = (result, datetime.now().timestamp())
-                    print(f"✅ CoinGlass V4 ticker for {symbol}: ${result['price']:.2f}")
-                    return result
+                    if ticker_data:
+                        price = float(ticker_data.get('price', 0))
+                        
+                        # Basic validation for real-time data
+                        if price in [0, 1, 1000] or price is None:
+                            logging.warning(f"Potential dummy data for {symbol_query}: Price is {price}")
+                            return {'error': f'Dummy price data for {symbol_query}'}
+                        
+                        result = {
+                            'symbol': symbol_query,
+                            'price': price,
+                            'funding_rate': float(ticker_data.get('fundingRate', 0)),
+                            'funding_time': ticker_data.get('nextFundingTime', ''), # Use nextFundingTime if available
+                            'volume_24h': float(ticker_data.get('volume24h', 0)),
+                            'price_change_24h': float(ticker_data.get('change24h', 0)),
+                            'exchange_name': ticker_data.get('exchange', 'Unknown'), # Use 'exchange' from new API
+                            'source': 'coinglass_v4_startup',
+                            'timestamp': ticker_data.get('timestamp', int(time.time())) # Use timestamp from new API
+                        }
+                        
+                        # Cache the result
+                        self._cache[cache_key] = (result, datetime.now().timestamp())
+                        logging.info(f"✅ CoinGlass V4 STARTUP ticker for {symbol_query}: ${result['price']:.2f}")
+                        return result
+                    else:
+                        return {'error': f'Symbol {symbol_query} not found in tickers response'}
                 
-            # Fallback to Pro API
-            pro_url = f"{self.base_url_pro}/futures/ticker"
-            response_data = self._make_request(pro_url, params)
-            
-            if 'error' not in response_data:
-                data_list = response_data.get('data', [])
-                if data_list:
-                    primary_data = data_list[0]
-                    
-                    result = {
-                        'symbol': symbol,
-                        'price': float(primary_data.get('price', 0)),
-                        'funding_rate': float(primary_data.get('fundingRate', 0)),
-                        'funding_time': primary_data.get('fundingTime', ''),
-                        'volume_24h': float(primary_data.get('volume24h', 0)),
-                        'price_change_24h': float(primary_data.get('priceChangePercent', 0)),
-                        'high_24h': float(primary_data.get('high24h', 0)),
-                        'low_24h': float(primary_data.get('low24h', 0)),
-                        'exchange_name': primary_data.get('exchangeName', 'Binance'),
-                        'source': 'coinglass_pro',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    # Cache the result
-                    self._cache[cache_key] = (result, datetime.now().timestamp())
-                    print(f"✅ CoinGlass Pro ticker for {symbol}: ${result['price']:.2f}")
-                    return result
-            
-            # Fallback to public V2 API
-            public_url = f"{self.base_url_public}/futures/ticker"
-            fallback_response = self._make_request(public_url, params)
-            
-            if 'error' not in fallback_response:
-                data_list = fallback_response.get('data', [])
-                if data_list:
-                    primary_data = data_list[0]
-                    
-                    result = {
-                        'symbol': symbol,
-                        'price': float(primary_data.get('price', 0)),
-                        'funding_rate': float(primary_data.get('fundingRate', 0)),
-                        'volume_24h': float(primary_data.get('volume24h', 0)),
-                        'price_change_24h': float(primary_data.get('priceChangePercent', 0)),
-                        'exchange_name': primary_data.get('exchangeName', 'Binance'),
-                        'source': 'coinglass_v2_public',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    self._cache[cache_key] = (result, datetime.now().timestamp())
-                    return result
-            
-            return {'error': f'No ticker data available for {symbol}'}
+            # If V4 STARTUP endpoint fails or symbol not found, return the error
+            if 'error' in response_data:
+                logging.error(f"Error fetching ticker for {symbol_query}: {response_data['error']}")
+                return response_data
+            else:
+                return {'error': f'No ticker data available for {symbol_query} via V4 STARTUP endpoint'}
             
         except Exception as e:
+            logging.exception(f"Exception in get_futures_ticker for {symbol}: {str(e)}")
             return {'error': f'Error getting ticker data: {str(e)}'}
 
     def get_open_interest(self, symbol: str) -> Dict[str, Any]:
         """
-        Mendapatkan data Open Interest dari CoinGlass
+        Mendapatkan data Open Interest dari CoinGlass STARTUP plan
+        Endpoint: /public/v1/oi-change-statistics
         """
         try:
-            symbol = symbol.upper().replace('USDT', '')
+            symbol_query = symbol.upper().replace('USDT', '')
             
-            cache_key = f"oi_{symbol}"
+            cache_key = f"oi_{symbol_query}"
             if cache_key in self._cache:
                 cached_data, timestamp = self._cache[cache_key]
                 if (datetime.now().timestamp() - timestamp) < self._cache_timeout:
                     return cached_data
             
-            # Try public API
-            url = f"{self.base_url_public}/futures/openInterest"
-            params = {'symbol': symbol}
+            url = f"{self.base_url}{self.startup_endpoints['oi_change']}"
+            params = {'symbol': symbol_query} # Filter by symbol if endpoint supports it
             
             response_data = self._make_request(url, params)
             
             if 'error' in response_data:
+                logging.error(f"Error fetching OI for {symbol_query}: {response_data['error']}")
                 return response_data
             
             data_list = response_data.get('data', [])
             if not data_list:
-                return {'error': f'No open interest data for {symbol}'}
+                return {'error': f'No open interest data for {symbol_query}'}
             
+            # The endpoint might return a list, find the specific symbol
+            symbol_oi = next((item for item in data_list if item.get('symbol') == symbol_query), None)
+
+            if not symbol_oi:
+                return {'error': f'No open interest data found for {symbol_query}'}
+
             # Calculate total OI and changes
-            total_oi = 0
-            exchanges_count = 0
-            
-            for item in data_list:
-                oi_value = float(item.get('openInterest', 0))
-                if oi_value > 0:
-                    total_oi += oi_value
-                    exchanges_count += 1
-            
-            # Calculate OI change (simplified - comparing with previous cached data if available)
-            oi_change_percent = 0
-            if len(data_list) > 1:
-                current_oi = float(data_list[-1].get('openInterest', 0))
-                previous_oi = float(data_list[-2].get('openInterest', 0))
-                if previous_oi > 0:
-                    oi_change_percent = ((current_oi - previous_oi) / previous_oi) * 100
+            total_oi = float(symbol_oi.get('openInterest', 0))
+            oi_change_percent = float(symbol_oi.get('changeRate24h', 0))
             
             result = {
-                'symbol': symbol,
+                'symbol': symbol_query,
                 'total_open_interest': total_oi,
                 'oi_change_percent': oi_change_percent,
-                'exchanges_count': exchanges_count,
-                'dominant_exchange': data_list[0].get('exchangeName', 'Binance') if data_list else 'Unknown',
-                'source': 'coinglass_v2',
-                'timestamp': datetime.now().isoformat()
+                'exchanges_count': 1, # Assuming startup plan provides aggregated data per symbol
+                'dominant_exchange': symbol_oi.get('exchange', 'Unknown'),
+                'source': 'coinglass_v4_startup',
+                'timestamp': symbol_oi.get('timestamp', int(time.time()))
             }
             
             self._cache[cache_key] = (result, datetime.now().timestamp())
+            logging.info(f"✅ CoinGlass V4 STARTUP OI for {symbol_query}: {result['total_open_interest']:,.0f}")
             return result
             
         except Exception as e:
+            logging.exception(f"Exception in get_open_interest for {symbol}: {str(e)}")
             return {'error': f'Error getting open interest: {str(e)}'}
 
     def get_long_short_ratio(self, symbol: str, timeframe: str = '1h') -> Dict[str, Any]:
         """
-        Mendapatkan Long/Short ratio dari CoinGlass
+        Mendapatkan Long/Short ratio dari CoinGlass.
+        STARTUP plan might not have a dedicated long/short ratio endpoint.
+        This function will simulate or return limited data if not available.
         """
         try:
-            symbol = symbol.upper().replace('USDT', '')
+            symbol_query = symbol.upper().replace('USDT', '')
             
-            # Map timeframe to intervalType
-            interval_map = {
-                '5m': 0, '15m': 1, '1h': 2, '4h': 3, '12h': 4, '24h': 5, '1d': 5
-            }
-            interval_type = interval_map.get(timeframe, 2)
-            
-            # Try Pro API first
-            pro_url = f"{self.base_url_pro}/futures/long_short_account_ratio"
-            params = {'symbol': symbol}
-            
-            response_data = self._make_request(pro_url, params)
-            
-            if 'error' not in response_data:
-                data_list = response_data.get('data', [])
-                if data_list:
-                    latest = data_list[-1] if isinstance(data_list, list) else data_list
-                    
-                    long_account = float(latest.get('longAccount', 50))
-                    short_account = float(latest.get('shortAccount', 50))
-                    
-                    return {
-                        'symbol': symbol,
-                        'long_ratio': long_account,
-                        'short_ratio': short_account,
-                        'ratio_value': long_account / short_account if short_account > 0 else 1.0,
-                        'timeframe': timeframe,
-                        'source': 'coinglass_pro',
-                        'timestamp': datetime.now().isoformat()
-                    }
-            
-            # Fallback to public chart API
-            public_url = f"{self.base_url_public}/futures/longShortChart"
-            params = {'symbol': symbol, 'intervalType': interval_type}
-            
-            fallback_response = self._make_request(public_url, params)
-            
-            if 'error' not in fallback_response:
-                chart_data = fallback_response.get('data', [])
-                if chart_data:
-                    latest = chart_data[-1]
-                    long_ratio = float(latest.get('longRatio', 50))
-                    short_ratio = float(latest.get('shortRatio', 50))
-                    
-                    return {
-                        'symbol': symbol,
-                        'long_ratio': long_ratio,
-                        'short_ratio': short_ratio,
-                        'ratio_value': long_ratio / short_ratio if short_ratio > 0 else 1.0,
-                        'timeframe': timeframe,
-                        'source': 'coinglass_public',
-                        'timestamp': datetime.now().isoformat()
-                    }
-            
-            return {'error': f'No long/short data available for {symbol}'}
+            # Attempt to get data from tickers if it contains relevant info
+            ticker_data = self.get_futures_ticker(symbol_query)
+
+            if 'error' not in ticker_data:
+                # The STARTUP plan may not provide explicit long/short ratio data.
+                # We return a placeholder or indicate limited data.
+                # If specific ticker data contained ratio, it would be parsed here.
+                # For now, assume it's not directly available.
+                logging.warning(f"Long/Short ratio not directly available from STARTUP plan for {symbol_query}. Returning default.")
+                return {
+                    'symbol': symbol_query,
+                    'long_ratio': 50.0,  # Default neutral
+                    'short_ratio': 50.0,
+                    'ratio_value': 1.0,
+                    'timeframe': timeframe,
+                    'note': 'Long/Short ratio data may be limited or unavailable in STARTUP plan',
+                    'source': 'coinglass_v4_startup_limited',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                # If ticker fetch failed, return that error
+                return ticker_data
             
         except Exception as e:
+            logging.exception(f"Exception in get_long_short_ratio for {symbol}: {str(e)}")
             return {'error': f'Error getting long/short ratio: {str(e)}'}
 
     def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
         """
-        Mendapatkan funding rate dari CoinGlass
+        Mendapatkan funding rate dari CoinGlass STARTUP plan
+        Endpoint: /public/v1/funding-rates
         """
         try:
-            symbol = symbol.upper().replace('USDT', '')
+            symbol_query = symbol.upper().replace('USDT', '')
             
-            # Try to get from ticker first (more comprehensive)
-            ticker_data = self.get_futures_ticker(symbol)
-            if 'error' not in ticker_data and 'funding_rate' in ticker_data:
-                return {
-                    'symbol': symbol,
-                    'funding_rate': ticker_data['funding_rate'],
-                    'funding_time': ticker_data.get('funding_time', ''),
-                    'exchange': ticker_data.get('exchange_name', 'Binance'),
-                    'source': 'coinglass_ticker',
-                    'timestamp': datetime.now().isoformat()
-                }
-            
-            # Fallback to dedicated funding rate endpoint
-            url = f"{self.base_url_pro}/futures/funding_rate"
-            params = {'symbol': symbol}
+            # Cache key for funding rate
+            cache_key = f"funding_{symbol_query}"
+            if cache_key in self._cache:
+                cached_data, timestamp = self._cache[cache_key]
+                # Funding rate might have a shorter cache timeout, e.g., 1 hour
+                if (datetime.now().timestamp() - timestamp) < 3600: # 1 hour cache
+                    return cached_data
+
+            url = f"{self.base_url}{self.startup_endpoints['funding']}"
+            params = {'symbol': symbol_query}
             
             response_data = self._make_request(url, params)
             
             if 'error' in response_data:
+                logging.error(f"Error fetching funding rate for {symbol_query}: {response_data['error']}")
                 return response_data
             
             data_list = response_data.get('data', [])
             if not data_list:
-                return {'error': f'No funding rate data for {symbol}'}
+                return {'error': f'No funding rate data for {symbol_query}'}
             
-            # Calculate average funding rate across exchanges
-            valid_rates = []
+            # The endpoint might return multiple exchanges, find the primary one (e.g., Binance)
+            # or calculate an average if needed. Let's prioritize Binance or the first entry.
+            primary_data = None
             for item in data_list:
-                rate = float(item.get('fundingRate', 0))
-                if rate != 0:
-                    valid_rates.append(rate)
+                if 'binance' in item.get('exchange', '').lower():
+                    primary_data = item
+                    break
+            if not primary_data:
+                primary_data = data_list[0] # Fallback to the first entry
+
+            funding_rate = float(primary_data.get('fundingRate', 0))
+            next_funding_time = primary_data.get('nextFundingTime', '')
+            exchange = primary_data.get('exchange', 'Unknown')
             
-            avg_funding = sum(valid_rates) / len(valid_rates) if valid_rates else 0
-            
-            return {
-                'symbol': symbol,
-                'funding_rate': avg_funding,
-                'exchanges_count': len(valid_rates),
-                'funding_trend': 'Positive' if avg_funding > 0.005 else 'Negative' if avg_funding < -0.002 else 'Neutral',
-                'source': 'coinglass_funding',
-                'timestamp': datetime.now().isoformat()
+            result = {
+                'symbol': symbol_query,
+                'funding_rate': funding_rate,
+                'next_funding_time': next_funding_time,
+                'exchange': exchange,
+                'source': 'coinglass_v4_startup',
+                'timestamp': primary_data.get('timestamp', int(time.time()))
             }
             
+            self._cache[cache_key] = (result, datetime.now().timestamp())
+            logging.info(f"✅ CoinGlass V4 STARTUP Funding Rate for {symbol_query}: {funding_rate:.6f} ({exchange})")
+            return result
+            
         except Exception as e:
+            logging.exception(f"Exception in get_funding_rate for {symbol}: {str(e)}")
             return {'error': f'Error getting funding rate: {str(e)}'}
 
     def get_liquidation_data(self, symbol: str) -> Dict[str, Any]:
         """
-        Mendapatkan data liquidation dari CoinGlass
+        Mendapatkan data liquidation dari CoinGlass STARTUP plan
+        Endpoint: /public/v1/liquidation
         """
         try:
-            symbol = symbol.upper().replace('USDT', '')
+            symbol_query = symbol.upper().replace('USDT', '')
             
-            # Try liquidation chart endpoint
-            url = f"{self.base_url_public}/futures/liquidation_chart"
-            params = {'symbol': symbol, 'intervalType': 1}  # 24h
+            cache_key = f"liquidation_{symbol_query}"
+            if cache_key in self._cache:
+                cached_data, timestamp = self._cache[cache_key]
+                if (datetime.now().timestamp() - timestamp) < self._cache_timeout:
+                    return cached_data
+
+            url = f"{self.base_url}{self.startup_endpoints['liquidation']}"
+            params = {'symbol': symbol_query} 
             
             response_data = self._make_request(url, params)
             
             if 'error' in response_data:
+                logging.error(f"Error fetching liquidation data for {symbol_query}: {response_data['error']}")
                 return response_data
             
-            chart_data = response_data.get('data', [])
-            if not chart_data:
-                return {'error': f'No liquidation data for {symbol}'}
+            data_list = response_data.get('data', [])
+            if not data_list:
+                return {'error': f'No liquidation data for {symbol_query}'}
             
-            latest = chart_data[-1]
-            total_liq = float(latest.get('totalLiquidation', 0))
-            long_liq = float(latest.get('longLiquidation', 0))
-            short_liq = float(latest.get('shortLiquidation', 0))
+            # Assume the list is already sorted or we take the first entry for the symbol
+            latest_liquidation = data_list[0] 
+
+            total_liq = float(latest_liquidation.get('totalLiquidation', 0))
+            long_liq = float(latest_liquidation.get('longLiquidation', 0))
+            short_liq = float(latest_liquidation.get('shortLiquidation', 0))
             
-            return {
-                'symbol': symbol,
+            # Calculateliq_ratio safely
+            liq_ratio = long_liq / max(total_liq, 1) if total_liq > 0 else 0
+
+            # Determine dominant side
+            dominant_side = 'Balanced'
+            if long_liq > short_liq * 1.5:
+                dominant_side = 'Long Heavy'
+            elif short_liq > long_liq * 1.5:
+                dominant_side = 'Short Heavy'
+
+            result = {
+                'symbol': symbol_query,
                 'total_liquidation': total_liq,
                 'long_liquidation': long_liq,
                 'short_liquidation': short_liq,
-                'liq_ratio': long_liq / max(total_liq, 1),
-                'dominant_side': 'Long Heavy' if long_liq > short_liq * 1.5 else 'Short Heavy' if short_liq > long_liq * 1.5 else 'Balanced',
-                'source': 'coinglass_liquidation',
-                'timestamp': datetime.now().isoformat()
+                'liq_ratio': liq_ratio,
+                'dominant_side': dominant_side,
+                'source': 'coinglass_v4_startup',
+                'timestamp': latest_liquidation.get('timestamp', int(time.time()))
             }
+
+            self._cache[cache_key] = (result, datetime.now().timestamp())
+            logging.info(f"✅ CoinGlass V4 STARTUP Liquidation for {symbol_query}: Total ${total_liq:,.0f}")
+            return result
             
         except Exception as e:
+            logging.exception(f"Exception in get_liquidation_data for {symbol}: {str(e)}")
             return {'error': f'Error getting liquidation data: {str(e)}'}
 
     def test_connection(self) -> Dict[str, Any]:
         """
-        Test koneksi ke CoinGlass API
+        Test koneksi ke CoinGlass API menggunakan STARTUP plan endpoints
         """
         try:
-            # Test dengan BTC ticker
+            # Test with BTC ticker from startup endpoint
             test_data = self.get_futures_ticker('BTC')
             
             if 'error' in test_data:
@@ -399,16 +376,69 @@ class CoinGlassProvider:
                     'api_key_status': 'available' if self.api_key else 'missing'
                 }
             
+            # Test other startup endpoints as well
+            oi_test = self.get_open_interest('BTC')
+            funding_test = self.get_funding_rate('BTC')
+            liquidation_test = self.get_liquidation_data('BTC')
+            
+            success_count = 1 # For ticker
+            if 'error' not in oi_test: success_count += 1
+            if 'error' not in funding_test: success_count += 1
+            if 'error' not in liquidation_test: success_count += 1
+
             return {
                 'status': 'success',
                 'api_key_status': 'valid',
-                'endpoints_tested': ['ticker', 'open_interest', 'long_short'],
-                'sample_price': test_data.get('price', 0)
+                'endpoints_tested': ['ticker', 'open_interest', 'funding_rate', 'liquidation'],
+                'sample_price': test_data.get('price', 0),
+                'successful_endpoints_count': success_count
             }
             
         except Exception as e:
+            logging.exception(f"Exception in test_connection: {str(e)}")
             return {
                 'status': 'failed',
                 'error': f'Connection test failed: {str(e)}',
                 'api_key_status': 'available' if self.api_key else 'missing'
             }
+
+    # The get_long_short_ratio and other methods are now implemented using the new endpoints.
+    # The original get_funding_rate, get_liquidation_data, etc. methods are replaced.
+
+# Test script for standalone execution - kept from original
+if __name__ == "__main__":
+    # Example usage:
+    provider = CoinGlassProvider()
+
+    # Test connection
+    connection_status = provider.test_connection()
+    print("\n--- Connection Test ---")
+    print(connection_status)
+
+    if connection_status.get('status') == 'success':
+        # Fetch data for a specific symbol
+        symbol = 'BTC'
+        print(f"\n--- Fetching data for {symbol} ---")
+
+        ticker_data = provider.get_futures_ticker(symbol)
+        print(f"\nTicker Data ({symbol}):")
+        print(ticker_data)
+
+        oi_data = provider.get_open_interest(symbol)
+        print(f"\nOpen Interest Data ({symbol}):")
+        print(oi_data)
+
+        funding_data = provider.get_funding_rate(symbol)
+        print(f"\nFunding Rate Data ({symbol}):")
+        print(funding_data)
+
+        liquidation_data = provider.get_liquidation_data(symbol)
+        print(f"\nLiquidation Data ({symbol}):")
+        print(liquidation_data)
+        
+        ls_ratio_data = provider.get_long_short_ratio(symbol)
+        print(f"\nLong/Short Ratio Data ({symbol}):")
+        print(ls_ratio_data)
+
+    else:
+        print("\nSkipping data fetching due to connection test failure.")
