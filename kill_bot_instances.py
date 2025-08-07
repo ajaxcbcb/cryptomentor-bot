@@ -46,4 +46,4 @@ if __name__ == "__main__":
     if killed > 0:
         print("⏳ Waiting 3 seconds before exit...")
         time.sleep(3)
-    print("🎯 Clean exit")("🎯 Clean exit")
+    print("🎯 Clean exit")
