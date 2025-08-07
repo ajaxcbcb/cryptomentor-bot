@@ -1,0 +1,89 @@
+# 📌 Fokus Utama:
+Lakukan seluruh modifikasi HANYA di file `ai_assistant.py`. Jangan ubah file lain.
+
+---
+
+## ✅ Tujuan Perubahan:
+1. Hapus seluruh referensi terhadap Coinglass (v1, v2, v4)
+2. Gantikan semua fungsi dan pemanggilan data Coinglass dengan Binance API
+3. Pastikan tidak ada error, dan semua fitur tetap berjalan (terutama `/futures` dan analisis)
+
+---
+
+## 🔁 Langkah-Langkah yang Harus Dilakukan:
+
+### 1. Hapus Semua Coinglass
+- Hapus semua:
+  - `import` yang berkaitan dengan `coinglass_provider` atau sejenis
+  - Fungsi seperti: `get_comprehensive_coinglass_data`, `get_futures_from_coinglass`, `get_liquidation_zones`, dll
+  - Seluruh kode yang menyebut `coinglass`, termasuk variabel, logika, dan pemrosesan
+  - Jangan panggil `COINGLASS_API_KEY` lagi
+
+### 2. Tambahkan Fungsi Pengganti dari Binance
+- Tambahkan fungsi-fungsi baru berbasis **Binance Futures REST API**, misalnya:
+
+```python
+import requests
+
+def get_binance_futures_data(symbol="BTCUSDT"):
+    base_url = "https://fapi.binance.com"
+    long_short_url = f"{base_url}/futures/data/globalLongShortAccountRatio?symbol={symbol}&period=30m&limit=1"
+    funding_url = f"{base_url}/fapi/v1/fundingRate?symbol={symbol}&limit=1"
+    oi_url = f"{base_url}/fapi/v1/openInterest?symbol={symbol}"
+
+    long_short = requests.get(long_short_url).json()[0]
+    funding = requests.get(funding_url).json()[0]
+    oi = requests.get(oi_url).json()
+
+    return {
+        "long_short_ratio": float(long_short['longShortRatio']),
+        "long_account": float(long_short['longAccount']),
+        "short_account": float(long_short['shortAccount']),
+        "funding_rate": float(funding['fundingRate']),
+        "open_interest": float(oi['openInterest'])
+    }
+3. Ganti Semua Pemanggilan Coinglass → Binance
+Ganti fungsi-fungsi analisis atau handler command seperti /futures agar menggunakan get_binance_futures_data
+
+Contoh pengganti logika futures signal:
+
+python
+Copy
+Edit
+def analyze_futures_binance(symbol="BTCUSDT"):
+    data = get_binance_futures_data(symbol)
+
+    trend = "Bullish" if data["long_short_ratio"] > 1.2 else "Bearish" if data["long_short_ratio"] < 0.8 else "Neutral"
+
+    return f"""
+🎯 FUTURES ANALYSIS - {symbol}
+
+📊 Long/Short Ratio: {data['long_short_ratio']:.2f}
+📈 Funding Rate: {data['funding_rate']*100:.4f}%
+💰 Open Interest: ${float(data['open_interest']):,.2f}
+📈 Trend: {trend}
+
+📡 Source: Binance Futures API
+"""
+4. Perbarui Semua Output
+Ganti label sumber dari 📡 Source: Coinglass → 📡 Source: Binance
+
+Hilangkan label seperti "Zona Likuidasi", "Coinglass Premium", dll
+
+Tambahkan 📡 API: Binance REST Futures di akhir output jika perlu
+
+🧹 Final Cleanup
+Pastikan tidak ada lagi coinglass di file ai_assistant.py
+
+Validasi semua fungsi command terkait signal/analysis berjalan dengan Binance
+
+❗PENTING:
+Jangan ubah file lain selain ai_assistant.py
+
+Jangan gunakan API lain (hanya Binance)
+
+Jangan simpan COINGLASS_API_KEY lagi
+
+yaml
+Copy
+Edit
