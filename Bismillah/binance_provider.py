@@ -2,6 +2,7 @@ import requests
 import logging
 from typing import List, Dict, Any
 from datetime import datetime, timezone
+from config import get_binance_headers, BINANCE_ENDPOINTS
 
 class BinanceFuturesProvider:
     def __init__(self):
