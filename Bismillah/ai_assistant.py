@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import requests
 import random
@@ -715,6 +714,10 @@ Ask me anything about crypto! 🚀"""
                     top_cryptos = market_data.get('top_cryptocurrencies', {})
                     fng_data = market_data.get('fear_greed_index', {})
 
+                    # Get BTC futures data for sentiment analysis
+                    btc_futures = self.get_binance_futures_data('BTC')
+                    btc_long_ratio = btc_futures.get('long_short_ratio', 1.0) if 'error' not in btc_futures else 1.0
+
                     current_time = datetime.now().strftime('%H:%M:%S WIB')
 
                     # Format large numbers
@@ -792,11 +795,70 @@ Ask me anything about crypto! 🚀"""
 
                                 analysis += f"\n• **{i}. {name} ({symbol})**: {price_display} {change_emoji} {change_24h:+.1f}%"
 
+                        # Add market-wide trading recommendations
+                        overall_sentiment_score = 0
+
+                        # Market cap change factor
+                        if market_cap_change > 5:
+                            overall_sentiment_score += 3
+                        elif market_cap_change > 2:
+                            overall_sentiment_score += 2
+                        elif market_cap_change > 0:
+                            overall_sentiment_score += 1
+                        elif market_cap_change < -5:
+                            overall_sentiment_score -= 3
+                        elif market_cap_change < -2:
+                            overall_sentiment_score -= 2
+                        elif market_cap_change < 0:
+                            overall_sentiment_score -= 1
+
+                        # Fear & Greed factor
+                        if fng_value < 20:  # Extreme Fear - contrarian bullish
+                            overall_sentiment_score += 2
+                        elif fng_value > 80:  # Extreme Greed - contrarian bearish
+                            overall_sentiment_score -= 2
+
+                        # Futures sentiment factor
+                        if 'error' not in btc_futures:
+                            if btc_long_ratio > 1.4:  # Too many longs
+                                overall_sentiment_score -= 1
+                            elif btc_long_ratio < 0.6:  # Too many shorts
+                                overall_sentiment_score += 1
+
+                        # Generate market recommendation
+                        if overall_sentiment_score >= 4:
+                            market_rec = "🟢 **BULLISH MARKET** - Good time untuk accumulate"
+                            market_action = "• **Action**: DCA strategy pada major coins\n• **Focus**: BTC, ETH, strong altcoins\n• **Risk**: Medium - Market momentum positif"
+                        elif overall_sentiment_score >= 2:
+                            market_rec = "🟡 **CAUTIOUSLY BULLISH** - Selective buying"
+                            market_action = "• **Action**: Cherry-pick strong performers\n• **Focus**: Top 10 coins dengan volume tinggi\n• **Risk**: Medium - Mixed signals"
+                        elif overall_sentiment_score <= -4:
+                            market_rec = "🔴 **BEARISH MARKET** - Risk-off mode"
+                            market_action = "• **Action**: Cash/stablecoin position\n• **Focus**: Wait for better entry points\n• **Risk**: High - Trend masih bearish"
+                        elif overall_sentiment_score <= -2:
+                            market_rec = "🟠 **CAUTIOUSLY BEARISH** - Limited exposure"
+                            market_action = "• **Action**: Small position sizing\n• **Focus**: Strong fundamental coins only\n• **Risk**: High - Volatility tinggi"
+                        else:
+                            market_rec = "⚖️ **NEUTRAL MARKET** - Range-bound"
+                            market_action = "• **Action**: Range trading strategies\n• **Focus**: Scalping opportunities\n• **Risk**: Medium - Sideways movement"
+
                         analysis += f"""
 
-⏰ **Update**: {current_time}
-📡 **Source**: CoinMarketCap + Binance API
-💎 **Data Quality**: Real-time & Verified"""
+🎯 **MARKET OUTLOOK & RECOMMENDATION:**
+{market_rec}
+
+📋 **Trading Strategy:**
+{market_action}
+
+💡 **Key Levels untuk Monitor:**
+• **BTC Dominance**: {btc_dominance:.1f}% (Alt season jika <40%)
+• **Total Market Cap**: {format_currency(total_market_cap)}
+• **24h Volume**: {format_currency(total_volume)}
+
+⏰ **Update**: {current_time} WIB
+📡 **Sources**: CoinMarketCap Pro + Binance Futures
+💎 **Analysis**: Real-time Multi-API Integration
+⭐ **Premium**: Advanced Market Intelligence"""
 
                         return analysis
                     else:
@@ -838,11 +900,70 @@ Ask me anything about crypto! 🚀"""
 
                                 analysis += f"\n• **{i}. {name} ({symbol})**: {price_display} {change_emoji} {change_24h:+.1f}%"
 
+                        # Add market-wide trading recommendations
+                        overall_sentiment_score = 0
+
+                        # Market cap change factor
+                        if market_cap_change > 5:
+                            overall_sentiment_score += 3
+                        elif market_cap_change > 2:
+                            overall_sentiment_score += 2
+                        elif market_cap_change > 0:
+                            overall_sentiment_score += 1
+                        elif market_cap_change < -5:
+                            overall_sentiment_score -= 3
+                        elif market_cap_change < -2:
+                            overall_sentiment_score -= 2
+                        elif market_cap_change < 0:
+                            overall_sentiment_score -= 1
+
+                        # Fear & Greed factor
+                        if fng_value < 20:  # Extreme Fear - contrarian bullish
+                            overall_sentiment_score += 2
+                        elif fng_value > 80:  # Extreme Greed - contrarian bearish
+                            overall_sentiment_score -= 2
+
+                        # Futures sentiment factor
+                        if 'error' not in btc_futures:
+                            if btc_long_ratio > 1.4:  # Too many longs
+                                overall_sentiment_score -= 1
+                            elif btc_long_ratio < 0.6:  # Too many shorts
+                                overall_sentiment_score += 1
+
+                        # Generate market recommendation
+                        if overall_sentiment_score >= 4:
+                            market_rec = "🟢 **BULLISH MARKET** - Good time to accumulate"
+                            market_action = "• **Action**: DCA strategy on major coins\n• **Focus**: BTC, ETH, strong altcoins\n• **Risk**: Medium - Positive market momentum"
+                        elif overall_sentiment_score >= 2:
+                            market_rec = "🟡 **CAUTIOUSLY BULLISH** - Selective buying"
+                            market_action = "• **Action**: Cherry-pick strong performers\n• **Focus**: Top 10 coins with high volume\n• **Risk**: Medium - Mixed signals"
+                        elif overall_sentiment_score <= -4:
+                            market_rec = "🔴 **BEARISH MARKET** - Risk-off mode"
+                            market_action = "• **Action**: Cash/stablecoin positions\n• **Focus**: Wait for better entry points\n• **Risk**: High - Downtrend persists"
+                        elif overall_sentiment_score <= -2:
+                            market_rec = "🟠 **CAUTIOUSLY BEARISH** - Limited exposure"
+                            market_action = "• **Action**: Small position sizing\n• **Focus**: Strong fundamental coins only\n• **Risk**: High - High volatility"
+                        else:
+                            market_rec = "⚖️ **NEUTRAL MARKET** - Range-bound"
+                            market_action = "• **Action**: Range trading strategies\n• **Focus**: Scalping opportunities\n• **Risk**: Medium - Sideways movement"
+
                         analysis += f"""
 
+🎯 **MARKET OUTLOOK & RECOMMENDATION:**
+{market_rec}
+
+📋 **Trading Strategy:**
+{market_action}
+
+💡 **Key Levels to Monitor:**
+• **BTC Dominance**: {btc_dominance:.1f}% (Alt season if <40%)
+• **Total Market Cap**: {format_currency(total_market_cap)}
+• **24h Volume**: {format_currency(total_volume)}
+
 ⏰ **Update**: {current_time}
-📡 **Source**: CoinMarketCap + Binance API
-💎 **Data Quality**: Real-time & Verified"""
+📡 **Sources**: CoinMarketCap Pro + Binance Futures
+💎 **Analysis**: Real-time Multi-API Integration
+⭐ **Premium**: Advanced Market Intelligence"""
 
                         return analysis
 
