@@ -1,8 +1,7 @@
 
 #!/usr/bin/env python3
 """
-Test script for the new modular API architecture
-Tests CoinGlass v4, CoinMarketCap, and Binance integrations
+Test script for the new Binance + CoinMarketCap API architecture
 """
 
 import sys
@@ -45,7 +44,7 @@ def print_result(data: dict, title: str = "Result"):
 
 def test_api_connections():
     """Test all API connections"""
-    print_separator("API CONNECTION TESTS")
+    print_separator("API CONNECTION TESTS - BINANCE + COINMARKETCAP")
     
     # Check API keys first
     api_status = check_api_keys()
@@ -82,8 +81,8 @@ def test_price_data():
             print(f"  {symbol}: ${price:,.2f} {change_symbol} {change:+.2f}%")
 
 def test_futures_data():
-    """Test futures data retrieval"""
-    print_separator("FUTURES DATA TESTS")
+    """Test futures data retrieval from Binance"""
+    print_separator("BINANCE FUTURES DATA TESTS")
     
     test_symbol = 'BTC'
     
@@ -92,28 +91,33 @@ def test_futures_data():
     print_result(futures_data, f"{test_symbol} Futures Data")
     
     if futures_data.get('success'):
-        data = futures_data.get('data', {})
+        data = futures_data
         print(f"\n📊 Futures Summary for {test_symbol}:")
         
         # Ticker info
-        if 'ticker' in data:
-            ticker = data['ticker']
+        if 'ticker_data' in data:
+            ticker = data['ticker_data']
             print(f"  💰 Price: ${ticker.get('price', 0):,.2f}")
             print(f"  📈 24h Change: {ticker.get('price_change_24h', 0):+.2f}%")
-            print(f"  💱 Funding Rate: {ticker.get('funding_rate', 0):.4f}%")
+            print(f"  📊 Volume: ${ticker.get('volume_24h', 0):,.0f}")
         
         # Open Interest
-        if 'open_interest' in data:
-            oi = data['open_interest']
-            print(f"  🏦 Total OI: {oi.get('total', 0):,.0f}")
-            print(f"  🏢 Exchanges: {oi.get('exchanges_count', 0)}")
+        if 'open_interest_data' in data:
+            oi = data['open_interest_data']
+            print(f"  🏦 Open Interest: {oi.get('total', 0):,.0f}")
+            print(f"  🏢 Exchange: {oi.get('dominant_exchange', 'Binance')}")
         
         # Long/Short Ratio
-        if 'long_short' in data:
-            ls = data['long_short']
+        if 'long_short_data' in data:
+            ls = data['long_short_data']
             print(f"  📊 Long: {ls.get('long_ratio', 0):.1f}%")
             print(f"  📊 Short: {ls.get('short_ratio', 0):.1f}%")
             print(f"  🎯 Sentiment: {ls.get('sentiment', 'Unknown')}")
+        
+        # Funding Rate
+        if 'funding_rate_data' in data:
+            funding = data['funding_rate_data']
+            print(f"  💱 Funding Rate: {funding.get('current_rate', 0):.4f}%")
 
 def test_specific_functions():
     """Test specific API functions"""
@@ -185,36 +189,12 @@ def test_coin_info():
         if description:
             print(f"  📝 Description: {description[:200]}...")
 
-def test_dummy_data_detection():
-    """Test dummy data detection"""
-    print_separator("DUMMY DATA DETECTION TEST")
-    
-    # Test with dummy data patterns
-    dummy_responses = [
-        {
-            'data': [{'fundingRate': '0', 'exchangeName': 'Binance'}],
-            'type': 'funding_rate'
-        },
-        {
-            'data': [{'longAccount': '50', 'shortAccount': '50'}],
-            'type': 'long_short_ratio'
-        },
-        {
-            'data': [{'volume24h': '0', 'price': '50000'}],
-            'type': 'ticker'
-        }
-    ]
-    
-    for test_case in dummy_responses:
-        is_dummy = data_provider.is_dummy_data(test_case, test_case['type'])
-        status = "❌ DUMMY" if is_dummy else "✅ REAL"
-        print(f"  {status} - {test_case['type']}: {test_case['data']}")
-
 def main():
     """Main test function"""
-    print_separator("COMPREHENSIVE API TEST SUITE")
+    print_separator("BINANCE + COINMARKETCAP API TEST SUITE")
     print(f"📅 Test Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"🐍 Python Version: {sys.version}")
+    print(f"📡 API Sources: Binance (Futures) + CoinMarketCap (Spot)")
     
     try:
         # Test API connections
@@ -223,8 +203,8 @@ def main():
         if connection_results.get('overall_status') in ['poor', 'error']:
             print("\n⚠️ WARNING: Poor API connectivity detected!")
             print("Please check your API keys in Replit Secrets:")
-            print("- COINGLASS_API_KEY")
             print("- CMC_API_KEY (or COINMARKETCAP_API_KEY)")
+            print("- Binance API is public, no key needed")
             return False
         
         # Run all tests
@@ -233,15 +213,15 @@ def main():
         test_specific_functions()
         test_market_overview()
         test_coin_info()
-        test_dummy_data_detection()
         
         print_separator("TEST RESULTS SUMMARY")
         print("✅ All tests completed successfully!")
         print(f"🔗 API Status: {connection_results.get('overall_status', 'unknown').upper()}")
         print(f"📊 Working APIs: {connection_results.get('working_apis', 0)}/{connection_results.get('total_apis', 0)}")
+        print(f"📡 Data Sources: Binance (Futures) + CoinMarketCap (Market Data)")
         
         # Recommendations
-        if connection_results.get('working_apis', 0) < 3:
+        if connection_results.get('working_apis', 0) < 2:
             print("\n💡 Recommendations:")
             for api_name, api_result in connection_results.get('apis', {}).items():
                 if api_result.get('status') != 'success':
