@@ -1,19 +1,14 @@
+
 # -*- coding: utf-8 -*-
 import requests
 import random
 import os
-import asyncio
 from datetime import datetime
-import html
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
         self.name = name
-
-        # Initialize CoinAPI key from environment
         self.coinapi_key = os.getenv("COINAPI_API_KEY")
-
-        # CoinAPI headers
         self.coinapi_headers = {
             "X-CoinAPI-Key": self.coinapi_key
         } if self.coinapi_key else {}
@@ -24,9 +19,11 @@ class AIAssistant:
         return f"Halo! Saya {self.name}, siap membantu analisis dan informasi crypto kamu."
 
     def analyze_text(self, text):
-        if "btc" in text.lower():
+        """Simple text analysis for crypto mentions"""
+        text_lower = text.lower()
+        if "btc" in text_lower:
             return "📈 BTC sedang menarik untuk dianalisis hari ini!"
-        elif "eth" in text.lower():
+        elif "eth" in text_lower:
             return "📉 ETH menunjukkan sinyal konsolidasi."
         else:
             return "Saya tidak yakin, tapi saya akan bantu cari datanya."
@@ -64,7 +61,6 @@ class AIAssistant:
     def get_coinapi_price(self, symbol="BTC"):
         """Get price data from CoinAPI"""
         try:
-            # Format symbol for CoinAPI (BTC -> BTC/USD)
             if "/" not in symbol:
                 symbol = f"{symbol.upper()}/USD"
 
@@ -91,7 +87,6 @@ class AIAssistant:
             if "/" not in symbol:
                 symbol = f"{symbol.upper()}/USD"
 
-            # Get current quote
             url = f"https://rest.coinapi.io/v1/quotes/{symbol}/current"
             response = requests.get(url, headers=self.coinapi_headers, timeout=10)
 
@@ -118,7 +113,6 @@ class AIAssistant:
             if "/" not in symbol:
                 symbol = f"{symbol.upper()}/USD"
 
-            # Get OHLCV data
             url = f"https://rest.coinapi.io/v1/ohlcv/{symbol}/history"
             params = {
                 'period_id': '1HRS',
@@ -143,10 +137,6 @@ class AIAssistant:
     def get_market_dominance(self):
         """Calculate market dominance for BTC, ETH, and ALT"""
         try:
-            # Get major crypto market caps from CoinAPI
-            btc_data = self.get_coinapi_market_data('BTC')
-            eth_data = self.get_coinapi_market_data('ETH')
-
             # Simulate market cap data (in real implementation, use actual market cap API)
             btc_market_cap = 600000000000  # ~$600B placeholder
             eth_market_cap = 300000000000  # ~$300B placeholder
@@ -178,7 +168,7 @@ class AIAssistant:
         try:
             price_data = self.get_coinapi_price(symbol)
             market_data = self.get_coinapi_market_data(symbol)
-            historical_data = self.get_coinapi_historical_data(symbol, 24)  # 24 hours
+            historical_data = self.get_coinapi_historical_data(symbol, 24)
 
             if 'error' in price_data:
                 return f"❌ Error: {price_data['error']}"
@@ -189,8 +179,8 @@ class AIAssistant:
             spread = ask - bid if ask > bid else 0
             volume_24h = market_data.get('volume_24h', 0)
 
-            # Enhanced confidence-based analysis (same as futures_signals)
-            confidence = random.randint(70, 95)  # Ensure high confidence
+            # Enhanced confidence-based analysis
+            confidence = random.randint(70, 95)
 
             # Force LONG or SHORT decision (no HOLD)
             direction_options = ['LONG', 'SHORT']
@@ -224,19 +214,11 @@ class AIAssistant:
             else:
                 risk_level = "High"
 
-            def format_price(price):
-                if price < 1:
-                    return f"${price:.6f}"
-                elif price < 100:
-                    return f"${price:.4f}"
-                else:
-                    return f"${price:,.2f}"
-
             return f"""🎯 FUTURES ANALYSIS - {symbol}
 
-💰 **Current Price**: {format_price(current_price)}
-📊 **Bid**: {format_price(bid)}
-📈 **Ask**: {format_price(ask)}
+💰 **Current Price**: ${self._format_price(current_price)}
+📊 **Bid**: ${self._format_price(bid)}
+📈 **Ask**: ${self._format_price(ask)}
 📉 **Spread**: ${spread:,.4f}
 📊 **Volume 24h**: ${volume_24h:,.0f}
 
@@ -246,9 +228,9 @@ class AIAssistant:
 
 🎯 **TRADING SETUP:**
 • **Entry Strategy**: {entry_strategy}
-• **Target 1**: {format_price(target_1)}
-• **Target 2**: {format_price(target_2)}
-• **Stop Loss**: {format_price(stop_loss)} (**WAJIB!**)
+• **Target 1**: ${self._format_price(target_1)}
+• **Target 2**: ${self._format_price(target_2)}
+• **Stop Loss**: ${self._format_price(stop_loss)} (**WAJIB!**)
 • **Risk Level**: {risk_level}
 • **Confidence**: {confidence}%
 
@@ -265,19 +247,15 @@ class AIAssistant:
         try:
             print(f"🎯 Starting CoinAPI futures analysis for {symbol} {timeframe}")
 
-            # Get CoinAPI data
             price_data = self.get_coinapi_price(symbol)
             historical_data = self.get_coinapi_historical_data(symbol, 50)
 
             if 'error' in price_data:
                 return self._generate_emergency_futures_signal(symbol, timeframe, language, price_data['error'])
 
-            # Generate trading signal
-            trading_signal = self._format_coinapi_futures_analysis(
+            return self._format_coinapi_futures_analysis(
                 symbol, timeframe, price_data, historical_data, language
             )
-
-            return trading_signal
 
         except Exception as e:
             print(f"❌ Error in futures analysis: {e}")
@@ -289,7 +267,7 @@ class AIAssistant:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             current_price = price_data.get('price', 0)
 
-            # Enhanced trend analysis with multiple factors
+            # Enhanced trend analysis
             trend_score = 0
             volume_score = 0
             momentum_score = 0
@@ -297,11 +275,9 @@ class AIAssistant:
             if 'error' not in historical_data and historical_data.get('data'):
                 recent_data = historical_data['data'][-10:]
                 if len(recent_data) >= 5:
-                    # Price momentum analysis
                     prices = [float(candle.get('price_close', current_price)) for candle in recent_data]
                     price_change = ((prices[-1] - prices[0]) / prices[0]) * 100 if prices[0] > 0 else 0
 
-                    # Volume trend analysis
                     volumes = [float(candle.get('volume_traded', 0)) for candle in recent_data if candle.get('volume_traded', 0) > 0]
                     if len(volumes) >= 3:
                         recent_vol = sum(volumes[-3:]) / 3
@@ -323,60 +299,40 @@ class AIAssistant:
                     elif volume_increase < -20:
                         volume_score = -1
 
-            # Enhanced signal generation (Force LONG or SHORT)
-            total_score = trend_score + volume_score + momentum_score
-
-            # Random element for varied signals
-            random_factor = random.randint(-1, 1)
-            final_score = total_score + random_factor
+            total_score = trend_score + volume_score + momentum_score + random.randint(-1, 1)
 
             # Determine trend direction
-            if final_score >= 0:
+            if total_score >= 0:
                 trend_direction = 'bullish'
-            else:
-                trend_direction = 'bearish'
-
-            # Force binary decision (no HOLD)
-            if final_score >= 0:
                 direction = "LONG"
                 direction_emoji = "🟢"
                 signal_emoji = "📈"
                 confidence = random.randint(75, 92)
                 reason = f"Bullish momentum with {confidence}% confidence"
-                market_structure = "Bullish bias confirmed"
             else:
+                trend_direction = 'bearish'
                 direction = "SHORT"
                 direction_emoji = "🔴"
                 signal_emoji = "📉"
                 confidence = random.randint(72, 88)
                 reason = f"Bearish momentum with {confidence}% confidence"
-                market_structure = "Bearish bias confirmed"
-
-            # Format price display
-            def format_price(price):
-                if price < 1:
-                    return f"${price:.6f}"
-                elif price < 100:
-                    return f"${price:.4f}"
-                else:
-                    return f"${price:,.2f}"
 
             if language == 'id':
                 message = f"""🎯 **ANALISA FUTURES - {symbol.upper()} ({timeframe})**
 
 💰 **Data Real-time (CoinAPI):**
-• **Harga**: {format_price(current_price)}
+• **Harga**: ${self._format_price(current_price)}
 
 {direction_emoji} **SINYAL**: **{direction}** {signal_emoji}
 📊 **Confidence**: {confidence}%
 
 📊 **ANALISA TEKNIKAL:**
 • **Trend Direction**: {trend_direction.title()}
-• **Market Momentum**: {'Positive' if trend_direction == 'bullish' else 'Negative' if trend_direction == 'bearish' else 'Neutral'}
+• **Market Momentum**: {'Positive' if trend_direction == 'bullish' else 'Negative'}
 
 🧠 **TRADING INSIGHT:**
 • **Reason**: {reason}
-• **Market Structure**: {'Bullish bias' if trend_direction == 'bullish' else 'Bearish bias' if trend_direction == 'bearish' else 'Range-bound'}"""
+• **Market Structure**: {'Bullish bias' if trend_direction == 'bullish' else 'Bearish bias'}"""
 
                 if direction != 'HOLD':
                     entry_price = current_price * (0.998 if direction == 'LONG' else 1.002)
@@ -387,19 +343,12 @@ class AIAssistant:
                     message += f"""
 
 📌 **TRADING SETUP:**
-┣━ 📍 **ENTRY**: {format_price(entry_price)}
-┣━ 🎯 **TP1**: {format_price(tp1)} (RR 2:1)
-┣━ 🎯 **TP2**: {format_price(tp2)} (RR 4:1)
-┗━ 🛡️ **STOP LOSS**: {format_price(sl)} (**WAJIB!**)
+┣━ 📍 **ENTRY**: ${self._format_price(entry_price)}
+┣━ 🎯 **TP1**: ${self._format_price(tp1)} (RR 2:1)
+┣━ 🎯 **TP2**: ${self._format_price(tp2)} (RR 4:1)
+┗━ 🛡️ **STOP LOSS**: ${self._format_price(sl)} (**WAJIB!**)
 
 💡 **Strategi**: {reason}"""
-                else:
-                    message += f"""
-
-⏸️ **HOLD POSITION**
-• **Alasan**: {reason}
-• **Tunggu**: Setup yang lebih jelas
-• **Monitor**: Perubahan trend dan momentum"""
 
                 message += f"""
 
@@ -412,18 +361,18 @@ class AIAssistant:
                 message = f"""🎯 **FUTURES ANALYSIS - {symbol.upper()} ({timeframe})**
 
 💰 **Real-time Data (CoinAPI):**
-• **Price**: {format_price(current_price)}
+• **Price**: ${self._format_price(current_price)}
 
 {direction_emoji} **SIGNAL**: **{direction}** {signal_emoji}
 📊 **Confidence**: {confidence}%
 
 📊 **TECHNICAL ANALYSIS:**
 • **Trend Direction**: {trend_direction.title()}
-• **Market Momentum**: {'Positive' if trend_direction == 'bullish' else 'Negative' if trend_direction == 'bearish' else 'Neutral'}
+• **Market Momentum**: {'Positive' if trend_direction == 'bullish' else 'Negative'}
 
 🧠 **TRADING INSIGHT:**
 • **Reason**: {reason}
-• **Market Structure**: {'Bullish bias' if trend_direction == 'bullish' else 'Bearish bias' if trend_direction == 'bearish' else 'Range-bound'}"""
+• **Market Structure**: {'Bullish bias' if trend_direction == 'bullish' else 'Bearish bias'}"""
 
                 if direction != 'HOLD':
                     entry_price = current_price * (0.998 if direction == 'LONG' else 1.002)
@@ -433,9 +382,9 @@ class AIAssistant:
                     message += f"""
 
 📌 **TRADING SETUP:**
-• **ENTRY**: {format_price(entry_price)}
-• **TP1**: {format_price(tp1)}
-• **STOP LOSS**: {format_price(sl)}"""
+• **ENTRY**: ${self._format_price(entry_price)}
+• **TP1**: ${self._format_price(tp1)}
+• **STOP LOSS**: ${self._format_price(sl)}"""
 
                 message += f"""
 
@@ -452,7 +401,6 @@ class AIAssistant:
     async def generate_futures_signals(self, language='id', crypto_api=None, context_args=None):
         """Generate futures signals using CoinAPI"""
         try:
-            # Get top coins for analysis
             top_coins = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'AVAX', 'DOT', 'MATIC', 'LINK']
 
             # Process query args if provided
@@ -476,14 +424,11 @@ class AIAssistant:
             total_analyzed = 0
             successful_analysis = 0
 
-            if language == 'id':
-                header = f"""🎯 **SINYAL FUTURES COINAPI**
+            header = f"""🎯 **SINYAL FUTURES COINAPI**
 ⏰ {current_time}
 
 📊 **Analisis Real-time CoinAPI:**
-"""
-            else:
-                header = f"""🎯 **COINAPI FUTURES SIGNALS**
+""" if language == 'id' else f"""🎯 **COINAPI FUTURES SIGNALS**
 ⏰ {current_time}
 
 📊 **Real-time CoinAPI Analysis:**
@@ -493,17 +438,11 @@ class AIAssistant:
             for symbol in top_coins[:8]:
                 try:
                     total_analyzed += 1
-
-                    # Get CoinAPI data
                     price_data = self.get_coinapi_price(symbol)
 
                     if 'error' not in price_data:
                         successful_analysis += 1
-
-                        # Generate simple trading signal
                         current_price = price_data.get('price', 0)
-
-                        # Simple momentum analysis (placeholder)
                         confidence = random.randint(60, 90)
                         direction = random.choice(['LONG', 'SHORT', 'HOLD'])
 
@@ -537,32 +476,15 @@ class AIAssistant:
                     sl = signal['sl']
                     reason = signal['reason']
 
-                    # Direction emoji
-                    if direction == 'LONG':
-                        emoji = "🟢"
-                        signal_emoji = "📈"
-                    elif direction == 'SHORT':
-                        emoji = "🔴"
-                        signal_emoji = "📉"
-                    else:
-                        emoji = "⏸️"
-                        signal_emoji = "📊"
-
-                    def format_price(price):
-                        if price < 1:
-                            return f"${price:.6f}"
-                        elif price < 100:
-                            return f"${price:.4f}"
-                        else:
-                            return f"${price:,.2f}"
+                    emoji = "🟢" if direction == 'LONG' else "🔴"
+                    signal_emoji = "📈" if direction == 'LONG' else "📉"
 
                     signals_text += f"""
 **{i}. {symbol}** {emoji} **{direction}** {signal_emoji} ({confidence}%)
-• Entry: {format_price(entry)} | TP: {format_price(tp1)} | SL: {format_price(sl)}
+• Entry: ${self._format_price(entry)} | TP: ${self._format_price(tp1)} | SL: ${self._format_price(sl)}
 • Reason: {reason[:60]}{'...' if len(reason) > 60 else ''}"""
 
-                if language == 'id':
-                    signals_text += f"""
+                footer = f"""
 
 🎯 **Ringkasan Analysis:**
 • **High-Confidence Signals**: {len(high_confidence_signals)}/{total_analyzed} coins
@@ -578,9 +500,7 @@ class AIAssistant:
 
 📡 **Data Sources**: CoinAPI Professional
 🔄 **Update**: Real-time
-⭐ **Premium** – CoinAPI Integration"""
-                else:
-                    signals_text += f"""
+⭐ **Premium** – CoinAPI Integration""" if language == 'id' else f"""
 
 🎯 **Analysis Summary:**
 • **High-Confidence Signals**: {len(high_confidence_signals)}/{total_analyzed} coins
@@ -598,10 +518,9 @@ class AIAssistant:
 🔄 **Update**: Real-time
 ⭐ **Premium** – CoinAPI Integration"""
 
-                return signals_text
+                return signals_text + footer
             else:
-                if language == 'id':
-                    return f"""😔 **Tidak Ada Sinyal High-Confidence (70%+)**
+                no_signals_msg = f"""😔 **Tidak Ada Sinyal High-Confidence (70%+)**
 
 🔍 **Status Analysis:**
 • Coins Analyzed: {successful_analysis}/{total_analyzed}
@@ -617,9 +536,7 @@ class AIAssistant:
 • Gunakan `/futures <symbol>` untuk analisis spesifik coin
 • Coba lagi dalam 30-60 menit
 
-⏰ Update: {current_time}"""
-                else:
-                    return f"""😔 **No High-Confidence Signals (70%+) Found**
+⏰ Update: {current_time}""" if language == 'id' else f"""😔 **No High-Confidence Signals (70%+) Found**
 
 🔍 **Analysis Status:**
 • Coins Analyzed: {successful_analysis}/{total_analyzed}
@@ -636,6 +553,8 @@ class AIAssistant:
 • Try again in 30-60 minutes
 
 ⏰ Update: {current_time}"""
+
+                return no_signals_msg
 
         except Exception as e:
             print(f"Error in futures signals: {e}")
@@ -679,7 +598,6 @@ Gunakan `/price btc` untuk cek harga terkini!"""
             elif any(keyword in text_lower for keyword in ['terima kasih', 'thanks', 'thx']):
                 return "🙏 Sama-sama! Senang bisa membantu belajar crypto Anda. Jangan ragu untuk bertanya lagi!"
 
-            # Default response for unmatched queries
             else:
                 return f"""🤖 **CryptoMentor AI**
 
@@ -739,8 +657,6 @@ Ask me anything about crypto! 🚀"""
         """Get market sentiment with CoinAPI integration and dominance data"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
-
-            # Get major crypto prices from CoinAPI
             major_cryptos = ['BTC', 'ETH', 'BNB', 'ADA', 'SOL']
             market_data = {}
             successful_fetches = 0
@@ -751,7 +667,6 @@ Ask me anything about crypto! 🚀"""
                     market_data[symbol] = price_data
                     successful_fetches += 1
 
-            # Get market dominance data
             dominance_data = self.get_market_dominance()
 
             if language == 'id':
@@ -780,17 +695,13 @@ Ask me anything about crypto! 🚀"""
 """
 
             if successful_fetches > 0:
-                if language == 'id':
-                    analysis += "💰 **Harga Major Cryptocurrencies (CoinAPI):**\n"
-                else:
-                    analysis += "💰 **Major Cryptocurrency Prices (CoinAPI):**\n"
+                analysis += "💰 **Harga Major Cryptocurrencies (CoinAPI):**\n" if language == 'id' else "💰 **Major Cryptocurrency Prices (CoinAPI):**\n"
 
                 total_market_sentiment = 0
                 for symbol, data in market_data.items():
                     price = data.get('price', 0)
                     price_format = f"${price:.4f}" if price < 100 else f"${price:,.2f}"
 
-                    # Simple sentiment analysis (placeholder)
                     sentiment_score = random.randint(-5, 5)
                     total_market_sentiment += sentiment_score
 
@@ -857,64 +768,25 @@ Ask me anything about crypto! 🚀"""
 💎 **Analysis**: Real-time Market Data"""
 
             else:
-                if language == 'id':
-                    analysis += """⚠️ **Data CoinAPI tidak tersedia**
-
-💡 **Alternatif yang bisa dicoba:**
-• `/price btc` - Cek harga Bitcoin
-• `/price eth` - Cek harga Ethereum
-• Pastikan COINAPI_API_KEY sudah diatur di Secrets
-
-🔄 Coba command `/market` lagi dalam beberapa menit."""
-                else:
-                    analysis += """⚠️ **CoinAPI data unavailable**
-
-💡 **Alternatives to try:**
-• `/price btc` - Check Bitcoin price
-• `/price eth` - Check Ethereum price
-• Make sure COINAPI_API_KEY is set in Secrets
-
-🔄 Try `/market` command again in a few minutes."""
+                error_msg = "⚠️ **Data CoinAPI tidak tersedia**" if language == 'id' else "⚠️ **CoinAPI data unavailable**"
+                analysis += error_msg
 
             return analysis
 
         except Exception as e:
             print(f"❌ Error in market sentiment: {e}")
-
-            if language == 'id':
-                return f"""❌ **Error mengambil data pasar**
-
-**Detail**: {str(e)[:100]}...
-
-💡 **Solusi**:
-• Pastikan COINAPI_API_KEY sudah diatur di Secrets
-• Coba lagi dalam beberapa menit
-• Gunakan `/price btc` untuk harga basic
-
-🔄 **Note**: Sistem menggunakan CoinAPI Professional"""
-            else:
-                return f"""❌ **Error fetching market data**
-
-**Detail**: {str(e)[:100]}...
-
-💡 **Solutions**:
-• Make sure COINAPI_API_KEY is set in Secrets
-• Try again in a few minutes
-• Use `/price btc` for basic prices
-
-🔄 **Note**: System uses CoinAPI Professional"""
+            error_msg = f"❌ **Error mengambil data pasar**\n\n**Detail**: {str(e)[:100]}..." if language == 'id' else f"❌ **Error fetching market data**\n\n**Detail**: {str(e)[:100]}..."
+            return error_msg
 
     def get_comprehensive_analysis(self, symbol, timeframe=None, leverage=None, language='id', crypto_api=None):
         """Get comprehensive analysis with CoinAPI data and SnD zones"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
 
-            # Get CoinAPI data
             price_data = self.get_coinapi_price(symbol)
             market_data = self.get_coinapi_market_data(symbol)
             historical_data = self.get_coinapi_historical_data(symbol, 50)
 
-            # Get Supply and Demand analysis
             snd_analysis = self.analyze_supply_demand_zones(symbol, historical_data)
 
             successful_sources = 0
@@ -952,23 +824,20 @@ Ask me anything about crypto! 🚀"""
                 quality = "ERROR"
                 quality_emoji = "❌"
 
-            # Extract price data
             current_price = price_data.get('price', 0) if 'error' not in price_data else 0
             bid_price = market_data.get('bid', current_price) if 'error' not in market_data else current_price
             ask_price = market_data.get('ask', current_price) if 'error' not in market_data else current_price
             volume_24h = market_data.get('volume_24h', 0) if 'error' not in market_data else 0
 
-            # Enhanced technical analysis with multiple indicators
+            # Enhanced technical analysis
             if 'error' not in historical_data and historical_data.get('data'):
-                recent_data = historical_data['data'][-20:]  # More data points
+                recent_data = historical_data['data'][-20:]
                 if len(recent_data) >= 10:
                     prices = [float(candle.get('price_close', current_price)) for candle in recent_data]
                     volumes = [float(candle.get('volume_traded', 0)) for candle in recent_data if candle.get('volume_traded', 0) > 0]
 
-                    # Price change calculation
                     price_change = ((current_price - prices[0]) / prices[0]) * 100 if prices[0] > 0 else 0
 
-                    # Volume trend
                     if len(volumes) >= 6:
                         recent_vol_avg = sum(volumes[-3:]) / 3
                         older_vol_avg = sum(volumes[:3]) / 3
@@ -976,7 +845,6 @@ Ask me anything about crypto! 🚀"""
                     else:
                         volume_trend = 0
 
-                    # Momentum calculation
                     if len(prices) >= 5:
                         short_ma = sum(prices[-5:]) / 5
                         long_ma = sum(prices[:10]) / 10
@@ -984,11 +852,11 @@ Ask me anything about crypto! 🚀"""
                     else:
                         momentum = 0
                 else:
-                    price_change = random.uniform(-3, 3)  # Random for variety
+                    price_change = random.uniform(-3, 3)
                     volume_trend = random.uniform(-10, 10)
                     momentum = random.uniform(-2, 2)
             else:
-                price_change = random.uniform(-3, 3)  # Fallback random values
+                price_change = random.uniform(-3, 3)
                 volume_trend = random.uniform(-10, 10)
                 momentum = random.uniform(-2, 2)
 
@@ -1012,10 +880,7 @@ Ask me anything about crypto! 🚀"""
 📊 **2. MARKET DATA (CoinAPI)**"""
 
             if volume_24h > 0:
-                if volume_24h > 1000000:
-                    volume_format = f"${volume_24h/1000000:.1f}M"
-                else:
-                    volume_format = f"${volume_24h:,.0f}"
+                volume_format = f"${volume_24h/1000000:.1f}M" if volume_24h > 1000000 else f"${volume_24h:,.0f}"
                 analysis += f"\n• **Volume 24h**: {volume_format}"
 
             spread = ask_price - bid_price if ask_price > bid_price else 0
@@ -1023,14 +888,13 @@ Ask me anything about crypto! 🚀"""
                 spread_pct = (spread / current_price) * 100
                 analysis += f"\n• **Bid-Ask Spread**: {spread_pct:.3f}%"
 
-            # Enhanced technical analysis (avoid HOLD)
             analysis += f"""
 
 📈 **3. TECHNICAL ANALYSIS**"""
 
             # Calculate composite score
             composite_score = price_change + (momentum * 0.5) + (volume_trend * 0.2)
-            confidence = random.randint(70, 92)  # High confidence range
+            confidence = random.randint(70, 92)
 
             # Force binary decision based on composite analysis
             if composite_score > 0 or (composite_score == 0 and random.choice([True, False])):
@@ -1065,12 +929,11 @@ Ask me anything about crypto! 🚀"""
 
 🎯 **4. SUPPLY & DEMAND ZONES**"""
 
-            # Add enhanced SnD analysis
+            # Add SnD analysis
             if 'error' not in snd_analysis:
                 supply_zones = snd_analysis.get('supply_zones', [])
                 demand_zones = snd_analysis.get('demand_zones', [])
 
-                # Display multiple supply zones
                 if supply_zones:
                     analysis += f"""
 📉 **SUPPLY ZONES (Resistance Areas):**"""
@@ -1082,7 +945,6 @@ Ask me anything about crypto! 🚀"""
   - Strength: {zone.get('strength', 0):.1f}%
   - Distance: {distance:+.2f}% from current price"""
 
-                # Display multiple demand zones
                 if demand_zones:
                     analysis += f"""
 
@@ -1095,14 +957,12 @@ Ask me anything about crypto! 🚀"""
   - Strength: {zone.get('strength', 0):.1f}%
   - Distance: {distance:+.2f}% from current price"""
 
-                # Enhanced trading setup recommendations
                 setup_recommendation = self.generate_enhanced_snd_setup_recommendation(current_price, supply_zones, demand_zones, trend)
                 analysis += f"""
 
 🎯 **TRADING SETUP RECOMMENDATION:**
 {setup_recommendation}"""
 
-                # Add zone analysis summary
                 zone_summary = self.analyze_zone_proximity(current_price, supply_zones, demand_zones)
                 analysis += f"""
 
@@ -1155,7 +1015,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
 💡 **Note**: Bot menggunakan CoinAPI sebagai sumber utama"""
 
     def _generate_emergency_futures_signal(self, symbol, timeframe, language='id', error_msg=""):
-        """Generate a fallback signal in case of errors."""
+        """Generate a fallback signal in case of errors"""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
 
         if language == 'id':
@@ -1270,7 +1130,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
                 nearest_supply = supply_zones[0]
                 supply_distance_pct = ((nearest_supply['price'] - current_price) / current_price) * 100
 
-                if supply_distance_pct > 0 and supply_distance_pct < 3:  # Approaching supply within 3%
+                if 0 < supply_distance_pct < 3:  # Approaching supply within 3%
                     strength_emoji = "🔥" if nearest_supply.get('strength', 0) > 70 else "⭐"
                     recommendations.append(f"• **SHORT Setup**: Approaching Supply ${nearest_supply['price']:.4f} {strength_emoji}")
                     recommendations.append(f"  - Entry Zone: Around ${current_price:.4f} (expecting rejection)")
@@ -1278,15 +1138,13 @@ Terjadi kesalahan saat memproses data CoinAPI.
                     if demand_zones:
                         target = demand_zones[0]['price']
                         recommendations.append(f"  - Target: Nearest Demand ${target:.4f}")
-                elif supply_distance_pct < 0: # Already passed supply
-                    pass # Do nothing if price is already above supply
 
             # Setup for approaching Demand zones
             if demand_zones:
                 nearest_demand = demand_zones[0]
                 demand_distance_pct = ((current_price - nearest_demand['price']) / current_price) * 100
 
-                if demand_distance_pct > 0 and demand_distance_pct < 3:  # Approaching demand within 3%
+                if 0 < demand_distance_pct < 3:  # Approaching demand within 3%
                     strength_emoji = "🔥" if nearest_demand.get('strength', 0) > 70 else "⭐"
                     recommendations.append(f"• **LONG Setup**: Approaching Demand ${nearest_demand['price']:.4f} {strength_emoji}")
                     recommendations.append(f"  - Entry Zone: Around ${current_price:.4f} (expecting support)")
@@ -1294,8 +1152,6 @@ Terjadi kesalahan saat memproses data CoinAPI.
                     if supply_zones:
                         target = supply_zones[0]['price']
                         recommendations.append(f"  - Target: Nearest Supply ${target:.4f}")
-                elif demand_distance_pct < 0: # Already passed demand
-                    pass # Do nothing if price is already below demand
 
             # Default recommendation if no specific setup is triggered
             if not recommendations:
@@ -1323,7 +1179,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
             return f"• **Setup Error**: {str(e)[:50]}"
 
     def analyze_zone_proximity(self, current_price, supply_zones, demand_zones):
-        """Analyze the proximity of current price to supply and demand zones."""
+        """Analyze the proximity of current price to supply and demand zones"""
         try:
             analysis_points = []
 
@@ -1332,7 +1188,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
                 nearest_supply = supply_zones[0]
                 distance_pct = ((nearest_supply['price'] - current_price) / current_price) * 100
 
-                if distance_pct > 0.1 and distance_pct < 3:
+                if 0.1 < distance_pct < 3:
                     analysis_points.append(f"Close to Supply ${nearest_supply['price']:.4f} ({distance_pct:+.2f}%)")
                 elif distance_pct < 0.1:
                     analysis_points.append(f"Past Supply ${nearest_supply['price']:.4f}")
@@ -1346,7 +1202,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
                 nearest_demand = demand_zones[0]
                 distance_pct = ((current_price - nearest_demand['price']) / current_price) * 100
 
-                if distance_pct > 0.1 and distance_pct < 3:
+                if 0.1 < distance_pct < 3:
                     analysis_points.append(f"Close to Demand ${nearest_demand['price']:.4f} ({distance_pct:+.2f}%)")
                 elif distance_pct < 0.1:
                     analysis_points.append(f"Past Demand ${nearest_demand['price']:.4f}")
@@ -1359,142 +1215,6 @@ Terjadi kesalahan saat memproses data CoinAPI.
 
         except Exception as e:
             return f"• **Proximity Analysis Error**: {str(e)[:50]}"
-
-    def analyze_volume_pattern(self, historical_data, current_price):
-        """Analyze volume patterns for trading signals"""
-        try:
-            if 'error' in historical_data or not historical_data.get('data'):
-                return {'signal': 'Neutral', 'strength': 0, 'trend': 'Unknown'}
-
-            candles = historical_data['data'][-10:]  # Last 10 periods
-
-            volumes = []
-            price_changes = []
-
-            for i, candle in enumerate(candles):
-                volume = float(candle.get('volume_traded', candle.get('volume', 0)))
-                close = float(candle.get('price_close', candle.get('close', 0)))
-
-                volumes.append(volume)
-
-                if i > 0:
-                    prev_close = float(candles[i-1].get('price_close', candles[i-1].get('close', 0)))
-                    price_change = ((close - prev_close) / prev_close) * 100
-                    price_changes.append(price_change)
-
-            if len(volumes) < 5:
-                return {'signal': 'Insufficient Data', 'strength': 0, 'trend': 'Unknown'}
-
-            # Calculate volume trend
-            recent_avg_volume = sum(volumes[-3:]) / 3
-            older_avg_volume = sum(volumes[:3]) / 3
-
-            volume_increase = recent_avg_volume > older_avg_volume * 1.2
-            volume_decrease = recent_avg_volume < older_avg_volume * 0.8
-
-            # Calculate price momentum
-            recent_momentum = sum(price_changes[-3:]) if price_changes else 0
-
-            # Generate volume signal
-            if volume_increase and recent_momentum > 0:
-                return {
-                    'signal': 'Bullish Volume Breakout',
-                    'strength': 80,
-                    'trend': 'Volume supports upward movement',
-                    'recommendation': 'Consider LONG positions'
-                }
-            elif volume_increase and recent_momentum < 0:
-                return {
-                    'signal': 'Bearish Volume Breakout',
-                    'strength': 80,
-                    'trend': 'Volume supports downward movement',
-                    'recommendation': 'Consider SHORT positions'
-                }
-            elif volume_decrease:
-                return {
-                    'signal': 'Low Volume Consolidation',
-                    'strength': 40,
-                    'trend': 'Weak momentum, range-bound',
-                    'recommendation': 'Avoid new positions'
-                }
-            else:
-                return {
-                    'signal': 'Neutral Volume',
-                    'strength': 50,
-                    'trend': 'Balanced volume activity',
-                    'recommendation': 'Wait for clear volume signal'
-                }
-
-        except Exception as e:
-            return {'signal': 'Analysis Error', 'strength': 0, 'trend': f'Error: {str(e)[:30]}'}
-
-    def get_volume_based_recommendation(self, volume_analysis, price_data):
-        """Generate volume-based long/short recommendations"""
-        try:
-            signal = volume_analysis.get('signal', 'Neutral')
-            strength = volume_analysis.get('strength', 50)
-            trend = volume_analysis.get('trend', 'Unknown')
-
-            current_price = price_data.get('price', 0)
-
-            if 'Bullish Volume Breakout' in signal:
-                return {
-                    'signal': '🟢 LONG SIGNAL',
-                    'trend': 'Strong Bullish',
-                    'reason': 'High volume supporting price increase',
-                    'entry_strategy': 'Buy on volume breakout confirmation',
-                    'risk_level': 'Medium',
-                    'confidence': strength,
-                    'target_1': current_price * 1.03,
-                    'target_2': current_price * 1.06,
-                    'stop_loss': current_price * 0.97
-                }
-            elif 'Bearish Volume Breakout' in signal:
-                return {
-                    'signal': '🔴 SHORT SIGNAL',
-                    'trend': 'Strong Bearish',
-                    'reason': 'High volume supporting price decrease',
-                    'entry_strategy': 'Sell on volume breakdown confirmation',
-                    'risk_level': 'Medium',
-                    'confidence': strength,
-                    'target_1': current_price * 0.97,
-                    'target_2': current_price * 0.94,
-                    'stop_loss': current_price * 1.03
-                }
-            elif 'Low Volume' in signal:
-                return {
-                    'signal': '⏸️ HOLD/AVOID',
-                    'trend': 'Consolidation',
-                    'reason': 'Low volume indicates weak momentum',
-                    'entry_strategy': 'Wait for volume spike and direction',
-                    'risk_level': 'Low',
-                    'confidence': strength,
-                    'target_1': current_price,
-                    'target_2': current_price,
-                    'stop_loss': current_price
-                }
-            else:
-                return {
-                    'signal': '🟡 NEUTRAL',
-                    'trend': 'Range-bound',
-                    'reason': 'Balanced volume activity, no clear direction',
-                    'entry_strategy': 'Monitor for volume confirmation',
-                    'risk_level': 'Medium',
-                    'confidence': strength,
-                    'target_1': current_price * 1.02,
-                    'target_2': current_price * 0.98,
-                    'stop_loss': current_price * 0.98
-                }
-
-        except Exception as e:
-            return {
-                'signal': '❌ ERROR',
-                'trend': 'Unknown',
-                'reason': f'Analysis error: {str(e)[:50]}',
-                'entry_strategy': 'Fix data connection',
-                'risk_level': 'High',
-                'confidence': 0
-            }
 
     def generate_supply_demand_zone(self, price: float):
         """Generate Supply & Demand Zones analysis"""
@@ -1524,3 +1244,12 @@ Terjadi kesalahan saat memproses data CoinAPI.
 """
         except Exception as e:
             return f"• **SnD Zone Error**: {str(e)[:50]}"
+
+    def _format_price(self, price):
+        """Format price display based on value"""
+        if price < 1:
+            return f"{price:.6f}"
+        elif price < 100:
+            return f"{price:.4f}"
+        else:
+            return f"{price:,.2f}"
