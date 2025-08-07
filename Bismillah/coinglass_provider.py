@@ -4,6 +4,7 @@ import requests
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
+from config import get_coinglass_headers, COINGLASS_ENDPOINTS
 
 class CoinGlassProvider:
     """

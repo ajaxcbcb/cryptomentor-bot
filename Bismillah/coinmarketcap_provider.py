@@ -3,6 +3,7 @@ import requests
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
+from config import get_coinmarketcap_headers, COINMARKETCAP_ENDPOINTS
 
 class CoinMarketCapProvider:
     """
