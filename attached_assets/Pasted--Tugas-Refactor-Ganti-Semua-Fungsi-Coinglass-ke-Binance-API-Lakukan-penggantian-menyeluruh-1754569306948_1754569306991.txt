@@ -1,0 +1,74 @@
+# 🎯 Tugas Refactor: Ganti Semua Fungsi Coinglass ke Binance API
+
+Lakukan **penggantian menyeluruh** di seluruh project dengan detail berikut:
+
+---
+
+## 1. HAPUS & GANTI SEMUA YANG BERKAITAN DENGAN COINGLASS
+- Hapus semua:
+  - Import dan file yang menggunakan `coinglass`
+  - Fungsi seperti `get_comprehensive_coinglass_data`, `get_futures_from_coinglass`, dll
+  - Endpoint, variabel, dan logging yang menyebut `coinglass`
+  - Secrets seperti `COINGLASS_API_KEY` jika tidak lagi digunakan
+
+---
+
+## 2. GUNAKAN BINANCE API UNTUK GANTIKAN COINGLASS
+Ganti logika sebelumnya dengan data dari **Binance API**, contoh:
+
+- Ganti:
+```python
+coinglass.get_long_short_ratio("BTC")
+Menjadi:
+
+python
+Copy
+Edit
+binance.get_long_short_ratio("BTCUSDT")
+Ganti:
+
+python
+Copy
+Edit
+coinglass.get_open_interest("BTC")
+Menjadi:
+
+python
+Copy
+Edit
+binance.get_futures_open_interest("BTCUSDT")
+Ganti funding rate, leverage ratio, dan data futures lainnya ke versi Binance
+
+Gunakan endpoint Binance Futures (REST API):
+
+https://fapi.binance.com/fapi/v1/longShortRatio
+
+https://fapi.binance.com/fapi/v1/fundingRate
+
+https://fapi.binance.com/fapi/v1/openInterest
+
+dll
+
+3. PERBARUI SEMUA FUNGSI TERKAIT
+Jika ada fungsi seperti get_futures_analysis, generate_futures_signal, fetch_market_bias, dll → ubah agar menggunakan data dari Binance
+
+Ubah template output (seperti pada command /futures) agar tidak menyebut Coinglass sama sekali
+
+Ganti label 📡 Data Source: Coinglass menjadi 📡 Data Source: Binance
+
+4. PASTIKAN KODE BERJALAN
+Semua command seperti /futures, /analyze, dll tetap berjalan normal
+
+Tidak ada error akibat fungsi Coinglass yang dihapus
+
+Logika analisis tetap tersedia dengan data dari Binance saja
+
+Catatan
+Biarkan CoinMarketCap tetap digunakan untuk data pasar umum (CMC StartUp)
+
+Fokus hanya pada Binance untuk menggantikan seluruh fitur Coinglass
+
+Tujuan Akhir:
+✅ Tidak ada sisa kode Coinglass
+✅ Semua analisis futures dan signal menggunakan Binance
+✅ Bot tetap berjalan lancar
