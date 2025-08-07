@@ -913,6 +913,7 @@ Ask me anything about crypto! 🚀"""
             price_data = self.get_coinapi_price(symbol)
             market_data = self.get_coinapi_market_data(symbol)
             historical_data = self.get_coinapi_historical_data(symbol, 50)
+            sr_analysis = self.analyze_support_resistance(historical_data) # Added SR analysis call
 
             # Get Supply and Demand analysis
             snd_analysis = self.analyze_supply_demand_zones(symbol, historical_data)
@@ -1059,9 +1060,58 @@ Ask me anything about crypto! 🚀"""
             analysis += f"""
 • **Trend**: {trend_emoji} {trend}
 • **Momentum**: {'Positive' if price_change > 0 else 'Negative' if price_change < 0 else 'Sideways'}
-• **Volatility**: {'High' if abs(price_change) > 5 else 'Normal'}
+• **Volatility**: {'High' if abs(price_change) > 5 else 'Normal'}"""
 
-🎯 **4. SUPPLY & DEMAND ZONES**"""
+            analysis += f"""
+
+🎯 **4. SUPPORT & RESISTANCE LEVELS**"""
+
+            # Add Support & Resistance analysis
+            if 'error' not in sr_analysis:
+                resistance_levels = sr_analysis.get('resistance_levels', [])
+                support_levels = sr_analysis.get('support_levels', [])
+
+                # Display resistance levels
+                if resistance_levels:
+                    analysis += f"""
+🔴 **RESISTANCE LEVELS:**"""
+                    for i, level in enumerate(resistance_levels[:3], 1):
+                        distance = ((level.get('price', 0) - current_price) / current_price) * 100
+                        strength_emoji = "🔥" if level.get('strength', 0) > 80 else "⭐" if level.get('strength', 0) > 60 else "💡"
+                        test_count = level.get('test_count', 0)
+                        analysis += f"""
+• **R{i}**: ${level.get('price', 0):.4f} {strength_emoji}
+  - Strength: {level.get('strength', 0):.1f}% | Tests: {test_count}x
+  - Distance: {distance:+.2f}% from current price"""
+
+                # Display support levels
+                if support_levels:
+                    analysis += f"""
+
+🟢 **SUPPORT LEVELS:**"""
+                    for i, level in enumerate(support_levels[:3], 1):
+                        distance = ((current_price - level.get('price', 0)) / current_price) * 100
+                        strength_emoji = "🔥" if level.get('strength', 0) > 80 else "⭐" if level.get('strength', 0) > 60 else "💡"
+                        test_count = level.get('test_count', 0)
+                        analysis += f"""
+• **S{i}**: ${level.get('price', 0):.4f} {strength_emoji}
+  - Strength: {level.get('strength', 0):.1f}% | Tests: {test_count}x
+  - Distance: {distance:+.2f}% from current price"""
+
+                # S&R Trading recommendations
+                sr_recommendation = self.generate_sr_trading_setup(current_price, support_levels, resistance_levels, trend)
+                analysis += f"""
+
+📊 **S&R TRADING SETUP:**
+{sr_recommendation}"""
+            else:
+                analysis += f"""
+• **S&R Status**: Analysis unavailable
+• **Reason**: {sr_analysis.get('error', 'Insufficient data')}"""
+
+            analysis += f"""
+
+🎯 **5. SUPPLY & DEMAND ZONES**"""
 
             # Add enhanced SnD analysis
             if 'error' not in snd_analysis:
@@ -1114,7 +1164,7 @@ Ask me anything about crypto! 🚀"""
 
             analysis += f"""
 
-📌 **5. KESIMPULAN & REKOMENDASI**
+📌 **6. KESIMPULAN & REKOMENDASI**
 • **Rekomendasi**: {rec_emoji} **{recommendation}**
 • **Confidence**: {confidence}%
 • **Composite Score**: {composite_score:+.2f}
@@ -1308,7 +1358,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
                 else:
                     recommendations.append("• **Trend**: Neutral/Sideways")
                     recommendations.append("• **Setup**: Wait for clear breakout or zone interaction")
-                
+
                 recommendations.append("• **Action**: Exercise caution, await clear signals")
 
             return "\n".join(recommendations)
@@ -1325,7 +1375,7 @@ Terjadi kesalahan saat memproses data CoinAPI.
             if supply_zones:
                 nearest_supply = supply_zones[0]
                 distance_pct = ((nearest_supply['price'] - current_price) / current_price) * 100
-                
+
                 if distance_pct > 0.1 and distance_pct < 3:
                     analysis_points.append(f"Close to Supply ${nearest_supply['price']:.4f} ({distance_pct:+.2f}%)")
                 elif distance_pct < 0.1:
@@ -1353,7 +1403,6 @@ Terjadi kesalahan saat memproses data CoinAPI.
 
         except Exception as e:
             return f"• **Proximity Analysis Error**: {str(e)[:50]}"
-
 
     def analyze_volume_pattern(self, historical_data, current_price):
         """Analyze volume patterns for trading signals"""
@@ -1490,3 +1539,144 @@ Terjadi kesalahan saat memproses data CoinAPI.
                 'risk_level': 'High',
                 'confidence': 0
             }
+
+    def analyze_support_resistance(self, historical_data):
+        """
+        Analyzes historical data to identify significant support and resistance levels.
+        This is a simplified implementation; a more robust analysis would involve
+        more complex algorithms (e.g., pivot points, Fibonacci retracements, volume profile).
+        """
+        try:
+            if 'error' in historical_data or not historical_data.get('data'):
+                return {'error': 'Insufficient historical data for S&R analysis'}
+
+            candles = historical_data['data']
+            if len(candles) < 50: # Need a reasonable number of candles for analysis
+                return {'error': 'Not enough historical data (at least 50 candles required)'}
+
+            support_levels = []
+            resistance_levels = []
+
+            # Simplified approach: look for price clusters or significant highs/lows
+            # This is a basic example; real-world S&R would be more sophisticated.
+            
+            prices = [float(c.get('price_close', c.get('close', 0))) for c in candles]
+            lows = [float(c.get('price_low', c.get('low', 0))) for c in candles]
+            highs = [float(c.get('price_high', c.get('high', 0))) for c in candles]
+            volumes = [float(c.get('volume_traded', c.get('volume', 0))) for c in candles if float(c.get('volume_traded', c.get('volume', 0))) > 0]
+
+            current_price = prices[-1]
+            
+            # Basic Resistance Level Detection: Look for significant highs
+            for i in range(len(highs) - 1, 0, -1): # Iterate from most recent to oldest
+                if len(resistance_levels) >= 3: # Limit to top 3 resistance levels
+                    break
+                
+                price = highs[i]
+                # Heuristic: A resistance level might be a significant high that price has tested multiple times or a high that caused a notable reversal.
+                # For simplicity, we'll consider highs that are significantly higher than surrounding prices.
+                is_significant_high = True
+                if i > 5: # Check against previous 5 candles
+                    for j in range(max(0, i - 5), i):
+                        if highs[j] >= price:
+                            is_significant_high = False
+                            break
+                if not is_significant_high:
+                    continue
+
+                # Check for strength (e.g., number of tests, volume at level) - simplified
+                test_count = 0
+                strength = 0
+                for j in range(len(highs)):
+                    if abs(highs[j] - price) / price < 0.005: # Within 0.5% of the price
+                        test_count += 1
+                        strength += volumes[j] if j < len(volumes) else 0 # Add volume as strength indicator
+
+                if test_count >= 2 and strength > 0: # Must be tested at least twice with some volume
+                    resistance_levels.append({'price': price, 'strength': min(100, strength / 100000), 'test_count': test_count})
+
+            # Basic Support Level Detection: Look for significant lows
+            for i in range(len(lows) - 1, 0, -1): # Iterate from most recent to oldest
+                if len(support_levels) >= 3: # Limit to top 3 support levels
+                    break
+                
+                price = lows[i]
+                # Heuristic: A support level might be a significant low that price has tested multiple times or a low that caused a notable reversal.
+                is_significant_low = True
+                if i > 5: # Check against previous 5 candles
+                    for j in range(max(0, i - 5), i):
+                        if lows[j] <= price:
+                            is_significant_low = False
+                            break
+                if not is_significant_low:
+                    continue
+
+                # Check for strength (e.g., number of tests, volume at level) - simplified
+                test_count = 0
+                strength = 0
+                for j in range(len(lows)):
+                    if abs(lows[j] - price) / price < 0.005: # Within 0.5% of the price
+                        test_count += 1
+                        strength += volumes[j] if j < len(volumes) else 0 # Add volume as strength indicator
+
+                if test_count >= 2 and strength > 0: # Must be tested at least twice with some volume
+                    support_levels.append({'price': price, 'strength': min(100, strength / 100000), 'test_count': test_count})
+
+            # Sort levels by strength (descending)
+            resistance_levels.sort(key=lambda x: x['strength'], reverse=True)
+            support_levels.sort(key=lambda x: x['strength'], reverse=True)
+
+            return {
+                'resistance_levels': resistance_levels,
+                'support_levels': support_levels,
+                'current_price': current_price,
+                'analysis_time': datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            return {'error': f'S&R analysis failed: {str(e)}'}
+
+    def generate_sr_trading_setup(self, current_price, support_levels, resistance_levels, trend):
+        """Generates trading setup recommendations based on Support and Resistance levels."""
+        recommendations = []
+        try:
+            # Recommendation based on current price proximity to S&R levels
+            if resistance_levels:
+                nearest_resistance = resistance_levels[0]
+                res_price = nearest_resistance['price']
+                res_strength = nearest_resistance['strength']
+                
+                if abs(res_price - current_price) / current_price < 0.02: # Within 2% of resistance
+                    strength_emoji = "🔥" if res_strength > 80 else "⭐" if res_strength > 60 else "💡"
+                    recommendations.append(f"• **Resistance Hit**: Approaching R1 ${res_price:.4f} {strength_emoji}")
+                    if trend.startswith("Bullish") or trend.startswith("Strong"):
+                        recommendations.append("  - Consider SHORT entry on rejection")
+                        recommendations.append("  - Target: Nearest Support Level")
+                    else:
+                        recommendations.append("  - Potential breakout or consolidation")
+                elif res_price > current_price:
+                    recommendations.append(f"• **Above Resistance**: Price is trading below R1 ${res_price:.4f}")
+
+            if support_levels:
+                nearest_support = support_levels[0]
+                sup_price = nearest_support['price']
+                sup_strength = nearest_support['strength']
+
+                if abs(sup_price - current_price) / current_price < 0.02: # Within 2% of support
+                    strength_emoji = "🔥" if sup_strength > 80 else "⭐" if sup_strength > 60 else "💡"
+                    recommendations.append(f"• **Support Hit**: Approaching S1 ${sup_price:.4f} {strength_emoji}")
+                    if trend.startswith("Bearish") or trend.startswith("Strong"):
+                        recommendations.append("  - Consider LONG entry on bounce")
+                        recommendations.append("  - Target: Nearest Resistance Level")
+                    else:
+                        recommendations.append("  - Potential breakout or consolidation")
+                elif sup_price < current_price:
+                    recommendations.append(f"• **Below Support**: Price is trading above S1 ${sup_price:.4f}")
+
+            if not recommendations:
+                recommendations.append("• **General**: Monitor price action around key levels")
+
+            return "\n".join(recommendations) if recommendations else "• No specific S&R setup."
+
+        except Exception as e:
+            return f"• **S&R Setup Error**: {str(e)[:50]}"
