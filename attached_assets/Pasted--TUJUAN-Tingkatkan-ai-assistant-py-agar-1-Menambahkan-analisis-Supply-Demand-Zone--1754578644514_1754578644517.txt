@@ -1,0 +1,73 @@
+# 🎯 TUJUAN
+Tingkatkan `ai_assistant.py` agar:
+
+1. Menambahkan analisis **Supply & Demand Zone** (SnD) di endpoint `/analyze`
+2. Menghapus semua komponen terkait **Support & Resistance**
+3. Menambahkan fallback logic SnD jika data historis tidak tersedia
+4. Menyusun output akhir dengan urutan yang rapi dan informatif
+
+---
+
+## ✅ 1. HAPUS SUPPORT & RESISTANCE
+
+- Hapus semua bagian dalam file `ai_assistant.py` yang berkaitan dengan Support & Resistance (S&R), termasuk:
+  - Komentar, logika, fungsi, variabel, dan output teks
+  - Kata kunci seperti: `SUPPORT & RESISTANCE LEVELS`, `S&R`, `support_resistance`
+- Jangan tampilkan bagian S&R di output atau response API mana pun
+
+---
+
+## ✅ 2. TAMBAHKAN ANALISIS SUPPLY & DEMAND DI `/analyze`
+
+- Tambahkan fungsi bernama `analyze_supply_demand(price: float)` ke dalam `ai_assistant.py`
+- Pastikan fungsi ini dipanggil dan hasilnya ditambahkan ke response `/analyze`
+- Gunakan fallback logic berikut jika tidak ada data historis yang tersedia:
+
+```python
+def analyze_supply_demand(price: float):
+    entry = round(price, -2)
+    tp1 = entry + 1400
+    tp2 = entry + 2800
+    sl = entry - 1400
+    confidence = 50  # Default fallback confidence
+    bias = "Neutral Bias"
+    reason = "Mixed signals - wait for clearer setup"
+
+    return f"""
+🎯 SUPPLY & DEMAND ZONES
+• Status: Active (Fallback Mode)
+• Entry: ${entry:,.2f}
+• TP 1: ${tp1:,.2f}
+• TP 2: ${tp2:,.2f}
+• SL: ${sl:,.2f}
+• Confidence: {confidence}% (Weak)
+• Alasan Entry: {reason}
+• Bias: {bias}
+"""
+Tempelkan hasil fungsi analyze_supply_demand(price) langsung ke response string dari endpoint /analyze di posisi setelah bagian sentimen atau data market
+
+✅ 3. SUSUN URUTAN OUTPUT
+Pastikan hasil akhir response /analyze tersusun seperti ini:
+
+yaml
+Copy
+Edit
+🎯 ANALISIS {COIN} ({TIMEFRAME})
+📊 DATA MARKET
+📰 SENTIMEN PASAR
+🎯 SUPPLY & DEMAND ZONES
+🛡️ RISK MANAGEMENT
+📡 DATA SOURCES: CoinAPI, CoinMarketCap, etc.
+⏰ Update: {timestamp}
+⭐️ Premium Member
+📁 FILE YANG DIEDIT
+Hanya edit dan fokus pada:
+
+ai_assistant.py
+
+❗ CATATAN TAMBAHAN
+Jangan munculkan kembali bagian Support & Resistance dalam bentuk apa pun
+
+Fallback SnD wajib muncul meskipun data kurang
+
+Analisis SnD tidak boleh error walaupun input hanya harga dasar dari CoinAPI/CoinMarketCap
