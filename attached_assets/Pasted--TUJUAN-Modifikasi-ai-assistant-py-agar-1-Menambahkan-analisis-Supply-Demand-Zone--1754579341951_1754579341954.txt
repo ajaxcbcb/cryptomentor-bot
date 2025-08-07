@@ -1,0 +1,84 @@
+# 🎯 TUJUAN
+Modifikasi `ai_assistant.py` agar:
+
+1. Menambahkan analisis **Supply & Demand Zone** (SnD) dalam format:
+   • Supply Zone: $xxxx.xx
+   • Demand Zone: $xxxx.xx
+2. Menghapus semua referensi terkait **Support & Resistance**
+3. Menambahkan SnD sebagai fallback (meskipun tanpa data teknikal lengkap)
+4. Menyisipkan SnD Zone di output `/analyze`
+
+---
+
+## ✅ 1. HAPUS SUPPORT & RESISTANCE
+
+- Hapus seluruh bagian kode dan teks yang berhubungan dengan:
+  - SUPPORT & RESISTANCE
+  - S&R analysis
+  - Fungsi, komentar, atau variabel dengan nama: `support_resistance`, `s_r`, `s&r`, dll
+
+---
+
+## ✅ 2. TAMBAHKAN SUPPLY & DEMAND ZONES
+
+- Tambahkan fungsi ini di `ai_assistant.py`:
+
+```python
+def generate_supply_demand_zone(price: float):
+    entry = round(price, -2)
+    tp1 = entry + 1400
+    tp2 = entry + 2800
+    sl = entry - 1400
+    confidence = 50
+    bias = "Neutral Bias"
+    reason = "Mixed signals - wait for clearer setup"
+
+    supply_zone = tp2
+    demand_zone = sl
+
+    return f"""
+🎯 SUPPLY & DEMAND ZONES
+• Supply Zone: ${supply_zone:,.2f}
+• Demand Zone: ${demand_zone:,.2f}
+• Entry: ${entry:,.2f}
+• TP 1: ${tp1:,.2f}
+• TP 2: ${tp2:,.2f}
+• SL: ${sl:,.2f}
+• Confidence: {confidence}% (Weak)
+• Alasan Entry: {reason}
+• Bias: {bias}
+"""
+✅ 3. INJEKSI KE /analyze
+Di dalam handler atau fungsi endpoint /analyze, panggil fungsi generate_supply_demand_zone(price) dan masukkan hasilnya setelah bagian sentimen pasar atau data CoinAPI
+
+Contoh:
+
+python
+Copy
+Edit
+price = get_price(coin)
+...
+snd_analysis = generate_supply_demand_zone(price)
+...
+response = f"""
+🎯 ANALISIS {coin.upper()} ({timeframe})
+📊 DATA MARKET
+...
+📰 SENTIMEN PASAR
+{snd_analysis}
+🛡️ RISK MANAGEMENT
+📡 Sumber Data: CoinAPI, CoinMarketCap, dst
+⏰ Update: {timestamp}
+⭐️ Premium Member
+"""
+🧹 BONUS OPSIONAL - BERSIHKAN KODE
+Hapus fungsi/variabel yang tidak lagi dipakai setelah S&R dihapus
+
+Pastikan tidak ada error dari pemanggilan fungsi lama
+
+📝 CATATAN PENTING
+Semua perubahan dilakukan hanya di file ai_assistant.py
+
+Supply & Demand wajib muncul meskipun data terbatas
+
+Format output harus konsisten seperti:
