@@ -61,6 +61,7 @@ class TelegramBot:
         admin_id_str = os.getenv('ADMIN_USER_ID', '0')
         try:
             self.admin_id = int(admin_id_str)
+            logger.info(f"✅ Admin ID configured: {self.admin_id}")
         except ValueError:
             logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}, using default 0")
             self.admin_id = 0
@@ -1704,6 +1705,11 @@ Gunakan `/subscribe` untuk upgrade!
 
         message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
 
+🔑 **Admin Info:**
+• **Configured Admin ID**: {self.admin_id}
+• **Current User ID**: {user_id}
+• **Admin Access**: {'✅ GRANTED' if user_id == self.admin_id else '❌ DENIED'}
+
 📊 **Bot Statistics:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
@@ -1726,7 +1732,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/broadcast <message>` - Send broadcast
 
 🌐 **API Status:**
-• Coinglass V4: {'✅ Active' if self.crypto_api.coinglass_key else '❌ No Key'}
+• CoinMarketCap: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and hasattr(self.crypto_api.data_provider, 'cmc_provider') and self.crypto_api.data_provider.cmc_provider.api_key else '❌ No Key'}
 • CoinMarketCap: {'✅ Active' if self.crypto_api.cmc_provider.api_key else '❌ No Key'}
 • Binance: ✅ Active
 • Auto Signals: {auto_status}
@@ -2062,7 +2068,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
 🔧 **System Health:**
 • Database: ✅ Online
-• CoinAPI: {'✅' if self.crypto_api.coinapi_key else '❌'} {'Active' if self.crypto_api.coinapi_key else 'No Key'}
+• Binance: ✅ Active (Public API)
 • Auto Signals: {'🟢 Running' if self.auto_signals and self.auto_signals.is_running else '🔴 Stopped'}
 
 ⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
