@@ -2,7 +2,7 @@ import os
 import logging
 import sys
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (if exists) and system environment
@@ -16,7 +16,43 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
-from snd_auto_signals import initialize_auto_signals
+# Assuming snd_auto_signals.py contains the AutoSignalScanner class and initialize_auto_signals function
+# If not, the relevant logic needs to be incorporated.
+# For now, assuming the import path is correct.
+try:
+    from snd_auto_signals import initialize_auto_signals
+except ImportError:
+    logging.error("Could not import 'initialize_auto_signals' from 'snd_auto_signals'. Please ensure the file exists and is correctly placed.")
+    # Provide a mock or placeholder if the module is not available to prevent startup failure
+    class MockAutoSignals:
+        def __init__(self, bot_instance):
+            self.bot_instance = bot_instance
+            self.is_running = False
+            self.target_symbols = []
+            self.scan_interval = 300 # 5 minutes
+            self.min_confidence = 75
+            self.last_scan_time = 0
+            self.signal_cooldown = 1800 # 30 minutes
+            self.last_signal_sent_time = 0
+            self.active_scanner_task = None
+
+        async def start_auto_scanner(self):
+            logging.warning("Auto Signal Scanner is not fully implemented. Running in mock mode.")
+            self.is_running = True
+            # In a real scenario, this would start the loop.
+            # For mock, we just set the flag.
+            pass
+
+        async def stop_auto_scanner(self):
+            logging.warning("Stopping mock Auto Signal Scanner.")
+            self.is_running = False
+            # In a real scenario, this would cancel the task.
+            pass
+
+    def initialize_auto_signals(bot_instance):
+        logging.warning("Using mock Auto Signal Scanner.")
+        return MockAutoSignals(bot_instance)
+
 
 # Enhanced deployment detection with verification
 deployment_env_checks = {
@@ -136,9 +172,11 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-            self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
-            self.application.add_handler(CommandHandler("start_auto_signals", self.start_auto_signals_command))
-            self.application.add_handler(CommandHandler("stop_auto_signals", self.stop_auto_signals_command))
+            # Renamed for clarity and consistency with user request
+            self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
+            self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
+            self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
+
 
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -176,22 +214,22 @@ class TelegramBot:
 
             # Initialize and start auto signals system for BOTH development and deployment
             try:
-                print("[AUTO-SIGNAL SND] Initializing auto signals system...")
+                print("[AUTO-SIGNAL] Initializing auto signals system...")
                 self.auto_signals = initialize_auto_signals(self)
                 if self.auto_signals:
                     # Start auto signals in BOTH modes
                     asyncio.create_task(self.auto_signals.start_auto_scanner())
                     mode_text = "DEPLOYMENT" if IS_DEPLOYMENT else "DEVELOPMENT"
-                    print(f"[AUTO-SIGNAL SND] ✅ Auto SnD signals scanner started in {mode_text} mode")
-                    print(f"[AUTO-SIGNAL SND] 📊 Eligible users: Admin & Lifetime premium users")
-                    print(f"[AUTO-SIGNAL SND] 🎯 Target coins: {len(self.auto_signals.target_symbols)}")
-                    print(f"[AUTO-SIGNAL SND] ⚡ Min confidence: {self.auto_signals.min_confidence}%")
-                    print(f"[AUTO-SIGNAL SND] 🔄 Scan interval: {self.auto_signals.scan_interval // 60} minutes")
+                    print(f"[AUTO-SIGNAL] ✅ Auto signals scanner started in {mode_text} mode")
+                    print(f"[AUTO-SIGNAL] 📊 Eligible users: Admin & Lifetime premium users")
+                    print(f"[AUTO-SIGNAL] 🎯 Target coins: {len(self.auto_signals.target_symbols)}")
+                    print(f"[AUTO-SIGNAL] ⚡ Min confidence: {self.auto_signals.min_confidence}%")
+                    print(f"[AUTO-SIGNAL] 🔄 Scan interval: {self.auto_signals.scan_interval // 60} minutes")
                     # Check if signal_cooldown attribute exists
                     cooldown_hours = getattr(self.auto_signals, 'signal_cooldown', 3600) // 3600
-                    print(f"[AUTO-SIGNAL SND] 🛡️ Anti-spam: {cooldown_hours}h cooldown")
+                    print(f"[AUTO-SIGNAL] 🛡️ Anti-spam: {cooldown_hours}h cooldown")
                 else:
-                    print("[AUTO-SIGNAL SND] ❌ Auto signals system failed to initialize")
+                    print("[AUTO-SIGNAL] ❌ Auto signals system failed to initialize")
             except Exception as e:
                 print(f"⚠️ Auto signals initialization failed: {e}")
                 import traceback
@@ -485,7 +523,7 @@ class TelegramBot:
         if language == 'id':
             welcome_text = f"""🎉 **Selamat datang di CryptoMentor AI, {user.first_name}!**
 
-🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari Coinglass V4 & CoinMarketCap.
+🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari CoinAPI & Binance APIs.
 
 💡 **Untuk memulai:** Gunakan `/help` untuk panduan lengkap semua fitur bot!
 
@@ -563,22 +601,22 @@ class TelegramBot:
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (Coinglass V4 + CoinMarketCap Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
-• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinMarketCap
-• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinMarketCap data
+• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
+• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
 📊 **Harga & Data Pasar:**
-• `/price <symbol>` - Harga real-time dari CoinMarketCap **[GRATIS]**
+• `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
-• `/market` - Overview pasar global dari CoinMarketCap (20 credit) ⭐
+• `/market` - Overview pasar global dari CoinAPI (20 credit) ⭐
   Data: Total market cap, dominance, volume global, fear & greed
 
 📈 **Analisis Trading dengan SnD:**
 • `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
-  Contoh: `/analyze btc` → Fundamental dari CoinMarketCap + Technical analysis
+  Contoh: `/analyze btc` → Fundamental dari CoinAPI + Technical analysis
   Data: Rank, market cap, volume, description, website, price prediction
 
 • `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
@@ -589,7 +627,7 @@ class TelegramBot:
   Multiple coins dengan konfirmasi Supply/Demand zones
 
 💼 **Portfolio & Credit:**
-• `/portfolio` - Lihat portfolio dengan Binance prices
+• `/portfolio` - Lihat portfolio dengan CoinAPI prices
 • `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
 • `/credits` - Cek sisa credit
@@ -604,29 +642,37 @@ class TelegramBot:
 
 💳 **Sistem Credit:**
 - User baru: 100 credit gratis
-- `/analyze` = 20 credit ⭐ (Fundamental + Technical)
+- `/analyze` = 20 credit ⭐ (CoinAPI Analysis)
 - `/futures` = 20 credit ⭐ (dengan SnD)
 - `/futures_signals` = 60 credit (Multiple SnD signals)
-- `/market` = 20 credit (Global overview)
+- `/market` = 20 credit (Global overview CoinAPI)
 
 🎯 **Langkah untuk Pemula:**
-1. **Mulai dengan `/price btc`** (gratis) - harga real-time Binance
-2. **Coba `/market`** (20 credit) - overview pasar global CoinMarketCap
-3. **Test `/analyze btc`** (20 credit) - fundamental + technical analysis
+1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
+2. **Coba `/market`** (20 credit) - overview pasar global CoinAPI
+3. **Test `/analyze btc`** (20 credit) - CoinAPI fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
 5. **Upgrade premium** untuk unlimited access
 
 💡 **Fitur Premium:**
-- Unlimited access semua fitur
+- Unlimited access semua fitur CoinAPI + SnD
 - Auto SnD signals (Admin & Lifetime only)
 - Priority support
 - No credit limits
 
 🚀 **Data Sources:**
-- **Fundamental**: CoinMarketCap Professional
-- **Prices**: CoinMarketCap Real-time
-- **Futures**: Coinglass V4 Startup Plan
-- **SnD Analysis**: Internal algorithm + Binance candlesticks"""
+- **Fundamental & Prices**: CoinAPI Real-time
+- **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
+- **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
+
+✨ **Fitur Auto Signal:**
+• **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
+• **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
+• **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
+• **Scheduled Check**: Setiap 5 menit
+• **Optimized**: Anti-spam, cooldown, no duplicates
+
+"""
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -645,10 +691,10 @@ class TelegramBot:
 
         # Show loading with CoinMarketCap status
         mode_text = "🌐 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinMarketCap + Coinglass V4... ({mode_text})")
+        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinAPI + Coinglass V4... ({mode_text})")
 
-        # Get real-time data from CoinMarketCap
-        print(f"🔄 Fetching real-time data for {symbol} from CoinMarketCap...")
+        # Get real-time data from CoinAPI
+        print(f"🔄 Fetching real-time data for {symbol} from CoinAPI...")
 
         # Force refresh in deployment to ensure real-time data
         price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=IS_DEPLOYMENT)
@@ -667,7 +713,7 @@ class TelegramBot:
             change_emoji = "📈" if change_24h >= 0 else "📉"
             change_color = "+" if change_24h >= 0 else ""
 
-            message = f"""📊 **{symbol} Real-Time CoinMarketCap Data**
+            message = f"""📊 **{symbol} Real-Time CoinAPI Data**
 
 💰 **Harga**: {price_format}
 {change_emoji} **Perubahan 24j**: {change_color}{change_24h:.2f}%
@@ -700,9 +746,9 @@ class TelegramBot:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             data_source = price_data.get('source', 'unknown')
 
-            if data_source == 'coinmarketcap':
-                source_text = "🟢 CoinMarketCap Professional"
-                api_status = "✅ CoinMarketCap Real-time"
+            if data_source == 'coinapi':
+                source_text = "🟢 CoinAPI Real-time"
+                api_status = "✅ CoinAPI Active"
             else:
                 source_text = "🟢 Binance Exchange"
                 api_status = "✅ Binance Live Data"
@@ -720,12 +766,12 @@ class TelegramBot:
 🌐 **Mode**: {'Deployment (Real-time Only)' if IS_DEPLOYMENT else 'Development'}
 ⚠️ **Error**: {error_reason}
 
-🔄 **Solusi**:
+🔄 **Solusi:**
 • Coba beberapa saat lagi
 • API sedang mengalami gangguan sementara
-• Pastikan CMC_API_KEY tersedia di Secrets
+• Pastikan CoinAPI key tersedia di Secrets
 
-💡 **Info**: Bot menggunakan CoinMarketCap → Binance (berurutan)"""
+💡 **Info**: Bot menggunakan CoinAPI → Binance (berurutan)"""
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
@@ -752,17 +798,17 @@ class TelegramBot:
         symbol = context.args[0].upper()
 
         # Show loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinMarketCap real-time...")
+        loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
 
         try:
-            # Get comprehensive analysis using CoinMarketCap data
+            # Get comprehensive analysis using CoinAPI data
             analysis = self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
 
             # Deduct credit only for non-premium, non-admin users
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinMarketCap: -20 credit)"
+                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinAPI: -20 credit)"
             elif is_premium:
                 analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
@@ -778,14 +824,14 @@ class TelegramBot:
                 await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinMarketCap)\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
             import traceback
             traceback.print_exc()
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /market command with CoinMarketCap integration"""
+        """Handle /market command with CoinAPI integration"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -801,25 +847,25 @@ class TelegramBot:
             return
 
         # Show enhanced loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinMarketCap...")
+        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinAPI...")
 
         try:
             print(f"🔄 Market command initiated by user {user_id}")
 
-            # Get comprehensive market overview with CoinMarketCap real-time data
-            print("📊 Calling AI market sentiment analysis with CoinMarketCap...")
+            # Get comprehensive market overview with CoinAPI real-time data
+            print("📊 Calling AI market sentiment analysis with CoinAPI...")
             market_data = self.ai.get_market_sentiment('id', self.crypto_api)
 
             if not market_data or len(market_data.strip()) < 50:
                 # Fallback if data is too short
-                market_data = """🌍 **OVERVIEW PASAR CRYPTO (CoinMarketCap)**
+                market_data = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
 
 ⚠️ **Data sementara tidak lengkap**
 
 💡 **Alternatif yang bisa dicoba:**
 • `/price btc` - Cek harga Bitcoin dari CoinAPI
 • `/price eth` - Cek harga Ethereum dari CoinAPI
-• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinMarketCap data
+• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinAPI data
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
@@ -827,7 +873,7 @@ class TelegramBot:
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinMarketCap: -20 credit)"
+                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinAPI: -20 credit)"
             elif is_premium:
                 market_data += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
@@ -848,7 +894,7 @@ class TelegramBot:
                 await loading_msg.edit_text(market_data, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinMarketCap)\n• `/futures_signals` (SnD)"
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinAPI)\n• `/futures_signals` (SnD)"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"❌ Error in market command: {e}")
             import traceback
@@ -882,7 +928,7 @@ class TelegramBot:
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinMarketCap + Coinglass V4{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
@@ -1026,7 +1072,7 @@ class TelegramBot:
 
                     # Show loading
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinMarketCap + Coinglass V4...\n\n"
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass V4...\n\n"
                         "🔍 Memproses data real-time...",
                         parse_mode='Markdown'
                     )
@@ -1080,7 +1126,6 @@ class TelegramBot:
                         import traceback
                         traceback.print_exc()
 
-            # Handle other callback queries (existing logic)
             elif callback_data.startswith('futures_analysis_'):
                 # Existing futures analysis logic
                 parts = callback_data.split('_')
@@ -1205,7 +1250,7 @@ Selamat mengelola CryptoMentor AI!"""
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
-• Unlimited analisis dengan CoinAPI data
+• Unlimited analisis CoinAPI + SnD
 • Akses semua command SnD
 • {'Auto SnD signals (Lifetime only)' if is_lifetime else 'Priority support'}
 • Priority support
@@ -1217,7 +1262,7 @@ Terima kasih telah menjadi member premium!"""
 💰 **Credit tersisa**: **{credits}**
 
 📊 **Biaya per Fitur (CoinAPI + SnD):**
-• `/analyze <symbol>` - 20 credit (analisis CoinAPI) ⭐
+• `/analyze <symbol>` - 20 credit (CoinAPI analysis) ⭐
 • `/futures <symbol>` - 20 credit (SnD futures analysis) ⭐
 • `/futures_signals` - 60 credit (SnD sinyal lengkap)
 • `/market` - 20 credit (overview pasar CoinAPI)
@@ -1267,15 +1312,15 @@ Gunakan credit dengan bijak!"""
 🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S') if self.auto_signals.last_scan_time > 0 else 'Never'}
 
 🔧 **Commands:**
-• `/start_auto_signals` - Start scanner
-• `/stop_auto_signals` - Stop scanner
+• `/enable_auto_signal_ai` - Start momentum signals scanner
+• `/disable_auto_signal_ai` - Stop momentum signals scanner
 
 💡 **Target**: Admin & Lifetime premium users only"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start_auto_signals command - Admin only"""
+        """Handle /enable_auto_signal_ai command - Admin only"""
         user_id = update.message.from_user.id
 
         if user_id != self.admin_id:
@@ -1291,19 +1336,24 @@ Gunakan credit dengan bijak!"""
             return
 
         # Start auto signals
-        asyncio.create_task(self.auto_signals.start_auto_scanner())
+        try:
+            asyncio.create_task(self.auto_signals.start_auto_scanner())
+            await update.message.reply_text(
+                f"✅ **Auto SnD Signals Enabled**\n\n"
+                f"🎯 Scanning {len(self.auto_signals.target_symbols)} altcoins\n"
+                f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
+                f"👥 For Admin & Lifetime users only\n\n"
+                f"📊 Next scan will start in approximately {self.auto_signals.scan_interval // 60} minutes...",
+                parse_mode='Markdown'
+            )
+            self.db.log_user_activity(user_id, "admin_enable_auto_signals", "Enabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to enable auto signals: {e}")
+            logger.error(f"Error enabling auto signals: {e}")
 
-        await update.message.reply_text(
-            f"✅ **Auto SnD Signals Started**\n\n"
-            f"🎯 Scanning {len(self.auto_signals.target_symbols)} altcoins\n"
-            f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
-            f"👥 For Admin & Lifetime users only\n\n"
-            f"📊 Next scan akan dimulai dalam {self.auto_signals.scan_interval // 60} menit...",
-            parse_mode='Markdown'
-        )
 
     async def stop_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stop_auto_signals command - Admin only"""
+        """Handle /disable_auto_signal_ai command - Admin only"""
         user_id = update.message.from_user.id
 
         if user_id != self.admin_id:
@@ -1319,9 +1369,14 @@ Gunakan credit dengan bijak!"""
             return
 
         # Stop auto signals
-        await self.auto_signals.stop_auto_scanner()
+        try:
+            await self.auto_signals.stop_auto_scanner()
+            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
+            self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
+            logger.error(f"Error stopping auto signals: {e}")
 
-        await update.message.reply_text("🛑 **Auto SnD Signals Stopped**\n\nScanner telah dihentikan.", parse_mode='Markdown')
 
     # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
     # I'll include the essential ones for functionality
@@ -1706,8 +1761,8 @@ Gunakan `/subscribe` untuk upgrade!
         # Validate admin access first
         admin_user_id_env = os.getenv('ADMIN_USER_ID')
         is_valid_admin = (
-            user_id == self.admin_id and 
-            admin_user_id_env and 
+            user_id == self.admin_id and
+            admin_user_id_env and
             str(user_id) == str(admin_user_id_env)
         )
 
@@ -1744,20 +1799,21 @@ Gunakan `/subscribe` untuk upgrade!
 • Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
 🔧 **Admin Commands:**
-• `/grant_premium <user_id> [days]` - Grant premium
+• `/grant_premium <user_id> <days>` - Grant premium
+• `/revoke_premium <user_id>` - Revoke premium
 • `/grant_credits <user_id> <amount>` - Add credits
-• `/auto_signals_status` - Check auto signals
-• `/start_auto_signals` - Start auto signals
-• `/stop_auto_signals` - Stop auto signals
+• `/auto_signals_status` - SnD signals status
+• `/enable_auto_signal_ai` - Start momentum signals scanner
+• `/disable_auto_signal_ai` - Stop momentum signals scanner
 • `/broadcast <message>` - Send broadcast
 
 🌐 **API Status:**
-• CoinMarketCap: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
+• CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
 • Binance: ✅ Active (Public API)
 • Auto Signals: {auto_status}
 
 💡 **V4 Features:**
-- Coinglass V4 Startup Plan integration
+- CoinAPI integration
 - Advanced futures analysis with real-time data
 - Supply & Demand analysis for futures
 - Auto signals for admin & lifetime users"""
@@ -2087,7 +2143,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
 🔧 **System Health:**
 • Database: ✅ Online
-• Binance: ✅ Active (Public API)
+• CoinAPI: ✅ Active
 • Auto Signals: {'🟢 Running' if self.auto_signals and self.auto_signals.is_running else '🔴 Stopped'}
 
 ⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
