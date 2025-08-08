@@ -5,3 +5,4 @@ nest-asyncio
 python-dotenv
 telegram
 aiohttp
+supabase
