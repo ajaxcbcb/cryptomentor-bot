@@ -180,7 +180,7 @@ class Database:
         try:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS portfolio (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARYKEY AUTOINCREMENT,
                     telegram_id INTEGER,
                     symbol TEXT,
                     amount REAL,
@@ -204,7 +204,7 @@ class Database:
         try:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_activity (
-                    id INTEGER PRIMARYKEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     action TEXT,
                     details TEXT,
@@ -216,7 +216,7 @@ class Database:
             # Create premium referrals table
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS premium_referrals (
-                    id INTEGER PRIMARYKEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     referrer_id INTEGER,
                     referred_id INTEGER,
                     subscription_type TEXT,

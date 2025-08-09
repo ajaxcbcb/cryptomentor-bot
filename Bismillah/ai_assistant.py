@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import requests
 import random
+import os
 import asyncio
 import time
 import numpy as np
@@ -153,10 +154,10 @@ class AIAssistant:
 
     def _get_database_error_message(self):
         """Get user-friendly database error message"""
-        return """⚠️ Database tidak tersedia saat ini\. 
+        return """⚠️ Database tidak tersedia saat ini\\. 
 
-✅ Analisis tetap berfungsi normal\!
-💡 Fitur premium dan riwayat mungkin terbatas\!"""
+✅ Analisis tetap berfungsi normal\\!
+💡 Fitur premium dan riwayat mungkin terbatas\\."""
 
     def _validate_markdown_output(self, text):
         """Validate if text is safe for Markdown parsing"""
@@ -220,7 +221,7 @@ class AIAssistant:
         return None
 
     def _format_price(self, price):
-        """Format price display with Indonesian number formatting"""
+        """Format price display based on value"""
         if price is None or price == 0:
             return "N/A"
         try:
@@ -234,32 +235,16 @@ class AIAssistant:
             elif price < 100:
                 return f"${price:.2f}"
             else:
-                # Format with thousands separator and 2 decimal places
-                # Convert US format (123,456.78) to Indonesian format (123.456,78)
-                us_format = f"{price:,.2f}"
-                # Split by decimal point
-                if '.' in us_format:
-                    integer_part, decimal_part = us_format.split('.')
-                    # Replace commas with dots in integer part
-                    integer_part = integer_part.replace(',', '.')
-                    # Return with comma as decimal separator
-                    return f"${integer_part},{decimal_part}"
-                else:
-                    # No decimal part, just replace commas with dots
-                    return f"${us_format.replace(',', '.')},00"
+                return f"${price:,.2f}"
         except:
             return "N/A"
 
     def _format_percentage(self, value, decimal_places=2):
-        """Format percentage values with proper sign and decimal places"""
+        """Format percentage values"""
         if value is None:
             return "N/A"
         try:
-            formatted_value = float(value)
-            if formatted_value >= 0:
-                return f"+{formatted_value:.{decimal_places}f}%"
-            else:
-                return f"{formatted_value:.{decimal_places}f}%"
+            return f"{float(value):+.{decimal_places}f}%"
         except:
             return "N/A"
 
@@ -904,7 +889,7 @@ class AIAssistant:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
-        """Generate all futures signals available with enhanced logic"""
+        """Generate futures signals following system prompt template"""
         try:
             # Check database connection for user-related operations
             db_available, db_error = self._check_database_required("FUTURES_SIGNALS")
@@ -913,143 +898,106 @@ class AIAssistant:
 
             current_time = self._get_wib_time()
 
-            # Get global market conditions for bias
+            # Get global market conditions
             market_data = self.get_cmc_global_metrics()
             market_conditions = self._format_market_conditions(market_data)
-            market_bias = self._determine_market_bias(market_data)
 
-            # Enhanced symbol list - more comprehensive
-            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
-                            'BNB', 'LTC', 'ATOM', 'UNI', 'NEAR', 'FTM', 'ALGO', 'VET']
+            # Target symbols for scanning - use more symbols for better signal detection
+            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
 
-            # If specific symbol requested, focus on that
+            # If specific symbol requested, use that
             if query_args and len(query_args) > 0:
                 first_arg = query_args[0].upper()
                 if len(first_arg) <= 5:
-                    target_symbols = [first_arg] + target_symbols[:5]  # Include requested + top 5
+                    target_symbols = [first_arg]
 
             high_confidence_signals = []
 
-            # Enhanced scanning with market bias consideration
+            # Scan symbols for signals with improved logic
             for symbol in target_symbols:
                 try:
-                    signal = await self._advanced_futures_signal_scan(symbol, crypto_api, market_bias)
+                    signal = await self._enhanced_scan_symbol_for_signal(symbol, crypto_api)
                     if signal and signal.get('confidence', 0) >= 75:  # Minimum 75% confidence
                         high_confidence_signals.append(signal)
-                        print(f"✅ Found high-confidence signal: {symbol} - {signal['confidence']:.1f}% ({signal['direction']})")
+                        print(f"✅ Found signal: {symbol} - {signal['confidence']}% ({signal['direction']})")
                 except Exception as e:
                     print(f"Error scanning {symbol}: {e}")
                     continue
 
-            # Enhanced sorting - consider confidence, R/R ratio, and market alignment
+            # Sort by confidence and take only the best signal
             if high_confidence_signals:
-                high_confidence_signals = sorted(
-                    high_confidence_signals, 
-                    key=lambda x: (x.get('confidence', 0) + (x.get('market_alignment', 0) * 5)), 
-                    reverse=True
-                )[:3]  # Show top 3 signals instead of just 1
+                high_confidence_signals = sorted(high_confidence_signals, key=lambda x: x.get('confidence', 0), reverse=True)[:1]
 
             # Format response with safe markdown
             if not high_confidence_signals:
-                no_signals_msg = f"""🚨 **ALL FUTURES SIGNALS AVAILABLE**
+                no_signals_msg = f"""🚨 **FUTURES SIGNALS SCAN**
 
 🕐 **Scan Time**: {self._escape_markdown_v2(current_time)}
 🌍 **Market Conditions**: {self._escape_markdown_v2(market_conditions)}
-📊 **Market Bias**: {self._escape_markdown_v2(market_bias)}
 
 ❌ **No High\\-Confidence Signals Found**
 
-📊 **Symbols Scanned**: {len(target_symbols)} cryptocurrencies
-⚠️ **Status**: Market dalam kondisi sideways atau volatilitas rendah
+📊 **Symbols Scanned**: {self._escape_markdown_v2(', '.join(target_symbols))}
+⚠️ **Status**: Tidak ada setup trading yang jelas saat ini
 
-💡 **Market Analysis**:
-• Confidence threshold: 75%+ required
-• Multi\\-timeframe alignment needed
-• Supply/Demand zones validation
-• Risk/reward ratio minimum 1\\.5:1
+💡 **Kemungkinan Penyebab**:
+• Market dalam kondisi consolidation
+• Volatilitas rendah saat ini
+• Menunggu momentum yang lebih jelas
 
-🔄 **Alternative Actions**:
-• Monitor market dengan `/market`
-• Analisis spesifik dengan `/futures btc`
-• Comprehensive analysis `/analyze eth`
-• Cek kembali dalam 30 menit"""
+🔄 **Alternatif**:
+• Coba `/futures btc` untuk analisis spesifik
+• Gunakan `/analyze eth` untuk analisis fundamental
+• Monitor kondisi market dengan `/market`"""
 
                 safe_text, parse_mode = self._safe_output(no_signals_msg)
                 return safe_text
 
-            # Format signals found with enhanced details
-            message = f"""🚨 **ALL FUTURES SIGNALS AVAILABLE**
+            # Format signals found with safe markdown
+            message = f"""🚨 **AUTO SIGNALS - SUPPLY & DEMAND ANALYSIS**
 
 🕐 **Scan Time**: {self._escape_markdown_v2(current_time)}
-🌍 **Market Bias**: {self._escape_markdown_v2(market_bias)}
-📊 **High\\-Confidence Signals**: {len(high_confidence_signals)}
+📊 **Signals Found**: {len(high_confidence_signals)}
 
 """
 
             for i, signal in enumerate(high_confidence_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
-
-                # Get enhanced price data
+                
+                # Get price data for 24h change
                 symbol = signal['symbol']
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                # Market alignment indicator
-                alignment_emoji = "✅" if signal.get('market_alignment', 0) > 0 else "⚠️"
-
-                # Format individual signal with proper escaping
-                symbol_display = f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}"
-                confidence_display = f"⭐️ Confidence: {signal['confidence']:.1f}%"
-                entry_display = f"💰 Entry: {self._format_price(signal['entry'])}"
-                sl_display = f"🛑 Stop Loss: {self._format_price(signal['sl'])}"
-                tp1_display = f"🎯 TP1: {self._format_price(signal['tp1'])}"
-                tp2_display = f"🎯 TP2: {self._format_price(signal['tp2'])}"
-                rr_display = f"📊 R/R Ratio: {signal.get('rr', '2.0:1')}"
-                trend_display = f"🔄 Trend: {signal.get('primary_trend', 'Bullish' if signal['direction'] in ['LONG', 'BUY'] else 'Bearish')}"
-                structure_display = f"⚡️ Structure: {signal.get('structure', signal['direction'])} Bias"
-                reason_display = f"🧠 Reason: {signal.get('reason', 'Multi-timeframe confluence')}"
-                change_display = f"📈 24h Change: {self._format_percentage(change_24h)}"
-                alignment_display = f"{alignment_emoji} Market Alignment: {signal.get('alignment_desc', 'Good')}"
-
-                signal_text = f"""{symbol_display}
-{confidence_display}
-{entry_display}
-{sl_display}
-{tp1_display}
-{tp2_display}
-{rr_display}
-{trend_display}
-{structure_display}
-{reason_display}
-{change_display}
-{alignment_display}
+                message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
+⭐️ Confidence: {signal['confidence']:.1f}%
+💰 Entry: {self._format_price(signal['entry'])}
+🛑 Stop Loss: {self._format_price(signal['sl'])}
+🎯 TP1: {self._format_price(signal['tp1'])}
+🎯 TP2: {self._format_price(signal['tp2'])}
+📊 R/R Ratio: {signal.get('rr', '2.0:1')}
+🔄 Trend: {signal.get('primary_trend', 'Bullish' if signal['direction'] in ['LONG', 'BUY'] else 'Bearish')}
+⚡️ Structure: {signal.get('structure', signal['direction'])} Bias
+🧠 Reason: {signal.get('reason', 'Technical analysis with confluence')}
+📈 24h Change: {self._format_percentage(change_24h)}
 
 """
-                message += signal_text
 
-            # Enhanced disclaimer and insights
-            message += f"""💡 **TRADING INSIGHTS**:
-• Market bias: {self._escape_markdown_v2(market_bias)}
-• Signals filtered dengan multi\\-timeframe analysis
-• Risk management sangat penting
-• Position sizing sesuai confidence level
+            message += f"""⚠️ **TRADING DISCLAIMER**:
+• Signals berbasis Supply & Demand analysis
+• Gunakan proper risk management
+• Position sizing sesuai risk level
+• DYOR sebelum trading
 
-⚠️ **RISK MANAGEMENT**:
-• Max 2\\-3% risk per position
-• Set stop loss sebelum entry
-• Take profit secara bertahap
-• Monitor market conditions
-• DYOR \\- Not financial advice
-
-🎯 **Signal Quality**: Professional grade \\(75%\\+ confidence\\)
-📡 **Update Frequency**: Real\\-time market scanning"""
+🎯 Futures signals dengan confidence 75%+ only
+📡 Next scan in 30 minutes"""
 
             # Validate and return safe output
             safe_text, parse_mode = self._safe_output(message)
             return safe_text
 
         except Exception as e:
-            return self._error_fallback("FUTURES_SIGNALS", f"enhanced scan process: {str(e)[:50]}")
+            return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
 
     # ============ HELPER METHODS ============
 
@@ -1344,49 +1292,6 @@ class AIAssistant:
         except Exception as e:
             return f"Market analysis in progress - {str(e)[:30]}..."
 
-    def _determine_market_bias(self, market_data):
-        """Determine overall market bias based on multiple factors"""
-        try:
-            if not market_data.get('success'):
-                return "Neutral (Data unavailable)"
-
-            market_cap_change = market_data.get('market_cap_change_24h', 0)
-            btc_dominance = market_data.get('btc_dominance', 0)
-            eth_dominance = market_data.get('eth_dominance', 0)
-            total_volume = market_data.get('total_volume_24h', 0)
-
-            bias_score = 0
-
-            # Market Cap Change (higher = more bullish)
-            if market_cap_change > 3: bias_score += 20
-            elif market_cap_change > 1: bias_score += 10
-            elif market_cap_change < -1: bias_score -= 10
-            elif market_cap_change < -3: bias_score -= 20
-
-            # BTC Dominance (lower = more altcoin bullish)
-            if btc_dominance < 45: bias_score += 15
-            elif btc_dominance < 50: bias_score += 5
-            elif btc_dominance > 55: bias_score -= 15
-            elif btc_dominance > 50: bias_score -= 5
-            
-            # ETH Dominance (higher = stronger ecosystem)
-            if eth_dominance > 18: bias_score += 10
-            elif eth_dominance < 12: bias_score -= 5
-
-            # Volume (higher = more bullish/active)
-            if total_volume > 100e9: bias_score += 10
-            elif total_volume < 50e9: bias_score -= 10
-
-            # Normalize bias score to a descriptive term
-            if bias_score >= 30: return "Strongly Bullish"
-            elif bias_score >= 10: return "Moderately Bullish"
-            elif bias_score > -10: return "Neutral / Sideways"
-            elif bias_score > -30: return "Moderately Bearish"
-            else: return "Strongly Bearish"
-
-        except Exception:
-            return "Neutral (Error calculating bias)"
-
     def _generate_trading_signal(self, indicators, futures_data, current_price):
         """Generate trading signal with confidence"""
         try:
@@ -1513,8 +1418,8 @@ class AIAssistant:
             print(f"Error scanning {symbol}: {e}")
             return None
 
-    async def _advanced_futures_signal_scan(self, symbol, crypto_api, market_bias):
-        """Enhanced scan for trading signal with more detailed logic and market bias consideration"""
+    async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
+        """Enhanced scan for trading signal with more detailed logic"""
         try:
             if not crypto_api:
                 return None
@@ -1546,88 +1451,63 @@ class AIAssistant:
             if not all_indicators.get('1h'):
                 return None # Need at least 1h indicators
 
-            primary_indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
+            indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
 
             # Generate signal with enhanced logic
             signal_data = self._generate_enhanced_trading_signal(
-                primary_indicators, all_indicators.get('4h', {}), futures_data, current_price, {}
+                indicators, all_indicators.get('4h', {}), futures_data, current_price, {}
             )
 
-            # Incorporate market bias into confidence
-            market_alignment = 0
-            alignment_desc = "Neutral"
-            if market_bias in ["Strongly Bullish", "Moderately Bullish"] and signal_data['primary_trend'] == 'BULLISH':
-                market_alignment = 1
-                alignment_desc = "Aligned (Bullish)"
-            elif market_bias in ["Strongly Bearish", "Moderately Bearish"] and signal_data['primary_trend'] == 'BEARISH':
-                market_alignment = 1
-                alignment_desc = "Aligned (Bearish)"
-            elif market_bias in ["Strongly Bullish", "Moderately Bullish"] and signal_data['primary_trend'] == 'BEARISH':
-                market_alignment = -1
-                alignment_desc = "Divergent (Bearish)"
-            elif market_bias in ["Strongly Bearish", "Moderately Bearish"] and signal_data['primary_trend'] == 'BULLISH':
-                market_alignment = -1
-                alignment_desc = "Divergent (Bullish)"
-                
-            # Adjust confidence based on market alignment
-            signal_data['confidence'] = max(30, min(95, signal_data['confidence'] + (market_alignment * 10))) # Boost confidence if aligned
-            signal_data['market_alignment'] = market_alignment
-            signal_data['alignment_desc'] = alignment_desc
-            
-            # Ensure confidence is within bounds (75-100%) for signal generation
-            if signal_data['confidence'] < 75:
-                return None
-                
-            if signal_data['direction'] == 'NEUTRAL':
+            # Ensure confidence is within bounds (75-100%)
+            confidence = max(75, min(100, signal_data['confidence']))
+
+            if signal_data['direction'] == 'NEUTRAL' or confidence < 75:
                 return None
 
             # Calculate trading levels
-            atr = primary_indicators.get('atr', current_price * 0.02)
-            levels = self._calculate_advanced_trading_levels(current_price, signal_data, primary_indicators, {})
+            atr = indicators.get('atr', current_price * 0.02)
+            levels = self._calculate_advanced_trading_levels(current_price, signal_data, indicators, {})
 
             # Determine trend and structure
-            primary_trend = signal_data.get('primary_trend', 'Neutral')
-            structure = signal_data.get('structure', 'Neutral')
-
+            ema_50 = indicators.get('ema_50', 0)
+            ema_200 = indicators.get('ema_200', 0)
+            primary_trend = 'Bullish' if ema_50 > ema_200 else 'Bearish'
+            
             # Determine reason based on technical indicators
-            rsi = primary_indicators.get('rsi', 50)
-            macd = primary_indicators.get('macd_histogram', 0)
-
-            reason = signal_data.get('reason', 'Technical confluence detected') # Default reason
-
+            rsi = indicators.get('rsi', 50)
+            macd = indicators.get('macd_histogram', 0)
+            
             if signal_data['direction'] in ['BUY', 'LONG']:
-                if structure == 'BULLISH' and rsi < 50 and macd > 0:
+                if rsi < 50 and macd > 0:
                     reason = 'Oversold bounce with momentum'
-                elif structure == 'BULLISH' and rsi > 40:
+                elif ema_50 > ema_200 and rsi > 40:
                     reason = 'Trend continuation setup'
-                elif market_alignment == 1:
-                    reason = 'Aligned with market bias'
-            else: # SHORT
-                if structure == 'BEARISH' and rsi > 50 and macd < 0:
+                else:
+                    reason = 'Technical confluence detected'
+            else:
+                if rsi > 50 and macd < 0:
                     reason = 'Overbought rejection with momentum'
-                elif structure == 'BEARISH' and rsi < 60:
+                elif ema_50 < ema_200 and rsi < 60:
                     reason = 'Trend continuation setup'
-                elif market_alignment == 1:
-                    reason = 'Aligned with market bias'
+                else:
+                    reason = 'Technical confluence detected'
 
             return {
                 'symbol': symbol,
                 'direction': signal_data['direction'],
-                'confidence': signal_data['confidence'],
+                'confidence': confidence,
                 'entry': levels['entry'],
                 'sl': levels['stop_loss'],
                 'tp1': levels['tp1'],
                 'tp2': levels['tp2'],
                 'rr': f"{levels.get('rr_ratio', 2.0):.1f}:1",
                 'primary_trend': primary_trend,
-                'structure': structure,
-                'reason': reason,
-                'market_alignment': market_alignment,
-                'alignment_desc': alignment_desc
+                'structure': signal_data['direction'],
+                'reason': reason
             }
 
         except Exception as e:
-            print(f"Error advanced scanning {symbol}: {e}")
+            print(f"Error enhanced scanning {symbol}: {e}")
             return None
 
     def _get_confidence_level(self, confidence):
@@ -1806,21 +1686,18 @@ class AIAssistant:
 
             # Adjust based on Supply/Demand if available
             if snd_data.get('success'):
-                supply_1 = snd_data.get('supply_1', current_price * 1.02)
-                demand_1 = snd_data.get('demand_1', current_price * 0.98)
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
 
                 if direction == 'LONG' and demand_1 < current_price:
                     stop_loss = max(stop_loss, demand_1 * 0.995)
                 elif direction == 'SHORT' and supply_1 > current_price:
                     stop_loss = min(stop_loss, supply_1 * 1.005)
 
-            # Calculate risk/reward with proper decimal handling
+            # Calculate risk/reward
             risk = abs(entry - stop_loss)
-            reward = abs(tp2 - entry)  # Use TP2 instead of TP3 for more realistic R/R
+            reward = abs(tp3 - entry)
             rr_ratio = reward / risk if risk > 0 else 2.0
-            
-            # Ensure R/R ratio is reasonable (between 0.5 and 5.0)
-            rr_ratio = max(0.5, min(5.0, rr_ratio))
 
             # Position sizing based on confidence
             if confidence >= 85:
