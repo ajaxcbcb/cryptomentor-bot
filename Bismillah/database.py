@@ -925,21 +925,52 @@ class Database:
             if supabase_eligible_users:
                 return supabase_eligible_users
 
-            # Fallback: Local database (as a fallback for premium users if admin is not found or Supabase fails)
-            # Note: Original logic included admin, which is not directly queryable here without env var.
-            # We'll fetch premium users as a broad fallback.
+            # Fallback: Local database
+            users = []
+            
+            # Add both admin users from environment
+            admin_user_id = os.getenv('ADMIN_USER_ID')
+            admin2_user_id = os.getenv('ADMIN2_USER_ID')
+            
+            if admin_user_id:
+                try:
+                    admin_id = int(admin_user_id)
+                    users.append({
+                        'user_id': admin_id,
+                        'telegram_id': admin_id,
+                        'first_name': 'Primary Admin',
+                        'username': 'admin',
+                        'type': 'admin'
+                    })
+                except ValueError:
+                    pass
+            
+            if admin2_user_id:
+                try:
+                    admin2_id = int(admin2_user_id)
+                    users.append({
+                        'user_id': admin2_id,
+                        'telegram_id': admin2_id,
+                        'first_name': 'Secondary Admin',
+                        'username': 'admin2',
+                        'type': 'admin'
+                    })
+                except ValueError:
+                    pass
+            
+            # Add lifetime premium users
             self.cursor.execute("""
-                SELECT telegram_id, first_name, username FROM users WHERE is_premium = 1
+                SELECT telegram_id, first_name, username FROM users 
+                WHERE is_premium = 1 AND (subscription_end IS NULL OR subscription_end = '')
             """)
 
-            users = []
             for row in self.cursor.fetchall():
                 users.append({
                     'user_id': row[0],
                     'telegram_id': row[0],
                     'first_name': row[1] or 'User',
                     'username': row[2],
-                    'type': 'premium_fallback' # Indicate this is a fallback
+                    'type': 'lifetime'
                 })
 
             return users
