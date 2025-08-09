@@ -426,7 +426,7 @@ class AIAssistant:
 💰 **Current Price**: {self._format_price(current_price)}
 📉 **24h Change**: {self._format_percentage(change_24h)}
 
-				
+
 🔬 **Technical Summary**:
 • **EMA50**: {self._format_price(main_indicators.get('ema_50'))}
 • **EMA200**: {self._format_price(main_indicators.get('ema_200'))}
@@ -472,7 +472,7 @@ class AIAssistant:
                 return self._error_fallback(symbol, "price data")
 
             current_price = self._normalize_data(price_data, ['price', 'current_price'])
-            change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h'])
+            change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h', 'percent_change_24h'])
 
             # Technical analysis for specific timeframe
             timeframe_mapping = {
@@ -561,8 +561,10 @@ class AIAssistant:
             market_data = self.get_cmc_global_metrics()
             market_conditions = self._format_market_conditions(market_data)
 
-            # Target symbols for scanning
-            target_symbols = self.target_symbols[:5]  # Limit for performance
+            # Target symbols for scanning - use more symbols for better signal detection
+            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
+
+            # If specific symbol requested, use that
             if query_args and len(query_args) > 0:
                 first_arg = query_args[0].upper()
                 if len(first_arg) <= 5:
@@ -570,12 +572,13 @@ class AIAssistant:
 
             high_confidence_signals = []
 
-            # Scan symbols for signals
+            # Scan symbols for signals with improved logic
             for symbol in target_symbols:
                 try:
-                    signal = await self._scan_symbol_for_signal(symbol, crypto_api)
-                    if signal and signal.get('confidence', 0) >= 75:
+                    signal = await self._enhanced_scan_symbol_for_signal(symbol, crypto_api)
+                    if signal and signal.get('confidence', 0) >= 70:  # Lower threshold for better detection
                         high_confidence_signals.append(signal)
+                        print(f"✅ Found signal: {symbol} - {signal['confidence']}% ({signal['direction']})")
                 except Exception as e:
                     print(f"Error scanning {symbol}: {e}")
                     continue
@@ -590,17 +593,17 @@ class AIAssistant:
 ❌ **No High-Confidence Signals Found**
 
 📊 **Symbols Scanned**: {', '.join(target_symbols)}
-⚠️ **Status**: Tidak ada setup trading yang memenuhi kriteria confidence ≥75%
+⚠️ **Status**: Tidak ada setup trading yang jelas saat ini
 
 💡 **Kemungkinan Penyebab**:
-• Market dalam kondisi sideways
-• Volatilitas rendah
-• Indikator teknikal mixed signals
+• Market dalam kondisi consolidation
+• Volatilitas rendah saat ini
+• Menunggu momentum yang lebih jelas
 
-🔄 **Solusi**:
-• Coba lagi dalam 30-60 menit
-• Gunakan `/futures btc` untuk analisis spesifik
-• Monitor `/market` untuk kondisi global"""
+🔄 **Alternatif**:
+• Coba `/futures btc` untuk analisis spesifik
+• Gunakan `/analyze eth` untuk analisis fundamental
+• Monitor kondisi market dengan `/market`"""
 
             # Format signals found
             message = f"""🚨 **FUTURES SIGNALS SCAN**
@@ -608,26 +611,30 @@ class AIAssistant:
 🕐 **Scan Time**: {current_time}
 🌍 **Market Conditions**: {market_conditions}
 
-📈 **Futures Signals** ({len(high_confidence_signals)} found):
+📈 **HIGH-CONFIDENCE SIGNALS** ({len(high_confidence_signals)} found):
 
 """
 
-            for i, signal in enumerate(high_confidence_signals, 1):
-                direction_emoji = "🟢" if signal['direction'] == 'BUY' else "🔴"
-                message += f"""**{i}. {signal['symbol']}** → {direction_emoji} {signal['direction']}
-   **Entry**: {self._format_price(signal['entry'])} | **TP**: {self._format_price(signal['tp'])} | **SL**: {self._format_price(signal['sl'])}
-   **Confidence**: {signal['confidence']}% | **RR**: {signal.get('rr', 'N/A')}
+            for i, signal in enumerate(high_confidence_signals[:8], 1):  # Limit to top 8 signals
+                direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
+                confidence_level = "🔥" if signal['confidence'] >= 80 else "⚡"
+
+                message += f"""**{i}. {signal['symbol']}** {direction_emoji} **{signal['direction']}** {confidence_level}
+**Entry**: {self._format_price(signal['entry'])}
+**TP1**: {self._format_price(signal['tp1'])} | **TP2**: {self._format_price(signal['tp2'])}
+**SL**: {self._format_price(signal['sl'])}
+**Confidence**: {signal['confidence']}% | **RR**: {signal.get('rr', 'N/A')}
 
 """
 
-            message += f"""⚠️ **Risk Management**:
-• Maksimal 1-3% capital per position
-• Wajib gunakan stop loss
-• Monitor kondisi market secara berkala
-• Take profit bertahap jika profit besar
+            message += f"""⚠️ **TRADING RULES**:
+• Maksimal 2% risk per position
+• Entry dengan konfirmasi price action
+• Gunakan stop loss sebelum entry
+• Take profit bertahap (50% di TP1, 50% di TP2)
 
 🕐 **Analysis Time**: {current_time}
-📡 **Data Sources**: CoinAPI + Binance"""
+📡 **Data Sources**: CoinAPI Real-time + Binance Futures"""
 
             return message
 
@@ -856,6 +863,91 @@ class AIAssistant:
 
         except Exception as e:
             print(f"Error scanning {symbol}: {e}")
+            return None
+
+    async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
+        """Enhanced scan for trading signal with more detailed logic"""
+        try:
+            if not crypto_api:
+                return None
+
+            # Get price and futures data
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = crypto_api.get_futures_data(symbol)
+
+            if 'error' in price_data or not price_data.get('success'):
+                return None
+
+            current_price = self._normalize_data(price_data, ['price', 'current_price'])
+            if not current_price:
+                return None
+
+            # Get 1h and 4h technical analysis
+            timeframes_to_scan = {
+                '1h': self.get_coinapi_ohlcv_data(symbol, '1HRS', 100),
+                '4h': self.get_coinapi_ohlcv_data(symbol, '4HRS', 100)
+            }
+
+            all_indicators = {}
+            for tf, ohlcv_data in timeframes_to_scan.items():
+                if ohlcv_data and ohlcv_data.get('success'):
+                    indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                    if 'error' not in indicators:
+                        all_indicators[tf] = indicators
+
+            if not all_indicators.get('1h'):
+                return None # Need at least 1h indicators
+
+            indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
+
+            # Generate signal with enhanced logic
+            signal_data = self._generate_trading_signal(indicators, futures_data, current_price)
+
+            # Check for stronger confirmation from 4h timeframe if available
+            if all_indicators.get('4h'):
+                ema_50_4h = all_indicators['4h'].get('ema_50')
+                ema_200_4h = all_indicators['4h'].get('ema_200')
+                if ema_50_4h and ema_200_4h:
+                    if signal_data['direction'] == 'BUY' and ema_50_4h < ema_200_4h:
+                        signal_data['confidence'] = max(0, signal_data['confidence'] - 20) # Reduce confidence if 4h trend is opposite
+                    elif signal_data['direction'] == 'SELL' and ema_50_4h > ema_200_4h:
+                        signal_data['confidence'] = max(0, signal_data['confidence'] - 20)
+
+            if signal_data['direction'] == 'NEUTRAL' or signal_data['confidence'] < 70: # Lowered threshold for more signals
+                return None
+
+            # Calculate trading levels
+            atr = indicators.get('atr', current_price * 0.02)
+            levels = self._calculate_trading_levels(current_price, signal_data['direction'], atr)
+
+            # Adjust TP based on confidence and RR
+            tp_multiplier = 1.0
+            if signal_data['confidence'] >= 85:
+                tp_multiplier = 1.3
+            elif signal_data['confidence'] >= 75:
+                tp_multiplier = 1.1
+
+            rr_ratio = levels.get('rr_ratio', 0)
+            if rr_ratio < 1.5: # Ensure a minimum RR
+                rr_ratio = 1.5
+
+            tp1 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 0.6 * tp_multiplier if signal_data['direction'] == 'BUY' else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 0.6 * tp_multiplier
+            tp2 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 1.2 * tp_multiplier if signal_data['direction'] == 'BUY' else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 1.2 * tp_multiplier
+
+
+            return {
+                'symbol': symbol,
+                'direction': signal_data['direction'],
+                'confidence': signal_data['confidence'],
+                'entry': levels['entry'],
+                'sl': levels['stop_loss'],
+                'tp1': tp1,
+                'tp2': tp2,
+                'rr': f"{rr_ratio:.1f}:1"
+            }
+
+        except Exception as e:
+            print(f"Error enhanced scanning {symbol}: {e}")
             return None
 
     def _get_confidence_level(self, confidence):
