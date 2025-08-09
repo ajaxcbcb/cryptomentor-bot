@@ -16,7 +16,6 @@ from telegram.constants import ParseMode
 from database import Database
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
-from telegram_handlers import TelegramHandlers
 # Assuming snd_auto_signals.py contains the AutoSignalScanner class and initialize_auto_signals function
 # If not, the relevant logic needs to be incorporated.
 # For now, assuming the import path is correct.
@@ -103,17 +102,16 @@ class TelegramBot:
             logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}, using default 0")
             self.admin_id = 0
 
-        # Initialize components
+        # Initialize components with CoinAPI integration
         self.db = Database()
         self.crypto_api = CryptoAPI()
         self.ai = AIAssistant()
-        
-        # Initialize handlers
-        self.handlers = TelegramHandlers(self)
 
-        # Initialize systems
+        # Initialize broadcast system
         self.pending_broadcast = None
         self.broadcast_in_progress = False
+
+        # Initialize auto signals system
         self.auto_signals = None
 
         # Validate token before creating application

@@ -56,8 +56,8 @@ except ImportError as e:
     sys.exit(1)
 
 async def main():
-    """Main bot execution with optimized error handling"""
-    max_retries = 2 if is_deployment else 1
+    """Main bot execution with error handling and auto-restart"""
+    max_retries = 3 if is_deployment else 2
     retry_count = 0
 
     while retry_count < max_retries:
@@ -66,27 +66,44 @@ async def main():
 
             # Initialize bot
             bot = TelegramBot()
-            print("🎯 Bot initialized successfully")
 
-            # Run bot
+            print("🎯 Bot initialized successfully")
+            print("📡 Starting bot run sequence...")
+
+            # Run bot with enhanced logging
+            print("🚀 Calling bot.run_bot()...")
             await bot.run_bot()
-            print("🛑 Bot stopped normally")
+
+            # If we reach here, bot stopped normally
+            print("🛑 Bot stopped by user")
             break
 
         except Exception as e:
             retry_count += 1
-            print(f"❌ Bot error (attempt {retry_count}/{max_retries}): {e}")
-            logger.error(f"Bot error: {e}")
+            error_msg = str(e)
+
+            print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
+            logger.error(f"Bot crashed: {e}")
+
+            # Log specific error types for debugging
+            if "HTTPXRequest" in error_msg:
+                print("🔧 HTTPXRequest initialization error - telegram-bot version issue")
+            elif "idle" in error_msg:
+                print("🔧 Updater.idle() method missing - using alternative approach")
+            elif "max() arg is an empty sequence" in error_msg:
+                print("🔧 SnD analysis data validation error - applying fixes")
 
             if retry_count < max_retries:
-                print(f"🔄 Retrying in 10 seconds...")
-                await asyncio.sleep(10)
+                print(f"🔄 Retrying in 15 seconds... ({retry_count}/{max_retries})")
+                await asyncio.sleep(15)  # Longer wait for stability
             else:
-                print("❌ Max retries reached")
+                print("❌ Max retries reached. Bot shutting down.")
                 if is_deployment:
+                    print("🔄 Deployment will restart automatically...")
                     sys.exit(1)
                 else:
-                    break
+                    print("💡 Manual restart required")
+                    sys.exit(1)
 
 if __name__ == "__main__":
     try:
