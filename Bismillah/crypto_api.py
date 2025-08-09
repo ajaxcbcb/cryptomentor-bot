@@ -1,4 +1,3 @@
-
 import os
 import logging
 from datetime import datetime
@@ -23,13 +22,13 @@ class CryptoAPI:
         """
         try:
             symbol = symbol.upper().replace('USDT', '')
-            
+
             # Get prices using the provider
             price_data = self.provider.get_realtime_prices([symbol])
-            
+
             if price_data.get('success') and symbol in price_data.get('prices', {}):
                 symbol_data = price_data['prices'][symbol]
-                
+
                 result = {
                     'symbol': symbol,
                     'price': symbol_data.get('price', 0),
@@ -61,7 +60,7 @@ class CryptoAPI:
         try:
             price_data = self.provider.get_realtime_prices(symbols)
             return price_data
-            
+
         except Exception as e:
             logging.error(f"Error in get_multiple_prices: {e}")
             return {'error': f'Multiple prices error: {str(e)}', 'success': False}
@@ -72,7 +71,7 @@ class CryptoAPI:
         """
         try:
             futures_data = self.provider.get_futures_data(symbol)
-            
+
             if futures_data.get('success'):
                 funding_details = futures_data.get('data', {}).get('funding_details', {})
                 if funding_details:
@@ -84,7 +83,7 @@ class CryptoAPI:
                         'timestamp': datetime.now().isoformat(),
                         'success': True
                     }
-            
+
             return {'error': f'Failed to get funding rate for {symbol}', 'success': False}
 
         except Exception as e:
@@ -97,7 +96,7 @@ class CryptoAPI:
         """
         try:
             futures_data = self.provider.get_futures_data(symbol)
-            
+
             if futures_data.get('success'):
                 oi_data = futures_data.get('data', {}).get('open_interest', {})
                 if oi_data:
@@ -109,7 +108,7 @@ class CryptoAPI:
                         'timestamp': datetime.now().isoformat(),
                         'success': True
                     }
-            
+
             return {'error': f'Failed to get open interest for {symbol}', 'success': False}
 
         except Exception as e:
@@ -122,7 +121,7 @@ class CryptoAPI:
         """
         try:
             futures_data = self.provider.get_futures_data(symbol)
-            
+
             if futures_data.get('success'):
                 ls_data = futures_data.get('data', {}).get('long_short', {})
                 if ls_data:
@@ -137,7 +136,7 @@ class CryptoAPI:
                         'timestamp': datetime.now().isoformat(),
                         'success': True
                     }
-            
+
             return {'error': f'Failed to get long/short ratio for {symbol}', 'success': False}
 
         except Exception as e:
@@ -150,7 +149,7 @@ class CryptoAPI:
         """
         try:
             futures_data = self.provider.get_futures_data(symbol)
-            
+
             if futures_data.get('success'):
                 result = {
                     'symbol': symbol,
@@ -162,7 +161,7 @@ class CryptoAPI:
                     'source': 'binance_comprehensive',
                     'success': True
                 }
-                
+
                 # Add data quality score
                 available_fields = len([k for k, v in futures_data.get('data', {}).items() if v])
                 result['data_quality'] = {
@@ -170,9 +169,9 @@ class CryptoAPI:
                     'total_fields_expected': 4,
                     'quality_score': (available_fields / 4) * 100
                 }
-                
+
                 return result
-            
+
             return {'error': f'Failed to get comprehensive futures data for {symbol}', 'success': False}
 
         except Exception as e:
@@ -207,7 +206,7 @@ class CryptoAPI:
         """
         try:
             return self.provider.test_all_apis()
-            
+
         except Exception as e:
             logging.error(f"Error testing API connections: {e}")
             return {
@@ -235,27 +234,27 @@ class CryptoAPI:
         """
         try:
             binance_symbol = symbol.upper() + 'USDT' if not symbol.upper().endswith('USDT') else symbol.upper()
-            
+
             from config import BINANCE_ENDPOINTS, get_binance_headers
             import requests
-            
+
             params = {
                 'symbol': binance_symbol,
                 'interval': timeframe,
                 'limit': limit
             }
-            
+
             response = requests.get(
                 BINANCE_ENDPOINTS['klines'],
                 headers=get_binance_headers(),
                 params=params,
                 timeout=30
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 candlesticks = []
-                
+
                 for candle in data:
                     candlesticks.append({
                         'timestamp': int(candle[0]),
@@ -265,7 +264,7 @@ class CryptoAPI:
                         'close': float(candle[4]),
                         'volume': float(candle[5])
                     })
-                
+
                 return {
                     'symbol': symbol,
                     'timeframe': timeframe,
@@ -275,15 +274,13 @@ class CryptoAPI:
                 }
             else:
                 return {'error': f'Binance API error: {response.status_code}', 'success': False}
-                
+
         except Exception as e:
             logging.error(f"Error getting candlestick data: {e}")
             return {'error': f'Candlestick data error: {str(e)}', 'success': False}
 
-    def analyze_supply_demand(self, symbol: str) -> Dict[str, Any]:
-        """
-        Analyze Supply and Demand zones using CoinAPI candlestick data
-        """
+    def analyze_supply_demand(self, symbol, timeframe='1h'):
+        """Analyze Supply & Demand zones for a cryptocurrency"""
         try:
             # Get current price first
             price_data = self.get_crypto_price(symbol)
@@ -293,8 +290,8 @@ class CryptoAPI:
                 current_price = price_data.get('price', 50000)
 
             # Get candlestick data from Binance
-            candlestick_data = self.get_candlestick_data(symbol, '1h', 200)
-            
+            candlestick_data = self.get_candlestick_data(symbol, timeframe, 200)
+
             if not candlestick_data.get('success') or 'error' in candlestick_data:
                 # Generate fallback SnD zones if API fails
                 return {
@@ -334,7 +331,7 @@ class CryptoAPI:
                 volume = current['volume']
 
                 # Swing High detection (Supply zones)
-                if (high > prev1['high'] and high > prev2['high'] and 
+                if (high > prev1['high'] and high > prev2['high'] and
                     high > next1['high'] and high > next2['high'] and volume > 0):
                     supply_zones.append({
                         'price': high,
@@ -343,7 +340,7 @@ class CryptoAPI:
                     })
 
                 # Swing Low detection (Demand zones)
-                if (low < prev1['low'] and low < prev2['low'] and 
+                if (low < prev1['low'] and low < prev2['low'] and
                     low < next1['low'] and low < next2['low'] and volume > 0):
                     demand_zones.append({
                         'price': low,

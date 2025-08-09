@@ -93,14 +93,47 @@ class TelegramBot:
 
         logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
-        # Get admin ID with better error handling
+        # Get all admin IDs with better error handling
+        self.admin_ids = set()
+        
+        # Primary admin
         admin_id_str = os.getenv('ADMIN_USER_ID', '0')
         try:
-            self.admin_id = int(admin_id_str)
-            logger.info(f"✅ Admin ID configured: {self.admin_id}")
+            admin_id = int(admin_id_str)
+            if admin_id > 0:
+                self.admin_ids.add(admin_id)
+                logger.info(f"✅ Primary Admin ID configured: {admin_id}")
         except ValueError:
-            logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}, using default 0")
-            self.admin_id = 0
+            logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}")
+        
+        # Secondary admin
+        admin2_id_str = os.getenv('ADMIN2_USER_ID', '0')
+        try:
+            admin2_id = int(admin2_id_str)
+            if admin2_id > 0:
+                self.admin_ids.add(admin2_id)
+                logger.info(f"✅ Secondary Admin ID configured: {admin2_id}")
+        except ValueError:
+            if admin2_id_str != '0':
+                logger.warning(f"Invalid ADMIN2_USER_ID: {admin2_id_str}")
+        
+        # Support for future admin IDs (ADMIN3_USER_ID, ADMIN4_USER_ID, etc.)
+        for i in range(3, 10):  # Support up to ADMIN9_USER_ID
+            admin_key = f'ADMIN{i}_USER_ID'
+            admin_id_str = os.getenv(admin_key, '0')
+            try:
+                admin_id = int(admin_id_str)
+                if admin_id > 0:
+                    self.admin_ids.add(admin_id)
+                    logger.info(f"✅ Admin{i} ID configured: {admin_id}")
+            except ValueError:
+                if admin_id_str != '0':
+                    logger.warning(f"Invalid {admin_key}: {admin_id_str}")
+        
+        # Backward compatibility
+        self.admin_id = min(self.admin_ids) if self.admin_ids else 0
+        
+        logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
 
         # Initialize components with CoinAPI integration
         self.db = Database()
@@ -131,9 +164,7 @@ class TelegramBot:
 
     def is_admin(self, user_id: int) -> bool:
         """Check if the user ID is one of the configured admins."""
-        # In a more complex setup, you might load multiple admin IDs from environment variables or a config file.
-        # For now, we check against the primary admin ID from the environment.
-        return user_id == self.admin_id
+        return user_id in self.admin_ids
 
     async def run_bot(self):
         """Main method to run the bot"""
@@ -1764,21 +1795,21 @@ Gunakan `/subscribe` untuk upgrade!
         auto_status = "🟢 RUNNING" if self.auto_signals and self.auto_signals.is_running else "🔴 STOPPED"
         deployment_mode = "🚀 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
 
-        # Validate admin access first
-        admin_user_id_env = os.getenv('ADMIN_USER_ID')
-        is_valid_admin = (
-            user_id == self.admin_id and
-            admin_user_id_env and
-            str(user_id) == str(admin_user_id_env)
-        )
+        # Enhanced admin verification for multiple admins
+        admin_env_vars = {}
+        for i in range(1, 10):
+            key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+            env_value = os.getenv(key)
+            if env_value and env_value != '0':
+                admin_env_vars[key] = env_value
 
-        if not is_valid_admin:
+        if not self.is_admin(user_id):
             await update.message.reply_text(
                 f"❌ **Access Denied**\n\n"
                 f"**Your ID**: {user_id}\n"
-                f"**Configured Admin**: {self.admin_id}\n"
-                f"**Secrets ADMIN_USER_ID**: {admin_user_id_env or 'NOT SET'}\n\n"
-                f"⚠️ Admin access hanya untuk user dengan ID yang sesuai dengan ADMIN_USER_ID di Secrets.",
+                f"**Configured Admin IDs**: {sorted(list(self.admin_ids))}\n"
+                f"**Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}\n\n"
+                f"⚠️ Admin access hanya untuk user dengan ID yang sesuai dengan admin environment variables di Secrets.",
                 parse_mode='Markdown'
             )
             return
@@ -1787,8 +1818,9 @@ Gunakan `/subscribe` untuk upgrade!
 
 🔑 **Admin Verification:**
 • **Your User ID**: {user_id} ✅
-• **Secrets ADMIN_USER_ID**: {admin_user_id_env} ✅
-• **Bot Admin ID**: {self.admin_id} ✅
+• **Your Admin Status**: {'✅ PRIMARY' if user_id == self.admin_id else '✅ SECONDARY'}
+• **All Admin IDs**: {sorted(list(self.admin_ids))}
+• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
 • **Admin Access**: ✅ VERIFIED & GRANTED
 
 📊 **Bot Statistics:**

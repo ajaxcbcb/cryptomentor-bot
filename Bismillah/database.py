@@ -594,36 +594,35 @@ class Database:
             return 0
 
     def get_eligible_auto_signal_users(self):
-        """Get users eligible for auto signals (Admin1 + Admin2 + Lifetime premium users)"""
+        """Get users eligible for auto signals (All Admin IDs + Lifetime premium users)"""
         try:
-            # Get admin users
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
-            admin2_id = int(os.getenv('ADMIN2_USER_ID', '0'))
+            # Get all admin users from environment variables
+            admin_ids = set()
+            
+            # Collect all admin IDs
+            for i in range(1, 10):  # Support ADMIN_USER_ID to ADMIN9_USER_ID
+                key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+                admin_id_str = os.getenv(key, '0')
+                try:
+                    admin_id = int(admin_id_str)
+                    if admin_id > 0:
+                        admin_ids.add(admin_id)
+                except ValueError:
+                    continue
+            
             eligible_users = []
-
-            # Add Admin1
-            if admin_id > 0:
+            
+            # Add all admin users
+            for idx, admin_id in enumerate(sorted(admin_ids), 1):
                 admin_user = self.get_user(admin_id)
                 if admin_user:
                     eligible_users.append({
                         'telegram_id': admin_id,
-                        'first_name': admin_user.get('first_name', 'Admin1'),
-                        'type': 'admin1'
+                        'first_name': admin_user.get('first_name', f'Admin{idx}'),
+                        'type': f'admin{idx}'
                     })
                 else:
-                    print(f"⚠️ Admin1 user {admin_id} not found in database")
-
-            # Add Admin2
-            if admin2_id > 0 and admin2_id != admin_id:
-                admin2_user = self.get_user(admin2_id)
-                if admin2_user:
-                    eligible_users.append({
-                        'telegram_id': admin2_id,
-                        'first_name': admin2_user.get('first_name', 'Admin2'),
-                        'type': 'admin2'
-                    })
-                else:
-                    print(f"⚠️ Admin2 user {admin2_id} not found in database")
+                    print(f"⚠️ Admin{idx} user {admin_id} not found in database")
 
             # Get lifetime premium users (subscription_end IS NULL means lifetime)
             self.cursor.execute("""
@@ -650,12 +649,20 @@ class Database:
     def deduct_credit(self, telegram_id, amount):
         """Deduct credits from user (only for non-premium, non-admin users)"""
         try:
-            # Check if user is admin or premium
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
-            admin2_id = int(os.getenv('ADMIN2_USER_ID', '0'))
+            # Get all admin IDs
+            admin_ids = set()
+            for i in range(1, 10):
+                key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+                admin_id_str = os.getenv(key, '0')
+                try:
+                    admin_id = int(admin_id_str)
+                    if admin_id > 0:
+                        admin_ids.add(admin_id)
+                except ValueError:
+                    continue
             
-            if self.is_user_premium(telegram_id) or telegram_id == admin_id or telegram_id == admin2_id:
-                # Admin1, Admin2 and premium users don't lose credits
+            if self.is_user_premium(telegram_id) or telegram_id in admin_ids:
+                # Admins and premium users don't lose credits
                 return True
 
             self.cursor.execute("""
@@ -952,7 +959,19 @@ class Database:
     def log_auto_signals_broadcast(self, signals_count, success_count, total_eligible):
         """Log auto signals broadcast for tracking"""
         try:
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
+            # Get first available admin ID for logging
+            admin_id = 0
+            for i in range(1, 10):
+                key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+                admin_id_str = os.getenv(key, '0')
+                try:
+                    potential_admin_id = int(admin_id_str)
+                    if potential_admin_id > 0:
+                        admin_id = potential_admin_id
+                        break
+                except ValueError:
+                    continue
+            
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
