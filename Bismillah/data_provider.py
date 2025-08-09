@@ -1,41 +1,51 @@
-
 import os
-import time
-import logging
 import requests
+import logging
+import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List
-
+from typing import Dict, Any, Optional, List, Union
 from config import (
-    COINMARKETCAP_ENDPOINTS, 
-    BINANCE_ENDPOINTS,
-    get_coinmarketcap_headers,
-    get_binance_headers,
-    CACHE_TIMEOUT,
-    check_api_keys
+    COINMARKETCAP_ENDPOINTS, BINANCE_ENDPOINTS,
+    get_coinmarketcap_headers, get_binance_headers,
+    CACHE_TIMEOUT, check_api_keys
 )
 
 class DataProvider:
     """
-    Unified data provider for CoinMarketCap and Binance APIs
-    Handles real-time price data, futures data, and market overview
+    Comprehensive data provider for CoinMarketCap and Binance APIs
     """
 
     def __init__(self):
         self.api_status = check_api_keys()
         self._cache = {}
+
+        # Initialize API availability
         self.coinmarketcap_available = self.api_status['coinmarketcap']
         self.binance_available = True
+
         logging.info("DataProvider initialized with Binance + CoinMarketCap")
 
     def _make_request(self, url: str, headers: dict, params: dict = None, timeout: int = 30) -> Dict[str, Any]:
-        """Make HTTP request with comprehensive error handling"""
+        """
+        Generic request method with comprehensive error handling
+        """
         try:
-            response = requests.get(url, headers=headers, params=params or {}, timeout=timeout)
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params or {},
+                timeout=timeout
+            )
+
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                return data
             else:
-                return {'error': f'HTTP {response.status_code}', 'message': response.text[:200]}
+                return {
+                    'error': f'HTTP {response.status_code}',
+                    'message': response.text[:200]
+                }
+
         except requests.exceptions.Timeout:
             return {'error': 'Request timeout'}
         except requests.exceptions.ConnectionError:
@@ -46,7 +56,7 @@ class DataProvider:
             return {'error': f'Unexpected error: {str(e)}'}
 
     def _get_cache_key(self, method: str, symbol: str, **kwargs) -> str:
-        """Generate cache key for data caching"""
+        """Generate cache key"""
         extra = "_".join([f"{k}_{v}" for k, v in kwargs.items()])
         return f"{method}_{symbol}_{extra}".lower()
 
@@ -54,14 +64,15 @@ class DataProvider:
         """Check if cached data is still valid"""
         if cache_key not in self._cache:
             return None
-        
+
         cached_data, timestamp = self._cache[cache_key]
         timeout = CACHE_TIMEOUT.get(cache_type, 300)
-        
+
         if time.time() - timestamp < timeout:
-            logging.info(f"Cache hit for {cache_key}")
+            logging.info(f"📦 Cache hit for {cache_key}")
             return cached_data
-        
+
+        # Remove expired cache
         del self._cache[cache_key]
         return None
 
@@ -70,7 +81,9 @@ class DataProvider:
         self._cache[cache_key] = (data, time.time())
 
     def get_realtime_prices(self, symbols: List[str]) -> Dict[str, Any]:
-        """Get real-time prices from CoinMarketCap with Binance fallback"""
+        """
+        Get real-time prices from CoinMarketCap with Binance fallback
+        """
         cache_key = self._get_cache_key("prices", "_".join(symbols[:3]))
         cached_data = self._check_cache(cache_key, "price_data")
 
@@ -81,8 +94,7 @@ class DataProvider:
             'prices': {},
             'source': 'unknown',
             'timestamp': datetime.now().isoformat(),
-            'errors': [],
-            'success': False
+            'errors': []
         }
 
         # Try CoinMarketCap first
@@ -118,7 +130,7 @@ class DataProvider:
                     result['source'] = 'coinmarketcap'
                     result['success'] = True
                     self._update_cache(cache_key, result)
-                    logging.info(f"CoinMarketCap: Successfully fetched prices for {len(result['prices'])} symbols")
+                    logging.info(f"✅ CoinMarketCap: Successfully fetched prices for {len(result['prices'])} symbols")
                     return result
                 else:
                     error_msg = response.get('status', {}).get('error_message', 'Unknown CMC error')
@@ -154,19 +166,22 @@ class DataProvider:
                 result['source'] = 'binance'
                 result['success'] = True
                 self._update_cache(cache_key, result)
-                logging.info(f"Binance: Successfully fetched prices for {len(result['prices'])} symbols")
+                logging.info(f"✅ Binance: Successfully fetched prices for {len(result['prices'])} symbols")
                 return result
 
         except Exception as e:
             result['errors'].append(f'Binance exception: {str(e)}')
             logging.error(f"Binance error: {e}")
 
+        result['success'] = False
         result['error'] = 'All price APIs failed'
-        logging.error(f"All APIs failed for price data: {result['errors']}")
+        logging.error(f"❌ All APIs failed for price data: {result['errors']}")
         return result
 
     def get_futures_data(self, symbol: str) -> Dict[str, Any]:
-        """Get comprehensive futures data from Binance API"""
+        """
+        Get comprehensive futures data from Binance API
+        """
         cache_key = self._get_cache_key("futures", symbol)
         cached_data = self._check_cache(cache_key, "futures_data")
 
@@ -211,7 +226,7 @@ class DataProvider:
             )
 
             if 'error' not in funding_response and isinstance(funding_response, list) and len(funding_response) > 0:
-                latest_funding = funding_response[-1]
+                latest_funding = funding_response[-1]  # Most recent
                 futures_data['funding_details'] = {
                     'current_rate': float(latest_funding.get('fundingRate', 0)),
                     'funding_time': latest_funding.get('fundingTime', ''),
@@ -233,7 +248,7 @@ class DataProvider:
                     'dominant_exchange': 'Binance'
                 }
 
-            # Get long/short ratio
+            # Get long/short ratio from top accounts
             ls_params = {'symbol': binance_symbol, 'period': '1h', 'limit': 1}
             ls_response = self._make_request(
                 BINANCE_ENDPOINTS['long_short_ratio'],
@@ -257,17 +272,20 @@ class DataProvider:
                 result['data'] = futures_data
                 result['success'] = True
                 self._update_cache(cache_key, result)
-                logging.info(f"Binance: Comprehensive futures data for {binance_symbol}")
+                logging.info(f"✅ Binance: Comprehensive futures data for {binance_symbol}")
                 return result
 
         except Exception as e:
             logging.error(f"Binance futures data error for {symbol}: {e}")
 
         result['error'] = 'Failed to get futures data from Binance'
+        logging.error(f"❌ Binance API failed for futures data: {symbol}")
         return result
 
     def get_coin_info(self, symbol: str) -> Dict[str, Any]:
-        """Get detailed coin information from CoinMarketCap"""
+        """
+        Get detailed coin information from CoinMarketCap
+        """
         cache_key = self._get_cache_key("coin_info", symbol)
         cached_data = self._check_cache(cache_key, "coin_info")
 
@@ -305,7 +323,7 @@ class DataProvider:
                     }
 
                     self._update_cache(cache_key, result)
-                    logging.info(f"CoinMarketCap: Coin info for {clean_symbol}")
+                    logging.info(f"✅ CoinMarketCap: Coin info for {clean_symbol}")
                     return result
 
         except Exception as e:
@@ -314,7 +332,9 @@ class DataProvider:
         return {'error': f'Failed to get coin info for {symbol}', 'success': False}
 
     def get_market_overview(self) -> Dict[str, Any]:
-        """Get comprehensive market overview from CoinMarketCap"""
+        """
+        Get comprehensive market overview from CoinMarketCap
+        """
         cache_key = "market_overview_global"
         cached_data = self._check_cache(cache_key, "market_data")
 
@@ -380,7 +400,7 @@ class DataProvider:
             if result['global_metrics'] or result['top_cryptocurrencies']:
                 result['success'] = True
                 self._update_cache(cache_key, result)
-                logging.info("CoinMarketCap: Market overview data fetched")
+                logging.info("✅ CoinMarketCap: Market overview data fetched")
                 return result
 
         except Exception as e:
@@ -389,7 +409,9 @@ class DataProvider:
         return {'error': 'Failed to get market overview', 'success': False}
 
     def test_all_apis(self) -> Dict[str, Any]:
-        """Test all API connections and return status"""
+        """
+        Test all API connections and return status
+        """
         results = {
             'timestamp': datetime.now().isoformat(),
             'apis': {},
@@ -468,6 +490,7 @@ class DataProvider:
         results['total_apis'] = total_apis
 
         logging.info(f"API Test Results: {successful_apis}/{total_apis} APIs working - Status: {results['overall_status']}")
+
         return results
 
 # Global instance
