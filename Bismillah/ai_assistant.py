@@ -46,69 +46,47 @@ class AIAssistant:
             print(f"❌ Failed to initialize Supabase: {e}")
             return None
 
-    def save_user(self, user_id, username=""):
-        """Save user to Supabase database"""
+    def save_user(self, user_id, username="", first_name="", last_name=""):
+        """Save user to Supabase database using centralized user management"""
         try:
             if not self.supabase:
                 return False
 
-            # Check if user already exists
-            existing_user = self.supabase.table('users').select('*').eq('id', str(user_id)).execute()
-
-            if existing_user.data:
-                return True  # User already exists
-
-            # Insert new user
-            user_data = {
-                'id': str(user_id),
-                'username': username,
-                'joined_at': datetime.now().isoformat(),
-                'status': 'free'
-            }
-
-            result = self.supabase.table('users').insert(user_data).execute()
-
-            if result.data:
-                print(f"✅ User {user_id} saved to Supabase")
-                return True
-            else:
-                print(f"⚠️ Failed to save user {user_id}")
-                return False
+            # Use centralized Supabase user management from database
+            from supabase_users import SupabaseUsers
+            supabase_users = SupabaseUsers()
+            
+            return supabase_users.add_user(
+                user_id=user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                status='free'
+            )
 
         except Exception as e:
             print(f"❌ Error saving user {user_id}: {e}")
             return False
 
     def get_user(self, user_id):
-        """Get user data from Supabase"""
+        """Get user data from Supabase using centralized user management"""
         try:
-            if not self.supabase:
-                return None
-
-            result = self.supabase.table('users').select('*').eq('id', str(user_id)).execute()
-
-            if result.data:
-                return result.data[0]
-            else:
-                return None
+            from supabase_users import SupabaseUsers
+            supabase_users = SupabaseUsers()
+            
+            return supabase_users.get_user(user_id)
 
         except Exception as e:
             print(f"❌ Error getting user {user_id}: {e}")
             return None
 
     def update_user_status(self, user_id, status):
-        """Update user status in Supabase"""
+        """Update user status in Supabase using centralized user management"""
         try:
-            if not self.supabase:
-                return False
-
-            result = self.supabase.table('users').update({'status': status}).eq('id', str(user_id)).execute()
-
-            if result.data:
-                print(f"✅ User {user_id} status updated to {status}")
-                return True
-            else:
-                return False
+            from supabase_users import SupabaseUsers
+            supabase_users = SupabaseUsers()
+            
+            return supabase_users.update_user_status(user_id, status)
 
         except Exception as e:
             print(f"❌ Error updating user status: {e}")
@@ -1315,12 +1293,14 @@ Target Coins: {', '.join(self.target_symbols)}"""
             return
             
         try:
-            # Get eligible users (lifetime and admin) using existing database method
-            if hasattr(self.bot_instance, 'db'):
+            # Get eligible users (lifetime and admin) using Supabase first
+            from supabase_users import SupabaseUsers
+            supabase_users = SupabaseUsers()
+            eligible_users = supabase_users.get_eligible_auto_signal_users()
+            
+            # Fallback to database method if Supabase fails
+            if not eligible_users and hasattr(self.bot_instance, 'db'):
                 eligible_users = self.bot_instance.db.get_eligible_auto_signal_users()
-            else:
-                print("❌ AUTO SIGNAL: Database not available")
-                return
             
             if not eligible_users:
                 print("❌ AUTO SIGNAL: No eligible users found")
