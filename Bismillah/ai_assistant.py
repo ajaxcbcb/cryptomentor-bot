@@ -917,12 +917,16 @@ class AIAssistant:
             for symbol in target_symbols:
                 try:
                     signal = await self._enhanced_scan_symbol_for_signal(symbol, crypto_api)
-                    if signal and signal.get('confidence', 0) >= 70:  # Lower threshold for better detection
+                    if signal and signal.get('confidence', 0) >= 75:  # Minimum 75% confidence
                         high_confidence_signals.append(signal)
                         print(f"✅ Found signal: {symbol} - {signal['confidence']}% ({signal['direction']})")
                 except Exception as e:
                     print(f"Error scanning {symbol}: {e}")
                     continue
+
+            # Sort by confidence and take only the best signal
+            if high_confidence_signals:
+                high_confidence_signals = sorted(high_confidence_signals, key=lambda x: x.get('confidence', 0), reverse=True)[:1]
 
             # Format response with safe markdown
             if not high_confidence_signals:
@@ -957,23 +961,25 @@ class AIAssistant:
 
 """
 
-            for i, signal in enumerate(high_confidence_signals[:8], 1):  # Limit to top 8 signals
+            for i, signal in enumerate(high_confidence_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
-                confidence_level = "🔥" if signal['confidence'] >= 80 else "⚡" if signal['confidence'] >= 70 else "💡"
+                
+                # Get price data for 24h change
+                symbol = signal['symbol']
+                price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
+                change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                message += f"""```
-{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
-⭐️ Confidence: {signal['confidence']}.0%
+                message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
+⭐️ Confidence: {signal['confidence']:.1f}%
 💰 Entry: {self._format_price(signal['entry'])}
 🛑 Stop Loss: {self._format_price(signal['sl'])}
 🎯 TP1: {self._format_price(signal['tp1'])}
 🎯 TP2: {self._format_price(signal['tp2'])}
-📊 R/R Ratio: {signal.get('rr', 'N/A')}
-🔄 Trend: {signal.get('primary_trend', 'N/A')}
-⚡ Structure: {signal.get('strategy', 'N/A').split(' ')[0]} Bias
-🧠 Reason: {signal.get('strategy', 'N/A')} detected
-📈 24h Change: {self._format_percentage(price_data.get('change_24h', 0) if 'price_data' in locals() else 0)}
-```
+📊 R/R Ratio: {signal.get('rr', '2.0:1')}
+🔄 Trend: {signal.get('primary_trend', 'Bullish' if signal['direction'] in ['LONG', 'BUY'] else 'Bearish')}
+⚡️ Structure: {signal.get('structure', signal['direction'])} Bias
+🧠 Reason: {signal.get('reason', 'Technical analysis with confluence')}
+📈 24h Change: {self._format_percentage(change_24h)}
 
 """
 
@@ -983,7 +989,7 @@ class AIAssistant:
 • Position sizing sesuai risk level
 • DYOR sebelum trading
 
-🎯 Auto Signal, tapi bedanya di Futures Signal, tolong buat improvisasi yang sudah ku sebutkan
+🎯 Futures signals dengan confidence 75%+ only
 📡 Next scan in 30 minutes"""
 
             # Validate and return safe output
@@ -1448,49 +1454,56 @@ class AIAssistant:
             indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
 
             # Generate signal with enhanced logic
-            signal_data = self._generate_trading_signal(indicators, futures_data, current_price)
+            signal_data = self._generate_enhanced_trading_signal(
+                indicators, all_indicators.get('4h', {}), futures_data, current_price, {}
+            )
 
-            # Check for stronger confirmation from 4h timeframe if available
-            if all_indicators.get('4h'):
-                ema_50_4h = all_indicators['4h'].get('ema_50')
-                ema_200_4h = all_indicators['4h'].get('ema_200')
-                if ema_50_4h and ema_200_4h:
-                    if signal_data['direction'] in ['BUY', 'LONG'] and ema_50_4h < ema_200_4h:
-                        signal_data['confidence'] = max(0, signal_data['confidence'] - 20) # Reduce confidence if 4h trend is opposite
-                    elif signal_data['direction'] in ['SELL', 'SHORT'] and ema_50_4h > ema_200_4h:
-                        signal_data['confidence'] = max(0, signal_data['confidence'] - 20)
+            # Ensure confidence is within bounds (75-100%)
+            confidence = max(75, min(100, signal_data['confidence']))
 
-            if signal_data['direction'] == 'NEUTRAL' or signal_data['confidence'] < 70: # Lowered threshold for more signals
+            if signal_data['direction'] == 'NEUTRAL' or confidence < 75:
                 return None
 
             # Calculate trading levels
             atr = indicators.get('atr', current_price * 0.02)
-            levels = self._calculate_trading_levels(current_price, signal_data['direction'], atr)
+            levels = self._calculate_advanced_trading_levels(current_price, signal_data, indicators, {})
 
-            # Adjust TP based on confidence and RR
-            tp_multiplier = 1.0
-            if signal_data['confidence'] >= 85:
-                tp_multiplier = 1.3
-            elif signal_data['confidence'] >= 75:
-                tp_multiplier = 1.1
-
-            rr_ratio = levels.get('rr_ratio', 0)
-            if rr_ratio < 1.5: # Ensure a minimum RR
-                rr_ratio = 1.5
-
-            tp1 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 0.6 * tp_multiplier if signal_data['direction'] in ['BUY', 'LONG'] else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 0.6 * tp_multiplier
-            tp2 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 1.2 * tp_multiplier if signal_data['direction'] in ['BUY', 'LONG'] else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 1.2 * tp_multiplier
-
+            # Determine trend and structure
+            ema_50 = indicators.get('ema_50', 0)
+            ema_200 = indicators.get('ema_200', 0)
+            primary_trend = 'Bullish' if ema_50 > ema_200 else 'Bearish'
+            
+            # Determine reason based on technical indicators
+            rsi = indicators.get('rsi', 50)
+            macd = indicators.get('macd_histogram', 0)
+            
+            if signal_data['direction'] in ['BUY', 'LONG']:
+                if rsi < 50 and macd > 0:
+                    reason = 'Oversold bounce with momentum'
+                elif ema_50 > ema_200 and rsi > 40:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
+            else:
+                if rsi > 50 and macd < 0:
+                    reason = 'Overbought rejection with momentum'
+                elif ema_50 < ema_200 and rsi < 60:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
 
             return {
                 'symbol': symbol,
                 'direction': signal_data['direction'],
-                'confidence': signal_data['confidence'],
+                'confidence': confidence,
                 'entry': levels['entry'],
                 'sl': levels['stop_loss'],
-                'tp1': tp1,
-                'tp2': tp2,
-                'rr': f"{rr_ratio:.1f}:1"
+                'tp1': levels['tp1'],
+                'tp2': levels['tp2'],
+                'rr': f"{levels.get('rr_ratio', 2.0):.1f}:1",
+                'primary_trend': primary_trend,
+                'structure': signal_data['direction'],
+                'reason': reason
             }
 
         except Exception as e:
