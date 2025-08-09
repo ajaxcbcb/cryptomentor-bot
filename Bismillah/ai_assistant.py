@@ -1175,6 +1175,430 @@ Exclusive for Admin & Lifetime Users 💎"""
         else:
             return "💡 Gunakan /futures_signals untuk sinyal berkualitas tinggi!"
 
+    def get_comprehensive_analysis(self, symbol, snd_data={}, price_data={}, language='id', crypto_api=None):
+        """Get comprehensive analysis for /analyze command"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            # Get current price data
+            if crypto_api:
+                price_info = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            else:
+                price_info = {'error': 'No crypto API available'}
+            
+            if 'error' not in price_info and price_info.get('price', 0) > 0:
+                current_price = price_info.get('price', 0)
+                change_24h = price_info.get('change_24h', 0)
+                price_format = self._format_price(current_price)
+                change_emoji = "📈" if change_24h >= 0 else "📉"
+                change_sign = "+" if change_24h >= 0 else ""
+                
+                analysis = f"""📊 **COMPREHENSIVE ANALYSIS - {symbol}**
+
+💰 **Current Price**: {price_format}
+{change_emoji} **24h Change**: {change_sign}{change_24h:.2f}%
+
+🔬 **Technical Analysis**:
+"""
+                
+                # Get OHLCV data for technical analysis
+                ohlcv_data = self.get_coinapi_ohlcv_data(symbol, '1HRS', 100)
+                
+                if 'error' not in ohlcv_data:
+                    indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                    
+                    if 'error' not in indicators:
+                        analysis += f"""• **EMA50**: ${indicators.get('ema_50', 0):.2f}
+• **EMA200**: ${indicators.get('ema_200', 0):.2f}
+• **RSI**: {indicators.get('rsi', 0):.1f}
+• **MACD**: {indicators.get('macd_histogram', 0):.4f}
+• **ATR**: ${indicators.get('atr', 0):.6f}
+
+📈 **Trend Analysis**:
+"""
+                        
+                        # Determine trend
+                        ema_50 = indicators.get('ema_50', 0)
+                        ema_200 = indicators.get('ema_200', 0)
+                        rsi = indicators.get('rsi', 50)
+                        
+                        if ema_50 > ema_200:
+                            trend = "🟢 BULLISH"
+                            trend_desc = "EMA50 di atas EMA200 menunjukkan tren naik"
+                        else:
+                            trend = "🔴 BEARISH"
+                            trend_desc = "EMA50 di bawah EMA200 menunjukkan tren turun"
+                        
+                        analysis += f"• **Overall Trend**: {trend}\n• **Analysis**: {trend_desc}\n"
+                        
+                        # RSI Analysis
+                        if rsi > 70:
+                            rsi_signal = "⚠️ OVERBOUGHT - Pertimbangkan untuk SELL"
+                        elif rsi < 30:
+                            rsi_signal = "⚠️ OVERSOLD - Pertimbangkan untuk BUY"
+                        else:
+                            rsi_signal = "✅ NORMAL - Tidak ada sinyal ekstrim"
+                        
+                        analysis += f"• **RSI Signal**: {rsi_signal}\n\n"
+                    else:
+                        analysis += "• Unable to calculate technical indicators\n\n"
+                else:
+                    analysis += "• Technical data unavailable from CoinAPI\n\n"
+                
+                # Get macro market data
+                macro_data = self.get_cmc_global_metrics()
+                if 'error' not in macro_data:
+                    analysis += f"""🌍 **Market Conditions**:
+• **Global Market Cap Change**: {macro_data.get('market_cap_change_24h', 0):+.2f}%
+• **BTC Dominance**: {macro_data.get('btc_dominance', 0):.1f}%
+• **Total Market Cap**: ${macro_data.get('total_market_cap', 0)/1e12:.2f}T
+
+"""
+                
+                # Trading recommendations
+                analysis += f"""💡 **Trading Insights**:
+• Gunakan `/futures {symbol.lower()}` untuk analisis SnD mendalam
+• Gunakan `/price {symbol.lower()}` untuk monitoring harga real-time
+• Selalu gunakan stop loss dan position sizing yang tepat
+
+📡 **Data Sources**: CoinAPI + CoinMarketCap
+🕐 **Analysis Time**: {current_time} WIB"""
+                
+                return analysis
+            else:
+                return f"""❌ **Data Tidak Tersedia untuk {symbol}**
+
+🔄 **Kemungkinan Penyebab**:
+• Symbol tidak ditemukan di CoinAPI
+• API sedang mengalami gangguan
+• Network connectivity issues
+
+💡 **Solusi**:
+• Coba symbol populer seperti BTC, ETH, SOL
+• Gunakan `/price {symbol.lower()}` untuk cek ketersediaan data
+• Coba lagi dalam beberapa menit
+
+📞 **Support**: Hubungi admin jika masalah berlanjut"""
+                
+        except Exception as e:
+            return f"""❌ **Error dalam Comprehensive Analysis**
+
+**Error**: {str(e)[:100]}...
+
+💡 **Alternatif**:
+• `/price {symbol.lower()}` - Harga basic
+• `/futures {symbol.lower()}` - Analisis SnD
+• `/market` - Overview pasar global
+
+📞 **Support**: Contact admin untuk bantuan"""
+
+    async def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
+        """Get futures analysis for /futures command"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            # Get current price
+            if crypto_api:
+                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                futures_data = crypto_api.get_futures_data(symbol)
+            else:
+                price_data = {'error': 'No crypto API'}
+                futures_data = {'error': 'No crypto API'}
+            
+            if 'error' not in price_data and price_data.get('price', 0) > 0:
+                current_price = price_data.get('price', 0)
+                price_format = self._format_price(current_price)
+                change_24h = price_data.get('change_24h', 0)
+                change_emoji = "📈" if change_24h >= 0 else "📉"
+                
+                analysis = f"""🚨 **FUTURES ANALYSIS - {symbol} ({timeframe})**
+
+💰 **Current Price**: {price_format}
+{change_emoji} **24h Change**: {change_24h:+.2f}%
+
+"""
+                
+                # Get technical indicators for the timeframe
+                timeframe_mapping = {
+                    '15m': '15MIN',
+                    '30m': '30MIN', 
+                    '1h': '1HRS',
+                    '4h': '4HRS',
+                    '1d': '1DAY',
+                    '1w': '1WEK'
+                }
+                
+                coinapi_timeframe = timeframe_mapping.get(timeframe, '1HRS')
+                ohlcv_data = self.get_coinapi_ohlcv_data(symbol, coinapi_timeframe, 100)
+                
+                if 'error' not in ohlcv_data:
+                    indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                    
+                    if 'error' not in indicators:
+                        # Generate trading signals
+                        ema_50 = indicators.get('ema_50', 0)
+                        ema_200 = indicators.get('ema_200', 0)
+                        rsi = indicators.get('rsi', 50)
+                        macd_histogram = indicators.get('macd_histogram', 0)
+                        atr = indicators.get('atr', current_price * 0.02)
+                        
+                        # Determine signal direction
+                        signal_direction = "LONG" if ema_50 > ema_200 and rsi < 70 else "SHORT"
+                        direction_emoji = "🟢" if signal_direction == "LONG" else "🔴"
+                        
+                        # Calculate entry levels
+                        if signal_direction == "LONG":
+                            entry_price = current_price * 0.999
+                            stop_loss = current_price - (atr * 2)
+                            take_profit_1 = current_price + (atr * 1.5)
+                            take_profit_2 = current_price + (atr * 3)
+                        else:
+                            entry_price = current_price * 1.001
+                            stop_loss = current_price + (atr * 2)
+                            take_profit_1 = current_price - (atr * 1.5)
+                            take_profit_2 = current_price - (atr * 3)
+                        
+                        # Calculate confidence
+                        confidence = 75  # Base confidence
+                        if abs(macd_histogram) > 0.001:
+                            confidence += 10
+                        if 40 <= rsi <= 60:
+                            confidence += 10
+                        if signal_direction == "LONG" and ema_50 > ema_200:
+                            confidence += 5
+                        elif signal_direction == "SHORT" and ema_50 < ema_200:
+                            confidence += 5
+                        
+                        confidence = min(confidence, 95)  # Cap at 95%
+                        
+                        # Risk/Reward calculation
+                        risk = abs(entry_price - stop_loss)
+                        reward = abs(take_profit_2 - entry_price)
+                        rr_ratio = reward / risk if risk > 0 else 1
+                        
+                        analysis += f"""{direction_emoji} **SIGNAL: {signal_direction}**
+⭐ **Confidence**: {confidence}%
+
+💰 **TRADING SETUP**:
+• **Entry**: ${entry_price:.6f}
+• **Stop Loss**: ${stop_loss:.6f}
+• **Take Profit 1**: ${take_profit_1:.6f}
+• **Take Profit 2**: ${take_profit_2:.6f}
+• **Risk/Reward**: {rr_ratio:.1f}:1
+
+📊 **TECHNICAL DATA ({timeframe})**:
+• **EMA50**: ${ema_50:.2f}
+• **EMA200**: ${ema_200:.2f}
+• **RSI**: {rsi:.1f}
+• **MACD**: {macd_histogram:.4f}
+• **ATR**: ${atr:.6f}
+
+"""
+                        
+                        # Add futures-specific data if available
+                        if 'error' not in futures_data:
+                            long_ratio = futures_data.get('long_ratio', 50)
+                            funding_rate = futures_data.get('funding_rate', 0)
+                            open_interest = futures_data.get('open_interest', 0)
+                            
+                            analysis += f"""🔮 **FUTURES METRICS**:
+• **Long/Short Ratio**: {long_ratio:.1f}% Long
+• **Funding Rate**: {funding_rate:.4f}%
+• **Open Interest**: ${open_interest:,.0f}
+
+"""
+                        
+                        analysis += f"""⚠️ **RISK MANAGEMENT**:
+• Position size: 2-3% of capital maximum
+• Always use stop loss before entry
+• Take profit in stages (50% at TP1, 50% at TP2)
+• Monitor market conditions
+
+🕐 **Analysis Time**: {current_time}
+📡 **Data**: CoinAPI {timeframe} + Futures metrics"""
+                        
+                    else:
+                        analysis += f"❌ Technical indicators calculation failed for {timeframe}"
+                else:
+                    analysis += f"❌ OHLCV data unavailable for {symbol} {timeframe}"
+            else:
+                analysis = f"""❌ **Price Data Unavailable for {symbol}**
+
+🔄 **Solusi**:
+• Coba symbol lain seperti BTC, ETH, SOL
+• Gunakan `/price {symbol.lower()}` untuk cek ketersediaan
+• Coba timeframe lain
+
+💡 **Timeframe tersedia**: 15m, 30m, 1h, 4h, 1d, 1w"""
+            
+            return analysis
+            
+        except Exception as e:
+            return f"""❌ **Error dalam Futures Analysis**
+
+**Error**: {str(e)[:100]}...
+
+💡 **Alternatif**:
+• `/price {symbol.lower()}` - Harga current
+• `/analyze {symbol.lower()}` - Analisis fundamental
+• `/futures_signals` - Multiple signals
+
+📞 **Support**: Contact admin untuk bantuan"""
+
+    async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
+        """Generate futures signals for /futures_signals command"""
+        try:
+            current_time = datetime.now().strftime('%H:%M:%S WIB')
+            
+            # Get global market sentiment first
+            macro_data = self.get_cmc_global_metrics()
+            
+            message = f"""🚨 **FUTURES SIGNALS SCAN**
+
+🕐 **Scan Time**: {current_time}
+"""
+            
+            if 'error' not in macro_data:
+                market_cap_change = macro_data.get('market_cap_change_24h', 0)
+                btc_dominance = macro_data.get('btc_dominance', 0)
+                
+                message += f"""🌍 **Market Conditions**:
+• **Global Market Cap**: {market_cap_change:+.2f}% (24h)
+• **BTC Dominance**: {btc_dominance:.1f}%
+
+"""
+            
+            # Target symbols for scanning
+            target_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT']
+            
+            # If specific symbol requested
+            if query_args and len(query_args) > 0:
+                first_arg = query_args[0].upper()
+                if len(first_arg) <= 5:  # Likely a symbol
+                    target_symbols = [first_arg]
+            
+            valid_signals = []
+            
+            for symbol in target_symbols[:3]:  # Limit to 3 for performance
+                try:
+                    # Get price and technical data
+                    if crypto_api:
+                        price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                        futures_data = crypto_api.get_futures_data(symbol)
+                    else:
+                        continue
+                    
+                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        current_price = price_data.get('price', 0)
+                        change_24h = price_data.get('change_24h', 0)
+                        
+                        # Get 1H technical analysis
+                        ohlcv_data = self.get_coinapi_ohlcv_data(symbol, '1HRS', 50)
+                        
+                        if 'error' not in ohlcv_data:
+                            indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                            
+                            if 'error' not in indicators:
+                                ema_50 = indicators.get('ema_50', 0)
+                                ema_200 = indicators.get('ema_200', 0)
+                                rsi = indicators.get('rsi', 50)
+                                macd_histogram = indicators.get('macd_histogram', 0)
+                                atr = indicators.get('atr', current_price * 0.02)
+                                
+                                # Generate signal
+                                if ema_50 > ema_200 and rsi < 65 and macd_histogram > 0:
+                                    signal_direction = "LONG"
+                                    confidence = 80
+                                elif ema_50 < ema_200 and rsi > 35 and macd_histogram < 0:
+                                    signal_direction = "SHORT"
+                                    confidence = 80
+                                else:
+                                    signal_direction = "NEUTRAL"
+                                    confidence = 60
+                                
+                                if confidence >= 75:  # Only high confidence signals
+                                    entry_price = current_price * (0.999 if signal_direction == "LONG" else 1.001)
+                                    
+                                    if signal_direction == "LONG":
+                                        stop_loss = current_price - (atr * 2)
+                                        take_profit = current_price + (atr * 2.5)
+                                    else:
+                                        stop_loss = current_price + (atr * 2)
+                                        take_profit = current_price - (atr * 2.5)
+                                    
+                                    signal = {
+                                        'symbol': symbol,
+                                        'direction': signal_direction,
+                                        'confidence': confidence,
+                                        'entry': entry_price,
+                                        'stop_loss': stop_loss,
+                                        'take_profit': take_profit,
+                                        'current_price': current_price,
+                                        'change_24h': change_24h,
+                                        'rsi': rsi
+                                    }
+                                    
+                                    valid_signals.append(signal)
+                
+                except Exception as e:
+                    print(f"Error processing {symbol}: {e}")
+                    continue
+            
+            if valid_signals:
+                message += f"📊 **Found {len(valid_signals)} High-Confidence Signals**:\n\n"
+                
+                for i, signal in enumerate(valid_signals, 1):
+                    direction_emoji = "🟢" if signal['direction'] == "LONG" else "🔴"
+                    price_format = self._format_price(signal['current_price'])
+                    
+                    message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
+⭐ **Confidence**: {signal['confidence']}%
+💰 **Current**: {price_format} ({signal['change_24h']:+.2f}%)
+🎯 **Entry**: ${signal['entry']:.6f}
+🛑 **Stop Loss**: ${signal['stop_loss']:.6f}
+📈 **Take Profit**: ${signal['take_profit']:.6f}
+📊 **RSI**: {signal['rsi']:.1f}
+
+"""
+                
+                message += f"""⚠️ **RISK MANAGEMENT**:
+• Maksimal 2-3% capital per position
+• Wajib gunakan stop loss
+• Monitor kondisi market secara berkala
+• Take profit bertahap jika profit besar
+
+📡 **Data**: CoinAPI 1H + Binance Futures
+🔄 **Next Scan**: Gunakan command lagi untuk update"""
+            else:
+                message += f"""❌ **No High-Confidence Signals Found**
+
+📊 **Symbols Scanned**: {', '.join(target_symbols)}
+⚠️ **Status**: Tidak ada setup trading yang jelas saat ini
+
+💡 **Kemungkinan Penyebab**:
+• Market dalam kondisi sideways
+• Volatilitas rendah
+• Indikator teknikal mixed signals
+
+🔄 **Solusi**:
+• Coba lagi dalam 30-60 menit
+• Gunakan `/futures btc` untuk analisis spesifik
+• Monitor `/market` untuk kondisi global"""
+            
+            return message
+            
+        except Exception as e:
+            return f"""❌ **Error dalam Futures Signals Generation**
+
+**Error**: {str(e)[:100]}...
+
+💡 **Alternatif**:
+• `/futures btc` - Analisis BTC spesifik
+• `/analyze eth` - Analisis ETH fundamental
+• `/market` - Overview pasar global
+
+📞 **Support**: Contact admin untuk bantuan"""
+
     def get_ai_response(self, text, language='id', user_id=None):
         """Enhanced AI response"""
         if user_id:
