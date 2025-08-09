@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta
 import json
 import random
+import requests
 from typing import Dict, List, Any, Optional
 from crypto_api import CryptoAPI
 from database import Database

@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+import requests
 from supabase import create_client, Client
 
 logging.basicConfig(level=logging.INFO)
@@ -501,15 +502,16 @@ class AIAssistant:
                 next1 = candles[i+1]
                 next2 = candles[i+2]
 
-                high = float(current.get('price_high', 0))
-                low = float(current.get('price_low', 0))
-                volume = float(current.get('volume_traded', 0))
+                # Safe float conversion with fallback to 0
+                high = float(current.get('price_high', 0)) if current.get('price_high') is not None else 0.0
+                low = float(current.get('price_low', 0)) if current.get('price_low') is not None else 0.0
+                volume = float(current.get('volume_traded', 0)) if current.get('volume_traded') is not None else 0.0
 
-                # Swing High detection
-                prev1_high = float(prev1.get('price_high', 0))
-                prev2_high = float(prev2.get('price_high', 0))
-                next1_high = float(next1.get('price_high', 0))
-                next2_high = float(next2.get('price_high', 0))
+                # Swing High detection with safe float conversion
+                prev1_high = float(prev1.get('price_high', 0)) if prev1.get('price_high') is not None else 0.0
+                prev2_high = float(prev2.get('price_high', 0)) if prev2.get('price_high') is not None else 0.0
+                next1_high = float(next1.get('price_high', 0)) if next1.get('price_high') is not None else 0.0
+                next2_high = float(next2.get('price_high', 0)) if next2.get('price_high') is not None else 0.0
 
                 if (high > prev1_high and high > prev2_high and 
                     high > next1_high and high > next2_high and volume > 0):
@@ -519,11 +521,11 @@ class AIAssistant:
                         'type': 'supply'
                     })
 
-                # Swing Low detection
-                prev1_low = float(prev1.get('price_low', 0))
-                prev2_low = float(prev2.get('price_low', 0))
-                next1_low = float(next1.get('price_low', 0))
-                next2_low = float(next2.get('price_low', 0))
+                # Swing Low detection with safe float conversion
+                prev1_low = float(prev1.get('price_low', 0)) if prev1.get('price_low') is not None else 0.0
+                prev2_low = float(prev2.get('price_low', 0)) if prev2.get('price_low') is not None else 0.0
+                next1_low = float(next1.get('price_low', 0)) if next1.get('price_low') is not None else 0.0
+                next2_low = float(next2.get('price_low', 0)) if next2.get('price_low') is not None else 0.0
 
                 if (low < prev1_low and low < prev2_low and 
                     low < next1_low and low < next2_low and volume > 0):
@@ -533,7 +535,7 @@ class AIAssistant:
                         'type': 'demand'
                     })
 
-            current_price = float(candles[-1].get('price_close', 0))
+            current_price = float(candles[-1].get('price_close', 0)) if candles[-1].get('price_close') is not None else 0.0
 
             # Sort by proximity to current price
             supply_zones.sort(key=lambda x: abs(x['price'] - current_price))
