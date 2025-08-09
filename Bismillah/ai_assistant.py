@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-from supabase import create_client, Client
+from supabase_client import supabase
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -159,30 +159,18 @@ class AIAssistant:
     _max_retries = 3
 
     def _init_supabase(self):
-        """Initialize Supabase client with singleton pattern"""
-        if AIAssistant._supabase_instance is not None:
-            print("♻️ Reusing existing Supabase connection")
-            return AIAssistant._supabase_instance
-
+        """Initialize Supabase client using centralized client"""
         try:
-            # Get credentials from environment
-            supabase_url = os.environ.get("SUPABASE_URL")
-            supabase_key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_ANON_KEY")
-
-            if not supabase_url or not supabase_key:
-                print("⚠️ Missing Supabase credentials (SUPABASE_URL or SUPABASE_KEY)")
-                print("💡 Add to Replit Secrets: SUPABASE_URL and SUPABASE_KEY")
-                return None
-
-            # Create singleton instance
-            AIAssistant._supabase_instance = create_client(supabase_url, supabase_key)
-            print("✅ Supabase client initialized successfully (singleton)")
+            # Use the centralized supabase client
+            AIAssistant._supabase_instance = supabase
+            print("✅ Using centralized Supabase client")
             
             # Test connection immediately
             if self._test_supabase_connection():
                 return AIAssistant._supabase_instance
             else:
-                AIAssistant._supabase_instance = None
+                print("❌ Supabase connection test failed")
+                return None._supabase_instance = None
                 return None
 
         except Exception as e:
