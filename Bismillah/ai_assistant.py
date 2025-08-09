@@ -963,7 +963,7 @@ class AIAssistant:
 
             for i, signal in enumerate(high_confidence_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
-                
+
                 # Get price data for 24h change
                 symbol = signal['symbol']
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
@@ -1472,11 +1472,11 @@ class AIAssistant:
             ema_50 = indicators.get('ema_50', 0)
             ema_200 = indicators.get('ema_200', 0)
             primary_trend = 'Bullish' if ema_50 > ema_200 else 'Bearish'
-            
+
             # Determine reason based on technical indicators
             rsi = indicators.get('rsi', 50)
             macd = indicators.get('macd_histogram', 0)
-            
+
             if signal_data['direction'] in ['BUY', 'LONG']:
                 if rsi < 50 and macd > 0:
                     reason = 'Oversold bounce with momentum'
