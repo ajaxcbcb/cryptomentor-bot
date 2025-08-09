@@ -143,6 +143,38 @@ class CryptoAPI:
             logging.error(f"Error getting long/short ratio for {symbol}: {e}")
             return {'error': f'Long/short ratio error: {str(e)}', 'success': False}
 
+    def get_futures_data(self, symbol: str) -> Dict[str, Any]:
+        """
+        Mendapatkan data futures dari Binance untuk compatibility
+        """
+        try:
+            futures_data = self.provider.get_futures_data(symbol)
+
+            if futures_data.get('success'):
+                data = futures_data.get('data', {})
+                
+                # Extract key metrics for compatibility
+                result = {
+                    'symbol': symbol,
+                    'long_ratio': data.get('long_short', {}).get('long_ratio', 50),
+                    'short_ratio': data.get('long_short', {}).get('short_ratio', 50),
+                    'funding_rate': data.get('funding_details', {}).get('current_rate', 0),
+                    'open_interest': data.get('open_interest', {}).get('total', 0),
+                    'price': data.get('ticker', {}).get('price', 0),
+                    'volume_24h': data.get('ticker', {}).get('volume_24h', 0),
+                    'price_change_24h': data.get('ticker', {}).get('price_change_24h', 0),
+                    'timestamp': datetime.now().isoformat(),
+                    'source': 'binance',
+                    'success': True
+                }
+                return result
+            else:
+                return {'error': f'Failed to get futures data for {symbol}', 'success': False}
+
+        except Exception as e:
+            logging.error(f"Error getting futures data for {symbol}: {e}")
+            return {'error': f'Futures data error: {str(e)}', 'success': False}
+
     def get_comprehensive_futures_data(self, symbol: str) -> Dict[str, Any]:
         """
         Mendapatkan data futures lengkap dari Binance

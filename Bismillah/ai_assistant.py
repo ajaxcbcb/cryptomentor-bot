@@ -1176,7 +1176,7 @@ Exclusive for Admin & Lifetime Users 💎"""
             return "💡 Gunakan /futures_signals untuk sinyal berkualitas tinggi!"
 
     def get_comprehensive_analysis(self, symbol, snd_data={}, price_data={}, language='id', crypto_api=None):
-        """Get comprehensive analysis for /analyze command"""
+        """Get comprehensive analysis for /analyze command with Supply & Demand zones"""
         try:
             current_time = datetime.now().strftime('%H:%M:%S WIB')
             
@@ -1245,6 +1245,44 @@ Exclusive for Admin & Lifetime Users 💎"""
                 else:
                     analysis += "• Technical data unavailable from CoinAPI\n\n"
                 
+                # Add Supply & Demand Analysis
+                if crypto_api:
+                    snd_zones = crypto_api.analyze_supply_demand(symbol, '1h')
+                    if 'error' not in snd_zones and snd_zones.get('success'):
+                        analysis += f"""🎯 **SUPPLY & DEMAND ZONES**:
+• **Supply Zone 1**: ${snd_zones.get('Supply 1', 0):.2f} (Resistance)
+• **Supply Zone 2**: ${snd_zones.get('Supply 2', 0):.2f} (Strong Resistance)
+• **Demand Zone 1**: ${snd_zones.get('Demand 1', 0):.2f} (Support)
+• **Demand Zone 2**: ${snd_zones.get('Demand 2', 0):.2f} (Strong Support)
+
+💡 **SnD Analysis**:
+"""
+                        
+                        supply_1 = snd_zones.get('Supply 1', 0)
+                        demand_1 = snd_zones.get('Demand 1', 0)
+                        
+                        if current_price > supply_1:
+                            snd_signal = "🔴 ABOVE SUPPLY - Momentum naik kuat, watch for rejection"
+                        elif current_price < demand_1:
+                            snd_signal = "🟢 BELOW DEMAND - Momentum turun, watch for bounce"
+                        else:
+                            snd_signal = "🟡 BETWEEN ZONES - Sideways, tunggu breakout/breakdown"
+                        
+                        analysis += f"• **Position**: {snd_signal}\n"
+                        
+                        # Distance calculations
+                        supply_distance = ((supply_1 - current_price) / current_price) * 100
+                        demand_distance = ((current_price - demand_1) / current_price) * 100
+                        
+                        analysis += f"• **Distance to Supply**: {supply_distance:+.1f}%\n"
+                        analysis += f"• **Distance to Demand**: {demand_distance:+.1f}%\n\n"
+                    else:
+                        analysis += """🎯 **SUPPLY & DEMAND ZONES**:
+• SnD analysis temporarily unavailable
+• Using price levels from technical analysis
+
+"""
+                
                 # Get macro market data
                 macro_data = self.get_cmc_global_metrics()
                 if 'error' not in macro_data:
@@ -1255,13 +1293,19 @@ Exclusive for Admin & Lifetime Users 💎"""
 
 """
                 
-                # Trading recommendations
-                analysis += f"""💡 **Trading Insights**:
-• Gunakan `/futures {symbol.lower()}` untuk analisis SnD mendalam
-• Gunakan `/price {symbol.lower()}` untuk monitoring harga real-time
-• Selalu gunakan stop loss dan position sizing yang tepat
+                # Enhanced trading recommendations
+                analysis += f"""💡 **Trading Strategy**:
+• **Entry Strategy**: Wait for price reaction at SnD zones
+• **Risk Management**: Use ATR untuk stop loss calculation
+• **Position Sizing**: 2-3% capital maximum per trade
+• **Confirmation**: Multi-timeframe alignment required
 
-📡 **Data Sources**: CoinAPI + CoinMarketCap
+🎯 **Next Actions**:
+• `/futures {symbol.lower()}` - Detailed futures analysis
+• `/price {symbol.lower()}` - Real-time price monitoring
+• Monitor volume for confirmation signals
+
+📡 **Data Sources**: CoinAPI + CoinMarketCap + Binance SnD
 🕐 **Analysis Time**: {current_time} WIB"""
                 
                 return analysis
@@ -1396,7 +1440,7 @@ Exclusive for Admin & Lifetime Users 💎"""
 """
                         
                         # Add futures-specific data if available
-                        if 'error' not in futures_data:
+                        if 'error' not in futures_data and futures_data.get('success'):
                             long_ratio = futures_data.get('long_ratio', 50)
                             funding_rate = futures_data.get('funding_rate', 0)
                             open_interest = futures_data.get('open_interest', 0)
