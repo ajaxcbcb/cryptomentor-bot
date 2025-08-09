@@ -6,6 +6,26 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 from supabase import create_client, Client
+import numpy as np
+import pandas as pd
+
+# Check for TA-Lib availability
+TALIB_AVAILABLE = False
+try:
+    import talib
+    TALIB_AVAILABLE = True
+    print("✅ TA-Lib found and loaded.")
+except ImportError:
+    print("⚠️ TA-Lib not found. Falling back to pandas_ta or manual calculations.")
+
+# Check for pandas_ta availability
+ta = None
+try:
+    import pandas_ta as ta
+    print("✅ pandas_ta found and loaded.")
+except ImportError:
+    print("⚠️ pandas_ta not found. Falling back to manual calculations.")
+
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -55,7 +75,7 @@ class AIAssistant:
             # Use centralized Supabase user management from database
             from supabase_users import SupabaseUsers
             supabase_users = SupabaseUsers()
-            
+
             return supabase_users.add_user(
                 user_id=user_id,
                 username=username,
@@ -73,7 +93,7 @@ class AIAssistant:
         try:
             from supabase_users import SupabaseUsers
             supabase_users = SupabaseUsers()
-            
+
             return supabase_users.get_user(user_id)
 
         except Exception as e:
@@ -85,7 +105,7 @@ class AIAssistant:
         try:
             from supabase_users import SupabaseUsers
             supabase_users = SupabaseUsers()
-            
+
             return supabase_users.update_user_status(user_id, status)
 
         except Exception as e:
@@ -106,7 +126,7 @@ class AIAssistant:
             return "Saya tidak yakin, tapi saya akan bantu cari datanya."
 
     def help_message(self):
-        return """🤖 **CryptoMentor AI Bot - Help**
+        return """🤖 **CryptoMentor AI - Help**
 
 📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time
@@ -652,7 +672,7 @@ Ask me anything about crypto! 🚀"""
 
 🕐 **Scan Time**: {current_time}
 📊 **Signals Found**: {len(signals_found)}
-⚡ **Data Source**: CoinAPI Real-time + SnD
+⚡ **Data Source**: CoinAPI Real-time + SnD Analysis
 
 """
 
@@ -691,7 +711,7 @@ Ask me anything about crypto! 🚀"""
         """Initialize Auto Signal system with bot instance"""
         self.bot_instance = bot_instance
         print("🔗 AUTO SIGNAL: Connected to bot instance")
-        
+
     async def enable_auto_signals(self):
         """Enable Auto Signal system"""
         if not self.auto_signal_enabled:
@@ -700,7 +720,7 @@ Ask me anything about crypto! 🚀"""
             return "✅ AUTO SIGNAL: Momentum detection enabled"
         else:
             return "⚠️ AUTO SIGNAL: Already enabled"
-    
+
     async def disable_auto_signals(self):
         """Disable Auto Signal system"""
         if self.auto_signal_enabled:
@@ -709,11 +729,11 @@ Ask me anything about crypto! 🚀"""
             return "🛑 AUTO SIGNAL: Momentum detection disabled"
         else:
             return "⚠️ AUTO SIGNAL: Already disabled"
-    
+
     def get_auto_signal_status(self):
         """Get current status of Auto Signal system"""
         status = "🟢 RUNNING" if (self.auto_signal_task and not self.auto_signal_task.done()) else "🔴 STOPPED"
-        
+
         return f"""🤖 AUTO SIGNAL STATUS
 
 📊 Status: {status}
@@ -738,7 +758,7 @@ Target Coins: {', '.join(self.target_symbols)}"""
             # Map timeframe to CoinAPI period
             period_mapping = {
                 '15m': '15MIN',
-                '30m': '30MIN', 
+                '30m': '30MIN',
                 '1h': '1HRS',
                 '4h': '4HRS',
                 '1d': '1DAY',
@@ -772,7 +792,7 @@ Target Coins: {', '.join(self.target_symbols)}"""
 💰 **Current Price**: ${self._format_price(current_price)}
 ⚠️ **Status**: Tidak ada setup trading yang jelas pada timeframe {timeframe}
 
-💡 **Saran**:
+💡 **Saran:**
 • Tunggu breakout dari zone kunci
 • Monitor volume untuk konfirmasi
 • Coba timeframe lain untuk setup yang lebih jelas
@@ -844,188 +864,145 @@ Target Coins: {', '.join(self.target_symbols)}"""
         except Exception as e:
             return f"❌ Error in futures analysis: {str(e)}"
 
-    def _generate_single_futures_signal(self, symbol, price_data, market_data, candlestick_data):
-        """Generate a single futures signal with SnD analysis"""
+    def calculate_technical_indicators(self, ohlcv_data):
+        """Calculate technical indicators from OHLCV data"""
         try:
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                return None
+            if not ohlcv_data or len(ohlcv_data) < 50:
+                return {'success': False, 'error': 'Insufficient data for indicators'}
 
-            # Enhanced technical analysis
-            price_change = random.uniform(-5, 5)
-            volume_trend = random.uniform(-15, 15)
-            momentum_score = random.uniform(-3, 3)
+            # Extract price data
+            closes = np.array([float(candle.get('price_close', 0)) for candle in ohlcv_data])
+            highs = np.array([float(candle.get('price_high', 0)) for candle in ohlcv_data])
+            lows = np.array([float(candle.get('price_low', 0)) for candle in ohlcv_data])
+            volumes = np.array([float(candle.get('volume_traded', 0)) for candle in ohlcv_data])
 
-            # More aggressive signal generation - lower threshold
-            if price_change > 0.5 and volume_trend > 3:
-                direction = 'LONG'
-                confidence = random.randint(75, 92)
-                entry_price = current_price * 0.999  # Slightly below current for better entry
-                stop_loss = current_price * 0.975    # 2.5% SL
-                tp1 = current_price * 1.025          # 2.5% TP1
-                tp2 = current_price * 1.045          # 4.5% TP2
-                reason = f"Bullish momentum dengan volume {volume_trend:+.1f}%"
-            elif price_change < -0.5 and volume_trend > 3:
-                direction = 'SHORT'
-                confidence = random.randint(75, 92)
-                entry_price = current_price * 1.001  # Slightly above current
-                stop_loss = current_price * 1.025    # 2.5% SL
-                tp1 = current_price * 0.975          # 2.5% TP1  
-                tp2 = current_price * 0.955          # 4.5% TP2
-                reason = f"Bearish momentum dengan volume {volume_trend:+.1f}%"
+            # Calculate indicators based on available library
+            if TALIB_AVAILABLE:
+                # Use TA-Lib
+                ema50 = talib.EMA(closes, timeperiod=50)
+                ema200 = talib.EMA(closes, timeperiod=200)
+                rsi = talib.RSI(closes, timeperiod=14)
+                macd, macd_signal, macd_hist = talib.MACD(closes)
+                atr = talib.ATR(highs, lows, closes, timeperiod=14)
+                vol_fast = talib.SMA(volumes, timeperiod=14)
+                vol_slow = talib.SMA(volumes, timeperiod=28)
+            elif ta is not None:
+                # Use pandas_ta
+                df = pd.DataFrame({
+                    'close': closes,
+                    'high': highs,
+                    'low': lows,
+                    'volume': volumes
+                })
+
+                ema50 = ta.ema(df['close'], length=50).values
+                ema200 = ta.ema(df['close'], length=200).values
+                rsi = ta.rsi(df['close'], length=14).values
+                macd_result = ta.macd(df['close'])
+                macd = macd_result['MACD_12_26_9'].values
+                macd_hist = macd_result['MACDh_12_26_9'].values
+                atr = ta.atr(df['high'], df['low'], df['close'], length=14).values
+                vol_fast = ta.sma(df['volume'], length=14).values
+                vol_slow = ta.sma(df['volume'], length=28).values
             else:
-                # No clear signal
-                return None
+                # Fallback to basic calculations
+                ema50 = self._calculate_ema(closes, 50)
+                ema200 = self._calculate_ema(closes, 200)
+                rsi = self._calculate_rsi(closes, 14)
+                macd = np.zeros_like(closes)
+                macd_hist = np.zeros_like(closes)
+                atr = self._calculate_atr(highs, lows, closes, 14)
+                vol_fast = self._calculate_sma(volumes, 14)
+                vol_slow = self._calculate_sma(volumes, 28)
 
-            # Calculate risk/reward ratio
-            risk = abs(entry_price - stop_loss)
-            reward1 = abs(tp1 - entry_price)
-            risk_reward = reward1 / risk if risk > 0 else 1.0
+            # Volume Oscillator
+            vol_oscillator = ((vol_fast - vol_slow) / np.maximum(vol_slow, 1)) * 100
+
+            # Get latest values
+            current_price = closes[-1]
+            current_ema50 = ema50[-1] if not np.isnan(ema50[-1]) else 0
+            current_ema200 = ema200[-1] if not np.isnan(ema200[-1]) else 0
+            current_rsi = rsi[-1] if not np.isnan(rsi[-1]) else 50
+            current_macd = macd[-1] if not np.isnan(macd[-1]) else 0
+            current_macd_hist = macd_hist[-1] if not np.isnan(macd_hist[-1]) else 0
+            current_atr = atr[-1] if not np.isnan(atr[-1]) else 0
+            current_vol_osc = vol_oscillator[-1] if not np.isnan(vol_oscillator[-1]) else 0
+
+            # Determine trend
+            trend = "bullish" if current_ema50 > current_ema200 else "bearish"
 
             return {
-                'symbol': symbol,
-                'direction': direction,
-                'confidence': confidence,
-                'entry_price': entry_price,
-                'stop_loss': stop_loss,
-                'tp1': tp1,
-                'tp2': tp2,
-                'risk_reward': risk_reward,
-                'reason': reason,
-                'current_price': current_price
+                'success': True,
+                'current_price': current_price,
+                'ema50': current_ema50,
+                'ema200': current_ema200,
+                'rsi': current_rsi,
+                'macd': current_macd,
+                'macd_histogram': current_macd_hist,
+                'atr': current_atr,
+                'volume_oscillator': current_vol_osc,
+                'trend': trend,
+                'atr_avg': np.mean(atr[-14:]) if len(atr) >= 14 else current_atr
             }
 
         except Exception as e:
-            print(f"Error generating signal for {symbol}: {e}")
-            return None
+            return {'success': False, 'error': f'Technical analysis failed: {str(e)}'}
 
-    def _force_generate_futures_signal(self, symbol, price_data, market_data, candlestick_data):
-        """Force generate a futures signal when normal method fails"""
-        try:
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                return None
+    def _calculate_ema(self, prices, period):
+        """Calculate EMA manually if no library available"""
+        alpha = 2 / (period + 1)
+        ema = np.zeros_like(prices)
+        ema[0] = prices[0]
 
-            # Force decision - always generate either LONG or SHORT
-            market_sentiment = random.uniform(-1, 1)
-            volume_factor = random.uniform(0.5, 1.5)
-            
-            if market_sentiment >= 0:
-                direction = 'LONG'
-                confidence = random.randint(70, 85)
-                entry_price = current_price * 0.999
-                stop_loss = current_price * 0.975
-                tp1 = current_price * 1.025
-                tp2 = current_price * 1.045
-                reason = f"Market struktur bullish dengan momentum positif"
-            else:
-                direction = 'SHORT'
-                confidence = random.randint(70, 85)
-                entry_price = current_price * 1.001
-                stop_loss = current_price * 1.025
-                tp1 = current_price * 0.975
-                tp2 = current_price * 0.955
-                reason = f"Market struktur bearish dengan tekanan jual"
+        for i in range(1, len(prices)):
+            ema[i] = alpha * prices[i] + (1 - alpha) * ema[i-1]
 
-            # Calculate risk/reward ratio
-            risk = abs(entry_price - stop_loss)
-            reward1 = abs(tp1 - entry_price)
-            risk_reward = reward1 / risk if risk > 0 else 1.0
+        return ema
 
-            return {
-                'symbol': symbol,
-                'direction': direction,
-                'confidence': confidence,
-                'entry_price': entry_price,
-                'stop_loss': stop_loss,
-                'tp1': tp1,
-                'tp2': tp2,
-                'risk_reward': risk_reward,
-                'reason': reason,
-                'current_price': current_price
-            }
+    def _calculate_sma(self, prices, period):
+        """Calculate SMA manually"""
+        sma = np.zeros_like(prices)
+        for i in range(period-1, len(prices)):
+            sma[i] = np.mean(prices[i-period+1:i+1])
+        return sma
 
-        except Exception as e:
-            print(f"Error force generating signal for {symbol}: {e}")
-            return None
+    def _calculate_rsi(self, prices, period):
+        """Calculate RSI manually"""
+        deltas = np.diff(prices)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
 
-    def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market sentiment analysis"""
-        try:
-            current_time = datetime.now().strftime('%H:%M:%S WIB')
+        avg_gains = np.zeros_like(prices)
+        avg_losses = np.zeros_like(prices)
 
-            # Get data for major cryptos
-            major_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
-            market_data = {}
+        # Initial averages
+        avg_gains[period] = np.mean(gains[:period])
+        avg_losses[period] = np.mean(losses[:period])
 
-            for symbol in major_symbols:
-                try:
-                    price_data = self.get_coinapi_price(symbol)
-                    if 'error' not in price_data:
-                        market_data[symbol] = price_data
-                except:
-                    continue
+        # Calculate RSI
+        for i in range(period + 1, len(prices)):
+            avg_gains[i] = (avg_gains[i-1] * (period - 1) + gains[i-1]) / period
+            avg_losses[i] = (avg_losses[i-1] * (period - 1) + losses[i-1]) / period
 
-            if not market_data:
-                return "❌ Gagal mengambil data pasar dari CoinAPI"
+        rs = avg_gains / np.maximum(avg_losses, 1e-10)
+        rsi = 100 - (100 / (1 + rs))
 
-            # Calculate overall sentiment
-            total_change = sum([data.get('change_24h', 0) for data in market_data.values() if 'change_24h' in data])
-            avg_change = total_change / len(market_data) if market_data else 0
+        return rsi
 
-            if avg_change > 2:
-                sentiment = "🚀 VERY BULLISH"
-                sentiment_color = "🟢"
-            elif avg_change > 0:
-                sentiment = "📈 BULLISH"
-                sentiment_color = "🟢"
-            elif avg_change > -2:
-                sentiment = "😐 NEUTRAL"
-                sentiment_color = "🟡"
-            else:
-                sentiment = "📉 BEARISH"
-                sentiment_color = "🔴"
+    def _calculate_atr(self, highs, lows, closes, period):
+        """Calculate ATR manually"""
+        tr = np.maximum(highs - lows,
+                       np.maximum(np.abs(highs - np.roll(closes, 1)),
+                                 np.abs(lows - np.roll(closes, 1))))
+        tr[0] = highs[0] - lows[0]  # First TR
 
-            message = f"""🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
+        atr = np.zeros_like(tr)
+        atr[period-1] = np.mean(tr[:period])
 
-{sentiment_color} **Market Sentiment**: {sentiment}
-📊 **Average Change**: {avg_change:+.2f}%
+        for i in range(period, len(tr)):
+            atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period
 
-💰 **TOP CRYPTOCURRENCIES**:
-"""
-
-            for symbol, data in market_data.items():
-                price = data.get('price', 0)
-                change = data.get('change_24h', 0)
-                emoji = "📈" if change >= 0 else "📉"
-
-                message += f"• {symbol}: ${self._format_price(price)} {emoji} {change:+.2f}%\n"
-
-            message += f"""
-📊 **MARKET ANALYSIS**:
-• Total coins analyzed: {len(market_data)}
-• Bullish coins: {len([d for d in market_data.values() if d.get('change_24h', 0) > 0])}
-• Bearish coins: {len([d for d in market_data.values() if d.get('change_24h', 0) < 0])}
-
-💡 **TRADING INSIGHT**:
-{"• Momentum positif - pertimbangkan posisi LONG" if avg_change > 1 else "• Market konsolidasi - tunggu breakout yang jelas" if avg_change > -1 else "• Pressure bearish - hati-hati dengan posisi LONG"}
-
-📡 **Data Source**: CoinAPI Real-time
-🕐 **Update**: {current_time} WIB"""
-
-            return message
-
-        except Exception as e:
-            return f"❌ Error in market sentiment: {str(e)}"
-
-    def _format_price(self, price):
-        """Format price display based on value"""
-        if price < 1:
-            return f"{price:.6f}"
-        elif price < 100:
-            return f"{price:.4f}"
-        else:
-            return f"{price:,.2f}"
+        return atr
 
     def get_enhanced_snd_analysis(self, symbol, crypto_api=None):
         """Get enhanced SnD analysis for auto signals compatibility"""
@@ -1103,7 +1080,7 @@ Target Coins: {', '.join(self.target_symbols)}"""
     async def _auto_signal_background_loop(self):
         """Background loop for momentum-based signal detection"""
         print("🔄 AUTO SIGNAL: Background loop started")
-        
+
         while True:
             try:
                 await self._scan_for_momentum_signals()
@@ -1120,9 +1097,9 @@ Target Coins: {', '.join(self.target_symbols)}"""
         try:
             current_time = time.time()
             print(f"🔍 AUTO SIGNAL: Scanning for momentum signals at {datetime.now().strftime('%H:%M:%S')}")
-            
+
             valid_signals = []
-            
+
             for symbol in self.target_symbols:
                 try:
                     # Check cooldown
@@ -1130,36 +1107,36 @@ Target Coins: {', '.join(self.target_symbols)}"""
                         time_since_last = current_time - self.last_signal_time[symbol]
                         if time_since_last < self.signal_cooldown:
                             continue
-                    
+
                     # Analyze momentum using existing CoinAPI logic
                     signal = await self._detect_momentum_signal(symbol)
-                    
+
                     if signal and self._is_good_signal(signal):
                         # Check for duplicate signals
                         signal_key = f"{symbol}_{signal['direction']}_{signal['confidence']:.0f}"
                         if signal_key not in self.last_sent_signals:
                             valid_signals.append(signal)
-                            self.last_sent_signals[signal_key] = current_time
                             self.last_signal_time[symbol] = current_time
+                            self.last_sent_signals[signal_key] = current_time
                             print(f"✅ AUTO SIGNAL: Valid momentum signal found for {symbol} - {signal['direction']} ({signal['confidence']:.1f}%)")
-                    
+
                     # Rate limiting
                     await asyncio.sleep(0.5)
-                    
+
                 except Exception as e:
                     print(f"❌ AUTO SIGNAL: Error analyzing {symbol}: {e}")
                     continue
-            
+
             # Clean old duplicate prevention entries (older than 2 hours)
             cutoff_time = current_time - (2 * 3600)
             self.last_sent_signals = {k: v for k, v in self.last_sent_signals.items() if v > cutoff_time}
-            
+
             if valid_signals:
                 print(f"🚀 AUTO SIGNAL: Found {len(valid_signals)} valid momentum signals")
                 await self._send_auto_signals(valid_signals)
             else:
                 print("📊 AUTO SIGNAL: No valid momentum signals detected")
-                
+
         except Exception as e:
             print(f"❌ AUTO SIGNAL: Error in momentum scan: {e}")
 
@@ -1170,18 +1147,18 @@ Target Coins: {', '.join(self.target_symbols)}"""
             price_data = self.get_coinapi_price(symbol)
             market_data = self.get_coinapi_market_data(symbol)
             candlestick_data = self.get_coinapi_candlestick_data(symbol, '1HRS', 50)
-            
+
             if 'error' in price_data or price_data.get('price', 0) <= 0:
                 return None
-            
+
             current_price = price_data.get('price', 0)
             volume_24h = market_data.get('volume_24h', 0) if 'error' not in market_data else 0
-            
+
             # Enhanced momentum analysis using existing logic
             signal = self._generate_momentum_signal(symbol, price_data, market_data, candlestick_data)
-            
+
             return signal
-            
+
         except Exception as e:
             print(f"❌ AUTO SIGNAL: Error detecting momentum for {symbol}: {e}")
             return None
@@ -1192,43 +1169,43 @@ Target Coins: {', '.join(self.target_symbols)}"""
             current_price = price_data.get('price', 0)
             if current_price <= 0:
                 return None
-            
+
             # Momentum calculation based on existing logic
             price_change = random.uniform(-8, 8)  # Enhanced range for momentum
             volume_trend = random.uniform(-20, 20)
             momentum_score = random.uniform(-4, 4)
-            
+
             # Composite momentum score
             composite_momentum = (price_change * 0.4) + (volume_trend * 0.3) + (momentum_score * 0.3)
-            
+
             # Enhanced confidence calculation for auto signals
             base_confidence = 60 + abs(composite_momentum) * 5
-            
+
             # Volume boost
             if volume_trend > 10:
                 base_confidence += 8
             elif volume_trend > 5:
                 base_confidence += 4
-            
+
             # Momentum consistency boost
             if abs(momentum_score) > 2:
                 base_confidence += 6
-            
+
             confidence = min(95, max(30, base_confidence))
-            
+
             # Direction determination with stricter criteria for auto signals
             direction = None
             reason = ""
-            
+
             if composite_momentum > 3 and volume_trend > 5:
                 direction = 'LONG'
                 reason = f"Strong bullish momentum detected (Score: {composite_momentum:.1f}, Volume: +{volume_trend:.1f}%)"
             elif composite_momentum < -3 and volume_trend > 5:
-                direction = 'SHORT' 
+                direction = 'SHORT'
                 reason = f"Strong bearish momentum detected (Score: {composite_momentum:.1f}, Volume: +{volume_trend:.1f}%)"
             else:
                 return None  # No clear momentum signal
-            
+
             # Calculate entry, SL, TP using existing logic
             if direction == 'LONG':
                 entry_price = current_price * 0.998
@@ -1240,12 +1217,12 @@ Target Coins: {', '.join(self.target_symbols)}"""
                 stop_loss = current_price * 1.025
                 tp1 = current_price * 0.975
                 tp2 = current_price * 0.955
-            
+
             # Risk/reward calculation
             risk = abs(entry_price - stop_loss)
             reward = abs(tp2 - entry_price)
             risk_reward = reward / risk if risk > 0 else 1.0
-            
+
             return {
                 'symbol': symbol,
                 'direction': direction,
@@ -1260,7 +1237,7 @@ Target Coins: {', '.join(self.target_symbols)}"""
                 'momentum_score': composite_momentum,
                 'volume_trend': volume_trend
             }
-            
+
         except Exception as e:
             print(f"❌ AUTO SIGNAL: Error generating momentum signal for {symbol}: {e}")
             return None
@@ -1269,21 +1246,21 @@ Target Coins: {', '.join(self.target_symbols)}"""
         """Filter signals to only allow 'good' category with confidence ≥ 75%"""
         if not signal:
             return False
-        
+
         confidence = signal.get('confidence', 0)
         risk_reward = signal.get('risk_reward', 0)
         momentum_score = signal.get('momentum_score', 0)
-        
+
         # Strict criteria for auto signals
         criteria_met = (
             confidence >= 75 and           # Minimum 75% confidence
             risk_reward >= 1.5 and        # Good risk/reward ratio
             abs(momentum_score) >= 2.5     # Strong momentum required
         )
-        
+
         if criteria_met:
             print(f"✅ GOOD SIGNAL: {signal['symbol']} - Confidence: {confidence:.1f}%, R/R: {risk_reward:.1f}, Momentum: {momentum_score:.1f}")
-        
+
         return criteria_met
 
     async def _send_auto_signals(self, signals):
@@ -1291,24 +1268,24 @@ Target Coins: {', '.join(self.target_symbols)}"""
         if not self.bot_instance:
             print("❌ AUTO SIGNAL: Bot instance not available")
             return
-            
+
         try:
             # Get eligible users (lifetime and admin) using Supabase first
             from supabase_users import SupabaseUsers
             supabase_users = SupabaseUsers()
             eligible_users = supabase_users.get_eligible_auto_signal_users()
-            
+
             # Fallback to database method if Supabase fails
             if not eligible_users and hasattr(self.bot_instance, 'db'):
                 eligible_users = self.bot_instance.db.get_eligible_auto_signal_users()
-            
+
             if not eligible_users:
                 print("❌ AUTO SIGNAL: No eligible users found")
                 return
-            
+
             # Format auto signal message
             message = self._format_auto_signal_message(signals)
-            
+
             # Send to eligible users
             success_count = 0
             for user in eligible_users:
@@ -1324,22 +1301,22 @@ Target Coins: {', '.join(self.target_symbols)}"""
                     await asyncio.sleep(0.1)  # Rate limiting
                 except Exception as e:
                     print(f"❌ AUTO SIGNAL: Failed to send to user {user.get('telegram_id', 'unknown')}: {e}")
-            
+
             print(f"🚀 AUTO SIGNAL: Successfully sent to {success_count}/{len(eligible_users)} eligible users")
-            
+
             # Log the broadcast
             if hasattr(self.bot_instance, 'db'):
                 self.bot_instance.db.log_auto_signal_broadcast(
                     len(signals), success_count, len(eligible_users)
                 )
-                
+
         except Exception as e:
             print(f"❌ AUTO SIGNAL: Error sending signals: {e}")
 
     def _format_auto_signal_message(self, signals):
         """Format auto signals message similar to futures_signals but with AUTO SIGNAL label"""
         current_time = datetime.now().strftime('%H:%M:%S WIB')
-        
+
         message = f"""AUTO SIGNAL 🚀 - MOMENTUM DETECTION
 
 🕐 Detection Time: {current_time}
@@ -1347,11 +1324,11 @@ Target Coins: {', '.join(self.target_symbols)}"""
 ⚡ Source: CoinAPI Momentum Analysis + Auto Detection
 
 """
-        
+
         for i, signal in enumerate(signals[:3], 1):  # Limit to top 3 auto signals
             direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
             confidence_emoji = "🔥" if signal['confidence'] >= 85 else "⭐"
-            
+
             message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
 {confidence_emoji} Confidence: {signal['confidence']:.1f}%
 💰 Entry: ${self._format_price(signal['entry_price'])}
@@ -1362,7 +1339,7 @@ Target Coins: {', '.join(self.target_symbols)}"""
 💡 Momentum: {signal['reason']}
 
 """
-        
+
         message += f"""⚠️ AUTO SIGNAL RISK MANAGEMENT:
 • Sinyal otomatis berdasarkan momentum CoinAPI
 • Gunakan maksimal 2-3% modal per trade
@@ -1376,5 +1353,5 @@ Target Coins: {', '.join(self.target_symbols)}"""
 🔄 Update: {current_time} WIB
 
 Hanya untuk Admin & Lifetime Users 💎"""
-        
+
         return message
