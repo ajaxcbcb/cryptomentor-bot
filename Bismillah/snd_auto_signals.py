@@ -120,50 +120,101 @@ class SnDAutoSignals:
             change_24h = price_data.get('change_24h', 0)
             long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
 
-            # FORCED DECISION LOGIC - Always choose LONG or SHORT
+            # BALANCED DECISION LOGIC - Proper LONG and SHORT analysis
             direction = "LONG"  # Default
             base_confidence = 70  # Auto signals need higher confidence
             reason = "Auto signal analysis"
+            
+            # Score-based approach for balanced signals
+            long_score = 0
+            short_score = 0
 
-            # Primary logic: 24h price change
-            if change_24h > 3:
-                direction = "LONG"
-                base_confidence += 10
+            # Factor 1: 24h price change (strongest indicator)
+            if change_24h > 5:
+                long_score += 3
                 reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
-            elif change_24h < -3:
-                direction = "SHORT"
-                base_confidence += 10
+            elif change_24h > 2:
+                long_score += 2
+                reason = f"Bullish momentum (+{change_24h:.1f}%)"
+            elif change_24h > 0:
+                long_score += 1
+                reason = f"Positive momentum (+{change_24h:.1f}%)"
+            elif change_24h < -5:
+                short_score += 3
                 reason = f"Strong bearish momentum ({change_24h:.1f}%)"
-            # Secondary logic: Long/Short ratio (contrarian approach)
-            if long_ratio > 75:
-                direction = "SHORT"
-                base_confidence += 8
-                reason = f"Extremely overcrowded longs ({long_ratio:.1f}%)"
-            elif long_ratio < 25:
-                direction = "LONG"
-                base_confidence += 8
-                reason = f"Extremely oversold positions ({long_ratio:.1f}%)"
-            # Use SnD analysis if available
-            elif 'error' not in snd_analysis:
+            elif change_24h < -2:
+                short_score += 2
+                reason = f"Bearish momentum ({change_24h:.1f}%)"
+            elif change_24h < 0:
+                short_score += 1
+                reason = f"Negative momentum ({change_24h:.1f}%)"
+
+            # Factor 2: Long/Short ratio analysis (balanced approach)
+            if long_ratio > 70:
+                short_score += 2  # Contrarian: too many longs
+                if reason == "Auto signal analysis":
+                    reason = f"Overcrowded longs ({long_ratio:.1f}%)"
+            elif long_ratio > 60:
+                short_score += 1  # Slight contrarian bias
+            elif long_ratio < 30:
+                long_score += 2   # Contrarian: too many shorts
+                if reason == "Auto signal analysis":
+                    reason = f"Oversold conditions ({long_ratio:.1f}%)"
+            elif long_ratio < 40:
+                long_score += 1   # Slight bullish bias
+
+            # Factor 3: SnD analysis if available
+            if 'error' not in snd_analysis:
                 signals = snd_analysis.get('signals', [])
                 if signals:
                     best_signal = max(signals, key=lambda x: x.get('confidence', 0))
-                    direction = best_signal.get('direction', 'LONG')
-                    base_confidence = max(base_confidence, best_signal.get('confidence', 70))
-                    reason = f"SnD {direction.lower()} zone confirmed"
+                    signal_direction = best_signal.get('direction', 'LONG')
+                    signal_confidence = best_signal.get('confidence', 0)
+                    
+                    if signal_direction == 'LONG' and signal_confidence > 60:
+                        long_score += 2
+                        if reason == "Auto signal analysis":
+                            reason = f"SnD long zone confirmed"
+                    elif signal_direction == 'SHORT' and signal_confidence > 60:
+                        short_score += 2
+                        if reason == "Auto signal analysis":
+                            reason = f"SnD short zone confirmed"
                 else:
-                    # Use trend score
+                    # Use trend score for additional bias
                     trend_score = snd_analysis.get('trend_score', 0)
-                    if trend_score > 0:
-                        direction = "LONG"
-                        reason = "Positive trend detected"
-                    else:
-                        direction = "SHORT"
-                        reason = "Negative trend detected"
+                    if trend_score > 1:
+                        long_score += 1
+                    elif trend_score < -1:
+                        short_score += 1
+
+            # Factor 4: Market structure (if available)
+            if 'error' not in snd_analysis:
+                market_structure = snd_analysis.get('market_structure', {})
+                pattern = market_structure.get('pattern', '')
+                if pattern == 'uptrend':
+                    long_score += 1
+                elif pattern == 'downtrend':
+                    short_score += 1
+
+            # Determine final direction based on scores
+            if long_score > short_score:
+                direction = "LONG"
+                base_confidence += min(15, long_score * 3)
+                if reason == "Auto signal analysis":
+                    reason = f"Bullish confluence (score: {long_score})"
+            elif short_score > long_score:
+                direction = "SHORT"
+                base_confidence += min(15, short_score * 3)
+                if reason == "Auto signal analysis":
+                    reason = f"Bearish confluence (score: {short_score})"
             else:
-                # Final fallback based on sentiment
-                direction = "SHORT" if long_ratio > 50 else "LONG"
-                reason = f"Sentiment-based {direction}"
+                # Equal scores - use price momentum as tiebreaker
+                if change_24h >= 0:
+                    direction = "LONG"
+                    reason = f"Neutral bias, slight bullish tiebreaker"
+                else:
+                    direction = "SHORT"
+                    reason = f"Neutral bias, slight bearish tiebreaker"
 
             # Calculate entry, TP, SL with better risk management
             if direction == "LONG":
@@ -522,65 +573,164 @@ class SnDAutoSignals:
             #'change_24h': 0 # Default if not available
         }
 
-        # Determine trend
+        # Determine trend with multiple timeframes
+        short_trend = 'neutral'
+        medium_trend = 'neutral'
+        
+        # Short-term trend (last 5 candles)
+        if closes[-1] > closes[-3] and closes[-3] > closes[-5]:
+            short_trend = 'bullish'
+        elif closes[-1] < closes[-3] and closes[-3] < closes[-5]:
+            short_trend = 'bearish'
+            
+        # Medium-term trend (last 10 candles)
         if closes[-1] > closes[-5] and closes[-5] > closes[-10]:
-            signal['trend'] = 'bullish'
+            medium_trend = 'bullish'
         elif closes[-1] < closes[-5] and closes[-5] < closes[-10]:
+            medium_trend = 'bearish'
+
+        # Set overall trend
+        if short_trend == 'bullish' and medium_trend == 'bullish':
+            signal['trend'] = 'bullish'
+        elif short_trend == 'bearish' and medium_trend == 'bearish':
             signal['trend'] = 'bearish'
+        elif short_trend == 'bullish' or medium_trend == 'bullish':
+            signal['trend'] = 'bullish'
+        elif short_trend == 'bearish' or medium_trend == 'bearish':
+            signal['trend'] = 'bearish'
+        else:
+            signal['trend'] = 'neutral'
 
-        # Determine market structure and generate signal
-        is_in_support = any(current_price >= support <= current_price * 1.02 for support in support_levels)
-        is_near_resistance = any(current_price >= resistance * 0.98 and current_price <= resistance for resistance in resistance_levels)
+        # Determine market structure and generate signal - BALANCED APPROACH
+        is_near_support = any(abs(current_price - support) / current_price <= 0.02 for support in support_levels)
+        is_near_resistance = any(abs(current_price - resistance) / current_price <= 0.02 for resistance in resistance_levels)
 
-        if is_in_support:
+        # Score-based signal generation
+        long_signal_score = 0
+        short_signal_score = 0
+
+        # Support/Resistance scoring
+        if is_near_support:
+            long_signal_score += 3
+        if is_near_resistance:
+            short_signal_score += 3
+
+        # Trend scoring
+        if signal['trend'] == 'bullish':
+            long_signal_score += 2
+        elif signal['trend'] == 'bearish':
+            short_signal_score += 2
+
+        # Price momentum scoring
+        recent_change = ((closes[-1] - closes[-3]) / closes[-3]) * 100
+        if recent_change > 1:
+            long_signal_score += 2
+        elif recent_change < -1:
+            short_signal_score += 2
+        elif recent_change > 0:
+            long_signal_score += 1
+        else:
+            short_signal_score += 1
+
+        # Determine final signal direction
+        if long_signal_score > short_signal_score:
             signal['direction'] = 'LONG'
-            signal['reason'] = 'Price at support level'
-            signal['market_structure'] = 'uptrend_bias'
-            signal['confidence'] += 15
-            signal['zone_strength'] = 75
-
-            # Set TP/SL for LONG
-            signal['entry_price'] = current_price * 0.995 # Slightly below current
-            signal['sl'] = support_levels[0] * 0.99 if support_levels else current_price * 0.97
-            signal['tp1'] = signal['entry_price'] * 1.02 # 2% profit
-            signal['tp2'] = signal['entry_price'] * 1.04 # 4% profit
-
-            risk = abs(signal['entry_price'] - signal['sl'])
-            reward = abs(signal['tp2'] - signal['entry_price'])
-            signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
-            signal['confidence'] = min(95, signal['confidence'] + int(signal['risk_reward'] * 5))
-
-        elif is_near_resistance:
-            signal['direction'] = 'SHORT'
-            signal['reason'] = 'Price near resistance level'
-            signal['market_structure'] = 'downtrend_bias'
-            signal['confidence'] += 15
-            signal['zone_strength'] = 75
-
-            # Set TP/SL for SHORT
-            signal['entry_price'] = current_price * 1.005 # Slightly above current
-            signal['sl'] = resistance_levels[0] * 1.01 if resistance_levels else current_price * 1.03
-            signal['tp1'] = signal['entry_price'] * 0.98 # 2% profit
-            signal['tp2'] = signal['entry_price'] * 0.96 # 4% profit
-
-            risk = abs(signal['entry_price'] - signal['sl'])
-            reward = abs(signal['tp2'] - signal['entry_price'])
-            signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
-            signal['confidence'] = min(95, signal['confidence'] + int(signal['risk_reward'] * 5))
-
-        else: # Sideways or no clear S/R
-            if signal['trend'] == 'bullish':
-                signal['direction'] = 'LONG'
+            signal['confidence'] += min(20, long_signal_score * 3)
+            
+            if is_near_support:
+                signal['reason'] = 'Price bouncing from support level'
+                signal['market_structure'] = 'support_bounce'
+                signal['zone_strength'] = 80
+            elif signal['trend'] == 'bullish':
                 signal['reason'] = 'Bullish trend continuation'
                 signal['market_structure'] = 'uptrend'
-                signal['confidence'] += 5
+                signal['zone_strength'] = 70
+            else:
+                signal['reason'] = 'Bullish momentum detected'
+                signal['market_structure'] = 'bullish_bias'
+                signal['zone_strength'] = 65
+
+            # Set TP/SL for LONG
+            signal['entry_price'] = current_price * 0.998  # Slightly below current
+            signal['sl'] = support_levels[0] * 0.99 if support_levels else current_price * 0.975
+            signal['tp1'] = signal['entry_price'] * 1.025  # 2.5% profit
+            signal['tp2'] = signal['entry_price'] * 1.045  # 4.5% profit
+
+        elif short_signal_score > long_signal_score:
+            signal['direction'] = 'SHORT'
+            signal['confidence'] += min(20, short_signal_score * 3)
+            
+            if is_near_resistance:
+                signal['reason'] = 'Price rejected at resistance level'
+                signal['market_structure'] = 'resistance_rejection'
+                signal['zone_strength'] = 80
             elif signal['trend'] == 'bearish':
-                signal['direction'] = 'SHORT'
                 signal['reason'] = 'Bearish trend continuation'
                 signal['market_structure'] = 'downtrend'
-                signal['confidence'] += 5
+                signal['zone_strength'] = 70
             else:
-                signal['reason'] = 'Consolidation or unclear trend'
+                signal['reason'] = 'Bearish momentum detected'
+                signal['market_structure'] = 'bearish_bias'
+                signal['zone_strength'] = 65
+
+            # Set TP/SL for SHORT
+            signal['entry_price'] = current_price * 1.002  # Slightly above current
+            signal['sl'] = resistance_levels[0] * 1.01 if resistance_levels else current_price * 1.025
+            signal['tp1'] = signal['entry_price'] * 0.975  # 2.5% profit
+            signal['tp2'] = signal['entry_price'] * 0.955  # 4.5% profit
+
+        else: # Equal scores - use trend as tiebreaker
+            if signal['trend'] == 'bullish':
+                signal['direction'] = 'LONG'
+                signal['reason'] = 'Neutral setup with bullish bias'
+                signal['market_structure'] = 'consolidation_bullish'
+                signal['confidence'] += 5
+                
+                # Conservative LONG setup
+                signal['entry_price'] = current_price * 0.998
+                signal['sl'] = current_price * 0.98
+                signal['tp1'] = current_price * 1.02
+                signal['tp2'] = current_price * 1.035
+                
+            elif signal['trend'] == 'bearish':
+                signal['direction'] = 'SHORT'
+                signal['reason'] = 'Neutral setup with bearish bias'
+                signal['market_structure'] = 'consolidation_bearish'
+                signal['confidence'] += 5
+                
+                # Conservative SHORT setup
+                signal['entry_price'] = current_price * 1.002
+                signal['sl'] = current_price * 1.02
+                signal['tp1'] = current_price * 0.98
+                signal['tp2'] = current_price * 0.965
+                
+            else:
+                # Truly neutral - default to trend following recent momentum
+                if recent_change >= 0:
+                    signal['direction'] = 'LONG'
+                    signal['reason'] = 'Consolidation with slight bullish momentum'
+                    signal['entry_price'] = current_price * 0.999
+                    signal['sl'] = current_price * 0.985
+                    signal['tp1'] = current_price * 1.015
+                    signal['tp2'] = current_price * 1.025
+                else:
+                    signal['direction'] = 'SHORT'
+                    signal['reason'] = 'Consolidation with slight bearish momentum'
+                    signal['entry_price'] = current_price * 1.001
+                    signal['sl'] = current_price * 1.015
+                    signal['tp1'] = current_price * 0.985
+                    signal['tp2'] = current_price * 0.975
+
+        # Calculate risk/reward ratio
+        risk = abs(signal['entry_price'] - signal['sl'])
+        reward = abs(signal['tp2'] - signal['entry_price'])
+        signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
+        
+        # Bonus confidence for good risk/reward
+        if signal['risk_reward'] > 2:
+            signal['confidence'] += 5
+        elif signal['risk_reward'] > 1.5:
+            signal['confidence'] += 3
 
         # Incorporate volume trend
         if volume_trend > 0 and signal['direction'] == 'LONG':
