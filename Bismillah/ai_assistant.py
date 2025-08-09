@@ -605,7 +605,7 @@ class AIAssistant:
             return self._error_fallback(symbol, f"comprehensive analysis: {str(e)[:50]}")
 
     async def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
-        """Futures analysis following system prompt template"""
+        """Enhanced futures analysis with comprehensive breakdown"""
         try:
             # Check database connection for user-related operations
             db_available, db_error = self._check_database_required("FUTURES")
@@ -615,10 +615,11 @@ class AIAssistant:
             current_time = self._get_wib_time()
             symbol = symbol.upper()
 
-            # Get current price
+            # Get comprehensive data
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
                 futures_data = crypto_api.get_futures_data(symbol)
+                snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
             else:
                 return self._error_fallback(symbol, "API connection")
 
@@ -628,92 +629,177 @@ class AIAssistant:
             current_price = self._normalize_data(price_data, ['price', 'current_price'])
             change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h', 'percent_change_24h'])
 
-            # Technical analysis for specific timeframe
+            # Multi-timeframe technical analysis
             timeframe_mapping = {
                 '15m': '15MIN', '30m': '30MIN', '1h': '1HRS',
                 '4h': '4HRS', '1d': '1DAY', '1w': '1WEK'
             }
             api_timeframe = timeframe_mapping.get(timeframe, '1HRS')
 
-            ohlcv = self.get_coinapi_ohlcv_data(symbol, api_timeframe, 100)
-            if not ohlcv.get('success'):
+            # Get multiple timeframes for better analysis
+            primary_ohlcv = self.get_coinapi_ohlcv_data(symbol, api_timeframe, 100)
+            higher_tf_ohlcv = self.get_coinapi_ohlcv_data(symbol, '4HRS', 100)
+            
+            if not primary_ohlcv.get('success'):
                 return self._error_fallback(symbol, f"OHLCV data for {timeframe}")
 
-            indicators = self.calculate_technical_indicators(ohlcv['data'])
-            if 'error' in indicators:
+            primary_indicators = self.calculate_technical_indicators(primary_ohlcv['data'])
+            higher_tf_indicators = {}
+            if higher_tf_ohlcv.get('success'):
+                higher_tf_indicators = self.calculate_technical_indicators(higher_tf_ohlcv['data'])
+            
+            if 'error' in primary_indicators:
                 return self._error_fallback(symbol, "technical indicators")
 
-            # Generate signal and confidence
-            signal_data = self._generate_trading_signal(indicators, futures_data, current_price)
-
-            # Calculate trading levels
-            trading_levels = self._calculate_trading_levels(
-                current_price,
-                signal_data['direction'],
-                indicators.get('atr', current_price * 0.02)
+            # Enhanced signal generation with multiple timeframe confirmation
+            signal_data = self._generate_enhanced_trading_signal(
+                primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data
             )
 
-            # Format futures analysis with safe markdown
+            # Advanced trading levels calculation
+            trading_levels = self._calculate_advanced_trading_levels(
+                current_price, signal_data, primary_indicators, snd_data
+            )
+
+            # Determine confidence level description
+            confidence = signal_data['confidence']
+            if confidence >= 85:
+                confidence_desc = "🔥 Very High"
+                confidence_emoji = "🔥"
+            elif confidence >= 75:
+                confidence_desc = "⚡ High"
+                confidence_emoji = "⚡"
+            elif confidence >= 65:
+                confidence_desc = "💡 Medium"
+                confidence_emoji = "💡"
+            else:
+                confidence_desc = "⚠️ Low"
+                confidence_emoji = "⚠️"
+
+            # Direction formatting
             direction_emoji = "🟢" if signal_data['direction'] in ['BUY', 'LONG'] else "🔴" if signal_data['direction'] in ['SELL', 'SHORT'] else "🟡"
             
-            rsi_value = indicators.get('rsi', 'N/A')
-            rsi_display = f"{rsi_value:.1f}" if isinstance(rsi_value, (int, float)) else 'N/A'
+            # Technical indicators formatting
+            rsi_value = primary_indicators.get('rsi', 0)
+            rsi_condition = "Oversold" if rsi_value < 30 else "Overbought" if rsi_value > 70 else "Normal"
+            
+            macd_value = primary_indicators.get('macd_histogram', 0)
+            macd_condition = "Bullish" if macd_value > 0 else "Bearish"
+            
+            # Create comprehensive analysis
+            analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe})**
 
-            analysis = f"""🔍 **FUTURES ANALYSIS \\- {self._escape_markdown_v2(symbol)} \\({self._escape_markdown_v2(timeframe)}\\)**
+🕐 **Analysis Time**: {current_time}
+💰 **Current Price**: ${current_price:,.6f}
+📊 **24h Change**: {change_24h:+.2f}%
 
-💰 **Current Price**: {self._safe_format_price(current_price)}
-📉 **24h Change**: {self._safe_format_percentage(change_24h)}
-
-{direction_emoji} **SIGNAL**: {self._escape_markdown_v2(signal_data['direction'])}
-⭐ **Confidence**: {signal_data['confidence']}% \\({self._escape_markdown_v2(self._get_confidence_level(signal_data['confidence']))}\\)
+{direction_emoji} **TRADING SIGNAL**: {signal_data['direction']}
+{confidence_emoji} **Confidence**: {confidence:.1f}% ({confidence_desc})
+🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
+⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
 ```
-💰 TRADING SETUP:
-• Entry: {self._format_price(trading_levels['entry'])}
-• Stop Loss: {self._format_price(trading_levels['stop_loss'])}
-• TP1: {self._format_price(trading_levels['tp1'])} | TP2: {self._format_price(trading_levels['tp2'])}
-• RR: {trading_levels['rr_ratio']:.1f}:1
+💰 DETAILED TRADING SETUP:
+• Entry Zone: ${trading_levels['entry_min']:.6f} - ${trading_levels['entry_max']:.6f}
+• Optimal Entry: ${trading_levels['entry']:.6f}
+• Stop Loss: ${trading_levels['stop_loss']:.6f}
+• TP1 (50%): ${trading_levels['tp1']:.6f}
+• TP2 (30%): ${trading_levels['tp2']:.6f} 
+• TP3 (20%): ${trading_levels['tp3']:.6f}
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 ```
 
 ```
-📊 TECHNICAL ({timeframe}):
-• EMA50: {self._format_price(indicators.get('ema_50'))}
-• EMA200: {self._format_price(indicators.get('ema_200'))}
-• RSI: {rsi_display}
-• ATR: {self._format_price(indicators.get('atr'))}
+🔬 TECHNICAL ANALYSIS ({timeframe}):
+• EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
+• EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
+• RSI(14): {rsi_value:.1f} ({rsi_condition})
+• MACD: {macd_value:.4f} ({macd_condition})
+• ATR: ${primary_indicators.get('atr', 0):,.4f}
+• Volume Trend: {signal_data.get('volume_trend', 'Normal')}
 ```
 
-🔮 **FUTURES METRICS**:"""
+🎯 **SUPPLY & DEMAND ZONES**:"""
 
-            # Add futures metrics if available
-            if futures_data and futures_data.get('success'):
-                long_ratio = self._normalize_data(futures_data, ['long_ratio', 'longPercentage', 'longs_pct'])
-                funding_rate = self._normalize_data(futures_data, ['funding_rate', 'funding', 'fundingRate'])
-                open_interest = self._normalize_data(futures_data, ['open_interest', 'oi', 'openInterest'])
-
+            # Add Supply & Demand analysis if available
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
                 analysis += f"""
-• **Long/Short Ratio**: {long_ratio:.1f}% Long" if long_ratio else "N/A"
-• **Funding Rate**: {self._format_percentage(funding_rate, 4) if funding_rate else "N/A"}
-• **Open Interest**: {self._format_price(open_interest) if open_interest else "N/A"}"""
+• 🔴 Supply Zone 1: ${supply_1:,.6f} ({((supply_1/current_price-1)*100):+.1f}%)
+• 🟢 Demand Zone 1: ${demand_1:,.6f} ({((demand_1/current_price-1)*100):+.1f}%)
+• 📍 Current Position: {self._get_zone_position(current_price, supply_1, demand_1)}
+• 💪 Zone Strength: {snd_data.get('zone_strength', 'Medium')}"""
             else:
-                analysis += "\n• Futures metrics temporarily unavailable"
+                analysis += """
+• Supply/Demand analysis temporarily unavailable
+• Using technical levels for zone identification"""
+
+            # Add futures metrics
+            analysis += "\n\n🔮 **FUTURES MARKET METRICS**:"
+            if futures_data and futures_data.get('success'):
+                # Extract futures data safely
+                data = futures_data.get('data', {})
+                long_short = data.get('long_short', {})
+                funding_details = data.get('funding_details', {})
+                open_interest = data.get('open_interest', {})
+                
+                long_ratio = long_short.get('long_ratio', 50)
+                funding_rate = funding_details.get('current_rate', 0)
+                oi_total = open_interest.get('total', 0)
+                sentiment = long_short.get('sentiment', 'Neutral')
+                
+                # Funding rate analysis
+                funding_condition = "Bullish Bias" if funding_rate < -0.01 else "Bearish Bias" if funding_rate > 0.01 else "Balanced"
+                
+                analysis += f"""
+• 📊 Long/Short Ratio: {long_ratio:.1f}% Long | {100-long_ratio:.1f}% Short
+• 💰 Funding Rate: {funding_rate*100:.4f}% ({funding_condition})
+• 🌊 Open Interest: ${oi_total:,.0f}
+• 🧠 Market Sentiment: {sentiment}
+• ⚖️ Futures Bias: {self._get_futures_bias(long_ratio, funding_rate)}"""
+            else:
+                analysis += """
+• Futures metrics temporarily unavailable
+• Analysis based on spot market data"""
+
+            # Higher timeframe confirmation
+            if higher_tf_indicators:
+                htf_trend = "Bullish" if higher_tf_indicators.get('ema_50', 0) > higher_tf_indicators.get('ema_200', 0) else "Bearish"
+                analysis += f"""
+
+📈 **HIGHER TIMEFRAME (4H) CONFIRMATION**:
+• 🎯 4H Trend: {htf_trend}
+• 📊 4H EMA50 vs EMA200: {htf_trend} alignment
+• ✅ Multi-TF Confirmation: {signal_data.get('mtf_confirmation', 'Partial')}"""
 
             analysis += f"""
 
-⚠️ **Risk Management**:
-• Position size: 1\\-3% of capital maximum
-• Always use stop loss before entry
-• Monitor market conditions
+💡 **ADVANCED TRADING INSIGHTS**:
+{self._get_advanced_trading_insights(signal_data, trading_levels, confidence)}
 
-🕐 **Analysis Time**: {self._escape_markdown_v2(current_time)}
-📡 **Data Sources**: CoinAPI \\+ Binance Futures"""
+⚠️ **RISK MANAGEMENT PROTOCOL**:
+• Position Size: {trading_levels['position_size']:.1f}% of portfolio max
+• Entry Method: {trading_levels['entry_method']}
+• Stop Loss Type: {trading_levels['stop_type']}
+• Profit Taking: Scale out at each TP level
+• Market Condition: {signal_data.get('market_condition', 'Normal Volatility')}
 
-            # Validate and return safe output
-            safe_text, parse_mode = self._safe_output(analysis)
-            return safe_text
+🎯 **EXECUTION CHECKLIST**:
+• ✅ Confirm price action at entry zone
+• ✅ Monitor volume for confirmation
+• ✅ Set stop loss BEFORE entry
+• ✅ Prepare for partial profit taking
+• ✅ Watch for news/events impact
+
+📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis
+🔄 **Update Frequency**: Real-time price + 15min technical refresh"""
+
+            return analysis
 
         except Exception as e:
-            return self._error_fallback(symbol, f"futures analysis: {str(e)[:50]}")
+            return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
         """Generate futures signals following system prompt template"""
@@ -1134,6 +1220,290 @@ Confidence: {signal['confidence']}% | RR: {signal.get('rr', 'N/A')}
         else:
             return "Low"
 
+    def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
+        """Generate enhanced trading signal with multiple confirmations"""
+        try:
+            # Base confidence calculation
+            confidence_calc = self._calculate_confidence_score(primary_indicators, {}, futures_data)
+            base_confidence = confidence_calc['total']
+
+            # Enhanced signal logic
+            ema_50 = primary_indicators.get('ema_50', 0)
+            ema_200 = primary_indicators.get('ema_200', 0)
+            rsi = primary_indicators.get('rsi', 50)
+            macd = primary_indicators.get('macd_histogram', 0)
+
+            # Primary trend determination
+            primary_trend = 'BULLISH' if ema_50 > ema_200 else 'BEARISH'
+            
+            # Higher timeframe confirmation
+            htf_confirmation = 'NEUTRAL'
+            if higher_tf_indicators:
+                htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
+                htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
+                htf_trend = 'BULLISH' if htf_ema_50 > htf_ema_200 else 'BEARISH'
+                
+                if htf_trend == primary_trend:
+                    htf_confirmation = 'CONFIRMED'
+                    base_confidence += 15
+                else:
+                    htf_confirmation = 'DIVERGENT'
+                    base_confidence -= 10
+
+            # RSI and MACD confirmation
+            rsi_signal = 'NEUTRAL'
+            if primary_trend == 'BULLISH' and rsi < 70 and macd > 0:
+                rsi_signal = 'BULLISH'
+                base_confidence += 10
+            elif primary_trend == 'BEARISH' and rsi > 30 and macd < 0:
+                rsi_signal = 'BEARISH'
+                base_confidence += 10
+
+            # Supply & Demand confirmation
+            snd_signal = 'NEUTRAL'
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+                
+                if current_price <= demand_1 * 1.005 and primary_trend == 'BULLISH':
+                    snd_signal = 'BULLISH'
+                    base_confidence += 12
+                elif current_price >= supply_1 * 0.995 and primary_trend == 'BEARISH':
+                    snd_signal = 'BEARISH' 
+                    base_confidence += 12
+
+            # Final signal determination
+            if (primary_trend == 'BULLISH' and htf_confirmation in ['CONFIRMED', 'NEUTRAL'] and 
+                rsi < 70 and base_confidence >= 60):
+                direction = 'LONG'
+                strategy = 'Trend Following'
+            elif (primary_trend == 'BEARISH' and htf_confirmation in ['CONFIRMED', 'NEUTRAL'] and 
+                  rsi > 30 and base_confidence >= 60):
+                direction = 'SHORT'
+                strategy = 'Trend Following'
+            elif snd_signal != 'NEUTRAL':
+                direction = 'LONG' if snd_signal == 'BULLISH' else 'SHORT'
+                strategy = 'Supply/Demand Reversal'
+            else:
+                direction = 'NEUTRAL'
+                strategy = 'Wait for Setup'
+
+            # Time horizon based on confidence and setup
+            if base_confidence >= 80:
+                time_horizon = '1-4 hours'
+            elif base_confidence >= 65:
+                time_horizon = '4-12 hours'
+            else:
+                time_horizon = '12-24 hours'
+
+            # Volume trend analysis
+            volume_trend = 'Normal'
+            try:
+                recent_volumes = primary_indicators.get('recent_volumes', [])
+                if recent_volumes and len(recent_volumes) >= 5:
+                    avg_volume = sum(recent_volumes[-5:]) / 5
+                    current_volume = recent_volumes[-1]
+                    if current_volume > avg_volume * 1.5:
+                        volume_trend = 'High'
+                        base_confidence += 5
+                    elif current_volume < avg_volume * 0.7:
+                        volume_trend = 'Low'
+                        base_confidence -= 3
+            except:
+                pass
+
+            # Market condition assessment
+            volatility = primary_indicators.get('atr', 0) / current_price * 100
+            if volatility > 5:
+                market_condition = 'High Volatility'
+            elif volatility > 2:
+                market_condition = 'Normal Volatility'
+            else:
+                market_condition = 'Low Volatility'
+
+            return {
+                'direction': direction,
+                'confidence': max(30, min(95, base_confidence)),
+                'strategy': strategy,
+                'time_horizon': time_horizon,
+                'volume_trend': volume_trend,
+                'market_condition': market_condition,
+                'mtf_confirmation': htf_confirmation,
+                'primary_trend': primary_trend,
+                'rsi_signal': rsi_signal,
+                'snd_signal': snd_signal,
+                'breakdown': confidence_calc['breakdown']
+            }
+
+        except Exception as e:
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'strategy': 'Wait for Setup',
+                'time_horizon': '24+ hours',
+                'volume_trend': 'Unknown',
+                'market_condition': 'Unknown',
+                'mtf_confirmation': 'UNKNOWN',
+                'error': str(e)
+            }
+
+    def _calculate_advanced_trading_levels(self, current_price, signal_data, indicators, snd_data):
+        """Calculate advanced trading levels with multiple TP levels"""
+        try:
+            direction = signal_data['direction']
+            confidence = signal_data['confidence']
+            atr = indicators.get('atr', current_price * 0.02)
+            
+            # Base calculations
+            if direction == 'LONG':
+                entry = current_price * 0.998
+                entry_min = current_price * 0.995
+                entry_max = current_price * 1.001
+                stop_loss = current_price - (atr * 2.5)
+                
+                # Multiple TP levels
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 2.5)
+                tp3 = current_price + (atr * 4.0)
+                
+            elif direction == 'SHORT':
+                entry = current_price * 1.002
+                entry_min = current_price * 0.999
+                entry_max = current_price * 1.005
+                stop_loss = current_price + (atr * 2.5)
+                
+                # Multiple TP levels
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 2.5)
+                tp3 = current_price - (atr * 4.0)
+                
+            else:  # NEUTRAL
+                return {
+                    'entry': current_price, 'entry_min': current_price, 'entry_max': current_price,
+                    'stop_loss': current_price, 'tp1': current_price, 'tp2': current_price, 'tp3': current_price,
+                    'rr_ratio': 0, 'risk_percentage': 0, 'position_size': 0,
+                    'entry_method': 'Wait', 'stop_type': 'None'
+                }
+
+            # Adjust based on Supply/Demand if available
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+                
+                if direction == 'LONG' and demand_1 < current_price:
+                    stop_loss = max(stop_loss, demand_1 * 0.995)
+                elif direction == 'SHORT' and supply_1 > current_price:
+                    stop_loss = min(stop_loss, supply_1 * 1.005)
+
+            # Calculate risk/reward
+            risk = abs(entry - stop_loss)
+            reward = abs(tp3 - entry)
+            rr_ratio = reward / risk if risk > 0 else 2.0
+
+            # Position sizing based on confidence
+            if confidence >= 85:
+                position_size = 3.0
+                risk_percentage = 2.5
+            elif confidence >= 75:
+                position_size = 2.5
+                risk_percentage = 2.0
+            elif confidence >= 65:
+                position_size = 2.0
+                risk_percentage = 1.5
+            else:
+                position_size = 1.0
+                risk_percentage = 1.0
+
+            # Entry method based on setup quality
+            entry_method = 'Market Order' if confidence >= 80 else 'Limit Order at Zone'
+            stop_type = 'ATR-Based Stop' if confidence >= 70 else 'Support/Resistance Stop'
+
+            return {
+                'entry': entry,
+                'entry_min': entry_min,
+                'entry_max': entry_max,
+                'stop_loss': stop_loss,
+                'tp1': tp1,
+                'tp2': tp2,
+                'tp3': tp3,
+                'rr_ratio': rr_ratio,
+                'risk_percentage': risk_percentage,
+                'position_size': position_size,
+                'entry_method': entry_method,
+                'stop_type': stop_type
+            }
+
+        except Exception as e:
+            return {
+                'entry': current_price, 'entry_min': current_price, 'entry_max': current_price,
+                'stop_loss': current_price, 'tp1': current_price, 'tp2': current_price, 'tp3': current_price,
+                'rr_ratio': 1.0, 'risk_percentage': 1.0, 'position_size': 1.0,
+                'entry_method': 'Manual', 'stop_type': 'Manual', 'error': str(e)
+            }
+
+    def _get_zone_position(self, current_price, supply_zone, demand_zone):
+        """Determine position relative to S&D zones"""
+        if current_price >= supply_zone:
+            return "Above Supply - Bearish Pressure"
+        elif current_price <= demand_zone:
+            return "Below Demand - Bullish Support"
+        else:
+            return "Between Zones - Range Bound"
+
+    def _get_futures_bias(self, long_ratio, funding_rate):
+        """Determine futures market bias"""
+        if long_ratio > 70 and funding_rate > 0.01:
+            return "Extreme Long Squeeze Risk"
+        elif long_ratio < 30 and funding_rate < -0.01:
+            return "Extreme Short Squeeze Risk"
+        elif long_ratio > 60:
+            return "Long Heavy - Contrarian Short"
+        elif long_ratio < 40:
+            return "Short Heavy - Contrarian Long"
+        else:
+            return "Balanced Positioning"
+
+    def _get_advanced_trading_insights(self, signal_data, trading_levels, confidence):
+        """Generate advanced trading insights"""
+        insights = []
+        
+        direction = signal_data['direction']
+        strategy = signal_data.get('strategy', 'Unknown')
+        
+        if confidence >= 85:
+            insights.append("• 🔥 Extremely high probability setup - Consider larger position")
+            insights.append("• ⚡ Strong confluence of multiple signals")
+        elif confidence >= 75:
+            insights.append("• 🎯 High probability setup with good risk/reward")
+            insights.append("• 📊 Multiple timeframe alignment confirmed")
+        elif confidence >= 65:
+            insights.append("• 💡 Moderate setup - Standard position sizing")
+            insights.append("• ⚠️ Monitor for additional confirmation")
+        else:
+            insights.append("• 🚫 Low confidence - Consider paper trading first")
+            insights.append("• 🔍 Wait for better setup or additional confluence")
+
+        if direction in ['LONG', 'SHORT']:
+            insights.append(f"• 🎪 {strategy} approach recommended")
+            if trading_levels['rr_ratio'] > 3:
+                insights.append("• 💰 Excellent risk/reward ratio - High profit potential")
+            elif trading_levels['rr_ratio'] > 2:
+                insights.append("• ✅ Good risk/reward - Acceptable trade setup")
+
+        mtf_confirmation = signal_data.get('mtf_confirmation', 'UNKNOWN')
+        if mtf_confirmation == 'CONFIRMED':
+            insights.append("• 📈 Higher timeframe strongly supports this direction")
+        elif mtf_confirmation == 'DIVERGENT':
+            insights.append("• ⚠️ Higher timeframe shows divergence - Trade with caution")
+
+        volume_trend = signal_data.get('volume_trend', 'Normal')
+        if volume_trend == 'High':
+            insights.append("• 🌊 High volume supports the move - Strong momentum")
+        elif volume_trend == 'Low':
+            insights.append("• 📉 Low volume - Watch for volume confirmation")
+
+        return "\n".join(insights)
+
     def _error_fallback(self, symbol, error_context):
         """Generate user-friendly error message"""
         return f"""❌ **Terjadi kesalahan mengambil data untuk {symbol}**
@@ -1186,7 +1556,7 @@ Saya menggunakan:
 Coba `/analyze btc` untuk analisis komprehensif!"""
 
     def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get market sentiment analysis"""
+        """Get comprehensive market analysis with detailed breakdown"""
         try:
             # Check database connection for user-related operations
             db_available, db_error = self._check_database_required("MARKET_SENTIMENT")
@@ -1201,43 +1571,91 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
 
             market_cap_change = market_data.get('market_cap_change_24h', 0)
             btc_dominance = market_data.get('btc_dominance', 0)
+            eth_dominance = market_data.get('eth_dominance', 0)
             total_market_cap = market_data.get('total_market_cap', 0)
+            total_volume = market_data.get('total_volume_24h', 0)
+            active_cryptos = market_data.get('active_cryptocurrencies', 0)
 
-            # Determine sentiment
+            # Determine sentiment with confidence
+            confidence = 75
             if market_cap_change > 3:
                 sentiment = "🚀 VERY BULLISH"
+                confidence = 90
+                trend = "Strong Uptrend"
             elif market_cap_change > 1:
                 sentiment = "📈 BULLISH"
+                confidence = 80
+                trend = "Bullish Momentum"
             elif market_cap_change > -1:
                 sentiment = "😐 NEUTRAL"
+                confidence = 60
+                trend = "Sideways Consolidation"
             elif market_cap_change > -3:
                 sentiment = "📉 BEARISH"
+                confidence = 80
+                trend = "Bearish Pressure"
             else:
                 sentiment = "💥 VERY BEARISH"
+                confidence = 90
+                trend = "Strong Downtrend"
 
-            sentiment_analysis = f"""🌍 **MARKET SENTIMENT ANALYSIS**
+            # Get top crypto analysis
+            top_cryptos_analysis = self._get_top_cryptos_analysis(crypto_api)
 
-📊 **Global Sentiment**: {self._escape_markdown_v2(sentiment)}
+            # Fear & Greed equivalent based on metrics
+            fear_greed_score = self._calculate_fear_greed_score(market_cap_change, btc_dominance, total_volume)
+            
+            # Market structure analysis
+            market_structure = self._analyze_market_structure(btc_dominance, eth_dominance, market_cap_change)
+
+            # Create comprehensive analysis
+            analysis = f"""🌍 **COMPREHENSIVE MARKET ANALYSIS**
+
+🕐 **Analysis Time**: {current_time}
+📊 **Global Sentiment**: {sentiment}
+⭐ **Confidence**: {confidence}%
 
 ```
-💰 Key Metrics:
+💰 GLOBAL METRICS:
 • Total Market Cap: ${total_market_cap/1e12:.2f}T
-• 24h Change: {self._format_percentage(market_cap_change)}
+• 24h Market Change: {self._format_percentage(market_cap_change)}
+• Total Volume 24h: ${total_volume/1e9:.1f}B
+• Active Cryptocurrencies: {active_cryptos:,}
 • BTC Dominance: {btc_dominance:.1f}%
+• ETH Dominance: {eth_dominance:.1f}%
 ```
 
-📈 **Trading Implications**:
-{self._escape_markdown_v2(self._get_trading_implications(market_cap_change, btc_dominance))}
+🔬 **MARKET STRUCTURE ANALYSIS**:
+🔄 **Trend**: {trend}
+⚡ **Structure**: {market_structure['structure']}
+🧠 **Reasoning**: {market_structure['reasoning']}
+📊 **Fear & Greed**: {fear_greed_score['level']} ({fear_greed_score['score']}/100)
 
-🕐 **Update**: {self._escape_markdown_v2(current_time)}
-📡 **Source**: CoinMarketCap Global Metrics"""
+📈 **TOP CRYPTOCURRENCIES PERFORMANCE**:
 
-            # Validate and return safe output
-            safe_text, parse_mode = self._safe_output(sentiment_analysis)
-            return safe_text
+{top_cryptos_analysis}
+
+💡 **TRADING IMPLICATIONS**:
+{self._get_enhanced_trading_implications(market_cap_change, btc_dominance, eth_dominance, confidence)}
+
+🎯 **MARKET OPPORTUNITIES**:
+{self._get_market_opportunities(market_cap_change, btc_dominance)}
+
+⚠️ **RISK ASSESSMENT**:
+{self._get_risk_assessment(market_cap_change, confidence)}
+
+🚨 **KEY LEVELS TO WATCH**:
+• BTC Dominance Support: {btc_dominance-2:.1f}%
+• BTC Dominance Resistance: {btc_dominance+2:.1f}%
+• Market Cap Key Level: ${(total_market_cap*0.95)/1e12:.2f}T - ${(total_market_cap*1.05)/1e12:.2f}T
+
+📡 **Data Sources**: CoinMarketCap Global Metrics + Multi-API Analysis
+⏰ **Next Update**: Setiap 15 menit untuk data real-time"""
+
+            return analysis
 
         except Exception as e:
-            return self._error_fallback("MARKET", f"sentiment analysis: {str(e)[:50]}")
+            return self._error_fallback("MARKET", f"comprehensive analysis: {str(e)[:50]}")
 
     def _get_trading_implications(self, market_cap_change, btc_dominance):
         """Get trading implications from market data"""
@@ -1256,6 +1674,209 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
             implications.append(f"• 🏛️ Alt season potential - BTC dominance low")
 
         return "\n".join(implications)
+
+    def _get_enhanced_trading_implications(self, market_cap_change, btc_dominance, eth_dominance, confidence):
+        """Get enhanced trading implications with detailed analysis"""
+        implications = []
+
+        # Market momentum analysis
+        if market_cap_change > 3:
+            implications.append("• 🚀 Extremely bullish conditions - High probability LONG setups")
+            implications.append("• 💰 Consider increasing position sizes (within risk limits)")
+        elif market_cap_change > 1:
+            implications.append("• 📈 Bullish momentum confirmed - Look for LONG opportunities")
+            implications.append("• ⚡ Scalping and swing trades favorable")
+        elif market_cap_change > -1:
+            implications.append("• 😐 Neutral market - Range trading strategies optimal")
+            implications.append("• 🎯 Focus on support/resistance levels")
+        elif market_cap_change > -3:
+            implications.append("• 📉 Bearish pressure building - SHORT bias recommended")
+            implications.append("• 🛡️ Reduce LONG exposure, tighten stop losses")
+        else:
+            implications.append("• 💥 Severe bearish conditions - Avoid LONG positions")
+            implications.append("• 🔴 Focus on SHORT opportunities with tight risk management")
+
+        # Dominance analysis
+        if btc_dominance > 50:
+            implications.append("• 🟠 BTC leading market - Trade major pairs (BTC, ETH)")
+            implications.append("• ⚠️ Altcoins may underperform - Be selective")
+        elif btc_dominance < 40:
+            implications.append("• 🌟 Altcoin season active - Diversify into quality alts")
+            implications.append("• 💎 DeFi and Layer-1 tokens may outperform")
+        else:
+            implications.append("• ⚖️ Balanced market - Both BTC and alts showing strength")
+
+        # ETH dominance insights
+        if eth_dominance > 18:
+            implications.append("• 🔷 Ethereum ecosystem strong - Consider ETH and ERC-20 tokens")
+        elif eth_dominance < 12:
+            implications.append("• 🔻 ETH weakness - Monitor for reversal opportunities")
+
+        # Confidence-based recommendations
+        if confidence > 85:
+            implications.append("• ✅ High confidence signals - Increase position sizing")
+        elif confidence < 60:
+            implications.append("• ⚠️ Low confidence period - Reduce risk exposure")
+
+        return "\n".join(implications)
+
+    def _get_market_opportunities(self, market_cap_change, btc_dominance):
+        """Identify specific market opportunities"""
+        opportunities = []
+
+        if market_cap_change > 2:
+            opportunities.append("• 🎯 Momentum breakout trades in major cryptos")
+            opportunities.append("• 📊 Long positions in DeFi and Layer-1 tokens")
+        elif market_cap_change < -2:
+            opportunities.append("• 🔻 Short selling opportunities in overbought assets")
+            opportunities.append("• 💰 Value accumulation for long-term positions")
+        else:
+            opportunities.append("• 🏃 Range trading between key support/resistance")
+            opportunities.append("• ⚡ Scalping opportunities in high-volume pairs")
+
+        if btc_dominance > 55:
+            opportunities.append("• 🟠 Bitcoin maximalist strategy - Focus on BTC/ETH")
+        elif btc_dominance < 35:
+            opportunities.append("• 🌈 Altcoin diversification strategy optimal")
+
+        opportunities.append("• 🔄 Cross-exchange arbitrage opportunities")
+        opportunities.append("• 📈 Futures vs spot price discrepancies")
+
+        return "\n".join(opportunities)
+
+    def _get_risk_assessment(self, market_cap_change, confidence):
+        """Provide risk assessment based on market conditions"""
+        risks = []
+
+        if abs(market_cap_change) > 3:
+            risks.append("• ⚠️ HIGH VOLATILITY - Use smaller position sizes")
+            risks.append("• 🛑 Set tight stop losses (2-3% maximum)")
+        elif abs(market_cap_change) > 1:
+            risks.append("• ⚡ MODERATE VOLATILITY - Standard risk management")
+            risks.append("• 🎯 Stop losses at 3-5% from entry")
+        else:
+            risks.append("• 😴 LOW VOLATILITY - May increase position sizes slightly")
+            risks.append("• 📊 Wider stops acceptable (5-7%)")
+
+        if confidence < 70:
+            risks.append("• 🔍 Uncertain market conditions - Wait for clarity")
+            risks.append("• 💡 Paper trade strategies before live execution")
+
+        risks.append("• 📱 Monitor news and regulatory developments")
+        risks.append("• ⏰ Set alerts for key support/resistance breaks")
+
+        return "\n".join(risks)
+
+    def _calculate_fear_greed_score(self, market_cap_change, btc_dominance, volume):
+        """Calculate a fear & greed equivalent score"""
+        score = 50  # Neutral starting point
+
+        # Market cap change influence (40% weight)
+        if market_cap_change > 5:
+            score += 25
+        elif market_cap_change > 2:
+            score += 15
+        elif market_cap_change > 0:
+            score += 5
+        elif market_cap_change > -2:
+            score -= 5
+        elif market_cap_change > -5:
+            score -= 15
+        else:
+            score -= 25
+
+        # BTC dominance influence (30% weight)
+        if btc_dominance > 55:
+            score -= 10  # High dominance can indicate fear in alts
+        elif btc_dominance < 40:
+            score += 15  # Low dominance indicates greed in alts
+
+        # Volume influence (30% weight)
+        if volume > 100e9:  # High volume
+            score += 10
+        elif volume < 50e9:  # Low volume
+            score -= 10
+
+        score = max(0, min(100, score))
+
+        if score >= 80:
+            level = "🔥 Extreme Greed"
+        elif score >= 65:
+            level = "😤 Greed"
+        elif score >= 45:
+            level = "😐 Neutral"
+        elif score >= 25:
+            level = "😨 Fear"
+        else:
+            level = "💀 Extreme Fear"
+
+        return {"score": score, "level": level}
+
+    def _analyze_market_structure(self, btc_dominance, eth_dominance, market_cap_change):
+        """Analyze overall market structure"""
+        if market_cap_change > 2 and btc_dominance < 45:
+            structure = "Altcoin Bull Market"
+            reasoning = "Strong market growth with declining BTC dominance indicates altcoin season"
+        elif market_cap_change > 2 and btc_dominance > 50:
+            structure = "Bitcoin-Led Bull Market" 
+            reasoning = "Market growth driven primarily by Bitcoin strength"
+        elif market_cap_change < -2 and btc_dominance > 50:
+            structure = "Flight to BTC Safety"
+            reasoning = "Market decline with BTC dominance increase shows risk-off behavior"
+        elif market_cap_change < -2:
+            structure = "Bear Market Conditions"
+            reasoning = "Broad market decline affecting all cryptocurrencies"
+        elif btc_dominance > 55:
+            structure = "BTC Dominance Phase"
+            reasoning = "Bitcoin consolidating market share, alts underperforming"
+        elif btc_dominance < 40:
+            structure = "Altcoin Rotation Phase" 
+            reasoning = "Capital flowing from BTC to alternative cryptocurrencies"
+        else:
+            structure = "Balanced Market"
+            reasoning = "Healthy distribution of capital across crypto ecosystem"
+
+        return {"structure": structure, "reasoning": reasoning}
+
+    def _get_top_cryptos_analysis(self, crypto_api):
+        """Get analysis of top cryptocurrencies performance"""
+        if not crypto_api:
+            return "• Top crypto data temporarily unavailable"
+        
+        top_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
+        analysis_lines = []
+        
+        try:
+            for i, symbol in enumerate(top_symbols[:5], 1):
+                price_data = crypto_api.get_crypto_price(symbol)
+                if price_data.get('success'):
+                    price = price_data.get('price', 0)
+                    change_24h = price_data.get('change_24h', 0)
+                    
+                    if change_24h > 5:
+                        emoji = "🚀"
+                        trend = "Strong Bull"
+                    elif change_24h > 2:
+                        emoji = "📈" 
+                        trend = "Bullish"
+                    elif change_24h > -2:
+                        emoji = "😐"
+                        trend = "Neutral"
+                    elif change_24h > -5:
+                        emoji = "📉"
+                        trend = "Bearish"
+                    else:
+                        emoji = "💥"
+                        trend = "Strong Bear"
+                    
+                    analysis_lines.append(f"{i}. {symbol} {emoji} ${price:,.2f} ({change_24h:+.1f}%) - {trend}")
+                else:
+                    analysis_lines.append(f"{i}. {symbol} - Data unavailable")
+                    
+        except Exception as e:
+            return f"• Top crypto analysis error: {str(e)[:50]}"
+        
+        return "\n".join(analysis_lines) if analysis_lines else "• Top crypto data processing..."
 
     def get_admin_logs(self, last_n=10):
         """Get recent admin logs for debugging"""
