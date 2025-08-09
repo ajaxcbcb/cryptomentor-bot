@@ -500,7 +500,7 @@ class AIAssistant:
             )
 
             # Format futures analysis
-            direction_emoji = "🟢" if signal_data['direction'] == 'BUY' else "🔴" if signal_data['direction'] == 'SELL' else "🟡"
+            direction_emoji = "🟢" if signal_data['direction'] in ['BUY', 'LONG'] else "🔴" if signal_data['direction'] in ['SELL', 'SHORT'] else "🟡"
 
             analysis = f"""🔍 **FUTURES ANALYSIS - {symbol} ({timeframe})**
 
@@ -616,7 +616,7 @@ class AIAssistant:
 """
 
             for i, signal in enumerate(high_confidence_signals[:8], 1):  # Limit to top 8 signals
-                direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
+                direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
                 confidence_level = "🔥" if signal['confidence'] >= 80 else "⚡"
 
                 message += f"""**{i}. {signal['symbol']}** {direction_emoji} **{signal['direction']}** {confidence_level}
@@ -908,9 +908,9 @@ class AIAssistant:
                 ema_50_4h = all_indicators['4h'].get('ema_50')
                 ema_200_4h = all_indicators['4h'].get('ema_200')
                 if ema_50_4h and ema_200_4h:
-                    if signal_data['direction'] == 'BUY' and ema_50_4h < ema_200_4h:
+                    if signal_data['direction'] in ['BUY', 'LONG'] and ema_50_4h < ema_200_4h:
                         signal_data['confidence'] = max(0, signal_data['confidence'] - 20) # Reduce confidence if 4h trend is opposite
-                    elif signal_data['direction'] == 'SELL' and ema_50_4h > ema_200_4h:
+                    elif signal_data['direction'] in ['SELL', 'SHORT'] and ema_50_4h > ema_200_4h:
                         signal_data['confidence'] = max(0, signal_data['confidence'] - 20)
 
             if signal_data['direction'] == 'NEUTRAL' or signal_data['confidence'] < 70: # Lowered threshold for more signals
@@ -931,8 +931,8 @@ class AIAssistant:
             if rr_ratio < 1.5: # Ensure a minimum RR
                 rr_ratio = 1.5
 
-            tp1 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 0.6 * tp_multiplier if signal_data['direction'] == 'BUY' else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 0.6 * tp_multiplier
-            tp2 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 1.2 * tp_multiplier if signal_data['direction'] == 'BUY' else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 1.2 * tp_multiplier
+            tp1 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 0.6 * tp_multiplier if signal_data['direction'] in ['BUY', 'LONG'] else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 0.6 * tp_multiplier
+            tp2 = levels['entry'] + (levels['entry'] - levels['stop_loss']) * 1.2 * tp_multiplier if signal_data['direction'] in ['BUY', 'LONG'] else levels['entry'] - (levels['stop_loss'] - levels['entry']) * 1.2 * tp_multiplier
 
 
             return {
