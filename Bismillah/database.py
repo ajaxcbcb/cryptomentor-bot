@@ -594,35 +594,17 @@ class Database:
             return 0
 
     def get_eligible_auto_signal_users(self):
-        """Get users eligible for auto signals (All Admin IDs + Lifetime premium users)"""
+        """Get users eligible for auto signals (admin and lifetime premium)"""
         try:
-            # Get all admin users from environment variables
-            admin_ids = set()
-            
-            # Collect all admin IDs
-            for i in range(1, 10):  # Support ADMIN_USER_ID to ADMIN9_USER_ID
-                key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
-                admin_id_str = os.getenv(key, '0')
-                try:
-                    admin_id = int(admin_id_str)
-                    if admin_id > 0:
-                        admin_ids.add(admin_id)
-                except ValueError:
-                    continue
-            
+            admin1_id = 1234500009  # Primary admin
+            admin2_id = 7255533151  # Secondary admin
             eligible_users = []
-            
-            # Add all admin users
-            for idx, admin_id in enumerate(sorted(admin_ids), 1):
-                admin_user = self.get_user(admin_id)
-                if admin_user:
-                    eligible_users.append({
-                        'telegram_id': admin_id,
-                        'first_name': admin_user.get('first_name', f'Admin{idx}'),
-                        'type': f'admin{idx}'
-                    })
-                else:
-                    print(f"⚠️ Admin{idx} user {admin_id} not found in database")
+
+            # Add admins
+            eligible_users.extend([
+                {'telegram_id': admin1_id, 'type': 'admin', 'first_name': 'Admin1'},
+                {'telegram_id': admin2_id, 'type': 'admin', 'first_name': 'Admin2'}
+            ])
 
             # Get lifetime premium users (subscription_end IS NULL means lifetime)
             self.cursor.execute("""
@@ -632,14 +614,14 @@ class Database:
             lifetime_users = self.cursor.fetchall()
 
             for user in lifetime_users:
-                if user[0] != admin_id:  # Don't duplicate admin
+                if user[0] != admin1_id and user[0] != admin2_id:  # Don't duplicate admins
                     eligible_users.append({
                         'telegram_id': user[0],
                         'first_name': user[1] or 'User',
                         'type': 'lifetime'
                     })
 
-            print(f"👥 Auto signals eligible: Admin1({admin_id}) + Admin2({admin2_id}) + {len(lifetime_users)} Lifetime users")
+            print(f"👥 Auto signals eligible: Admin1({admin1_id}), Admin2({admin2_id}) + {len(lifetime_users)} Lifetime users")
             return eligible_users
 
         except Exception as e:
@@ -660,7 +642,7 @@ class Database:
                         admin_ids.add(admin_id)
                 except ValueError:
                     continue
-            
+
             if self.is_user_premium(telegram_id) or telegram_id in admin_ids:
                 # Admins and premium users don't lose credits
                 return True
@@ -971,7 +953,7 @@ class Database:
                         break
                 except ValueError:
                     continue
-            
+
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
