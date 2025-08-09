@@ -1,3 +1,4 @@
+
 import os
 import logging
 from datetime import datetime
@@ -7,8 +8,8 @@ from data_provider import data_provider
 
 class CryptoAPI:
     """
-    Unified API class yang menggabungkan data dari Binance dan CoinMarketCap
-    Menyediakan data real-time untuk spot dan futures
+    Unified API class that combines data from Binance and CoinMarketCap
+    Provides real-time data for spot and futures trading
     """
 
     def __init__(self):
@@ -17,13 +18,11 @@ class CryptoAPI:
 
     def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Mendapatkan harga crypto real-time dengan fallback strategy
+        Get real-time crypto price with fallback strategy
         Priority: CoinMarketCap -> Binance -> Error
         """
         try:
             symbol = symbol.upper().replace('USDT', '')
-
-            # Get prices using the provider
             price_data = self.provider.get_realtime_prices([symbol])
 
             if price_data.get('success') and symbol in price_data.get('prices', {}):
@@ -54,21 +53,16 @@ class CryptoAPI:
             return {'error': f'Price API error: {str(e)}', 'success': False}
 
     def get_multiple_prices(self, symbols: List[str]) -> Dict[str, Any]:
-        """
-        Mendapatkan harga untuk multiple symbols sekaligus
-        """
+        """Get prices for multiple symbols at once"""
         try:
             price_data = self.provider.get_realtime_prices(symbols)
             return price_data
-
         except Exception as e:
             logging.error(f"Error in get_multiple_prices: {e}")
             return {'error': f'Multiple prices error: {str(e)}', 'success': False}
 
     def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
-        """
-        Mendapatkan funding rate dari Binance
-        """
+        """Get funding rate from Binance"""
         try:
             futures_data = self.provider.get_futures_data(symbol)
 
@@ -91,9 +85,7 @@ class CryptoAPI:
             return {'error': f'Funding rate error: {str(e)}', 'success': False}
 
     def get_open_interest(self, symbol: str) -> Dict[str, Any]:
-        """
-        Mendapatkan Open Interest dari Binance
-        """
+        """Get Open Interest from Binance"""
         try:
             futures_data = self.provider.get_futures_data(symbol)
 
@@ -116,9 +108,7 @@ class CryptoAPI:
             return {'error': f'Open interest error: {str(e)}', 'success': False}
 
     def get_long_short_ratio(self, symbol: str, timeframe: str = '1h') -> Dict[str, Any]:
-        """
-        Mendapatkan Long/Short ratio dari Binance
-        """
+        """Get Long/Short ratio from Binance"""
         try:
             futures_data = self.provider.get_futures_data(symbol)
 
@@ -144,9 +134,7 @@ class CryptoAPI:
             return {'error': f'Long/short ratio error: {str(e)}', 'success': False}
 
     def get_comprehensive_futures_data(self, symbol: str) -> Dict[str, Any]:
-        """
-        Mendapatkan data futures lengkap dari Binance
-        """
+        """Get comprehensive futures data from Binance"""
         try:
             futures_data = self.provider.get_futures_data(symbol)
 
@@ -179,34 +167,25 @@ class CryptoAPI:
             return {'error': f'Comprehensive futures data error: {str(e)}', 'success': False}
 
     def get_market_overview(self) -> Dict[str, Any]:
-        """
-        Mendapatkan overview pasar dari CoinMarketCap
-        """
+        """Get market overview from CoinMarketCap"""
         try:
             return self.provider.get_market_overview()
-
         except Exception as e:
             logging.error(f"Error getting market overview: {e}")
             return {'error': f'Market overview error: {str(e)}', 'success': False}
 
     def get_crypto_info(self, symbol: str) -> Dict[str, Any]:
-        """
-        Mendapatkan informasi detail crypto dari CoinMarketCap
-        """
+        """Get detailed crypto information from CoinMarketCap"""
         try:
             return self.provider.get_coin_info(symbol)
-
         except Exception as e:
             logging.error(f"Error getting crypto info for {symbol}: {e}")
             return {'error': f'Crypto info error: {str(e)}', 'success': False}
 
     def test_all_connections(self) -> Dict[str, Any]:
-        """
-        Test koneksi ke semua API providers
-        """
+        """Test connections to all API providers"""
         try:
             return self.provider.test_all_apis()
-
         except Exception as e:
             logging.error(f"Error testing API connections: {e}")
             return {
@@ -216,22 +195,8 @@ class CryptoAPI:
                 'total_apis': 2
             }
 
-    # Legacy compatibility methods
-    def get_price_data(self, symbol: str) -> Dict[str, Any]:
-        """Legacy method untuk compatibility"""
-        return self.get_crypto_price(symbol)
-
-    def get_crypto_news(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Placeholder untuk crypto news (bisa diimplementasi nanti)
-        """
-        logging.warning("get_crypto_news is not implemented in the new provider.")
-        return []
-
     def get_candlestick_data(self, symbol: str, timeframe: str, limit: int = 100) -> Dict[str, Any]:
-        """
-        Get candlestick data from Binance
-        """
+        """Get candlestick data from Binance for technical analysis"""
         try:
             binance_symbol = symbol.upper() + 'USDT' if not symbol.upper().endswith('USDT') else symbol.upper()
 
@@ -280,7 +245,7 @@ class CryptoAPI:
             return {'error': f'Candlestick data error: {str(e)}', 'success': False}
 
     def analyze_supply_demand(self, symbol, timeframe='1h'):
-        """Analyze Supply & Demand zones for a cryptocurrency"""
+        """Analyze Supply & Demand zones for cryptocurrency trading"""
         try:
             # Get current price first
             price_data = self.get_crypto_price(symbol)
@@ -384,6 +349,16 @@ class CryptoAPI:
                 'success': True,
                 'error': str(e)
             }
+
+    # Legacy compatibility methods
+    def get_price_data(self, symbol: str) -> Dict[str, Any]:
+        """Legacy method for compatibility"""
+        return self.get_crypto_price(symbol)
+
+    def get_crypto_news(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """Placeholder for crypto news (can be implemented later)"""
+        logging.warning("get_crypto_news is not implemented in the new provider.")
+        return []
 
 # Global instance
 crypto_api = CryptoAPI()

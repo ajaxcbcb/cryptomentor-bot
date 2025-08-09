@@ -4,7 +4,17 @@ import os
 from datetime import datetime, timedelta
 
 class Database:
+    """
+    Manages all database operations for the CryptoMentor AI project.
+    Handles user data, subscriptions, portfolios, and activity logging.
+    """
     def __init__(self, db_path="cryptomentor.db"):
+        """
+        Initializes the database connection and creates tables if they don't exist.
+
+        Args:
+            db_path (str): The path to the SQLite database file.
+        """
         try:
             self.conn = sqlite3.connect(db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
@@ -14,7 +24,10 @@ class Database:
             raise
 
     def create_tables(self):
-        # Check if tables exist and add missing columns if needed
+        """
+        Creates necessary database tables and ensures schema consistency.
+        Includes logic for adding missing columns and emergency data recovery.
+        """
         try:
             # Create users table with all required columns (COMPLETE SCHEMA)
             self.cursor.execute("""
@@ -243,7 +256,21 @@ class Database:
         self.conn.commit()
 
     def create_user(self, telegram_id, username, first_name=None, last_name=None, language_code='id', referred_by=None):
-        """Create a new user in the database with enhanced persistence"""
+        """
+        Creates a new user in the database with enhanced persistence.
+        Handles referral code generation and initial credit allocation.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            username (str): The Telegram username.
+            first_name (str, optional): The user's first name. Defaults to None.
+            last_name (str, optional): The user's last name. Defaults to None.
+            language_code (str, optional): The user's language code. Defaults to 'id'.
+            referred_by (int, optional): The Telegram ID of the referrer. Defaults to None.
+
+        Returns:
+            bool: True if the user was created successfully, False otherwise.
+        """
         try:
             # Validate telegram_id
             if not telegram_id or telegram_id <= 0:
@@ -324,7 +351,19 @@ class Database:
             return False
 
     def update_user_info(self, telegram_id, username=None, first_name=None, last_name=None, language_code=None):
-        """Update user information without affecting credits or premium status"""
+        """
+        Updates user information without affecting credits or premium status.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            username (str, optional): New username. Defaults to None.
+            first_name (str, optional): New first name. Defaults to None.
+            last_name (str, optional): New last name. Defaults to None.
+            language_code (str, optional): New language code. Defaults to None.
+
+        Returns:
+            bool: True if update was successful, False otherwise.
+        """
         try:
             updates = []
             params = []
@@ -358,7 +397,19 @@ class Database:
             return False
 
     def add_user(self, telegram_id, first_name, last_name, username, language_code='id'):
-        """Add a new user to the database"""
+        """
+        Adds a new user to the database, ignoring if the user already exists.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            first_name (str): The user's first name.
+            last_name (str): The user's last name.
+            username (str): The Telegram username.
+            language_code (str, optional): The user's language code. Defaults to 'id'.
+
+        Returns:
+            bool: True if the operation was successful, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 INSERT OR IGNORE INTO users 
@@ -372,7 +423,15 @@ class Database:
             return False
 
     def get_user(self, telegram_id):
-        """Get user information by telegram_id"""
+        """
+        Retrieves user information from the database by Telegram ID.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            dict or None: A dictionary containing user data if found, otherwise None.
+        """
         try:
             self.cursor.execute("""
                 SELECT telegram_id, first_name, last_name, username, language_code, 
@@ -400,7 +459,16 @@ class Database:
             return None
 
     def update_user_language(self, telegram_id, language_code):
-        """Update user's language preference"""
+        """
+        Updates a user's language preference in the database.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            language_code (str): The new language code.
+
+        Returns:
+            bool: True if the update was successful, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users SET language_code = ? WHERE telegram_id = ?
@@ -412,7 +480,16 @@ class Database:
             return False
 
     def is_user_premium(self, telegram_id):
-        """Check if user has active premium subscription"""
+        """
+        Checks if a user has an active premium subscription.
+        Considers lifetime premium (subscription_end IS NULL) and checks for expiration.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            bool: True if the user is premium, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 SELECT is_premium, subscription_end FROM users WHERE telegram_id = ?
@@ -444,7 +521,18 @@ class Database:
             return False
 
     def grant_premium_access(self, telegram_id, granted_by_id, days=30):
-        """Grant premium access to a user"""
+        """
+        Grants premium access to a user, either for a specific duration or permanently.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            granted_by_id (int): The Telegram ID of the granting admin.
+            days (int, optional): The duration of premium access in days. 
+                                  Use None for permanent access. Defaults to 30.
+
+        Returns:
+            bool: True if premium access was granted successfully, False otherwise.
+        """
         try:
             # If days is None or 0, grant permanent premium
             if days is None or days == 0:
@@ -472,7 +560,16 @@ class Database:
             return False
 
     def revoke_premium_access(self, telegram_id, revoked_by_id):
-        """Revoke premium access from a user"""
+        """
+        Revokes premium access from a user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            revoked_by_id (int): The Telegram ID of the revoking admin (can be None).
+
+        Returns:
+            bool: True if premium access was revoked successfully, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users SET is_premium = 0, subscription_end = NULL WHERE telegram_id = ?
@@ -491,7 +588,15 @@ class Database:
             return False
 
     def get_user_portfolio(self, telegram_id):
-        """Get user's portfolio"""
+        """
+        Retrieves a user's investment portfolio.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary represents a portfolio item.
+        """
         try:
             self.cursor.execute("""
                 SELECT symbol, amount, avg_buy_price, created_at 
@@ -504,7 +609,19 @@ class Database:
             return []
 
     def add_portfolio_item(self, telegram_id, symbol, amount, avg_buy_price):
-        """Add or update portfolio item"""
+        """
+        Adds or updates an item in a user's portfolio. If the symbol already exists,
+        it updates the amount and recalculates the average buy price.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            symbol (str): The cryptocurrency symbol (e.g., 'BTC').
+            amount (float): The amount of the cryptocurrency.
+            avg_buy_price (float): The average buy price for this amount.
+
+        Returns:
+            bool: True if the operation was successful, False otherwise.
+        """
         try:
             # Check if item exists
             self.cursor.execute("""
@@ -537,7 +654,17 @@ class Database:
             return False
 
     def log_user_activity(self, user_id, action, details=None):
-        """Log user activity"""
+        """
+        Logs user actions for auditing and debugging purposes.
+
+        Args:
+            user_id (int): The Telegram user ID.
+            action (str): The type of action performed (e.g., 'command_used', 'signal_sent').
+            details (str, optional): Additional details about the action. Defaults to None.
+
+        Returns:
+            bool: True if logging was successful, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 INSERT INTO user_activity (user_id, action, details, timestamp)
@@ -550,7 +677,17 @@ class Database:
             return False
 
     def log_auto_signal_broadcast(self, signals_count, users_reached, total_eligible):
-        """Log auto signal broadcast for monitoring"""
+        """
+        Logs the details of an automated signal broadcast for monitoring.
+
+        Args:
+            signals_count (int): The number of signals broadcasted.
+            users_reached (int): The number of users who received the signals.
+            total_eligible (int): The total number of users eligible for signals.
+
+        Returns:
+            bool: True if logging was successful, False otherwise.
+        """
         try:
             details = f"Signals: {signals_count}, Reached: {users_reached}/{total_eligible}"
             self.cursor.execute("""
@@ -565,7 +702,12 @@ class Database:
             return False
 
     def get_user_stats(self):
-        """Get user statistics for admin panel"""
+        """
+        Retrieves basic user statistics (total, premium, free users).
+
+        Returns:
+            dict: A dictionary containing user statistics.
+        """
         try:
             self.cursor.execute("SELECT COUNT(*) FROM users")
             total_users = self.cursor.fetchone()[0]
@@ -585,7 +727,15 @@ class Database:
             return {'total_users': 0, 'premium_users': 0, 'free_users': 0}
 
     def get_user_credits(self, telegram_id):
-        """Get user's current credits"""
+        """
+        Retrieves the current credit balance for a specific user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            int: The user's credit balance, or 0 if the user is not found or an error occurs.
+        """
         try:
             user = self.get_user(telegram_id)
             return user.get('credits', 0) if user else 0
@@ -594,11 +744,18 @@ class Database:
             return 0
 
     def get_eligible_auto_signal_users(self):
-        """Get users eligible for auto signals (All Admin IDs + Lifetime premium users)"""
+        """
+        Retrieves a list of users eligible for automated signals.
+        This includes all admin users and users with lifetime premium subscriptions.
+
+        Returns:
+            list: A list of dictionaries, each containing 'telegram_id', 'first_name', and 'type' 
+                  ('adminX' or 'lifetime') for eligible users.
+        """
         try:
             # Get all admin users from environment variables
             admin_ids = set()
-            
+
             # Collect all admin IDs
             for i in range(1, 10):  # Support ADMIN_USER_ID to ADMIN9_USER_ID
                 key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
@@ -609,9 +766,9 @@ class Database:
                         admin_ids.add(admin_id)
                 except ValueError:
                     continue
-            
+
             eligible_users = []
-            
+
             # Add all admin users
             for idx, admin_id in enumerate(sorted(admin_ids), 1):
                 admin_user = self.get_user(admin_id)
@@ -632,14 +789,14 @@ class Database:
             lifetime_users = self.cursor.fetchall()
 
             for user in lifetime_users:
-                if user[0] != admin_id:  # Don't duplicate admin
+                if user[0] not in admin_ids:  # Don't duplicate admin users
                     eligible_users.append({
                         'telegram_id': user[0],
                         'first_name': user[1] or 'User',
                         'type': 'lifetime'
                     })
 
-            print(f"👥 Auto signals eligible: Admin1({admin_id}) + Admin2({admin2_id}) + {len(lifetime_users)} Lifetime users")
+            print(f"👥 Auto signals eligible: {len(admin_ids)} Admins + {len(lifetime_users)} Lifetime users")
             return eligible_users
 
         except Exception as e:
@@ -647,7 +804,17 @@ class Database:
             return []
 
     def deduct_credit(self, telegram_id, amount):
-        """Deduct credits from user (only for non-premium, non-admin users)"""
+        """
+        Deducts credits from a user's account. This action is only performed
+        for non-premium and non-admin users.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            amount (int): The number of credits to deduct.
+
+        Returns:
+            bool: True if credits were deducted successfully, False otherwise (e.g., insufficient credits, user is premium/admin).
+        """
         try:
             # Get all admin IDs
             admin_ids = set()
@@ -660,7 +827,7 @@ class Database:
                         admin_ids.add(admin_id)
                 except ValueError:
                     continue
-            
+
             if self.is_user_premium(telegram_id) or telegram_id in admin_ids:
                 # Admins and premium users don't lose credits
                 return True
@@ -679,7 +846,12 @@ class Database:
             return False
 
     def get_bot_stats(self):
-        """Get bot statistics for admin panel"""
+        """
+        Retrieves overall bot statistics, including user counts and activity.
+
+        Returns:
+            dict: A dictionary containing bot statistics.
+        """
         try:
             # Total users
             self.cursor.execute("SELECT COUNT(*) FROM users")
@@ -706,15 +878,41 @@ class Database:
             return {'total_users': 0, 'premium_users': 0, 'active_today': 0}
 
     def grant_premium(self, telegram_id, days=30):
-        """Grant premium access to a user"""
+        """
+        Grants premium access to a user for a specified number of days.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            days (int, optional): The duration of premium access in days. Defaults to 30.
+
+        Returns:
+            bool: True if premium access was granted, False otherwise.
+        """
         return self.grant_premium_access(telegram_id, None, days)
 
     def grant_permanent_premium(self, telegram_id):
-        """Grant permanent premium access to a user"""
+        """
+        Grants permanent premium access to a user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            bool: True if permanent premium access was granted, False otherwise.
+        """
         return self.grant_premium_access(telegram_id, None, None)
 
     def grant_premium_by_package(self, telegram_id, package_type):
-        """Grant premium based on package type"""
+        """
+        Grants premium access based on a package type (e.g., '1_month', 'lifetime').
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            package_type (str): The type of premium package.
+
+        Returns:
+            bool: True if premium access was granted according to the package, False otherwise.
+        """
         package_days = {
             '1_month': 30,
             '2_months': 60,
@@ -732,15 +930,42 @@ class Database:
             return False
 
     def revoke_premium(self, telegram_id):
-        """Revoke premium access from a user"""
+        """
+        Revokes premium access from a user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            bool: True if premium access was revoked, False otherwise.
+        """
         return self.revoke_premium_access(telegram_id, None)
 
     def add_to_portfolio(self, telegram_id, symbol, amount, avg_buy_price=0):
-        """Add coin to user's portfolio"""
+        """
+        Adds a cryptocurrency to a user's portfolio or updates it if it already exists.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            symbol (str): The cryptocurrency symbol (e.g., 'BTC').
+            amount (float): The amount of the cryptocurrency.
+            avg_buy_price (float, optional): The average buy price. Defaults to 0.
+
+        Returns:
+            bool: True if the portfolio item was added/updated successfully, False otherwise.
+        """
         return self.add_portfolio_item(telegram_id, symbol, amount, avg_buy_price)
 
     def get_user_by_referral_code(self, referral_code):
-        """Get user ID by referral code"""
+        """
+        Retrieves a user's Telegram ID based on their referral code.
+
+        Args:
+            referral_code (str): The referral code to look up.
+
+        Returns:
+            int or None: The user's Telegram ID if found, otherwise None. Returns 0 if not found.
+        """
         try:
             self.cursor.execute("""
                 SELECT telegram_id FROM users WHERE referral_code = ?
@@ -752,7 +977,16 @@ class Database:
             return
 
     def update_user_language(self, telegram_id, language):
-        """Update user language preference"""
+        """
+        Updates a user's language preference.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            language (str): The new language code.
+
+        Returns:
+            bool: True if the language was updated successfully, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users SET language_code = ? WHERE telegram_id = ?
@@ -764,7 +998,12 @@ class Database:
             return False
 
     def get_bot_statistics(self):
-        """Get bot usage statistics"""
+        """
+        Retrieves comprehensive bot usage statistics.
+
+        Returns:
+            dict: A dictionary containing various statistics like total users, active users, credits, etc.
+        """
         try:
             # Total users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
@@ -827,7 +1066,15 @@ class Database:
             }
 
     def get_recent_activity(self, limit=10):
-        """Get recent user activity"""
+        """
+        Retrieves the most recent user activity logs.
+
+        Args:
+            limit (int, optional): The maximum number of activities to retrieve. Defaults to 10.
+
+        Returns:
+            list: A list of dictionaries, each representing a user activity log entry.
+        """
         try:
             self.cursor.execute("""
                 SELECT user_id, action, details, timestamp 
@@ -850,7 +1097,15 @@ class Database:
             return []
 
     def revoke_premium(self, user_id):
-        """Revoke premium status from user"""
+        """
+        Revokes premium status from a specific user.
+
+        Args:
+            user_id (int): The Telegram user ID.
+
+        Returns:
+            bool: True if premium status was revoked, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users 
@@ -869,7 +1124,12 @@ class Database:
             return False
 
     def fix_all_user_credits(self):
-        """Fix all users with NULL or negative credits"""
+        """
+        Fixes issues with user credits by setting NULL or negative credit balances to default values.
+
+        Returns:
+            int: The total number of users whose credits were fixed.
+        """
         try:
             # Fix NULL credits
             self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
@@ -890,7 +1150,12 @@ class Database:
             return 0
 
     def mark_all_users_for_restart(self):
-        """Mark all users as needing restart"""
+        """
+        Marks all users as needing a restart by logging a 'restart_required' activity.
+
+        Returns:
+            int: The number of users marked for restart.
+        """
         try:
             # Add a restart flag to user activity
             current_time = datetime.now().isoformat()
@@ -910,7 +1175,16 @@ class Database:
             return 0
 
     def user_needs_restart(self, user_id):
-        """Check if user needs to restart after admin restart"""
+        """
+        Checks if a user needs to restart their session after a bot restart.
+        This is determined by checking for a 'restart_required' flag that hasn't been cleared.
+
+        Args:
+            user_id (int): The Telegram user ID.
+
+        Returns:
+            bool: True if the user needs to restart, False otherwise.
+        """
         try:
             # Check if user has restart_required flag and hasn't cleared it
             self.cursor.execute("""
@@ -930,7 +1204,16 @@ class Database:
             return False
 
     def clear_restart_flag(self, user_id):
-        """Clear restart flag for user"""
+        """
+        Clears the restart flag for a user. In this implementation, this is handled
+        implicitly by the 'user_reactivated' log entry logic in `user_needs_restart`.
+
+        Args:
+            user_id (int): The Telegram user ID.
+
+        Returns:
+            bool: Always returns True as the operation is handled implicitly.
+        """
         try:
             # This is handled by logging the reactivation
             return True
@@ -939,7 +1222,12 @@ class Database:
             return False
 
     def refresh_all_free_user_credits(self):
-        """Give bonus credits to all free users"""
+        """
+        Grants a bonus of 50 credits to all users who are not premium.
+
+        Returns:
+            int: The number of free users who received bonus credits.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users 
@@ -957,7 +1245,17 @@ class Database:
             return 0
 
     def log_auto_signals_broadcast(self, signals_count, success_count, total_eligible):
-        """Log auto signals broadcast for tracking"""
+        """
+        Logs the results of an automated signals broadcast for performance monitoring.
+
+        Args:
+            signals_count (int): The total number of signals sent.
+            success_count (int): The number of signals successfully delivered.
+            total_eligible (int): The total number of users eligible to receive signals.
+
+        Returns:
+            bool: True if the broadcast log was created successfully, False otherwise.
+        """
         try:
             # Get first available admin ID for logging
             admin_id = 0
@@ -971,7 +1269,7 @@ class Database:
                         break
                 except ValueError:
                     continue
-            
+
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
@@ -986,7 +1284,13 @@ class Database:
             return False
 
     def get_all_users(self):
-        """Get all users for broadcast functionality"""
+        """
+        Retrieves a list of all users in the database, including their basic information.
+        Useful for broadcast or administrative tasks.
+
+        Returns:
+            list: A list of dictionaries, each containing user ID, name, username, premium status, and creation date.
+        """
         try:
             self.cursor.execute("""
                 SELECT telegram_id, first_name, username, is_premium, created_at
@@ -1010,7 +1314,15 @@ class Database:
             return []
 
     def get_user_by_premium_referral_code(self, premium_code):
-        """Get user ID by premium referral code"""
+        """
+        Retrieves a user's Telegram ID based on their premium referral code.
+
+        Args:
+            premium_code (str): The premium referral code to look up.
+
+        Returns:
+            int or None: The user's Telegram ID if found, otherwise None.
+        """
         try:
             self.cursor.execute("""
                 SELECT telegram_id FROM users WHERE premium_referral_code = ?
@@ -1022,7 +1334,16 @@ class Database:
             return None
 
     def get_user_referral_codes(self, telegram_id):
-        """Get both referral codes for a user"""
+        """
+        Retrieves both the free and premium referral codes for a given user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+
+        Returns:
+            dict or None: A dictionary containing 'free_referral_code' and 'premium_referral_code',
+                          or None if the user is not found.
+        """
         try:
             self.cursor.execute("""
                 SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?
@@ -1039,7 +1360,16 @@ class Database:
             return None
 
     def get_premium_referral_stats(self, telegram_id):
-        """Get premium referral statistics for a user"""
+        """
+        Retrieves statistics related to a user's premium referrals, including total
+        successful referrals and earnings.
+
+        Args:
+            telegram_id (int): The Telegram user ID of the referrer.
+
+        Returns:
+            dict: A dictionary containing 'total_referrals', 'total_earnings', and 'recent_referrals'.
+        """
         try:
             # Get total premium referrals and earnings
             self.cursor.execute("""
@@ -1072,7 +1402,19 @@ class Database:
             return {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
 
     def record_premium_referral_reward(self, referrer_id, referred_id, subscription_type, package_amount):
-        """Record premium referral reward when someone subscribes"""
+        """
+        Records a premium referral reward when a referred user subscribes to a premium plan.
+        Updates the referrer's earnings and logs the reward.
+
+        Args:
+            referrer_id (int): The Telegram ID of the referrer.
+            referred_id (int): The Telegram ID of the referred user.
+            subscription_type (str): The type of subscription the referred user purchased.
+            package_amount (int): The amount paid for the subscription package.
+
+        Returns:
+            bool: True if the reward was recorded successfully, False otherwise.
+        """
         try:
             # Calculate earnings (Rp 10,000 per premium subscription)
             earnings = 10000
@@ -1100,7 +1442,15 @@ class Database:
             return False
 
     def check_premium_referral(self, telegram_id):
-        """Check if user was referred via premium referral code"""
+        """
+        Checks if a user was initially referred via a premium referral link.
+
+        Args:
+            telegram_id (int): The Telegram user ID to check.
+
+        Returns:
+            int or None: The Telegram ID of the referrer if found, otherwise None.
+        """
         try:
             self.cursor.execute("""
                 SELECT referred_by FROM users WHERE telegram_id = ?
@@ -1112,7 +1462,16 @@ class Database:
             return None
 
     def add_credits(self, telegram_id, amount):
-        """Add credits to user account"""
+        """
+        Adds credits to a user's account.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            amount (int): The number of credits to add.
+
+        Returns:
+            bool: True if credits were added successfully, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users SET credits = credits + ? WHERE telegram_id = ?
@@ -1128,7 +1487,20 @@ class Database:
             return False
 
     def ensure_user_persistence(self, telegram_id, username, first_name, last_name, language_code):
-        """Ensure user data persists correctly"""
+        """
+        Ensures a user's data is correctly persisted in the database, either by creating
+        a new record or updating an existing one.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            username (str): The Telegram username.
+            first_name (str): The user's first name.
+            last_name (str): The user's last name.
+            language_code (str): The user's language code.
+
+        Returns:
+            bool: True if user data was persisted successfully, False otherwise.
+        """
         try:
             existing_user = self.get_user(telegram_id)
             if existing_user:
@@ -1142,7 +1514,16 @@ class Database:
             return False
 
     def backup_user_data(self, telegram_id):
-        """Create backup of user data for recovery"""
+        """
+        Creates a backup log entry for a user's data. This is a simple logging mechanism
+        and not a full database backup.
+
+        Args:
+            telegram_id (int): The Telegram user ID to back up.
+
+        Returns:
+            bool: True if the backup log was created, False otherwise.
+        """
         try:
             user = self.get_user(telegram_id)
             if user:
@@ -1155,7 +1536,16 @@ class Database:
             return False
 
     def recover_user_from_backup(self, telegram_id):
-        """Attempt to recover user from backup logs"""
+        """
+        Placeholder function for user recovery from backup logs.
+        Actual implementation would depend on the backup strategy.
+
+        Args:
+            telegram_id (int): The Telegram user ID to recover.
+
+        Returns:
+            bool: True if the recovery attempt was logged, False otherwise.
+        """
         try:
             # This is a placeholder - implement based on your backup strategy
             self.log_user_activity(telegram_id, "recovery_attempted", f"Recovery attempted for user {telegram_id}")
@@ -1165,7 +1555,16 @@ class Database:
             return False
 
     def set_user_language(self, telegram_id, language):
-        """Set user language preference"""
+        """
+        Sets the language preference for a user.
+
+        Args:
+            telegram_id (int): The Telegram user ID.
+            language (str): The new language code.
+
+        Returns:
+            bool: True if the language was set successfully, False otherwise.
+        """
         try:
             self.cursor.execute("""
                 UPDATE users SET language_code = ? WHERE telegram_id = ?
@@ -1181,7 +1580,13 @@ class Database:
             return False
 
     def create_automatic_backup(self):
-        """Create automatic backup of critical user data"""
+        """
+        Creates automatic backups of critical database tables (users, premium_referrals).
+        Backups are named with a timestamp.
+
+        Returns:
+            str or None: The timestamp string used for the backup if successful, otherwise None.
+        """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1206,7 +1611,13 @@ class Database:
             return None
 
     def verify_user_data_integrity(self):
-        """Verify user data integrity after updates"""
+        """
+        Verifies the integrity of user data by checking for premium status, lifetime
+        subscriptions, and potential data corruption (e.g., missing Telegram IDs).
+
+        Returns:
+            dict: A report containing integrity checks and an overall integrity status.
+        """
         try:
             # Check for premium users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
@@ -1235,7 +1646,7 @@ class Database:
             return {'integrity_ok': False, 'error': str(e)}
 
     def close(self):
-        """Close database connection"""
+        """Closes the database connection."""
         try:
             if self.conn:
                 self.conn.close()
