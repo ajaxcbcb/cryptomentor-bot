@@ -170,7 +170,7 @@ class AIAssistant:
                 return AIAssistant._supabase_instance
             else:
                 print("❌ Supabase connection test failed")
-                return None._supabase_instance = None
+                AIAssistant._supabase_instance = None
                 return None
 
         except Exception as e:
