@@ -21,10 +21,10 @@ class Database:
         self.db_path = 'cryptomentor.db'
         self.conn = None
         self.cursor = None
-        
+
         # Initialize Supabase for user management
         self.supabase_users = SupabaseUsers() if SupabaseUsers else None
-        
+
         # Initialize backup system
         self.backup_users = {}
         self.restart_flags = set()
@@ -33,7 +33,7 @@ class Database:
             self._ensure_directory()
             self._connect()
             self.create_tables()
-            
+
             # Test Supabase connection
             if self.supabase_users and self.supabase_users.test_connection():
                 print("✅ Database initialized with Supabase integration")
@@ -76,21 +76,21 @@ class Database:
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER UNIQUE,
+                    telegram_id INTEGER UNIQUE NOT NULL,
                     first_name TEXT,
                     last_name TEXT,
                     username TEXT,
-                    language_code TEXT DEFAULT 'id',
-                    is_premium INTEGER DEFAULT 0,
-                    credits INTEGER DEFAULT 0,
-                    subscription_end TEXT,
+                    language_code TEXT DEFAULT 'en',
+                    is_premium BOOLEAN DEFAULT FALSE,
+                    credits INTEGER DEFAULT 100,
+                    subscription_end DATETIME,
                     referred_by INTEGER,
-                    referral_code TEXT,
-                    premium_referral_code TEXT,
-                    premium_earnings INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_seen TIMESTAMP
+                    referral_code TEXT UNIQUE,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    restart_required BOOLEAN DEFAULT FALSE,
+                    premium_referral_code TEXT UNIQUE,
+                    premium_earnings REAL DEFAULT 0.0,
+                    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
@@ -101,17 +101,17 @@ class Database:
 
             # Add missing columns one by one with error handling
             missing_columns = [
-                ('telegram_id', 'INTEGER UNIQUE'),
-                ('language_code', "TEXT DEFAULT 'id'"),
-                ('is_premium', 'INTEGER DEFAULT 0'),
-                ('credits', 'INTEGER DEFAULT 0'),
-                ('subscription_end', 'TEXT'),
+                ('telegram_id', 'INTEGER UNIQUE NOT NULL'),
+                ('language_code', "TEXT DEFAULT 'en'"),
+                ('is_premium', 'BOOLEAN DEFAULT FALSE'),
+                ('credits', 'INTEGER DEFAULT 100'),
+                ('subscription_end', 'DATETIME'),
                 ('referred_by', 'INTEGER'),
-                ('referral_code', 'TEXT'),
-                ('premium_referral_code', 'TEXT'),
-                ('premium_earnings', 'INTEGER DEFAULT 0'),
+                ('referral_code', 'TEXT UNIQUE'),
+                ('premium_referral_code', 'TEXT UNIQUE'),
+                ('premium_earnings', 'REAL DEFAULT 0.0'),
                 ('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
-                ('last_seen', 'TIMESTAMP')
+                ('last_seen', 'DATETIME DEFAULT CURRENT_TIMESTAMP')
             ]
 
             for column_name, column_def in missing_columns:
@@ -137,21 +137,21 @@ class Database:
                 self.cursor.execute("""
                     CREATE TABLE users (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        telegram_id INTEGER UNIQUE,
+                        telegram_id INTEGER UNIQUE NOT NULL,
                         first_name TEXT,
                         last_name TEXT,
                         username TEXT,
-                        language_code TEXT DEFAULT 'id',
-                        is_premium INTEGER DEFAULT 0,
-                        credits INTEGER DEFAULT 0,
-                        subscription_end TEXT,
+                        language_code TEXT DEFAULT 'en',
+                        is_premium BOOLEAN DEFAULT FALSE,
+                        credits INTEGER DEFAULT 100,
+                        subscription_end DATETIME,
                         referred_by INTEGER,
-                        referral_code TEXT,
-                        premium_referral_code TEXT,
-                        premium_earnings INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_seen TIMESTAMP
+                        referral_code TEXT UNIQUE,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        restart_required BOOLEAN DEFAULT FALSE,
+                        premium_referral_code TEXT UNIQUE,
+                        premium_earnings REAL DEFAULT 0.0,
+                        last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
@@ -163,16 +163,16 @@ class Database:
                            COALESCE(first_name, 'User'),
                            last_name,
                            COALESCE(username, 'no_username'),
-                           COALESCE(language_code, 'id'),
-                           COALESCE(is_premium, 0),
+                           COALESCE(language_code, 'en'),
+                           COALESCE(is_premium, FALSE),
                            COALESCE(credits, 100),
                            subscription_end,
                            referred_by,
                            referral_code,
                            premium_referral_code,
-                           COALESCE(premium_earnings, 0),
-                           COALESCE(created_at, datetime('now')),
-                           COALESCE(updated_at, datetime('now')),
+                           COALESCE(premium_earnings, 0.0),
+                           COALESCE(created_at, CURRENT_TIMESTAMP),
+                           COALESCE(updated_at, CURRENT_TIMESTAMP),
                            last_seen
                     FROM {backup_table}
                     WHERE telegram_id IS NOT NULL AND telegram_id != 0
@@ -183,6 +183,21 @@ class Database:
             except Exception as recovery_error:
                 print(f"❌ RECOVERY FAILED: {recovery_error}")
                 print("🚨 EMERGENCY: Keeping existing table to prevent data loss")
+
+        # Create signal history table for cooldown tracking
+        try:
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS signal_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    source TEXT DEFAULT 'auto_signal'
+                )
+            """)
+        except Exception as e:
+            print(f"Error creating signal_history table: {e}")
 
         # Create subscriptions table
         try:
@@ -268,7 +283,7 @@ class Database:
         self.conn.commit()
 
 
-    def create_user(self, telegram_id, username="", first_name="", last_name="", language_code="id", referred_by=None):
+    def create_user(self, telegram_id, username="", first_name="", last_name="", language_code="en", referred_by=None):
         """Create a new user with Supabase integration and local fallback"""
         try:
             # Primary: Try Supabase first
@@ -291,13 +306,13 @@ class Database:
             self.cursor.execute("""
                 INSERT OR IGNORE INTO users
                 (telegram_id, username, first_name, last_name, language_code, credits, is_premium, referred_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 100, 0, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 100, FALSE, ?, ?, ?)
             """, (
                 telegram_id,
                 username or 'no_username',
                 first_name or 'Unknown',
                 last_name or '',
-                language_code or 'id',
+                language_code or 'en',
                 referred_by,
                 datetime.now().isoformat(),
                 datetime.now().isoformat()
@@ -390,7 +405,7 @@ class Database:
 
             if language_code is not None:
                 updates.append("language_code = ?")
-                params.append(language_code[:5] if language_code else 'id')
+                params.append(language_code[:5] if language_code else 'en')
 
             if updates:
                 params.append(telegram_id)
@@ -406,7 +421,7 @@ class Database:
             print(f"❌ Error updating user info: {e}")
             return False
 
-    def add_user(self, telegram_id, first_name, last_name, username, language_code='id'):
+    def add_user(self, telegram_id, first_name, last_name, username, language_code='en'):
         """Add a new user to the database"""
         # This method might be redundant if create_user handles all cases,
         # but keeping it for specific insertion logic if needed.
@@ -783,36 +798,69 @@ class Database:
                 self.conn.rollback()
             return False
 
-    def revoke_premium(self, telegram_id):
-        """Revoke premium status from user with Supabase first, local fallback"""
+    def revoke_premium(self, user_id):
+        """Revoke premium status from user"""
+        # Try Supabase first
+        supabase_success = self.supabase_users.revoke_premium(user_id)
+
+        # Update local database regardless
+        local_success = False
         try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.revoke_premium(telegram_id)
-            if supabase_success:
-                print(f"✅ Revoked premium from user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "premium_revoked", "Premium status revoked")
-                return True
-
-            # Fallback: Local database
             self.cursor.execute("""
-                UPDATE users SET
-                is_premium = 0,
-                subscription_end = ?,
-                updated_at = ?
+                UPDATE users SET 
+                is_premium = 0, 
+                subscription_end = NULL 
                 WHERE telegram_id = ?
-            """, (datetime.now().isoformat(), datetime.now().isoformat(), telegram_id))
-
+            """, (user_id,))
             self.conn.commit()
-            self.backup_user_data(telegram_id)
-
-            print(f"✅ Revoked premium from user {telegram_id} locally")
-            self.log_user_activity(telegram_id, "premium_revoked", "Premium status revoked")
-            return True
-
+            local_success = True
         except Exception as e:
-            print(f"❌ Error revoking premium from {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
+            print(f"DB Error (revoke_premium): {e}")
+
+        return supabase_success or local_success
+
+    def add_signal_history(self, symbol, direction, confidence, source='auto_signal'):
+        """Add signal to history for cooldown tracking"""
+        try:
+            self.cursor.execute("""
+                INSERT INTO signal_history (symbol, direction, confidence, source)
+                VALUES (?, ?, ?, ?)
+            """, (symbol, direction, confidence, source))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (add_signal_history): {e}")
+            return False
+
+    def get_last_signal_time(self, symbol):
+        """Get timestamp of last signal for symbol"""
+        try:
+            self.cursor.execute("""
+                SELECT timestamp FROM signal_history 
+                WHERE symbol = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """, (symbol,))
+            row = self.cursor.fetchone()
+            if row:
+                return datetime.fromisoformat(row[0].replace('Z', '+00:00'))
+            return None
+        except Exception as e:
+            print(f"DB Error (get_last_signal_time): {e}")
+            return None
+
+    def cleanup_old_signals(self, days=7):
+        """Clean up signal history older than specified days"""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=days)
+            self.cursor.execute("""
+                DELETE FROM signal_history 
+                WHERE timestamp < ?
+            """, (cutoff_date.isoformat(),))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (cleanup_old_signals): {e}")
             return False
 
     def get_all_users(self):

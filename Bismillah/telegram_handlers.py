@@ -1,4 +1,3 @@
-
 """
 Telegram Command Handlers for CryptoMentor AI Bot
 Separated for better code organization
@@ -14,7 +13,7 @@ class TelegramHandlers:
     """
     Collection of Telegram command handlers
     """
-    
+
     def __init__(self, bot_instance):
         self.bot = bot_instance
         self.db = bot_instance.db
@@ -25,7 +24,7 @@ class TelegramHandlers:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
-        
+
         try:
             if not user or not user.id:
                 await update.message.reply_text("❌ Terjadi kesalahan dalam mengidentifikasi user.")
@@ -134,7 +133,7 @@ class TelegramHandlers:
         if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
             current_price = price_data.get('price', 0)
             change_24h = price_data.get('change_24h', 0)
-            
+
             # Format price
             if current_price < 1:
                 price_format = f"${current_price:.8f}"
@@ -180,11 +179,11 @@ class TelegramHandlers:
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /credits command"""
         user_id = update.message.from_user.id
-        
+
         try:
             credits = self.db.get_user_credits(user_id)
             is_premium = self.db.is_user_premium(user_id)
-            
+
             if is_premium:
                 status_text = "⭐ **PREMIUM USER** - Unlimited Access"
                 credit_text = "∞ Unlimited"
@@ -210,7 +209,7 @@ class TelegramHandlers:
 💡 **Info**: `/price` dan `/ask_ai` GRATIS!"""
 
             await update.message.reply_text(message, parse_mode='Markdown')
-            
+
         except Exception as e:
             await update.message.reply_text("❌ Gagal mengambil data credit. Coba lagi nanti.")
             print(f"Error in credits command: {e}")
@@ -223,12 +222,91 @@ class TelegramHandlers:
 
         user_id = update.message.from_user.id
         question = ' '.join(context.args)
-        
+
         loading_msg = await update.message.reply_text("🤖 AI sedang memproses pertanyaan Anda...")
-        
+
         try:
             response = self.ai.get_ai_response(question, 'id', user_id)
             await loading_msg.edit_text(response, parse_mode='Markdown')
         except Exception as e:
             await loading_msg.edit_text("❌ Terjadi kesalahan saat memproses pertanyaan. Coba lagi nanti.")
             print(f"Error in ask_ai command: {e}")
+
+    async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /analyze command with enhanced CoinAPI analysis"""
+        if not context.args:
+            await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='Markdown')
+            return
+
+        user_id = update.message.from_user.id
+        symbol = context.args[0].lower()
+
+        # Check credits
+        if not self.db.check_and_deduct_credits(user_id, 20):
+            await update.message.reply_text("❌ Credit tidak cukup. Anda memerlukan 20 credit untuk analisis.\nGunakan `/credits` untuk cek saldo atau `/subscribe` untuk upgrade premium.", parse_mode='Markdown')
+            return
+
+        loading_msg = await update.message.reply_text(f"🔄 Menganalisis {symbol.upper()} dengan CoinAPI + multi-timeframe...")
+
+        try:
+            # Get enhanced comprehensive analysis
+            result = await self.ai.analyze_command(symbol, user_id)
+            await loading_msg.edit_text(result, parse_mode='Markdown')
+
+            # Log activity
+            self.db.log_user_activity(user_id, "analyze", f"Enhanced analysis: {symbol}")
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Error analisis: {str(e)}")
+            print(f"Error in analyze command: {e}")
+
+    async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /futures command with enhanced CoinAPI analysis"""
+        if not context.args:
+            await update.message.reply_text("❌ Gunakan format: `/futures <symbol>`\nContoh: `/futures btc`", parse_mode='Markdown')
+            return
+
+        user_id = update.message.from_user.id
+        symbol = context.args[0].upper()
+
+        # Check credits
+        if not self.db.check_and_deduct_credits(user_id, 20):
+            await update.message.reply_text("❌ Credit tidak cukup. Anda memerlukan 20 credit untuk futures analysis.\nGunakan `/credits` untuk cek saldo atau `/subscribe` untuk upgrade premium.", parse_mode='Markdown')
+            return
+
+        loading_msg = await update.message.reply_text(f"🔄 Menganalisis futures {symbol} dengan CoinAPI + confidence scoring...")
+
+        try:
+            # Use enhanced AI assistant futures analysis
+            result = await self.ai.futures_command(symbol, user_id)
+            await loading_msg.edit_text(result, parse_mode='Markdown')
+
+            # Log activity
+            self.db.log_user_activity(user_id, "futures_analysis", f"Symbol: {symbol}")
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Error futures analysis: {str(e)}")
+            print(f"Error in futures command: {e}")
+
+    async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /futures_signals command with enhanced analysis"""
+        user_id = update.message.from_user.id
+
+        # Check credits
+        if not self.db.check_and_deduct_credits(user_id, 60):
+            await update.message.reply_text("❌ Credit tidak cukup. Anda memerlukan 60 credit untuk futures signals.\nGunakan `/credits` untuk cek saldo atau `/subscribe` untuk upgrade premium.", parse_mode='Markdown')
+            return
+
+        loading_msg = await update.message.reply_text("🔄 Scanning multiple coins dengan CoinAPI + confidence scoring...")
+
+        try:
+            # Use enhanced AI assistant futures signals
+            result = await self.ai.futures_signals_command(user_id)
+            await loading_msg.edit_text(result, parse_mode='Markdown')
+
+            # Log activity
+            self.db.log_user_activity(user_id, "futures_signals", "Enhanced multiple signals")
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Error generating signals: {str(e)}")
+            print(f"Error in futures signals command: {e}")
