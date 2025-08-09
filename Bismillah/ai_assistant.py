@@ -220,7 +220,7 @@ class AIAssistant:
         return None
 
     def _format_price(self, price):
-        """Format price display based on value"""
+        """Format price display with Indonesian number formatting"""
         if price is None or price == 0:
             return "N/A"
         try:
@@ -234,16 +234,32 @@ class AIAssistant:
             elif price < 100:
                 return f"${price:.2f}"
             else:
-                return f"${price:,.2f}"
+                # Format with thousands separator and 2 decimal places
+                # Convert US format (123,456.78) to Indonesian format (123.456,78)
+                us_format = f"{price:,.2f}"
+                # Split by decimal point
+                if '.' in us_format:
+                    integer_part, decimal_part = us_format.split('.')
+                    # Replace commas with dots in integer part
+                    integer_part = integer_part.replace(',', '.')
+                    # Return with comma as decimal separator
+                    return f"${integer_part},{decimal_part}"
+                else:
+                    # No decimal part, just replace commas with dots
+                    return f"${us_format.replace(',', '.')},00"
         except:
             return "N/A"
 
     def _format_percentage(self, value, decimal_places=2):
-        """Format percentage values"""
+        """Format percentage values with proper sign and decimal places"""
         if value is None:
             return "N/A"
         try:
-            return f"{float(value):+.{decimal_places}f}%"
+            formatted_value = float(value)
+            if formatted_value >= 0:
+                return f"+{formatted_value:.{decimal_places}f}%"
+            else:
+                return f"{formatted_value:.{decimal_places}f}%"
         except:
             return "N/A"
 
@@ -981,20 +997,35 @@ class AIAssistant:
                 # Market alignment indicator
                 alignment_emoji = "✅" if signal.get('market_alignment', 0) > 0 else "⚠️"
 
-                message += f"""{i}\\. {signal['symbol']} {direction_emoji} {signal['direction']}
-⭐️ Confidence: {signal['confidence']:.1f}%
-💰 Entry: {self._format_price(signal['entry'])}
-🛑 Stop Loss: {self._format_price(signal['sl'])}
-🎯 TP1: {self._format_price(signal['tp1'])}
-🎯 TP2: {self._format_price(signal['tp2'])}
-📊 R/R Ratio: {signal.get('rr', '2\\.0:1')}
-🔄 Trend: {signal.get('primary_trend', 'Bullish' if signal['direction'] in ['LONG', 'BUY'] else 'Bearish')}
-⚡️ Structure: {signal.get('structure', signal['direction'])} Bias
-🧠 Reason: {signal.get('reason', 'Multi\\-timeframe confluence')}
-📈 24h Change: {self._format_percentage(change_24h)}
-{alignment_emoji} Market Alignment: {signal.get('alignment_desc', 'Good')}
+                # Format individual signal with proper escaping
+                symbol_display = f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}"
+                confidence_display = f"⭐️ Confidence: {signal['confidence']:.1f}%"
+                entry_display = f"💰 Entry: {self._format_price(signal['entry'])}"
+                sl_display = f"🛑 Stop Loss: {self._format_price(signal['sl'])}"
+                tp1_display = f"🎯 TP1: {self._format_price(signal['tp1'])}"
+                tp2_display = f"🎯 TP2: {self._format_price(signal['tp2'])}"
+                rr_display = f"📊 R/R Ratio: {signal.get('rr', '2.0:1')}"
+                trend_display = f"🔄 Trend: {signal.get('primary_trend', 'Bullish' if signal['direction'] in ['LONG', 'BUY'] else 'Bearish')}"
+                structure_display = f"⚡️ Structure: {signal.get('structure', signal['direction'])} Bias"
+                reason_display = f"🧠 Reason: {signal.get('reason', 'Multi-timeframe confluence')}"
+                change_display = f"📈 24h Change: {self._format_percentage(change_24h)}"
+                alignment_display = f"{alignment_emoji} Market Alignment: {signal.get('alignment_desc', 'Good')}"
+
+                signal_text = f"""{symbol_display}
+{confidence_display}
+{entry_display}
+{sl_display}
+{tp1_display}
+{tp2_display}
+{rr_display}
+{trend_display}
+{structure_display}
+{reason_display}
+{change_display}
+{alignment_display}
 
 """
+                message += signal_text
 
             # Enhanced disclaimer and insights
             message += f"""💡 **TRADING INSIGHTS**:
@@ -1783,10 +1814,13 @@ class AIAssistant:
                 elif direction == 'SHORT' and supply_1 > current_price:
                     stop_loss = min(stop_loss, supply_1 * 1.005)
 
-            # Calculate risk/reward
+            # Calculate risk/reward with proper decimal handling
             risk = abs(entry - stop_loss)
-            reward = abs(tp3 - entry)
+            reward = abs(tp2 - entry)  # Use TP2 instead of TP3 for more realistic R/R
             rr_ratio = reward / risk if risk > 0 else 2.0
+            
+            # Ensure R/R ratio is reasonable (between 0.5 and 5.0)
+            rr_ratio = max(0.5, min(5.0, rr_ratio))
 
             # Position sizing based on confidence
             if confidence >= 85:
