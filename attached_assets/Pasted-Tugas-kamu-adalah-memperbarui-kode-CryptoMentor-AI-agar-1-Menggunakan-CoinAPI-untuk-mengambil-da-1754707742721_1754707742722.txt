@@ -1,0 +1,58 @@
+Tugas kamu adalah memperbarui kode CryptoMentor AI agar:
+1. Menggunakan *CoinAPI* untuk mengambil data teknikal (OHLCV) multi-timeframe (5m, 1H, 4H) untuk coin yang dianalisis.
+   - Hitung indikator: EMA50, EMA200, RSI, MACD, ATR, Volume Oscillator.
+   - Tentukan tren berdasarkan EMA50 vs EMA200 dan konfirmasi RSI & MACD.
+   - Tandai momentum "good" jika tren kuat, RSI berada di zona sehat (40–70), dan MACD histogram positif.
+
+2. Menggunakan *CoinMarketCap API* untuk mengambil data makro:
+   - Market cap global
+   - Volume 24h global
+   - BTC dominance
+   - Perubahan harga global 24h
+   - Gunakan ini untuk filter sinyal:
+     - Hindari sinyal BUY jika market cap turun > 3% dalam 24h.
+     - Hindari sinyal SELL jika volume global naik signifikan & tren naik.
+
+3. Buat *Confidence Score* berdasarkan kombinasi teknikal + makro:
+   - *Teknikal (50 poin max)*:
+     - Tren EMA50 > EMA200 (bullish) atau EMA50 < EMA200 (bearish) sesuai arah sinyal: *+15 poin*
+     - RSI antara 45–65: *+10 poin, di zona ekstrim (40–70 tapi bukan oversold/overbought): **+5 poin*
+     - MACD histogram selaras dengan tren: *+10 poin*
+     - Volume Oscillator positif: *+5 poin*
+     - ATR menunjukkan volatilitas sehat (> rata-rata 14 periode): *+5 poin*
+   - *Makro (50 poin max)*:
+     - Market cap global naik > 1% dalam 24h: *+15 poin, turun sedikit tapi < 3%: **+5 poin*
+     - Volume global 24h naik > 5%: *+10 poin*
+     - BTC dominance stabil (±1%): *+10 poin*
+     - Sentimen global dari perubahan harga global 24h selaras arah sinyal: *+15 poin*
+
+   - Total skor: 0–100
+   - Hanya kirim sinyal jika *Confidence Score ≥ 75*.
+
+4. Terapkan *multi-timeframe confirmation*:
+   - Timeframe 5m dan 1H harus selaras arah sinyal.
+   - Jika salah satu timeframe bertolak belakang → abaikan sinyal.
+
+5. Terapkan *cooldown sinyal* minimal 1 jam untuk setiap coin agar sinyal tidak berubah cepat.
+   - Simpan sinyal terakhir di database *Supabase* dengan timestamp.
+   - Abaikan sinyal baru jika belum lewat cooldown.
+
+6. Aktifkan fitur *auto-signal*:
+   - Bot otomatis memindai daftar coin futures setiap 5 menit.
+   - Jika Confidence Score ≥ 75 → kirim sinyal ke *user lifetime & admin* via Telegram.
+   - Format sinyal:
+     🚀 Futures Signal
+     Coin: BTCUSDT
+     Arah: BUY / SELL
+     Confidence: 82%
+     Timeframe: 5m & 1H selaras
+     EMA50: xxx | EMA200: xxx
+     RSI: xxx
+     MACD: xxx
+     ATR: xxx
+     Market Cap Change: xxx%
+     Volume Change: xxx%
+
+7. Pastikan semua fungsi /futures, /futures_signals, dan auto-signal berjalan dengan API CoinAPI + CMC yang baru.
+8. Hapus semua kode lama yang masih merujuk ke API Coinglass atau Binance untuk analisis futures.
+9. Gunakan bahasa Python yang rapi, modular, dan beri komentar agar mudah dibaca.
