@@ -871,13 +871,22 @@ class AIAssistant:
             analysis = f"""🔍 **PROFESSIONAL COMPREHENSIVE ANALYSIS - {symbol}**
 
 🕐 **Analysis Time**: {current_time}
-💰 **Current Price**: ${current_price:,.6f}
+💰 **Current Price**: ${current_price:,.2f}
 📊 **24h Change**: {change_24h:+.2f}%
 
 {direction_emoji} **TRADING SIGNAL**: {signal_data['direction']}
 {confidence_emoji} **Confidence**: {confidence:.1f}% ({confidence_desc})
 🎯 **Strategy**: {signal_data.get('strategy', 'Technical Analysis')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
+
+💰 **DETAILED TRADING SETUP:**
+• Entry: ${trading_levels['entry']:.2f}
+• Stop Loss: ${trading_levels['stop_loss']:.2f}
+• TP1 (50%): ${trading_levels['tp1']:.2f}
+• TP2 (30%): ${trading_levels['tp2']:.2f} 
+• TP3 (20%): ${trading_levels['tp3']:.2f}
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
 """
 
@@ -1050,17 +1059,14 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-```
-💰 DETAILED TRADING SETUP:
-• Entry Zone: ${trading_levels['entry_min']:.6f} - ${trading_levels['entry_max']:.6f}
-• Optimal Entry: ${trading_levels['entry']:.6f}
-• Stop Loss: ${trading_levels['stop_loss']:.6f}
-• TP1 (50%): ${trading_levels['tp1']:.6f}
-• TP2 (30%): ${trading_levels['tp2']:.6f} 
-• TP3 (20%): ${trading_levels['tp3']:.6f}
+💰 **DETAILED TRADING SETUP:**
+• Entry: ${trading_levels['entry']:.2f}
+• Stop Loss: ${trading_levels['stop_loss']:.2f}
+• TP1 (50%): ${trading_levels['tp1']:.2f}
+• TP2 (30%): ${trading_levels['tp2']:.2f} 
+• TP3 (20%): ${trading_levels['tp3']:.2f}
 • Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
 • Max Risk: {trading_levels['risk_percentage']:.1f}% per position
-```
 
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe}):
@@ -1222,13 +1228,37 @@ class AIAssistant:
 
 📡 Next scan akan mengacak koin berbeda"""
 
-            # Format signals message
-            message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
-
-🕐 Scan Time: {current_time}
-📊 Signals Found: {len(filtered_signals)} (Confidence ≥ 75.00%)
+            # Get global market metrics for header
+            global_metrics = self.get_cmc_global_metrics()
+            
+            # Format header with global metrics
+            if global_metrics.get('success'):
+                total_market_cap = global_metrics.get('total_market_cap', 0)
+                market_cap_change = global_metrics.get('market_cap_change_24h', 0)
+                total_volume = global_metrics.get('total_volume_24h', 0)
+                active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
+                btc_dominance = global_metrics.get('btc_dominance', 0)
+                eth_dominance = global_metrics.get('eth_dominance', 0)
+                
+                header_metrics = f"""💰 **GLOBAL METRICS:**
+• Total Market Cap: ${total_market_cap/1e12:.2f}T
+• 24h Market Change: {market_cap_change:+.2f}%
+• Total Volume 24h: ${total_volume/1e9:.1f}B
+• Active Cryptocurrencies: {active_cryptos:,}
+• BTC Dominance: {btc_dominance:.1f}%
+• ETH Dominance: {eth_dominance:.1f}%
 
 """
+            else:
+                header_metrics = ""
+
+            # Format signals message
+            message = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
+
+🕐 **Scan Time**: {current_time}
+📊 **Signals Found**: {len(filtered_signals)} (Confidence ≥ 75.00%)
+
+{header_metrics}"""
 
             for i, signal in enumerate(filtered_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
@@ -1238,7 +1268,7 @@ class AIAssistant:
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
+                message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
 ⭐️ Confidence: {signal['confidence']:.2f}%
 💰 Entry: ${signal['entry']:.2f}
 🛑 Stop Loss: ${signal['sl']:.2f}
@@ -2260,15 +2290,13 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
 📊 **Global Sentiment**: {sentiment}
 ⭐ **Confidence**: {confidence}%
 
-```
-💰 GLOBAL METRICS:
+💰 **GLOBAL METRICS:**
 • Total Market Cap: ${total_market_cap/1e12:.2f}T
 • 24h Market Change: {self._format_percentage(market_cap_change)}
 • Total Volume 24h: ${total_volume/1e9:.1f}B
 • Active Cryptocurrencies: {active_cryptos:,}
 • BTC Dominance: {btc_dominance:.1f}%
 • ETH Dominance: {eth_dominance:.1f}%
-```
 
 🔬 **MARKET STRUCTURE ANALYSIS**:
 🔄 **Trend**: {trend}
