@@ -31,7 +31,7 @@ class AIAssistant:
 
         # Admin logging system - ensure this is always initialized
         self.admin_log = []
-        
+
         # Connection monitoring
         self.connection_status = {
             'last_check': datetime.now(),
@@ -52,13 +52,13 @@ class AIAssistant:
         """Periodic health check for Supabase connection"""
         try:
             current_time = datetime.now()
-            
+
             # Check if we need to perform health check (every 5 minutes)
             if (current_time - self.connection_status['last_check']).total_seconds() < 300:
                 return self.supabase_connected
-            
+
             print("🏥 Performing Supabase connection health check...")
-            
+
             if self._test_supabase_connection():
                 self.connection_status['consecutive_failures'] = 0
                 self.supabase_connected = True
@@ -66,7 +66,7 @@ class AIAssistant:
             else:
                 self.connection_status['consecutive_failures'] += 1
                 print(f"❌ Connection health check failed (failures: {self.connection_status['consecutive_failures']})")
-                
+
                 # Auto-reconnect after 2 consecutive failures
                 if self.connection_status['consecutive_failures'] >= 2:
                     print("🔄 Triggering auto-reconnection due to health check failures")
@@ -75,10 +75,10 @@ class AIAssistant:
                         self.supabase_connected = True
                     else:
                         self.supabase_connected = False
-            
+
             self.connection_status['last_check'] = current_time
             return self.supabase_connected
-            
+
         except Exception as e:
             print(f"❌ Health check error: {e}")
             self.supabase_connected = False
@@ -111,29 +111,29 @@ class AIAssistant:
         """Validate data consistency after deployment"""
         try:
             print("🔍 Running post-deployment validation...")
-            
+
             # Reset connection state
             self.reset_connection_after_deploy()
-            
+
             # Reinitialize connection
             self.supabase = self._init_supabase()
             self.supabase_connected = self._validate_supabase_connection()
-            
+
             if self.supabase_connected:
                 # Validate data integrity
                 user_count = self.get_user_count()
                 premium_count = self.get_premium_users_count()
-                
+
                 print(f"✅ Post-deploy validation complete:")
                 print(f"   📊 Total users: {user_count}")
                 print(f"   👑 Premium users: {premium_count}")
                 print(f"   🔗 Connection: {'✅ Stable' if self.supabase_connected else '❌ Failed'}")
-                
+
                 return True
             else:
                 print("❌ Post-deployment validation failed - connection not established")
                 return False
-                
+
         except Exception as e:
             print(f"❌ Post-deployment validation error: {e}")
             return False
@@ -164,7 +164,7 @@ class AIAssistant:
             # Use the centralized supabase client
             AIAssistant._supabase_instance = supabase
             print("✅ Using centralized Supabase client")
-            
+
             # Test connection immediately
             if self._test_supabase_connection():
                 return AIAssistant._supabase_instance
@@ -186,17 +186,17 @@ class AIAssistant:
 
             # Simple ping test
             result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').limit(1).execute()
-            
+
             # Store user count for validation
             current_count = result.count if hasattr(result, 'count') else 0
-            
+
             # Validate data consistency
             if AIAssistant._last_user_count is not None:
                 if abs(current_count - AIAssistant._last_user_count) > 5:
                     print(f"⚠️ Data inconsistency detected: {AIAssistant._last_user_count} → {current_count}")
                     # Re-fetch all data to ensure consistency
                     self._validate_data_integrity()
-            
+
             AIAssistant._last_user_count = current_count
             print(f"✅ Supabase connection active - Users: {current_count}")
             return True
@@ -214,17 +214,17 @@ class AIAssistant:
         try:
             AIAssistant._connection_retry_count += 1
             print(f"🔄 Attempting Supabase reconnection (attempt {AIAssistant._connection_retry_count}/{AIAssistant._max_retries})")
-            
+
             # Reset instance to force new connection
             AIAssistant._supabase_instance = None
-            
+
             # Wait before retry
             import time
             time.sleep(2)
-            
+
             # Reinitialize
             self.supabase = self._init_supabase()
-            
+
             if self.supabase and self._test_supabase_connection():
                 print("✅ Supabase reconnection successful")
                 AIAssistant._connection_retry_count = 0  # Reset counter on success
@@ -243,20 +243,20 @@ class AIAssistant:
                 return False
 
             print("🔍 Validating data integrity...")
-            
+
             # Get complete user count
             result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').execute()
             total_users = result.count if hasattr(result, 'count') else 0
-            
+
             # Get premium users count
             premium_result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').eq('is_premium', True).execute()
             premium_users = premium_result.count if hasattr(premium_result, 'count') else 0
-            
+
             print(f"📊 Data integrity check: Total={total_users}, Premium={premium_users}")
-            
+
             # Update cached values
             AIAssistant._last_user_count = total_users
-            
+
             return True
 
         except Exception as e:
@@ -268,7 +268,7 @@ class AIAssistant:
         # Test existing connection
         if self._test_supabase_connection():
             return True
-        
+
         # Try to reconnect if connection failed
         print("🔄 Connection lost, attempting reconnection...")
         return self._reconnect_supabase()
@@ -337,7 +337,7 @@ class AIAssistant:
         """Check if database is required and available for command"""
         # Perform periodic health check
         self.check_connection_health()
-        
+
         # Most commands don't actually require database for core functionality
         # Only user-specific features like premium status, credits need database
         if command_name in ['ANALYZE', 'FUTURES', 'FUTURES_SIGNALS', 'MARKET_SENTIMENT']:
@@ -354,7 +354,7 @@ class AIAssistant:
 
     def _get_database_error_message(self):
         """Get user-friendly database error message"""
-        return """⚠️ Database tidak tersedia saat ini\\. 
+        return """⚠️ Database tidak tersedia saat ini\. 
 
 ✅ Analisis tetap berfungsi normal\\!
 💡 Fitur premium dan riwayat mungkin terbatas\\."""
@@ -661,7 +661,7 @@ class AIAssistant:
     def _supabase_query(self, query_func, operation_name="query"):
         """Execute Supabase query with auto-reconnection"""
         max_attempts = 3
-        
+
         for attempt in range(1, max_attempts + 1):
             try:
                 # Ensure connection is active
@@ -673,21 +673,21 @@ class AIAssistant:
 
                 # Execute query
                 result = query_func()
-                
+
                 # Log successful operation
                 if attempt > 1:
                     print(f"✅ {operation_name} successful on attempt {attempt}")
-                
+
                 return result
 
             except Exception as e:
                 print(f"❌ {operation_name} attempt {attempt} failed: {e}")
-                
+
                 if attempt < max_attempts:
                     print(f"🔄 Retrying {operation_name} in 2 seconds...")
                     import time
                     time.sleep(2)
-                    
+
                     # Force reconnection for next attempt
                     AIAssistant._supabase_instance = None
                     self.supabase = self._init_supabase()
@@ -725,7 +725,7 @@ class AIAssistant:
             return result.count if hasattr(result, 'count') else 0
 
         count = self._supabase_query(query_operation, "get_user_count")
-        
+
         if count is not None:
             # Validate against last known count
             if AIAssistant._last_user_count is not None:
@@ -734,9 +734,9 @@ class AIAssistant:
                     print(f"⚠️ Significant user count change detected: {AIAssistant._last_user_count} → {count}")
                     # Trigger data integrity check
                     self._validate_data_integrity()
-            
+
             AIAssistant._last_user_count = count
-            
+
         return count or 0
 
     def get_premium_users_count(self):
@@ -880,11 +880,11 @@ class AIAssistant:
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
 💰 **DETAILED TRADING SETUP:**
-• Entry: ${trading_levels['entry']:.2f}
-• Stop Loss: ${trading_levels['stop_loss']:.2f}
-• TP1 (50%): ${trading_levels['tp1']:.2f}
-• TP2 (30%): ${trading_levels['tp2']:.2f} 
-• TP3 (20%): ${trading_levels['tp3']:.2f}
+• Entry: ${trading_levels['entry']:,.6f}
+• Stop Loss: ${trading_levels['stop_loss']:,.6f}
+• TP1 (50%): ${trading_levels['tp1']:,.6f}
+• TP2 (30%): ${trading_levels['tp2']:,.6f} 
+• TP3 (20%): ${trading_levels['tp3']:,.6f}
 • Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
 • Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
@@ -965,7 +965,7 @@ class AIAssistant:
         except Exception as e:
             return self._error_fallback(symbol, f"comprehensive analysis: {str(e)[:50]}")
 
-    async def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
+    def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
         """Enhanced futures analysis with comprehensive breakdown"""
         try:
             # Check database connection for user-related operations
@@ -1230,7 +1230,7 @@ class AIAssistant:
 
             # Get global market metrics for header
             global_metrics = self.get_cmc_global_metrics()
-            
+
             # Format header with global metrics
             if global_metrics.get('success'):
                 total_market_cap = global_metrics.get('total_market_cap', 0)
@@ -1239,7 +1239,7 @@ class AIAssistant:
                 active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
                 btc_dominance = global_metrics.get('btc_dominance', 0)
                 eth_dominance = global_metrics.get('eth_dominance', 0)
-                
+
                 header_metrics = f"""💰 **GLOBAL METRICS:**
 • Total Market Cap: ${total_market_cap/1e12:.2f}T
 • 24h Market Change: {market_cap_change:+.2f}%
@@ -2109,11 +2109,11 @@ class AIAssistant:
         filtered = []
         for signal in signals:
             confidence = signal.get('confidence', 0)
-            
+
             # Fix confidence if > 100 (divide by 10)
             if confidence > 100:
                 confidence = confidence / 10
-                
+
             # Only keep signals with >= 75% confidence
             if confidence >= 75.0:
                 # Format the signal properly
@@ -2145,7 +2145,7 @@ class AIAssistant:
         """Format individual signal according to rules"""
         # Format R/R Ratio properly (X.X:1) - ensure one decimal place
         rr_value = signal.get('risk_reward', 2.0)
-        
+
         # Handle different input formats
         if isinstance(rr_value, str):
             # Extract number from string like "2.5:1"
@@ -2157,14 +2157,14 @@ class AIAssistant:
             rr_value = float(rr_value)
         else:
             rr_value = 2.0
-        
+
         # Ensure proper formatting with exactly 1 decimal place
         rr_formatted = f"{rr_value:.1f}:1"
 
         # Determine trend based on direction
         direction = signal.get('direction', 'LONG')
         trend = signal.get('primary_trend', 'Bullish' if direction in ['LONG', 'BUY'] else 'Bearish')
-        
+
         return {
             'symbol': signal.get('symbol', 'UNKNOWN'),
             'direction': direction,
