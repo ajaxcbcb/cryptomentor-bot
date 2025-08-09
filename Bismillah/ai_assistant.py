@@ -898,14 +898,24 @@ class AIAssistant:
 
             current_time = self._get_wib_time()
 
-            # Target symbols for scanning
-            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
+            # Target symbols for scanning - expanded list for variety
+            all_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
+                          'BNB', 'TRX', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT', 'ATOM', 'FIL', 'ETC',
+                          'ALGO', 'VET', 'MANA', 'SAND', 'SHIB']
 
             # If specific symbol requested, use that
             if query_args and len(query_args) > 0:
                 first_arg = query_args[0].upper()
                 if len(first_arg) <= 5:
                     target_symbols = [first_arg]
+                else:
+                    # Randomize symbol selection for variety each time
+                    import random
+                    target_symbols = random.sample(all_symbols, min(15, len(all_symbols)))
+            else:
+                # Randomize symbol selection for variety each time
+                import random
+                target_symbols = random.sample(all_symbols, min(15, len(all_symbols)))
 
             all_signals = []
 
@@ -930,7 +940,7 @@ class AIAssistant:
 🕐 Scan Time: {current_time}
 📊 Signals Found: 0 (Confidence ≥ 75.00%)
 
-❌ No High-Confidence Signals Found
+❌ Tidak ada sinyal memenuhi syarat
 
 📊 Symbols Scanned: {', '.join(target_symbols)}
 ⚠️ Status: Tidak ada setup trading yang jelas saat ini
@@ -943,7 +953,9 @@ class AIAssistant:
 🔄 Alternatif:
 • Coba /futures btc untuk analisis spesifik
 • Gunakan /analyze eth untuk analisis fundamental
-• Monitor kondisi market dengan /market"""
+• Monitor kondisi market dengan /market
+
+📡 Next scan akan mengacak koin berbeda"""
 
             # Format signals message
             message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
@@ -981,7 +993,8 @@ class AIAssistant:
 • Position sizing sesuai risk level
 • DYOR sebelum trading
 
-📡 Next scan in 30 minutes"""
+📡 Next scan akan mengacak koin berbeda
+🔄 Jalankan ulang untuk variasi sinyal"""
 
             return message
 
@@ -1793,11 +1806,11 @@ class AIAssistant:
         return "\n".join(insights)
 
     def _filter_and_format_signals(self, signals):
-        """Filter and format signals according to rules"""
+        """Filter and format signals according to rules with randomization"""
         if not signals:
             return []
 
-        # Filter signals with confidence >= 75%
+        # Step 1: Filter signals with confidence >= 75%
         filtered = []
         for signal in signals:
             confidence = signal.get('confidence', 0)
@@ -1812,23 +1825,45 @@ class AIAssistant:
                 formatted_signal = self._format_signal_properly(signal, confidence)
                 filtered.append(formatted_signal)
 
-        # Sort by confidence (highest to lowest)
-        filtered.sort(key=lambda x: x['confidence'], reverse=True)
+        # Return empty if no signals meet criteria
+        if not filtered:
+            return []
 
-        # Return maximum 5 signals
-        return filtered[:5]
+        # Step 2: Remove duplicates - keep highest confidence for each symbol
+        unique_signals = {}
+        for signal in filtered:
+            symbol = signal['symbol']
+            if symbol not in unique_signals or signal['confidence'] > unique_signals[symbol]['confidence']:
+                unique_signals[symbol] = signal
+
+        # Convert back to list
+        deduplicated_signals = list(unique_signals.values())
+
+        # Step 3: Randomize the signals for variety
+        import random
+        random.shuffle(deduplicated_signals)
+
+        # Step 4: Return maximum 5 signals
+        return deduplicated_signals[:5]
 
     def _format_signal_properly(self, signal, corrected_confidence):
         """Format individual signal according to rules"""
-        # Format R/R Ratio properly (X.X:1)
+        # Format R/R Ratio properly (X.X:1) - ensure one decimal place
         rr_value = signal.get('risk_reward', 2.0)
+        
+        # Handle different input formats
         if isinstance(rr_value, str):
             # Extract number from string like "2.5:1"
             try:
                 rr_value = float(rr_value.split(':')[0])
             except:
                 rr_value = 2.0
+        elif isinstance(rr_value, (int, float)):
+            rr_value = float(rr_value)
+        else:
+            rr_value = 2.0
         
+        # Ensure proper formatting with exactly 1 decimal place
         rr_formatted = f"{rr_value:.1f}:1"
 
         # Determine trend based on direction
