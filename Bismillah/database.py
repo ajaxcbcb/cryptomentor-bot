@@ -3,148 +3,18 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 
-# Attempt to import SupabaseUsers, handle potential absence gracefully
-try:
-    from supabase_users import SupabaseUsers
-except ImportError:
-    print("⚠️ SupabaseUsers module not found. Supabase functionality will be limited.")
-    # Define a placeholder class if the module is not available
-    class SupabaseUsers:
-        def __init__(self):
-            print("Placeholder SupabaseUsers initialized. No Supabase operations will be performed.")
-
-        def test_connection(self):
-            print("Placeholder test_connection called. Returning False.")
-            return False
-
-        def add_user(self, user_id, username, first_name, last_name, status):
-            print(f"Placeholder add_user called for {user_id}.")
-            return False
-
-        def get_user(self, telegram_id):
-            print(f"Placeholder get_user called for {telegram_id}.")
-            return None
-
-        def is_user_premium(self, telegram_id):
-            print(f"Placeholder is_user_premium called for {telegram_id}.")
-            return None
-
-        def get_user_credits(self, telegram_id):
-            print(f"Placeholder get_user_credits called for {telegram_id}.")
-            return None
-
-        def add_user_credits(self, telegram_id, amount):
-            print(f"Placeholder add_user_credits called for {telegram_id} with amount {amount}.")
-            return False
-
-        def deduct_user_credits(self, telegram_id, amount):
-            print(f"Placeholder deduct_user_credits called for {telegram_id} with amount {amount}.")
-            return False
-
-        def grant_premium(self, telegram_id, days):
-            print(f"Placeholder grant_premium called for {telegram_id} with {days} days.")
-            return False
-
-        def grant_lifetime_premium(self, telegram_id):
-            print(f"Placeholder grant_lifetime_premium called for {telegram_id}.")
-            return False
-
-        def revoke_premium(self, telegram_id):
-            print(f"Placeholder revoke_premium called for {telegram_id}.")
-            return False
-
-        def get_all_users(self):
-            print("Placeholder get_all_users called.")
-            return []
-
-        def get_eligible_auto_signal_users(self):
-            print("Placeholder get_eligible_auto_signal_users called.")
-            return []
-
-        def get_bot_statistics(self):
-            print("Placeholder get_bot_statistics called.")
-            return {}
-
-
 class Database:
-    def __init__(self):
-        """Initialize database with proper schema, recovery, and backup + Supabase integration"""
-        self.db_path = 'cryptomentor.db'
-        self.conn = None
-        self.cursor = None
-
-        # Initialize Supabase for user management
-        self.supabase_users = SupabaseUsers()
-
-        # Initialize backup and recovery system
-        self.backup_users = {}  # In-memory backup of critical user data
-        self.last_backup_time = 0
-
+    def __init__(self, db_path="cryptomentor.db"):
         try:
-            self._ensure_directory()
-            self._connect()
-            self._migrate_schema()
-            self._setup_recovery_system()
-            self._create_backups()
-            self._verify_data_integrity()
-
-            # Test Supabase connection
-            if self.supabase_users.test_connection():
-                print("✅ Database initialized successfully with Supabase integration")
-            else:
-                print("⚠️ Database initialized but Supabase connection failed - using local fallback")
-
-        except Exception as e:
-            print(f"❌ CRITICAL DATABASE ERROR: {e}")
-            print("🔧 Attempting emergency recovery...")
-            self._emergency_recovery()
-
-        # Initialize user session tracking
-        self.user_sessions = {}
-        self.restart_flags = set()  # Track users who need to restart
-
-    def _ensure_directory(self):
-        """Ensure the database directory exists."""
-        db_dir = os.path.dirname(self.db_path)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir)
-
-    def _connect(self):
-        """Connect to the SQLite database."""
-        try:
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn = sqlite3.connect(db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
+            self.create_tables()
         except Exception as e:
-            print(f"❌ Database connection error: {e}")
+            print(f"❌ Database initialization error: {e}")
             raise
 
-    def _migrate_schema(self):
-        """Migrate database schema to the latest version."""
-        self.create_tables()
-
-    def _setup_recovery_system(self):
-        """Setup the in-memory backup system for user data."""
-        # This is a placeholder; actual recovery logic might involve more complex mechanisms.
-        print("✅ User data backup system initialized (in-memory).")
-
-    def _create_backups(self):
-        """Create initial backups if needed (placeholder)."""
-        # In a real scenario, this might involve creating a snapshot of the DB.
-        print("✅ Initial database backup process initiated (placeholder).")
-
-    def _verify_data_integrity(self):
-        """Verify the integrity of the database."""
-        print("✅ Database integrity check performed (placeholder).")
-        pass
-
-    def _emergency_recovery(self):
-        """Attempt emergency recovery if initialization fails."""
-        print("🚨 Entering emergency recovery mode.")
-        # This might involve trying to restore from a backup file or logging a critical failure.
-        # For now, we'll just print a message and hope for the best.
-
     def create_tables(self):
-        """Create necessary tables if they don't exist."""
+        # Check if tables exist and add missing columns if needed
         try:
             # Create users table with all required columns (COMPLETE SCHEMA)
             self.cursor.execute("""
@@ -162,9 +32,7 @@ class Database:
                     referral_code TEXT,
                     premium_referral_code TEXT,
                     premium_earnings INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_seen TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
@@ -175,7 +43,7 @@ class Database:
 
             # Add missing columns one by one with error handling
             missing_columns = [
-                ('telegram_id', 'INTEGER UNIQUE'),
+                ('telegram_id', 'INTEGER'),
                 ('language_code', "TEXT DEFAULT 'id'"),
                 ('is_premium', 'INTEGER DEFAULT 0'),
                 ('credits', 'INTEGER DEFAULT 0'),
@@ -183,9 +51,7 @@ class Database:
                 ('referred_by', 'INTEGER'),
                 ('referral_code', 'TEXT'),
                 ('premium_referral_code', 'TEXT'),
-                ('premium_earnings', 'INTEGER DEFAULT 0'),
-                ('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
-                ('last_seen', 'TIMESTAMP')
+                ('premium_earnings', 'INTEGER DEFAULT 0')
             ]
 
             for column_name, column_def in missing_columns:
@@ -194,86 +60,121 @@ class Database:
                         self.cursor.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_def}")
                         print(f"✅ Added missing column: {column_name}")
                     except Exception as col_error:
-                        print(f"⚠️ Column {column_name} might already exist or error during add: {col_error}")
+                        print(f"⚠️ Column {column_name} might already exist: {col_error}")
 
         except Exception as e:
-            print(f"❌ CRITICAL: Error in table schema migration for 'users': {e}")
-            print("🔧 SAFE MODE: Attempting to preserve user data during schema update...")
+            print(f"❌ CRITICAL: Error in table schema migration: {e}")
+            print("🔧 SAFE MODE: Preserving all user data...")
 
+            # SAFE RECOVERY: Always backup before any changes
             try:
+                # Create timestamp for backup
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_table = f"users_backup_{timestamp}"
 
+                # Always create backup first
                 self.cursor.execute(f"CREATE TABLE {backup_table} AS SELECT * FROM users")
                 print(f"✅ Emergency backup created: {backup_table}")
 
-                self.cursor.execute("DROP TABLE users")
-                self.cursor.execute("""
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        telegram_id INTEGER UNIQUE,
-                        first_name TEXT,
-                        last_name TEXT,
-                        username TEXT,
-                        language_code TEXT DEFAULT 'id',
-                        is_premium INTEGER DEFAULT 0,
-                        credits INTEGER DEFAULT 0,
-                        subscription_end TEXT,
-                        referred_by INTEGER,
-                        referral_code TEXT,
-                        premium_referral_code TEXT,
-                        premium_earnings INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_seen TIMESTAMP
-                    )
-                """)
+                # Check if we have users to preserve
+                self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+                user_count = self.cursor.fetchone()[0]
 
-                self.cursor.execute(f"""
-                    INSERT INTO users (telegram_id, first_name, last_name, username, language_code,
-                                     is_premium, credits, subscription_end, referred_by, referral_code,
-                                     premium_referral_code, premium_earnings, created_at, updated_at, last_seen)
-                    SELECT telegram_id,
-                           COALESCE(first_name, 'User'),
-                           last_name,
-                           COALESCE(username, 'no_username'),
-                           COALESCE(language_code, 'id'),
-                           COALESCE(is_premium, 0),
-                           COALESCE(credits, 100),
-                           subscription_end,
-                           referred_by,
-                           referral_code,
-                           premium_referral_code,
-                           COALESCE(premium_earnings, 0),
-                           COALESCE(created_at, datetime('now')),
-                           COALESCE(updated_at, datetime('now')),
-                           last_seen
-                    FROM {backup_table}
-                    WHERE telegram_id IS NOT NULL AND telegram_id != 0
-                """)
-                restored_count = self.cursor.rowcount
-                print(f"✅ RESTORED {restored_count} users with ALL PREMIUM STATUS PRESERVED")
+                if user_count > 0:
+                    print(f"⚠️ PRESERVING {user_count} users during schema update...")
+
+                    # Recreate table with correct schema
+                    self.cursor.execute("DROP TABLE users")
+                    self.cursor.execute("""
+                        CREATE TABLE users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            telegram_id INTEGER UNIQUE,
+                            first_name TEXT,
+                            last_name TEXT,
+                            username TEXT,
+                            language_code TEXT DEFAULT 'id',
+                            is_premium INTEGER DEFAULT 0,
+                            credits INTEGER DEFAULT 0,
+                            subscription_end TEXT,
+                            referred_by INTEGER,
+                            referral_code TEXT,
+                            premium_referral_code TEXT,
+                            premium_earnings INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+
+                    # Restore ALL data preserving premium status
+                    self.cursor.execute(f"""
+                        INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
+                                         is_premium, credits, subscription_end, referred_by, referral_code,
+                                         premium_referral_code, premium_earnings, created_at)
+                        SELECT telegram_id, 
+                               COALESCE(first_name, 'User'),
+                               last_name,
+                               COALESCE(username, 'no_username'),
+                               COALESCE(language_code, 'id'),
+                               COALESCE(is_premium, 0),
+                               COALESCE(credits, 100),
+                               subscription_end,
+                               referred_by,
+                               referral_code,
+                               premium_referral_code,
+                               COALESCE(premium_earnings, 0),
+                               COALESCE(created_at, datetime('now'))
+                        FROM {backup_table}
+                        WHERE telegram_id IS NOT NULL AND telegram_id != 0
+                    """)
+
+                    restored_count = self.cursor.rowcount
+                    print(f"✅ RESTORED {restored_count} users with ALL PREMIUM STATUS PRESERVED")
+
+                    # Verify premium users were restored
+                    self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
+                    premium_count = self.cursor.fetchone()[0]
+                    print(f"✅ Premium users verified: {premium_count}")
+
+                else:
+                    # Safe to recreate empty table
+                    self.cursor.execute("DROP TABLE IF EXISTS users")
+                    self.cursor.execute("""
+                        CREATE TABLE users (
+                            id INTEGER PRIMARYKEY AUTOINCREMENT,
+                            telegram_id INTEGER UNIQUE,
+                            first_name TEXT,
+                            last_name TEXT,
+                            username TEXT,
+                            language_code TEXT DEFAULT 'id',
+                            is_premium INTEGER DEFAULT 0,
+                            credits INTEGER DEFAULT 0,
+                            subscription_end TEXT,
+                            referred_by INTEGER,
+                            referral_code TEXT,
+                            premium_referral_code TEXT,
+                            premium_earnings INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    print("✅ Empty table recreated with complete schema")
 
             except Exception as recovery_error:
                 print(f"❌ RECOVERY FAILED: {recovery_error}")
+                # Emergency: Don't drop the table if recovery fails
                 print("🚨 EMERGENCY: Keeping existing table to prevent data loss")
+                # Try to work with existing structure
 
         # Create subscriptions table
-        try:
-            self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subscriptions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER,
-                    plan TEXT,
-                    status TEXT,
-                    start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    end_date TIMESTAMP,
-                    granted_by INTEGER
-                )
-            """)
-        except Exception as e:
-            print(f"Error creating subscriptions table: {e}")
-
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER,
+                plan TEXT,
+                status TEXT,
+                start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                end_date TIMESTAMP,
+                granted_by INTEGER
+            )
+        """)
 
         # Create portfolio table
         try:
@@ -315,7 +216,7 @@ class Database:
             # Create premium referrals table
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS premium_referrals (
-                    id INTEGER PRIMARYKEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     referrer_id INTEGER,
                     referred_id INTEGER,
                     subscription_type TEXT,
@@ -341,108 +242,86 @@ class Database:
 
         self.conn.commit()
 
-
-    def create_user(self, telegram_id, username="", first_name="", last_name="", language_code="id", referred_by=None):
-        """Create a new user with Supabase integration and local fallback"""
+    def create_user(self, telegram_id, username, first_name=None, last_name=None, language_code='id', referred_by=None):
+        """Create a new user in the database with enhanced persistence"""
         try:
-            # Primary: Try Supabase first
-            supabase_success = self.supabase_users.add_user(
-                user_id=telegram_id,
-                username=username or 'no_username',
-                first_name=first_name or 'Unknown',
-                last_name=last_name or '',
-                status='free'
-            )
-
-            if supabase_success:
-                print(f"✅ User {telegram_id} created in Supabase")
-                self.log_user_activity(telegram_id, "user_created", f"New user: {first_name}")
-                return True
-            else:
-                print(f"⚠️ Supabase user creation failed, using local fallback for {telegram_id}")
-
-            # Fallback: Local database
-            self.cursor.execute("""
-                INSERT OR IGNORE INTO users
-                (telegram_id, username, first_name, last_name, language_code, credits, is_premium, referred_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 100, 0, ?, ?, ?)
-            """, (
-                telegram_id,
-                username or 'no_username',
-                first_name or 'Unknown',
-                last_name or '',
-                language_code or 'id',
-                referred_by,
-                datetime.now().isoformat(),
-                datetime.now().isoformat()
-            ))
-
-            self.conn.commit()
-
-            # Immediate backup of new user
-            self.backup_user_data(telegram_id)
-
-            # Verify creation
-            created_user = self.get_user(telegram_id)
-            if created_user:
-                print(f"✅ User {telegram_id} created in local database")
-                self.log_user_activity(telegram_id, "user_created", f"New user: {first_name}")
-                return True
-            else:
-                print(f"❌ User creation verification failed for {telegram_id}")
+            # Validate telegram_id
+            if not telegram_id or telegram_id <= 0:
+                print(f"❌ Invalid telegram_id: {telegram_id}")
                 return False
 
-        except Exception as e:
-            print(f"❌ Error creating user {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
+            # Check if user already exists
+            existing_user = self.get_user(telegram_id)
+            if existing_user:
+                print(f"✅ User {telegram_id} already exists - updating info if needed")
+                # Update user info if provided (keep existing data intact)
+                self.update_user_info(telegram_id, username, first_name, last_name, language_code)
+                return True
 
-    def get_user(self, telegram_id):
-        """Get user data with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase first
-            supabase_user = self.supabase_users.get_user(telegram_id)
-            if supabase_user:
-                # Ensure the user data from Supabase is in a format consistent with local DB if needed
-                # For now, assume it's directly usable or map fields if necessary
-                return supabase_user
+            # Generate unique referral codes
+            import random
+            import string
 
-            # Fallback: Local database
+            # Generate free referral code
+            referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+            while self.get_user_by_referral_code(referral_code):
+                referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+
+            # Generate premium referral code
+            premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+            while self.get_user_by_premium_referral_code(premium_referral_code):
+                premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+
+            # Base credits: 100 for all users
+            base_credits = 100
+
+            # Bonus credits: +5 if referred
+            bonus_credits = 5 if referred_by else 0
+            total_credits = base_credits + bonus_credits
+
+            # Clean data before insertion
+            clean_username = username[:32] if username else 'no_username'
+            clean_first_name = first_name[:50] if first_name else 'Unknown'
+            clean_last_name = last_name[:50] if last_name else None
+            clean_language = language_code[:5] if language_code else 'id'
+
+            # Insert new user with transaction safety
+            self.cursor.execute("BEGIN TRANSACTION")
+
             self.cursor.execute("""
-                SELECT telegram_id, first_name, last_name, username, language_code,
-                       is_premium, credits, subscription_end, referred_by, referral_code, created_at, updated_at, last_seen
-                FROM users WHERE telegram_id = ?
-            """, (telegram_id,))
+                INSERT INTO users 
+                (telegram_id, first_name, last_name, username, language_code, credits, referral_code, premium_referral_code, referred_by, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (telegram_id, clean_first_name, clean_last_name, clean_username, clean_language, total_credits, referral_code, premium_referral_code, referred_by))
 
-            user_data = self.cursor.fetchone()
+            # Verify insertion
+            self.cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (telegram_id,))
+            if not self.cursor.fetchone():
+                self.cursor.execute("ROLLBACK")
+                print(f"❌ Failed to insert user {telegram_id}")
+                return False
 
-            if user_data:
-                # Convert to dictionary for easier handling
-                columns = [description[0] for description in self.cursor.description]
-                user_dict = dict(zip(columns, user_data))
+            self.cursor.execute("COMMIT")
 
-                # Update last_seen in local DB
-                self.cursor.execute("""
-                    UPDATE users SET last_seen = ? WHERE telegram_id = ?
-                """, (datetime.now().isoformat(), telegram_id))
-                self.conn.commit()
+            # Log the user creation
+            credit_msg = f"New user registered with {total_credits} credits ({base_credits} base"
+            if referred_by:
+                credit_msg += f" + {bonus_credits} referral bonus"
+            credit_msg += ")"
+            self.log_user_activity(telegram_id, "user_created", credit_msg)
+            print(f"✅ New user {telegram_id} ({clean_username}) created with {total_credits} credits")
 
-                return user_dict
-            else:
-                # Try to recover from backup
-                if telegram_id in self.backup_users:
-                    print(f"🔄 Recovering user {telegram_id} from backup")
-                    backup_data = self.backup_users[telegram_id]
-                    self._restore_user_from_backup(telegram_id, backup_data)
-                    return backup_data
-                else:
-                    return None
+            # Create backup entry in activity log for recovery
+            self.log_user_activity(telegram_id, "user_backup_created", f"User: {clean_first_name}, Username: {clean_username}, Credits: {total_credits}")
 
+            return True
         except Exception as e:
-            print(f"❌ Error getting user {telegram_id}: {e}")
-            # Try backup recovery as a last resort
-            return self.backup_users.get(telegram_id, None)
+            try:
+                self.cursor.execute("ROLLBACK")
+            except:
+                pass
+            print(f"❌ DB Error (create_user): {e}")
+            return False
 
     def update_user_info(self, telegram_id, username=None, first_name=None, last_name=None, language_code=None):
         """Update user information without affecting credits or premium status"""
@@ -468,12 +347,10 @@ class Database:
 
             if updates:
                 params.append(telegram_id)
-                query = f"UPDATE users SET {', '.join(updates)}, updated_at = ? WHERE telegram_id = ?"
-                params.append(datetime.now().isoformat())
+                query = f"UPDATE users SET {', '.join(updates)} WHERE telegram_id = ?"
                 self.cursor.execute(query, params)
                 self.conn.commit()
                 print(f"✅ Updated info for user {telegram_id}")
-                self.backup_user_data(telegram_id) # Backup after update
                 return True
             return True
         except Exception as e:
@@ -482,65 +359,94 @@ class Database:
 
     def add_user(self, telegram_id, first_name, last_name, username, language_code='id'):
         """Add a new user to the database"""
-        # This method might be redundant if create_user handles all cases,
-        # but keeping it for specific insertion logic if needed.
-        # Primarily relying on create_user which uses Supabase first.
-        return self.create_user(telegram_id, username, first_name, last_name, language_code)
+        try:
+            self.cursor.execute("""
+                INSERT OR IGNORE INTO users 
+                (telegram_id, first_name, last_name, username, language_code) 
+                VALUES (?, ?, ?, ?, ?)
+            """, (telegram_id, first_name, last_name, username, language_code))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (add_user): {e}")
+            return False
+
+    def get_user(self, telegram_id):
+        """Get user information by telegram_id"""
+        try:
+            self.cursor.execute("""
+                SELECT telegram_id, first_name, last_name, username, language_code, 
+                       is_premium, credits, subscription_end, referred_by, referral_code, created_at
+                FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'telegram_id': row[0],
+                    'first_name': row[1],
+                    'last_name': row[2],
+                    'username': row[3],
+                    'language_code': row[4],
+                    'is_premium': row[5],
+                    'credits': row[6],
+                    'subscription_end': row[7],
+                    'referred_by': row[8],
+                    'referral_code': row[9],
+                    'created_at': row[10]
+                }
+            return None
+        except Exception as e:
+            print(f"DB Error (get_user): {e}")
+            return None
+
+    def update_user_language(self, telegram_id, language_code):
+        """Update user's language preference"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET language_code = ? WHERE telegram_id = ?
+            """, (language_code, telegram_id))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (update_user_language): {e}")
+            return False
 
     def is_user_premium(self, telegram_id):
-        """Check if user has premium status with Supabase first, local fallback"""
+        """Check if user has active premium subscription"""
         try:
-            # Primary: Check Supabase
-            is_premium_supabase = self.supabase_users.is_user_premium(telegram_id)
-            if is_premium_supabase is not None:
-                return is_premium_supabase
-
-            # Fallback: Local database
-            user = self.get_user(telegram_id)
-            if user:
-                is_premium = user.get('is_premium', 0)
-                subscription_end = user.get('subscription_end')
-
-                # Check if premium has expired (only if subscription_end is set)
-                if is_premium and subscription_end:
-                    try:
-                        end_date = datetime.fromisoformat(subscription_end)
-                        if datetime.now() > end_date:
-                            # Premium expired, update status locally
-                            self.cursor.execute("""
-                                UPDATE users SET is_premium = 0, subscription_end = NULL WHERE telegram_id = ?
-                            """, (telegram_id,))
-                            self.conn.commit()
-                            print(f"✅ Expired premium status updated for {telegram_id} locally.")
-                            return False
-                    except ValueError:
-                        # Invalid date format, treat as potentially active premium if `is_premium` is set
-                        print(f"⚠️ Invalid subscription_end format for {telegram_id}, treating as active premium.")
-                        pass # Keep is_premium status as is
-
-                return bool(is_premium)
-            else:
+            self.cursor.execute("""
+                SELECT is_premium, subscription_end FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                is_premium, sub_end = row
+                if is_premium:
+                    # If subscription_end is NULL, it's permanent premium
+                    if sub_end is None:
+                        return True
+                    else:
+                        # Check if subscription is still valid
+                        try:
+                            end_date = datetime.fromisoformat(sub_end)
+                            if datetime.now() > end_date:
+                                # Subscription expired, update status
+                                self.revoke_premium_access(telegram_id, None)
+                                return False
+                            return True
+                        except ValueError:
+                            # Invalid date format, treat as permanent premium
+                            print(f"Invalid subscription_end format for user {telegram_id}, treating as permanent")
+                            return True
                 return False
-
+            return False
         except Exception as e:
-            print(f"❌ Error checking premium status for {telegram_id}: {e}")
+            print(f"DB Error (is_user_premium): {e}")
             return False
 
     def grant_premium_access(self, telegram_id, granted_by_id, days=30):
         """Grant premium access to a user"""
         try:
-            # Primary: Try Supabase
-            if days is None or days == 0: # Permanent premium
-                supabase_success = self.supabase_users.grant_lifetime_premium(telegram_id)
-            else:
-                supabase_success = self.supabase_users.grant_premium(telegram_id, days)
-
-            if supabase_success:
-                print(f"✅ Granted premium to user {telegram_id} in Supabase.")
-                self.log_user_activity(telegram_id, "premium_granted_supabase", f"Granted {'lifetime' if days is None else f'{days} days'} premium")
-                return True
-
-            # Fallback: Local database
+            # If days is None or 0, grant permanent premium
             if days is None or days == 0:
                 end_date_str = None
                 plan_type = 'permanent'
@@ -550,66 +456,45 @@ class Database:
                 plan_type = 'premium'
 
             self.cursor.execute("""
-                UPDATE users SET is_premium = 1, subscription_end = ?, updated_at = ? WHERE telegram_id = ?
-            """, (end_date_str, datetime.now().isoformat(), telegram_id))
+                UPDATE users SET is_premium = 1, subscription_end = ? WHERE telegram_id = ?
+            """, (end_date_str, telegram_id))
 
-            # Log the subscription locally if not done via Supabase
+            # Log the subscription
             self.cursor.execute("""
                 INSERT INTO subscriptions (telegram_id, plan, status, end_date, granted_by)
                 VALUES (?, ?, ?, ?, ?)
             """, (telegram_id, plan_type, 'active', end_date_str, granted_by_id))
 
             self.conn.commit()
-            self.backup_user_data(telegram_id)
-            print(f"✅ Granted {'permanent' if days is None else f'{days} days'} premium to user {telegram_id} locally.")
-            self.log_user_activity(telegram_id, "premium_granted", f"Granted {'permanent' if days is None else f'{days} days'} premium")
             return True
-
         except Exception as e:
-            print(f"❌ Error granting premium access to {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
+            print(f"DB Error (grant_premium_access): {e}")
             return False
 
     def revoke_premium_access(self, telegram_id, revoked_by_id):
         """Revoke premium access from a user"""
         try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.revoke_premium(telegram_id)
-            if supabase_success:
-                print(f"✅ Revoked premium from user {telegram_id} in Supabase.")
-                self.log_user_activity(telegram_id, "premium_revoked_supabase", "Premium status revoked")
-                return True
-
-            # Fallback: Local database
             self.cursor.execute("""
-                UPDATE users SET is_premium = 0, subscription_end = NULL, updated_at = ? WHERE telegram_id = ?
-            """, (datetime.now().isoformat(), telegram_id))
+                UPDATE users SET is_premium = 0, subscription_end = NULL WHERE telegram_id = ?
+            """, (telegram_id,))
 
-            # Update subscription status locally if not handled by Supabase
+            # Update subscription status
             self.cursor.execute("""
-                UPDATE subscriptions SET status = 'revoked'
+                UPDATE subscriptions SET status = 'revoked' 
                 WHERE telegram_id = ? AND status = 'active'
             """, (telegram_id,))
 
             self.conn.commit()
-            self.backup_user_data(telegram_id)
-            print(f"✅ Revoked premium from user {telegram_id} locally.")
-            self.log_user_activity(telegram_id, "premium_revoked", "Premium status revoked")
             return True
-
         except Exception as e:
-            print(f"❌ Error revoking premium access from {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
+            print(f"DB Error (revoke_premium_access): {e}")
             return False
 
     def get_user_portfolio(self, telegram_id):
         """Get user's portfolio"""
-        # Note: Supabase integration for portfolio is not specified, so this remains local DB focused.
         try:
             self.cursor.execute("""
-                SELECT symbol, amount, avg_buy_price, created_at
+                SELECT symbol, amount, avg_buy_price, created_at 
                 FROM portfolio WHERE telegram_id = ?
             """, (telegram_id,))
             rows = self.cursor.fetchall()
@@ -620,23 +505,26 @@ class Database:
 
     def add_portfolio_item(self, telegram_id, symbol, amount, avg_buy_price):
         """Add or update portfolio item"""
-        # Note: Supabase integration for portfolio is not specified.
         try:
+            # Check if item exists
             self.cursor.execute("""
-                SELECT amount, avg_buy_price FROM portfolio
+                SELECT amount, avg_buy_price FROM portfolio 
                 WHERE telegram_id = ? AND symbol = ?
             """, (telegram_id, symbol))
             existing = self.cursor.fetchone()
 
             if existing:
+                # Update existing item (average the prices)
                 old_amount, old_price = existing
                 new_amount = old_amount + amount
                 new_avg_price = ((old_amount * old_price) + (amount * avg_buy_price)) / new_amount
+
                 self.cursor.execute("""
-                    UPDATE portfolio SET amount = ?, avg_buy_price = ?
+                    UPDATE portfolio SET amount = ?, avg_buy_price = ? 
                     WHERE telegram_id = ? AND symbol = ?
                 """, (new_amount, new_avg_price, telegram_id, symbol))
             else:
+                # Add new item
                 self.cursor.execute("""
                     INSERT INTO portfolio (telegram_id, symbol, amount, avg_buy_price)
                     VALUES (?, ?, ?, ?)
@@ -668,7 +556,7 @@ class Database:
             self.cursor.execute("""
                 INSERT INTO user_activity (user_id, action, details, timestamp)
                 VALUES (?, ?, ?, ?)
-            """, (0, "auto_signal_broadcast", details, datetime.now().isoformat())) # Using user_id 0 for bot actions
+            """, (0, "auto_signal_broadcast", details, datetime.now().isoformat()))
             self.conn.commit()
             print(f"[AUTO-SIGNAL SND] 📝 Broadcast logged: {details}")
             return True
@@ -677,7 +565,7 @@ class Database:
             return False
 
     def get_user_stats(self):
-        """Get user statistics for admin panel (local fallback)"""
+        """Get user statistics for admin panel"""
         try:
             self.cursor.execute("SELECT COUNT(*) FROM users")
             total_users = self.cursor.fetchone()[0]
@@ -697,353 +585,231 @@ class Database:
             return {'total_users': 0, 'premium_users': 0, 'free_users': 0}
 
     def get_user_credits(self, telegram_id):
-        """Get user's current credits with Supabase first, local fallback"""
+        """Get user's current credits"""
         try:
-            # Primary: Check Supabase
-            credits_supabase = self.supabase_users.get_user_credits(telegram_id)
-            if credits_supabase is not None:
-                return credits_supabase
-
-            # Fallback: Local database
             user = self.get_user(telegram_id)
-            if user:
-                credits = user.get('credits')
-                if credits is None:
-                    # Fix NULL credits in local DB
-                    self.cursor.execute("""
-                        UPDATE users SET credits = 100 WHERE telegram_id = ?
-                    """, (telegram_id,))
-                    self.conn.commit()
-                    print(f"🔧 Fixed NULL credits for user {telegram_id} in local DB")
-                    return 100
-                return max(0, credits)  # Ensure non-negative
-            else:
-                return 0
+            return user.get('credits', 0) if user else 0
         except Exception as e:
-            print(f"❌ Error getting credits for {telegram_id}: {e}")
+            print(f"Error getting user credits: {e}")
             return 0
 
-    def add_credits(self, telegram_id, amount):
-        """Add credits to user account with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.add_user_credits(telegram_id, amount)
-            if supabase_success:
-                print(f"✅ Added {amount} credits to user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "credits_added", f"Added {amount} credits")
-                return True
-
-            # Fallback: Local database
-            current_credits = self.get_user_credits(telegram_id)
-            new_credits = current_credits + amount
-
-            self.cursor.execute("""
-                UPDATE users SET credits = ?, updated_at = ? WHERE telegram_id = ?
-            """, (new_credits, datetime.now().isoformat(), telegram_id))
-
-            self.conn.commit()
-            self.backup_user_data(telegram_id) # Backup after update
-
-            print(f"✅ Added {amount} credits to user {telegram_id} locally (Total: {new_credits})")
-            self.log_user_activity(telegram_id, "credits_added", f"Added {amount} credits")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error adding credits to {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
-
-    def deduct_credit(self, telegram_id, amount):
-        """Deduct credits from user account with Supabase first, local fallback"""
-        try:
-            # Check current credits first
-            current_credits = self.get_user_credits(telegram_id)
-
-            if current_credits < amount:
-                print(f"❌ Insufficient credits for user {telegram_id}: {current_credits} < {amount}")
-                return False
-
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.deduct_user_credits(telegram_id, amount)
-            if supabase_success:
-                print(f"✅ Deducted {amount} credits from user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "credits_deducted", f"Deducted {amount} credits")
-                return True
-
-            # Fallback: Local database
-            new_credits = current_credits - amount
-
-            self.cursor.execute("""
-                UPDATE users SET credits = ?, updated_at = ? WHERE telegram_id = ?
-            """, (new_credits, datetime.now().isoformat(), telegram_id))
-
-            self.conn.commit()
-            self.backup_user_data(telegram_id) # Backup after update
-
-            print(f"✅ Deducted {amount} credits from user {telegram_id} locally (Remaining: {new_credits})")
-            self.log_user_activity(telegram_id, "credits_deducted", f"Deducted {amount} credits")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error deducting credits from {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
-
-    def grant_premium(self, telegram_id, days):
-        """Grant premium status to user with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.grant_premium(telegram_id, days)
-            if supabase_success:
-                print(f"✅ Granted {days} days premium to user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "premium_granted", f"Granted {days} days premium")
-                return True
-
-            # Fallback: Local database
-            subscription_end = (datetime.now() + timedelta(days=days)).isoformat()
-
-            self.cursor.execute("""
-                UPDATE users SET
-                is_premium = 1,
-                subscription_end = ?,
-                updated_at = ?
-                WHERE telegram_id = ?
-            """, (subscription_end, datetime.now().isoformat(), telegram_id))
-
-            self.conn.commit()
-            self.backup_user_data(telegram_id)
-
-            print(f"✅ Granted {days} days premium to user {telegram_id} locally")
-            self.log_user_activity(telegram_id, "premium_granted", f"Granted {days} days premium")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error granting premium to {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
-
-    def grant_permanent_premium(self, telegram_id):
-        """Grant permanent premium status with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.grant_lifetime_premium(telegram_id)
-            if supabase_success:
-                print(f"✅ Granted lifetime premium to user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "permanent_premium_granted", "Granted permanent premium")
-                return True
-
-            # Fallback: Local database
-            self.cursor.execute("""
-                UPDATE users SET
-                is_premium = 1,
-                subscription_end = NULL,
-                updated_at = ?
-                WHERE telegram_id = ?
-            """, (datetime.now().isoformat(), telegram_id))
-
-            self.conn.commit()
-            self.backup_user_data(telegram_id)
-
-            print(f"✅ Granted permanent premium to user {telegram_id} locally")
-            self.log_user_activity(telegram_id, "permanent_premium_granted", "Granted permanent premium")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error granting permanent premium to {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
-
-    def revoke_premium(self, telegram_id):
-        """Revoke premium status from user with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.revoke_premium(telegram_id)
-            if supabase_success:
-                print(f"✅ Revoked premium from user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "premium_revoked", "Premium status revoked")
-                return True
-
-            # Fallback: Local database
-            self.cursor.execute("""
-                UPDATE users SET
-                is_premium = 0,
-                subscription_end = ?,
-                updated_at = ?
-                WHERE telegram_id = ?
-            """, (datetime.now().isoformat(), datetime.now().isoformat(), telegram_id))
-
-            self.conn.commit()
-            self.backup_user_data(telegram_id)
-
-            print(f"✅ Revoked premium from user {telegram_id} locally")
-            self.log_user_activity(telegram_id, "premium_revoked", "Premium status revoked")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error revoking premium from {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
-            return False
-
-    def get_all_users(self):
-        """Get all users for broadcast purposes with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_users_list = self.supabase_users.get_all_users()
-            if supabase_users_list:
-                return supabase_users_list
-
-            # Fallback: Local database
-            self.cursor.execute("""
-                SELECT telegram_id, username, first_name, is_premium FROM users
-            """)
-
-            users = []
-            for row in self.cursor.fetchall():
-                users.append({
-                    'user_id': row[0],
-                    'username': row[1],
-                    'first_name': row[2],
-                    'is_premium': bool(row[3])
-                })
-
-            return users
-
-        except Exception as e:
-            print(f"❌ Error getting all users: {e}")
-            return []
-
     def get_eligible_auto_signal_users(self):
-        """Get users eligible for auto signals (admin + lifetime) with Supabase first"""
+        """Get users eligible for auto signals (Admin + Lifetime premium users)"""
         try:
-            # Primary: Try Supabase
-            supabase_eligible_users = self.supabase_users.get_eligible_auto_signal_users()
-            if supabase_eligible_users:
-                return supabase_eligible_users
+            # Get admin user
+            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
+            eligible_users = []
 
-            # Fallback: Local database
-            users = []
-            
-            # Add both admin users from environment
-            admin_user_id = os.getenv('ADMIN_USER_ID')
-            admin2_user_id = os.getenv('ADMIN2_USER_ID')
-            
-            if admin_user_id:
-                try:
-                    admin_id = int(admin_user_id)
-                    users.append({
-                        'user_id': admin_id,
+            if admin_id > 0:
+                # Check if admin exists in database
+                admin_user = self.get_user(admin_id)
+                if admin_user:
+                    eligible_users.append({
                         'telegram_id': admin_id,
-                        'first_name': 'Primary Admin',
-                        'username': 'admin',
+                        'first_name': admin_user.get('first_name', 'Admin'),
                         'type': 'admin'
                     })
-                except ValueError:
-                    pass
-            
-            if admin2_user_id:
-                try:
-                    admin2_id = int(admin2_user_id)
-                    users.append({
-                        'user_id': admin2_id,
-                        'telegram_id': admin2_id,
-                        'first_name': 'Secondary Admin',
-                        'username': 'admin2',
-                        'type': 'admin'
-                    })
-                except ValueError:
-                    pass
-            
-            # Add lifetime premium users
+                else:
+                    print(f"⚠️ Admin user {admin_id} not found in database")
+
+            # Get lifetime premium users (subscription_end IS NULL means lifetime)
             self.cursor.execute("""
-                SELECT telegram_id, first_name, username FROM users 
-                WHERE is_premium = 1 AND (subscription_end IS NULL OR subscription_end = '')
+                SELECT telegram_id, first_name FROM users 
+                WHERE is_premium = 1 AND subscription_end IS NULL
             """)
+            lifetime_users = self.cursor.fetchall()
 
-            for row in self.cursor.fetchall():
-                users.append({
-                    'user_id': row[0],
-                    'telegram_id': row[0],
-                    'first_name': row[1] or 'User',
-                    'username': row[2],
-                    'type': 'lifetime'
-                })
+            for user in lifetime_users:
+                if user[0] != admin_id:  # Don't duplicate admin
+                    eligible_users.append({
+                        'telegram_id': user[0],
+                        'first_name': user[1] or 'User',
+                        'type': 'lifetime'
+                    })
 
-            return users
+            print(f"👥 Auto signals eligible: Admin({admin_id}) + {len(lifetime_users)} Lifetime users")
+            return eligible_users
 
         except Exception as e:
             print(f"❌ Error getting eligible auto signal users: {e}")
             return []
 
-    def get_bot_statistics(self):
-        """Get comprehensive bot statistics with Supabase first, local fallback"""
+    def deduct_credit(self, telegram_id, amount):
+        """Deduct credits from user (only for non-premium, non-admin users)"""
         try:
-            # Primary: Try Supabase
-            supabase_stats = self.supabase_users.get_bot_statistics()
-            if supabase_stats and supabase_stats.get('total_users', 0) > 0:
-                return supabase_stats
+            # Check if user is admin or premium
+            if self.is_user_premium(telegram_id) or telegram_id == int(os.getenv('ADMIN_USER_ID', '0')):
+                # Admin and premium users don't lose credits
+                return True
 
-            # Fallback: Local database
-            stats = {}
+            self.cursor.execute("""
+                UPDATE users SET credits = credits - ? 
+                WHERE telegram_id = ? AND credits >= ?
+            """, (amount, telegram_id, amount))
 
+            if self.cursor.rowcount > 0:
+                self.conn.commit()
+                return True
+            return False
+        except Exception as e:
+            print(f"DB Error (deduct_credit): {e}")
+            return False
+
+    def get_bot_stats(self):
+        """Get bot statistics for admin panel"""
+        try:
             # Total users
             self.cursor.execute("SELECT COUNT(*) FROM users")
-            stats['total_users'] = self.cursor.fetchone()[0]
+            total_users = self.cursor.fetchone()[0]
 
             # Premium users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
-            stats['premium_users'] = self.cursor.fetchone()[0]
+            premium_users = self.cursor.fetchone()[0]
 
-            # Active users today (based on last_seen)
-            today_str = datetime.now().date().isoformat()
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(last_seen) = ?", (today_str,))
-            stats['active_today'] = self.cursor.fetchone()[0]
+            # Active today (users with activity in last 24 hours)
+            self.cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM user_activity 
+                WHERE timestamp >= datetime('now', '-1 day')
+            """)
+            active_today = self.cursor.fetchone()[0]
 
-            # Total credits distributed
-            self.cursor.execute("SELECT SUM(credits) FROM users")
-            result = self.cursor.fetchone()[0]
-            stats['total_credits'] = result if result else 0
+            return {
+                'total_users': total_users,
+                'premium_users': premium_users,
+                'active_today': active_today
+            }
+        except Exception as e:
+            print(f"DB Error (get_bot_stats): {e}")
+            return {'total_users': 0, 'premium_users': 0, 'active_today': 0}
+
+    def grant_premium(self, telegram_id, days=30):
+        """Grant premium access to a user"""
+        return self.grant_premium_access(telegram_id, None, days)
+
+    def grant_permanent_premium(self, telegram_id):
+        """Grant permanent premium access to a user"""
+        return self.grant_premium_access(telegram_id, None, None)
+
+    def grant_premium_by_package(self, telegram_id, package_type):
+        """Grant premium based on package type"""
+        package_days = {
+            '1_month': 30,
+            '2_months': 60,
+            '6_months': 180,
+            '1_year': 365,
+            'lifetime': None  # None means permanent
+        }
+
+        days = package_days.get(package_type)
+        if days is None and package_type == 'lifetime':
+            return self.grant_permanent_premium(telegram_id)
+        elif days is not None:
+            return self.grant_premium(telegram_id, days)
+        else:
+            return False
+
+    def revoke_premium(self, telegram_id):
+        """Revoke premium access from a user"""
+        return self.revoke_premium_access(telegram_id, None)
+
+    def add_to_portfolio(self, telegram_id, symbol, amount, avg_buy_price=0):
+        """Add coin to user's portfolio"""
+        return self.add_portfolio_item(telegram_id, symbol, amount, avg_buy_price)
+
+    def get_user_by_referral_code(self, referral_code):
+        """Get user ID by referral code"""
+        try:
+            self.cursor.execute("""
+                SELECT telegram_id FROM users WHERE referral_code = ?
+            """, (referral_code,))
+            row = self.cursor.fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            print(f"DB Error (get_user_by_referral_code): {e}")
+            return
+
+    def update_user_language(self, telegram_id, language):
+        """Update user language preference"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET language_code = ? WHERE telegram_id = ?
+            """, (language, telegram_id))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"DB Error (update_user_language): {e}")
+            return False
+
+    def get_bot_statistics(self):
+        """Get bot usage statistics"""
+        try:
+            # Total users
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL")
+            total_users = self.cursor.fetchone()[0]
+
+            # Premium users - fixed query
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM users 
+                WHERE is_premium = 1 AND telegram_id IS NOT NULL
+            """)
+            premium_users = self.cursor.fetchone()[0]
+
+            # Active today (users with activity in last 24 hours) - fixed column name
+            self.cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM user_activity 
+                WHERE timestamp >= datetime('now', '-1 day')
+            """)
+            active_today = self.cursor.fetchone()[0]
+
+            # Total credits 
+            self.cursor.execute("SELECT COALESCE(SUM(credits), 0) FROM users WHERE telegram_id IS NOT NULL")
+            total_credits = self.cursor.fetchone()[0]
+
+            # Commands today
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE timestamp >= datetime('now', '-1 day')
+            """)
+            commands_today = self.cursor.fetchone()[0]
 
             # Average credits per user
-            if stats['total_users'] > 0:
-                stats['avg_credits'] = stats['total_credits'] / stats['total_users']
-            else:
-                stats['avg_credits'] = 0
+            avg_credits = (total_credits / total_users) if total_users > 0 else 0
 
-            # Activity stats (commands today)
-            self.cursor.execute("SELECT COUNT(*) FROM user_activity WHERE DATE(timestamp) = ?", (today_str,))
-            stats['commands_today'] = self.cursor.fetchone()[0]
+            # Total analyses count
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM user_activity 
+                WHERE action IN ('analyze', 'futures_analysis', 'market_overview')
+            """)
+            analyses_count = self.cursor.fetchone()[0]
 
-            # Analysis count (approximated from user_activity actions)
-            self.cursor.execute("SELECT COUNT(*) FROM user_activity WHERE action LIKE '%analyze%'")
-            stats['analyses_count'] = self.cursor.fetchone()[0]
-
-            return stats
-
+            return {
+                'total_users': total_users,
+                'premium_users': premium_users,
+                'active_today': active_today,
+                'total_credits': total_credits,
+                'commands_today': commands_today,
+                'avg_credits': avg_credits,
+                'analyses_count': analyses_count
+            }
         except Exception as e:
-            print(f"❌ Error getting bot statistics: {e}")
+            print(f"DB Error (get_bot_statistics): {e}")
             return {
                 'total_users': 0,
                 'premium_users': 0,
                 'active_today': 0,
                 'total_credits': 0,
-                'avg_credits': 0,
                 'commands_today': 0,
+                'avg_credits': 0,
                 'analyses_count': 0
             }
 
     def get_recent_activity(self, limit=10):
         """Get recent user activity"""
-        # Note: Supabase integration for this is not specified.
         try:
             self.cursor.execute("""
-                SELECT user_id, action, details, timestamp
-                FROM user_activity
-                ORDER BY timestamp DESC
+                SELECT user_id, action, details, timestamp 
+                FROM user_activity 
+                ORDER BY timestamp DESC 
                 LIMIT ?
             """, (limit,))
 
@@ -1062,11 +828,25 @@ class Database:
 
     def revoke_premium(self, user_id):
         """Revoke premium status from user"""
-        # This method is an alias for revoke_premium_access
-        return self.revoke_premium_access(user_id, None) # None for revoked_by_id
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET is_premium = 0, subscription_end = NULL 
+                WHERE telegram_id = ?
+            """, (user_id,))
+
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
+                print(f"✅ Premium revoked for user {user_id}")
+
+            return success
+        except Exception as e:
+            print(f"Error revoking premium for user {user_id}: {e}")
+            return False
 
     def fix_all_user_credits(self):
-        """Fix all users with NULL or negative credits (local DB operation)"""
+        """Fix all users with NULL or negative credits"""
         try:
             # Fix NULL credits
             self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
@@ -1079,16 +859,20 @@ class Database:
             self.conn.commit()
 
             total_fixed = null_fixed + negative_fixed
-            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed}) in local DB")
+            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
+
             return total_fixed
         except Exception as e:
             print(f"Error fixing all user credits: {e}")
             return 0
 
     def mark_all_users_for_restart(self):
-        """Mark all users as needing restart by logging an event"""
+        """Mark all users as needing restart"""
         try:
+            # Add a restart flag to user activity
             current_time = datetime.now().isoformat()
+
+            # Get all users
             self.cursor.execute("SELECT telegram_id FROM users")
             users = self.cursor.fetchall()
 
@@ -1096,21 +880,22 @@ class Database:
                 user_id = user[0]
                 self.log_user_activity(user_id, "restart_required", f"Bot restart at {current_time}")
 
-            print(f"✅ Marked {len(users)} users for restart in local activity log")
+            print(f"✅ Marked {len(users)} users for restart")
             return len(users)
         except Exception as e:
             print(f"Error marking users for restart: {e}")
             return 0
 
     def user_needs_restart(self, user_id):
-        """Check if user needs to restart after admin restart (checks local activity log)"""
+        """Check if user needs to restart after admin restart"""
         try:
+            # Check if user has restart_required flag and hasn't cleared it
             self.cursor.execute("""
-                SELECT COUNT(*) FROM user_activity
-                WHERE user_id = ? AND action = 'restart_required'
+                SELECT COUNT(*) FROM user_activity 
+                WHERE user_id = ? AND action = 'restart_required' 
                 AND timestamp > (
-                    SELECT COALESCE(MAX(timestamp), '1970-01-01')
-                    FROM user_activity
+                    SELECT COALESCE(MAX(timestamp), '1970-01-01') 
+                    FROM user_activity 
                     WHERE user_id = ? AND action = 'user_reactivated'
                 )
             """, (user_id, user_id))
@@ -1122,36 +907,36 @@ class Database:
             return False
 
     def clear_restart_flag(self, user_id):
-        """Clear restart flag for user (handled by logging 'user_reactivated')"""
+        """Clear restart flag for user"""
         try:
-            self.log_user_activity(user_id, "user_reactivated", f"User acknowledged restart/re-activated.")
+            # This is handled by logging the reactivation
             return True
         except Exception as e:
             print(f"Error clearing restart flag for user {user_id}: {e}")
             return False
 
     def refresh_all_free_user_credits(self):
-        """Give bonus credits to all free users (local DB operation)"""
+        """Give bonus credits to all free users"""
         try:
             self.cursor.execute("""
-                UPDATE users
-                SET credits = credits + 50
-                WHERE is_premium = 0 AND telegram_id IS NOT NULL
+                UPDATE users 
+                SET credits = credits + 50 
+                WHERE is_premium = 0
             """)
 
             refreshed_count = self.cursor.rowcount
             self.conn.commit()
 
-            print(f"✅ Gave +50 credits to {refreshed_count} free users in local DB")
+            print(f"✅ Gave +50 credits to {refreshed_count} free users")
             return refreshed_count
         except Exception as e:
             print(f"Error refreshing free user credits: {e}")
             return 0
 
     def log_auto_signals_broadcast(self, signals_count, success_count, total_eligible):
-        """Log auto signals broadcast for tracking (local DB operation)"""
+        """Log auto signals broadcast for tracking"""
         try:
-            admin_id = int(os.getenv('ADMIN_USER_ID', '0')) # Use 0 or a specific bot admin ID
+            admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
             details = f"Sent {signals_count} signals to {success_count}/{total_eligible} eligible users"
 
             self.cursor.execute("""
@@ -1165,83 +950,32 @@ class Database:
             print(f"Error logging auto signals broadcast: {e}")
             return False
 
-    def get_user_by_referral_code(self, referral_code):
-        """Get user ID by referral code (local DB operation)"""
+    def get_all_users(self):
+        """Get all users for broadcast functionality"""
         try:
             self.cursor.execute("""
-                SELECT telegram_id FROM users WHERE referral_code = ?
-            """, (referral_code,))
-            row = self.cursor.fetchone()
-            return row[0] if row else None
+                SELECT telegram_id, first_name, username, is_premium, created_at
+                FROM users 
+                WHERE telegram_id IS NOT NULL AND telegram_id != 0
+                ORDER BY created_at DESC
+            """)
+
+            results = []
+            for row in self.cursor.fetchall():
+                results.append({
+                    'user_id': row[0],
+                    'first_name': row[1],
+                    'username': row[2],
+                    'is_premium': row[3],
+                    'created_at': row[4]
+                })
+            return results
         except Exception as e:
-            print(f"DB Error (get_user_by_referral_code): {e}")
-            return None
-
-    def update_user_language(self, telegram_id, language):
-        """Update user language preference"""
-        # This logic might be better handled by `update_user_info`
-        # but keeping it if it has specific use cases.
-        try:
-            self.cursor.execute("""
-                UPDATE users SET language_code = ?, updated_at = ? WHERE telegram_id = ?
-            """, (language, datetime.now().isoformat(), telegram_id))
-
-            success = self.cursor.rowcount > 0
-            if success:
-                self.conn.commit()
-                self.backup_user_data(telegram_id)
-            return success
-        except Exception as e:
-            print(f"DB Error (update_user_language): {e}")
-            return False
-
-    def get_bot_statistics(self):
-        """Get comprehensive bot statistics with Supabase first, local fallback"""
-        try:
-            # Primary: Try Supabase
-            supabase_stats = self.supabase_users.get_bot_statistics()
-            if supabase_stats and supabase_stats.get('total_users', 0) > 0:
-                return supabase_stats
-
-            # Fallback: Local database
-            stats = {}
-
-            self.cursor.execute("SELECT COUNT(*) FROM users")
-            stats['total_users'] = self.cursor.fetchone()[0]
-
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
-            stats['premium_users'] = self.cursor.fetchone()[0]
-
-            today_str = datetime.now().date().isoformat()
-            self.cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(last_seen) = ?", (today_str,))
-            stats['active_today'] = self.cursor.fetchone()[0]
-
-            self.cursor.execute("SELECT SUM(credits) FROM users")
-            result = self.cursor.fetchone()[0]
-            stats['total_credits'] = result if result else 0
-
-            if stats['total_users'] > 0:
-                stats['avg_credits'] = stats['total_credits'] / stats['total_users']
-            else:
-                stats['avg_credits'] = 0
-
-            self.cursor.execute("SELECT COUNT(*) FROM user_activity WHERE DATE(timestamp) = ?", (today_str,))
-            stats['commands_today'] = self.cursor.fetchone()[0]
-
-            self.cursor.execute("SELECT COUNT(*) FROM user_activity WHERE action LIKE '%analyze%'")
-            stats['analyses_count'] = self.cursor.fetchone()[0]
-
-            return stats
-
-        except Exception as e:
-            print(f"❌ Error getting bot statistics: {e}")
-            return {
-                'total_users': 0, 'premium_users': 0, 'active_today': 0,
-                'total_credits': 0, 'avg_credits': 0, 'commands_today': 0, 'analyses_count': 0
-            }
+            print(f"Error getting all users: {e}")
+            return []
 
     def get_user_by_premium_referral_code(self, premium_code):
-        """Get user ID by premium referral code (local DB operation)"""
+        """Get user ID by premium referral code"""
         try:
             self.cursor.execute("""
                 SELECT telegram_id FROM users WHERE premium_referral_code = ?
@@ -1253,7 +987,7 @@ class Database:
             return None
 
     def get_user_referral_codes(self, telegram_id):
-        """Get both referral codes for a user (local DB operation)"""
+        """Get both referral codes for a user"""
         try:
             self.cursor.execute("""
                 SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?
@@ -1270,16 +1004,18 @@ class Database:
             return None
 
     def get_premium_referral_stats(self, telegram_id):
-        """Get premium referral statistics for a user (local DB operation)"""
+        """Get premium referral statistics for a user"""
         try:
+            # Get total premium referrals and earnings
             self.cursor.execute("""
-                SELECT COUNT(*), COALESCE(SUM(earnings), 0)
-                FROM premium_referrals
+                SELECT COUNT(*), COALESCE(SUM(earnings), 0) 
+                FROM premium_referrals 
                 WHERE referrer_id = ? AND status = 'paid'
             """, (telegram_id,))
 
             total_referrals, total_earnings = self.cursor.fetchone()
 
+            # Get recent premium referrals
             self.cursor.execute("""
                 SELECT pr.referred_id, u.first_name, pr.subscription_type, pr.earnings, pr.created_at
                 FROM premium_referrals pr
@@ -1301,30 +1037,35 @@ class Database:
             return {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
 
     def record_premium_referral_reward(self, referrer_id, referred_id, subscription_type, package_amount):
-        """Record premium referral reward when someone subscribes (local DB operation)"""
+        """Record premium referral reward when someone subscribes"""
         try:
-            earnings = 10000 # Fixed earning per referral
+            # Calculate earnings (Rp 10,000 per premium subscription)
+            earnings = 10000
 
             self.cursor.execute("""
-                INSERT INTO premium_referrals
+                INSERT INTO premium_referrals 
                 (referrer_id, referred_id, subscription_type, subscription_amount, earnings, status, created_at)
                 VALUES (?, ?, ?, ?, ?, 'paid', datetime('now'))
             """, (referrer_id, referred_id, subscription_type, package_amount, earnings))
 
+            # Update referrer's premium earnings
             self.cursor.execute("""
-                UPDATE users SET premium_earnings = premium_earnings + ?, updated_at = ? WHERE telegram_id = ?
-            """, (earnings, datetime.now().isoformat(), referrer_id))
+                UPDATE users SET premium_earnings = premium_earnings + ? WHERE telegram_id = ?
+            """, (earnings, referrer_id))
 
             self.conn.commit()
-            self.log_user_activity(referrer_id, "premium_referral_reward",
+
+            # Log the reward
+            self.log_user_activity(referrer_id, "premium_referral_reward", 
                                  f"Earned Rp {earnings:,} from {referred_id} subscribing {subscription_type}")
+
             return True
         except Exception as e:
             print(f"Error recording premium referral reward: {e}")
             return False
 
     def check_premium_referral(self, telegram_id):
-        """Check if user was referred via premium referral code (local DB operation)"""
+        """Check if user was referred via premium referral code"""
         try:
             self.cursor.execute("""
                 SELECT referred_by FROM users WHERE telegram_id = ?
@@ -1336,38 +1077,23 @@ class Database:
             return None
 
     def add_credits(self, telegram_id, amount):
-        """Add credits to user account with Supabase first, local fallback"""
+        """Add credits to user account"""
         try:
-            # Primary: Try Supabase
-            supabase_success = self.supabase_users.add_user_credits(telegram_id, amount)
-            if supabase_success:
-                print(f"✅ Added {amount} credits to user {telegram_id} in Supabase")
-                self.log_user_activity(telegram_id, "credits_added", f"Added {amount} credits")
-                return True
-
-            # Fallback: Local database
-            current_credits = self.get_user_credits(telegram_id)
-            new_credits = current_credits + amount
-
             self.cursor.execute("""
-                UPDATE users SET credits = ?, updated_at = ? WHERE telegram_id = ?
-            """, (new_credits, datetime.now().isoformat(), telegram_id))
+                UPDATE users SET credits = credits + ? WHERE telegram_id = ?
+            """, (amount, telegram_id))
 
-            self.conn.commit()
-            self.backup_user_data(telegram_id)
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
 
-            print(f"✅ Added {amount} credits to user {telegram_id} locally (Total: {new_credits})")
-            self.log_user_activity(telegram_id, "credits_added", f"Added {amount} credits")
-            return True
-
+            return success
         except Exception as e:
-            print(f"❌ Error adding credits to {telegram_id}: {e}")
-            if self.conn:
-                self.conn.rollback()
+            print(f"DB Error (add_credits): {e}")
             return False
 
     def ensure_user_persistence(self, telegram_id, username, first_name, last_name, language_code):
-        """Ensure user data persists correctly, creating if not exists"""
+        """Ensure user data persists correctly"""
         try:
             existing_user = self.get_user(telegram_id)
             if existing_user:
@@ -1381,81 +1107,58 @@ class Database:
             return False
 
     def backup_user_data(self, telegram_id):
-        """Create backup of user data for recovery (in-memory backup)"""
+        """Create backup of user data for recovery"""
         try:
             user = self.get_user(telegram_id)
             if user:
-                self.backup_users[telegram_id] = user # Store a copy
-                # Log the backup event for auditing
-                self.log_user_activity(telegram_id, "user_backup_created", f"Backup created for user data.")
+                backup_data = f"User backup: {user}"
+                self.log_user_activity(telegram_id, "user_backup", backup_data[:200])
                 return True
             return False
         except Exception as e:
-            print(f"Error backing up user data for {telegram_id}: {e}")
-            return False
-
-    def _restore_user_from_backup(self, telegram_id, backup_data):
-        """Internal method to restore user data from backup (example)"""
-        # This is a placeholder for a more robust recovery mechanism.
-        # It assumes backup_data is a dictionary of user info.
-        print(f"Attempting to restore user {telegram_id} from backup...")
-        if not backup_data:
-            print(f"No backup data found for user {telegram_id}.")
-            return False
-
-        try:
-            # Example: Re-create or update user using backup data
-            # This might involve calling create_user or update_user_info
-            # Ensure to handle potential inconsistencies or missing fields.
-            self.create_user(
-                telegram_id=backup_data.get('telegram_id'),
-                username=backup_data.get('username'),
-                first_name=backup_data.get('first_name'),
-                last_name=backup_data.get('last_name'),
-                language_code=backup_data.get('language_code')
-            )
-            # You might also need to restore other fields like credits, premium status etc.
-            # This is a simplified example.
-
-            self.log_user_activity(telegram_id, "user_restored_from_backup", "User data restored from backup.")
-            print(f"User {telegram_id} restoration process initiated from backup.")
-            return True
-        except Exception as e:
-            print(f"Error during _restore_user_from_backup for {telegram_id}: {e}")
+            print(f"Error backing up user data: {e}")
             return False
 
     def recover_user_from_backup(self, telegram_id):
         """Attempt to recover user from backup logs"""
         try:
-            user_backup = self.backup_users.get(telegram_id)
-            if user_backup:
-                return self._restore_user_from_backup(telegram_id, user_backup)
-            else:
-                print(f"No backup found for user {telegram_id} to recover.")
-                return False
+            # This is a placeholder - implement based on your backup strategy
+            self.log_user_activity(telegram_id, "recovery_attempted", f"Recovery attempted for user {telegram_id}")
+            return True
         except Exception as e:
-            print(f"Error recovering user {telegram_id} from backup: {e}")
+            print(f"Error recovering user from backup: {e}")
             return False
 
     def set_user_language(self, telegram_id, language):
         """Set user language preference"""
-        # This method is an alias for updating language code, potentially via update_user_info.
-        return self.update_user_info(telegram_id=telegram_id, language_code=language)
+        try:
+            self.cursor.execute("""
+                UPDATE users SET language_code = ? WHERE telegram_id = ?
+            """, (language, telegram_id))
+
+            success = self.cursor.rowcount > 0
+            if success:
+                self.conn.commit()
+
+            return success
+        except Exception as e:
+            print(f"DB Error (set_user_language): {e}")
+            return False
 
     def create_automatic_backup(self):
-        """Create automatic backup of critical user data (local DB operation)"""
+        """Create automatic backup of critical user data"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             # Backup users table
             self.cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS users_backup_{timestamp} AS
+                CREATE TABLE IF NOT EXISTS users_backup_{timestamp} AS 
                 SELECT * FROM users WHERE telegram_id IS NOT NULL
             """)
 
             # Backup premium referrals
             self.cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS premium_referrals_backup_{timestamp} AS
+                CREATE TABLE IF NOT EXISTS premium_referrals_backup_{timestamp} AS 
                 SELECT * FROM premium_referrals
             """)
 
@@ -1468,14 +1171,17 @@ class Database:
             return None
 
     def verify_user_data_integrity(self):
-        """Verify user data integrity after updates (local DB operation)"""
+        """Verify user data integrity after updates"""
         try:
+            # Check for premium users
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1")
             premium_count = self.cursor.fetchone()[0]
 
+            # Check for lifetime users (subscription_end IS NULL)
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND subscription_end IS NULL")
             lifetime_count = self.cursor.fetchone()[0]
 
+            # Check for data corruption
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
             corrupt_count = self.cursor.fetchone()[0]
 
@@ -1486,7 +1192,7 @@ class Database:
                 'integrity_ok': corrupt_count == 0
             }
 
-            print(f"📊 Data Integrity Check: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
+            print(f"📊 Data Integrity: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
             return integrity_report
 
         except Exception as e:
@@ -1498,6 +1204,5 @@ class Database:
         try:
             if self.conn:
                 self.conn.close()
-                print("✅ Database connection closed.")
         except Exception as e:
             print(f"Error closing database: {e}")
