@@ -29,7 +29,7 @@ class AIAssistant:
         self.supabase = self._init_supabase()
         self.supabase_connected = self._validate_supabase_connection()
         
-        # Admin logging system
+        # Admin logging system - ensure this is always initialized
         self.admin_log = []
 
         # Enhanced configuration
@@ -88,6 +88,10 @@ class AIAssistant:
 
     def _log_admin_error(self, command, error_detail):
         """Log errors for admin only"""
+        # Initialize admin_log if it doesn't exist
+        if not hasattr(self, 'admin_log'):
+            self.admin_log = []
+            
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'command': command,
