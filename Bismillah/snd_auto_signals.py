@@ -346,10 +346,10 @@ class SnDAutoSignals:
 
             message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
 {confidence_emoji} Confidence: {signal['confidence']:.1f}%
-💰 Entry: ${signal['entry_price']:.2f}
-🛑 Stop Loss: ${signal['sl']:.2f}
-🎯 TP1: ${signal['tp1']:.2f}
-🎯 TP2: ${signal['tp2']:.2f}
+💰 Entry: ${signal['entry_price']:,.2f}
+🛑 Stop Loss: ${signal['sl']:,.2f}
+🎯 TP1: ${signal['tp1']:,.2f}
+🎯 TP2: ${signal['tp2']:,.2f}
 📊 R/R Ratio: {signal['risk_reward']:.1f}:1
 🔄 Trend: {signal['trend'].title()}
 ⚡ Structure: {signal['market_structure'].replace('_', ' ').title()}

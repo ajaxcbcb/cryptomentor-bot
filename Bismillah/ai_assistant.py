@@ -232,7 +232,7 @@ class AIAssistant:
                 return f"${price:.6f}"
             elif price < 1:
                 return f"${price:.4f}"
-            elif price < 100:
+            elif price < 1000:
                 return f"${price:.2f}"
             else:
                 return f"${price:,.2f}"
