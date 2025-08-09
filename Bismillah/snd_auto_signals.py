@@ -102,165 +102,35 @@ class SnDAutoSignals:
         self.last_scan_time = time.time()
 
     async def analyze_enhanced_snd_signal(self, symbol):
-        """Analyze enhanced SnD for a single symbol with FORCED entry logic"""
+        """Analyze enhanced SnD signal using exact /futures_signals logic for consistency"""
         try:
-            # Get comprehensive data
-            snd_analysis = self.crypto_api.analyze_supply_demand(symbol, '1h')
-            price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
-            futures_data = self.crypto_api.get_long_short_ratio(symbol)
+            # Use the same logic as /futures_signals command through the AI assistant
+            signal = await self._enhanced_scan_symbol_for_signal(symbol, self.crypto_api)
 
-            if 'error' in price_data:
-                print(f"❌ Price data error for {symbol}")
-                return None
+            if signal and signal.get('confidence', 0) >= self.min_confidence:
+                # Ensure the format matches our expectations
+                return {
+                    'symbol': signal['symbol'],
+                    'direction': signal['direction'],
+                    'entry_price': signal['entry'],  # Match old format
+                    'tp1': signal['tp1'],
+                    'tp2': signal['tp2'],
+                    'sl': signal['sl'],
+                    'confidence': signal['confidence'],
+                    'risk_reward': signal['rr_ratio'],
+                    'current_price': signal.get('current_price', 0),
+                    'trend': signal['trend'],
+                    'market_structure': signal['structure'] + '_bias',
+                    'risk_level': 'medium',
+                    'timeframe': '1h',
+                    'scan_time': datetime.now().strftime('%H:%M:%S'),
+                    'reason': signal['reason'],
+                    'zone_strength': 75,
+                    'long_ratio': signal.get('long_ratio', 50),
+                    'change_24h': signal.get('change_24h', 0)
+                }
 
-            current_price = price_data.get('price', 0)
-            if current_price <= 0:
-                return None
-
-            change_24h = price_data.get('change_24h', 0)
-            long_ratio = futures_data.get('long_ratio', 50) if 'error' not in futures_data else 50
-
-            # BALANCED DECISION LOGIC - Proper LONG and SHORT analysis
-            direction = "LONG"  # Default
-            base_confidence = 70  # Auto signals need higher confidence
-            reason = "Auto signal analysis"
-            
-            # Score-based approach for balanced signals
-            long_score = 0
-            short_score = 0
-
-            # Factor 1: 24h price change (strongest indicator)
-            if change_24h > 5:
-                long_score += 3
-                reason = f"Strong bullish momentum (+{change_24h:.1f}%)"
-            elif change_24h > 2:
-                long_score += 2
-                reason = f"Bullish momentum (+{change_24h:.1f}%)"
-            elif change_24h > 0:
-                long_score += 1
-                reason = f"Positive momentum (+{change_24h:.1f}%)"
-            elif change_24h < -5:
-                short_score += 3
-                reason = f"Strong bearish momentum ({change_24h:.1f}%)"
-            elif change_24h < -2:
-                short_score += 2
-                reason = f"Bearish momentum ({change_24h:.1f}%)"
-            elif change_24h < 0:
-                short_score += 1
-                reason = f"Negative momentum ({change_24h:.1f}%)"
-
-            # Factor 2: Long/Short ratio analysis (balanced approach)
-            if long_ratio > 70:
-                short_score += 2  # Contrarian: too many longs
-                if reason == "Auto signal analysis":
-                    reason = f"Overcrowded longs ({long_ratio:.1f}%)"
-            elif long_ratio > 60:
-                short_score += 1  # Slight contrarian bias
-            elif long_ratio < 30:
-                long_score += 2   # Contrarian: too many shorts
-                if reason == "Auto signal analysis":
-                    reason = f"Oversold conditions ({long_ratio:.1f}%)"
-            elif long_ratio < 40:
-                long_score += 1   # Slight bullish bias
-
-            # Factor 3: SnD analysis if available
-            if 'error' not in snd_analysis:
-                signals = snd_analysis.get('signals', [])
-                if signals:
-                    best_signal = max(signals, key=lambda x: x.get('confidence', 0))
-                    signal_direction = best_signal.get('direction', 'LONG')
-                    signal_confidence = best_signal.get('confidence', 0)
-                    
-                    if signal_direction == 'LONG' and signal_confidence > 60:
-                        long_score += 2
-                        if reason == "Auto signal analysis":
-                            reason = f"SnD long zone confirmed"
-                    elif signal_direction == 'SHORT' and signal_confidence > 60:
-                        short_score += 2
-                        if reason == "Auto signal analysis":
-                            reason = f"SnD short zone confirmed"
-                else:
-                    # Use trend score for additional bias
-                    trend_score = snd_analysis.get('trend_score', 0)
-                    if trend_score > 1:
-                        long_score += 1
-                    elif trend_score < -1:
-                        short_score += 1
-
-            # Factor 4: Market structure (if available)
-            if 'error' not in snd_analysis:
-                market_structure = snd_analysis.get('market_structure', {})
-                pattern = market_structure.get('pattern', '')
-                if pattern == 'uptrend':
-                    long_score += 1
-                elif pattern == 'downtrend':
-                    short_score += 1
-
-            # Determine final direction based on scores
-            if long_score > short_score:
-                direction = "LONG"
-                base_confidence += min(15, long_score * 3)
-                if reason == "Auto signal analysis":
-                    reason = f"Bullish confluence (score: {long_score})"
-            elif short_score > long_score:
-                direction = "SHORT"
-                base_confidence += min(15, short_score * 3)
-                if reason == "Auto signal analysis":
-                    reason = f"Bearish confluence (score: {short_score})"
-            else:
-                # Equal scores - use price momentum as tiebreaker
-                if change_24h >= 0:
-                    direction = "LONG"
-                    reason = f"Neutral bias, slight bullish tiebreaker"
-                else:
-                    direction = "SHORT"
-                    reason = f"Neutral bias, slight bearish tiebreaker"
-
-            # Calculate entry, TP, SL with better risk management
-            if direction == "LONG":
-                entry_price = current_price * 0.997  # Better entry
-                tp1 = current_price * 1.03   # 3% profit
-                tp2 = current_price * 1.055  # 5.5% profit
-                sl = current_price * 0.97    # 3% loss
-            else:  # SHORT
-                entry_price = current_price * 1.003  # Better entry
-                tp1 = current_price * 0.97   # 3% profit
-                tp2 = current_price * 0.945  # 5.5% profit
-                sl = current_price * 1.03    # 3% loss
-
-            # Risk/Reward calculation
-            risk = abs(entry_price - sl)
-            reward = abs(tp2 - entry_price)
-            rr_ratio = reward / risk if risk > 0 else 2.0
-
-            # Final confidence (auto signals need minimum 80% for reduced spam)
-            final_confidence = min(95, max(80, base_confidence))
-
-            # Only return signal if it meets our strict confidence requirement
-            if final_confidence < self.min_confidence:
-                print(f"[AUTO-SIGNAL SND] ❌ Signal rejected for {symbol}: confidence {final_confidence:.1f}% < required {self.min_confidence}%")
-                return None
-
-            return {
-                'symbol': symbol,
-                'direction': direction,
-                'entry_price': round(entry_price, 6),
-                'tp1': round(tp1, 6),
-                'tp2': round(tp2, 6),
-                'sl': round(sl, 6),
-                'confidence': final_confidence,
-                'risk_reward': round(rr_ratio, 1),
-                'current_price': current_price,
-                'trend': 'bullish' if direction == 'LONG' else 'bearish',
-                'market_structure': f"{direction.lower()}_bias",
-                'risk_level': 'medium',
-                'timeframe': '1h',
-                'scan_time': datetime.now().strftime('%H:%M:%S'),
-                'reason': reason,
-                'zone_strength': 75,
-                'long_ratio': long_ratio,
-                'change_24h': change_24h
-            }
+            return None
 
         except Exception as e:
             print(f"❌ Error in enhanced SnD analysis for {symbol}: {e}")
@@ -576,13 +446,13 @@ class SnDAutoSignals:
         # Determine trend with multiple timeframes
         short_trend = 'neutral'
         medium_trend = 'neutral'
-        
+
         # Short-term trend (last 5 candles)
         if closes[-1] > closes[-3] and closes[-3] > closes[-5]:
             short_trend = 'bullish'
         elif closes[-1] < closes[-3] and closes[-3] < closes[-5]:
             short_trend = 'bearish'
-            
+
         # Medium-term trend (last 10 candles)
         if closes[-1] > closes[-5] and closes[-5] > closes[-10]:
             medium_trend = 'bullish'
@@ -636,7 +506,7 @@ class SnDAutoSignals:
         if long_signal_score > short_signal_score:
             signal['direction'] = 'LONG'
             signal['confidence'] += min(20, long_signal_score * 3)
-            
+
             if is_near_support:
                 signal['reason'] = 'Price bouncing from support level'
                 signal['market_structure'] = 'support_bounce'
@@ -659,7 +529,7 @@ class SnDAutoSignals:
         elif short_signal_score > long_signal_score:
             signal['direction'] = 'SHORT'
             signal['confidence'] += min(20, short_signal_score * 3)
-            
+
             if is_near_resistance:
                 signal['reason'] = 'Price rejected at resistance level'
                 signal['market_structure'] = 'resistance_rejection'
@@ -685,25 +555,25 @@ class SnDAutoSignals:
                 signal['reason'] = 'Neutral setup with bullish bias'
                 signal['market_structure'] = 'consolidation_bullish'
                 signal['confidence'] += 5
-                
+
                 # Conservative LONG setup
                 signal['entry_price'] = current_price * 0.998
                 signal['sl'] = current_price * 0.98
                 signal['tp1'] = current_price * 1.02
                 signal['tp2'] = current_price * 1.035
-                
+
             elif signal['trend'] == 'bearish':
                 signal['direction'] = 'SHORT'
                 signal['reason'] = 'Neutral setup with bearish bias'
                 signal['market_structure'] = 'consolidation_bearish'
                 signal['confidence'] += 5
-                
+
                 # Conservative SHORT setup
                 signal['entry_price'] = current_price * 1.002
                 signal['sl'] = current_price * 1.02
                 signal['tp1'] = current_price * 0.98
                 signal['tp2'] = current_price * 0.965
-                
+
             else:
                 # Truly neutral - default to trend following recent momentum
                 if recent_change >= 0:
@@ -725,7 +595,7 @@ class SnDAutoSignals:
         risk = abs(signal['entry_price'] - signal['sl'])
         reward = abs(signal['tp2'] - signal['entry_price'])
         signal['risk_reward'] = round(reward / risk, 1) if risk > 0 else 2.0
-        
+
         # Bonus confidence for good risk/reward
         if signal['risk_reward'] > 2:
             signal['confidence'] += 5
@@ -751,121 +621,145 @@ class SnDAutoSignals:
 
         return signal
 
-# Initialize function for the auto signals system
-def initialize_auto_signals(bot_instance):
-    """Initialize the auto signals system"""
-    try:
-        auto_signals = SnDAutoSignals(bot_instance)
-        print("✅ Enhanced SnD Auto Signals system initialized")
-        return auto_signals
+    # --- New methods for consistent signal generation ---
     except Exception as e:
-        print(f"❌ Failed to initialize auto signals: {e}")
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'strategy': 'Basic Analysis',
+                'time_horizon': '4-24 hours',
+                'error': str(e)
+            }
+
+    async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
+        """Enhanced symbol scanning with exact /futures_signals logic"""
+        try:
+            if not crypto_api:
+                return None
+
+            # Get comprehensive market data like /futures_signals does
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = crypto_api.get_futures_data(symbol)
+
+            if 'error' in price_data or not price_data.get('success'):
+                return None
+
+            current_price = self._normalize_data(price_data, ['price', 'current_price'])
+            change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h', 'percent_change_24h'])
+
+            if not current_price:
+                return None
+
+            # Use AI assistant's futures signal generation for consistency
+            # This ensures we use the exact same logic as /futures_signals command
+            signal_data = await self._generate_consistent_futures_signal(
+                symbol, current_price, price_data, futures_data, crypto_api
+            )
+
+            if signal_data and signal_data.get('confidence', 0) >= self.min_confidence:
+                return signal_data
+
+            return None
+
+        except Exception as e:
+            print(f"❌ Enhanced scan error for {symbol}: {e}")
+            return None
+
+    async def _generate_consistent_futures_signal(self, symbol, current_price, price_data, futures_data, crypto_api):
+        """Generate signal using the same enhanced logic as /futures_signals"""
+        try:
+            # Multi-timeframe technical analysis like in /futures_signals
+            ohlcv_1h = self.ai.get_coinapi_ohlcv_data(symbol, '1HRS', 100)
+            ohlcv_4h = self.ai.get_coinapi_ohlcv_data(symbol, '4HRS', 100)
+
+            primary_indicators = {}
+            higher_tf_indicators = {}
+
+            if ohlcv_1h.get('success'):
+                primary_indicators = self.ai.calculate_technical_indicators(ohlcv_1h['data'])
+
+            if ohlcv_4h.get('success'):
+                higher_tf_indicators = self.ai.calculate_technical_indicators(ohlcv_4h['data'])
+
+            if 'error' in primary_indicators:
+                return None
+
+            # Enhanced signal generation matching AI assistant logic
+            signal_data = self.ai._generate_enhanced_trading_signal(
+                primary_indicators, higher_tf_indicators, futures_data, current_price, {}
+            )
+
+            if signal_data['direction'] == 'NEUTRAL':
+                return None
+
+            # Trading levels calculation matching AI assistant logic  
+            trading_levels = self.ai._calculate_advanced_trading_levels(
+                current_price, signal_data, primary_indicators, {}
+            )
+
+            # Format exactly like /futures_signals output
+            change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h', 'percent_change_24h']) or 0
+
+            # Get futures bias
+            long_ratio = 50
+            if futures_data and futures_data.get('success'):
+                long_short_data = futures_data.get('data', {}).get('long_short', {})
+                long_ratio = long_short_data.get('long_ratio', 50)
+
+            return {
+                'symbol': symbol,
+                'direction': signal_data['direction'],
+                'confidence': round(signal_data['confidence'], 2),
+                'entry': round(trading_levels['entry'], 2),
+                'sl': round(trading_levels['stop_loss'], 2),
+                'tp1': round(trading_levels['tp1'], 2),
+                'tp2': round(trading_levels['tp2'], 2),
+                'rr_ratio': f"{trading_levels['rr_ratio']:.1f}:1",
+                'trend': signal_data.get('strategy', 'Technical').replace(' Analysis', '').lower(),
+                'structure': signal_data['direction'].lower(),
+                'reason': self._generate_signal_reason(signal_data, change_24h, long_ratio),
+                'current_price': current_price,
+                'change_24h': change_24h,
+                'long_ratio': long_ratio,
+                'timeframe': '1h',
+                'scan_time': datetime.now().strftime('%H:%M:%S WIB')
+            }
+
+        except Exception as e:
+            print(f"❌ Consistent signal generation error for {symbol}: {e}")
+            return None
+
+    def _normalize_data(self, data, field_aliases):
+        """Normalize data fields using aliases - same as AI assistant"""
+        if not isinstance(data, dict):
+            return None
+
+        for alias in field_aliases:
+            if alias in data and data[alias] is not None:
+                try:
+                    return float(data[alias]) if isinstance(data[alias], (str, int, float)) else data[alias]
+                except (ValueError, TypeError):
+                    continue
         return None
 
-async def send_auto_signals_to_users(self, signals):
-    """Send signals to eligible users (Admin + Lifetime)"""
-    try:
-        eligible_users = self.db.get_eligible_auto_signal_users()
+    def _generate_signal_reason(self, signal_data, change_24h, long_ratio):
+        """Generate signal reason matching /futures_signals style"""
+        direction = signal_data['direction']
+        confidence = signal_data['confidence']
 
-        if not eligible_users:
-            print("📊 No eligible users for auto signals")
-            return
-
-        print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
-
-        # Format signals message
-        message = self._format_auto_signals_message(signals)
-
-        # Send to each eligible user
-        for user in eligible_users:
-            try:
-                # Handle different user data formats
-                if isinstance(user, dict):
-                    user_id = user.get('telegram_id') or user.get('id')
-                elif isinstance(user, (list, tuple)) and len(user) > 0:
-                    user_id = user[0]  # First element should be telegram_id
-                elif isinstance(user, (int, str)):
-                    user_id = int(user)
-                else:
-                    print(f"⚠️ Unknown user format: {user} (type: {type(user)})")
-                    continue
-
-                if not user_id:
-                    print(f"⚠️ No user_id found for user: {user}")
-                    continue
-
-                await self.bot.application.bot.send_message(
-                    chat_id=int(user_id),
-                    text=message,
-                    parse_mode='Markdown'
-                )
-
-                print(f"✅ Sent auto signals to user {user_id}")
-                await asyncio.sleep(0.5)  # Rate limiting
-
-            except Exception as e:
-                print(f"❌ Failed to send to user {user_id}: {e}")
-                continue
-
-    except Exception as e:
-        print(f"❌ Error sending auto signals: {e}")
-        import traceback
-        traceback.print_exc()
-
-async def send_signals_to_users(self, signals):
-    """Send signals to eligible users"""
-    try:
-        if not signals:
-            print("📊 No signals to send")
-            return
-
-        # Get eligible users (Admin + Lifetime premium)
-        eligible_users = self.db.get_eligible_auto_signal_users()
-
-        if not eligible_users:
-            print("👥 No eligible users for auto signals")
-            return
-
-        print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
-
-        # Format signals message
-        message = self._format_auto_signals_message(signals)
-
-        # Send to each eligible user
-        for user in eligible_users:
-            try:
-                # Handle different user data formats
-                if isinstance(user, dict):
-                    user_id = user.get('telegram_id')
-                    user_name = user.get('first_name', 'User')
-                elif isinstance(user, (list, tuple)) and len(user) > 0:
-                    user_id = user[0]
-                    user_name = user[1] if len(user) > 1 else 'User'
-                elif isinstance(user, int):
-                    user_id = user
-                    user_name = 'User'
-                else:
-                    print(f"❌ Invalid user format: {user}")
-                    continue
-
-                if not user_id:
-                    print(f"❌ No user_id found for user: {user}")
-                    continue
-
-                await self.bot.application.bot.send_message(
-                    chat_id=user_id,
-                    text=message,
-                    parse_mode='Markdown'
-                )
-                print(f"✅ Sent auto signals to user {user_id} ({user_name})")
-
-                # Log the activity
-                self.db.log_user_activity(user_id, "auto_signal_received", f"Received {len(signals)} auto SnD signals")
-
-            except Exception as e:
-                print(f"❌ Failed to send signals to user {user_id}: {e}")
-
-    except Exception as e:
-        print(f"❌ Error sending auto signals: {e}")
-        import traceback
-        traceback.print_exc()
+        if change_24h > 5:
+            return f"Strong {direction.lower()} momentum (+{change_24h:.1f}%)"
+        elif change_24h > 2:
+            return f"{direction.title()} momentum (+{change_24h:.1f}%)"
+        elif change_24h < -5:
+            return f"Strong {direction.lower()} momentum ({change_24h:.1f}%)"
+        elif change_24h < -2:
+            return f"{direction.title()} momentum ({change_24h:.1f}%)"
+        elif confidence >= 85:
+            return f"High confidence {direction.lower()} setup"
+        elif long_ratio > 70 and direction == 'SHORT':
+            return f"Contrarian {direction.lower()} - overcrowded longs"
+        elif long_ratio < 30 and direction == 'LONG':
+            return f"Contrarian {direction.lower()} - oversold conditions"
+        else:
+            return f"Technical {direction.lower()} confluence"
