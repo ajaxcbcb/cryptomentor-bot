@@ -25,8 +25,12 @@ class AIAssistant:
             "Accept": "application/json"
         } if self.cmc_api_key else {}
 
-        # Initialize Supabase connection
+        # Initialize Supabase connection with validation
         self.supabase = self._init_supabase()
+        self.supabase_connected = self._validate_supabase_connection()
+        
+        # Admin logging system
+        self.admin_log = []
 
         # Enhanced configuration
         self.auto_signal_enabled = True
@@ -58,13 +62,119 @@ class AIAssistant:
             supabase_anon_key = <REDACTED_SUPABASE_KEY>
 
             if not supabase_url or not supabase_anon_key:
+                self._log_admin_error("SUPABASE_INIT", "Missing SUPABASE_URL or SUPABASE_ANON_KEY")
                 return None
 
             supabase: Client = create_client(supabase_url, supabase_anon_key)
             return supabase
         except Exception as e:
-            print(f"❌ Supabase initialization failed: {e}")
+            self._log_admin_error("SUPABASE_INIT", f"Initialization failed: {e}")
             return None
+
+    def _validate_supabase_connection(self):
+        """Validate Supabase connection"""
+        try:
+            if not self.supabase:
+                return False
+            
+            # Test connection with a simple query
+            test_result = self.supabase.table('users').select('count', count='exact').limit(1).execute()
+            if test_result:
+                return True
+            return False
+        except Exception as e:
+            self._log_admin_error("SUPABASE_CONNECTION", f"Connection test failed: {e}")
+            return False
+
+    def _log_admin_error(self, command, error_detail):
+        """Log errors for admin only"""
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'command': command,
+            'error': error_detail,
+            'supabase_status': bool(self.supabase),
+            'supabase_connected': getattr(self, 'supabase_connected', False)
+        }
+        self.admin_log.append(log_entry)
+        # Keep only last 50 entries
+        if len(self.admin_log) > 50:
+            self.admin_log = self.admin_log[-50:]
+
+    def _escape_markdown_v2(self, text):
+        """Escape special characters for MarkdownV2"""
+        if not isinstance(text, str):
+            return str(text)
+        
+        # Characters that need escaping in MarkdownV2
+        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '{', '}', '.', '!']
+        
+        for char in escape_chars:
+            text = text.replace(char, f'\\{char}')
+        
+        return text
+
+    def _safe_format_price(self, price):
+        """Format price safely for Markdown"""
+        formatted = self._format_price(price)
+        return self._escape_markdown_v2(formatted)
+
+    def _safe_format_percentage(self, value, decimal_places=2):
+        """Format percentage safely for Markdown"""
+        formatted = self._format_percentage(value, decimal_places)
+        return self._escape_markdown_v2(formatted)
+
+    def _check_database_required(self, command_name):
+        """Check if database is required and available for command"""
+        if not self.supabase_connected:
+            self._log_admin_error(command_name, "Database required but not connected")
+            return False, self._get_database_error_message()
+        return True, None
+
+    def _get_database_error_message(self):
+        """Get user-friendly database error message"""
+        return """❌ Gagal terhubung ke database\\.
+
+💡 Periksa koneksi Supabase atau hubungi admin\\."""
+
+    def _validate_markdown_output(self, text):
+        """Validate if text is safe for Markdown parsing"""
+        try:
+            # Simple validation - check for common problematic patterns
+            if not isinstance(text, str):
+                return False
+            
+            # Check for unescaped special characters in problematic contexts
+            problematic_patterns = [
+                r'[^\\]_[^\\]',  # Unescaped underscores
+                r'[^\\]\*[^\\]',  # Unescaped asterisks
+                r'[^\\]\[[^\\]',  # Unescaped brackets
+            ]
+            
+            import re
+            for pattern in problematic_patterns:
+                if re.search(pattern, text):
+                    return False
+            
+            return True
+        except Exception:
+            return False
+
+    def _safe_output(self, text, fallback_plain=True):
+        """Ensure output is safe for Telegram"""
+        try:
+            if self._validate_markdown_output(text):
+                return text, 'MarkdownV2'
+            elif fallback_plain:
+                # Remove all markdown formatting for plain text
+                import re
+                plain_text = re.sub(r'\\(.)', r'\1', text)  # Remove escape characters
+                plain_text = re.sub(r'[*_`\[\]()~>#+\-={}\.!]', '', plain_text)  # Remove formatting
+                return plain_text, None
+            else:
+                return text, None
+        except Exception as e:
+            self._log_admin_error("SAFE_OUTPUT", f"Format validation failed: {e}")
+            return "Terjadi kesalahan format pesan. Hubungi admin.", None
 
     def _get_wib_time(self):
         """Get current time in WIB (Asia/Jakarta)"""
@@ -377,6 +487,11 @@ class AIAssistant:
     def get_comprehensive_analysis(self, symbol, snd_data={}, price_data={}, language='id', crypto_api=None):
         """Comprehensive analysis following system prompt template"""
         try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("ANALYZE")
+            if not db_available:
+                return db_error
+
             current_time = self._get_wib_time()
             symbol = symbol.upper()
 
@@ -420,37 +535,48 @@ class AIAssistant:
             # Market conditions
             market_data = self.get_cmc_global_metrics()
 
-            # Format comprehensive analysis
-            analysis = f"""📊 **COMPREHENSIVE ANALYSIS - {symbol}**
+            # Format comprehensive analysis with safe markdown
+            rsi_value = main_indicators.get('rsi', 'N/A')
+            rsi_display = f"{rsi_value:.1f}" if isinstance(rsi_value, (int, float)) else 'N/A'
+            
+            macd_value = main_indicators.get('macd_histogram', 'N/A')
+            macd_display = f"{macd_value:.4f}" if isinstance(macd_value, (int, float)) else 'N/A'
 
-💰 **Current Price**: {self._format_price(current_price)}
-📉 **24h Change**: {self._format_percentage(change_24h)}
+            analysis = f"""📊 **COMPREHENSIVE ANALYSIS \\- {self._escape_markdown_v2(symbol)}**
 
+💰 **Current Price**: {self._safe_format_price(current_price)}
+📉 **24h Change**: {self._safe_format_percentage(change_24h)}
 
-🔬 **Technical Summary**:
-• **EMA50**: {self._format_price(main_indicators.get('ema_50'))}
-• **EMA200**: {self._format_price(main_indicators.get('ema_200'))}
-• **RSI**: {main_indicators.get('rsi', 'N/A'):.1f} if isinstance(main_indicators.get('rsi'), (int, float)) else 'N/A'
-• **MACD**: {main_indicators.get('macd_histogram', 'N/A'):.4f} if isinstance(main_indicators.get('macd_histogram'), (int, float)) else 'N/A'
-• **ATR**: {self._format_price(main_indicators.get('atr'))}
+```
+🔬 Technical Summary:
+• EMA50: {self._format_price(main_indicators.get('ema_50'))}
+• EMA200: {self._format_price(main_indicators.get('ema_200'))}
+• RSI: {rsi_display}
+• MACD: {macd_display}
+• ATR: {self._format_price(main_indicators.get('atr'))}
+```
 
 📈 **Trend Analysis**:
-• **Overall Trend**: {trend_analysis['trend_emoji']} {trend_analysis['trend']}
-• **Reasoning**: {trend_analysis['reasoning']}
+• **Overall Trend**: {trend_analysis['trend_emoji']} {self._escape_markdown_v2(trend_analysis['trend'])}
+• **Reasoning**: {self._escape_markdown_v2(trend_analysis['reasoning'])}
 
-🎯 **SUPPLY & DEMAND ZONES**:
-• **Supply Zone 1 (R)**: {self._format_price(snd_zones.get('supply_1'))}
-• **Demand Zone 1 (S)**: {self._format_price(snd_zones.get('demand_1'))}
-• **Position**: {snd_zones.get('position', 'Analysis pending')}
+```
+🎯 SUPPLY & DEMAND ZONES:
+• Supply Zone 1 (R): {self._format_price(snd_zones.get('supply_1'))}
+• Demand Zone 1 (S): {self._format_price(snd_zones.get('demand_1'))}
+• Position: {snd_zones.get('position', 'Analysis pending')}
+```
 
-🌍 **Market Conditions**: {self._format_market_conditions(market_data)}
+🌍 **Market Conditions**: {self._escape_markdown_v2(self._format_market_conditions(market_data))}
 
-⚠️ **Disclaimer**: Analisis teknikal untuk edukasi. Gunakan manajemen risiko yang tepat.
+⚠️ **Disclaimer**: Analisis teknikal untuk edukasi\\. Gunakan manajemen risiko yang tepat\\.
 
-🕐 **Analysis Time**: {current_time}
-📡 **Data Sources**: CoinAPI + CMC + Binance SnD"""
+🕐 **Analysis Time**: {self._escape_markdown_v2(current_time)}
+📡 **Data Sources**: CoinAPI \\+ CMC \\+ Binance SnD"""
 
-            return analysis
+            # Validate and return safe output
+            safe_text, parse_mode = self._safe_output(analysis)
+            return safe_text
 
         except Exception as e:
             return self._error_fallback(symbol, f"comprehensive analysis: {str(e)[:50]}")
@@ -458,6 +584,11 @@ class AIAssistant:
     async def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
         """Futures analysis following system prompt template"""
         try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("FUTURES")
+            if not db_available:
+                return db_error
+
             current_time = self._get_wib_time()
             symbol = symbol.upper()
 
@@ -499,28 +630,35 @@ class AIAssistant:
                 indicators.get('atr', current_price * 0.02)
             )
 
-            # Format futures analysis
+            # Format futures analysis with safe markdown
             direction_emoji = "🟢" if signal_data['direction'] in ['BUY', 'LONG'] else "🔴" if signal_data['direction'] in ['SELL', 'SHORT'] else "🟡"
+            
+            rsi_value = indicators.get('rsi', 'N/A')
+            rsi_display = f"{rsi_value:.1f}" if isinstance(rsi_value, (int, float)) else 'N/A'
 
-            analysis = f"""🔍 **FUTURES ANALYSIS - {symbol} ({timeframe})**
+            analysis = f"""🔍 **FUTURES ANALYSIS \\- {self._escape_markdown_v2(symbol)} \\({self._escape_markdown_v2(timeframe)}\\)**
 
-💰 **Current Price**: {self._format_price(current_price)}
-📉 **24h Change**: {self._format_percentage(change_24h)}
+💰 **Current Price**: {self._safe_format_price(current_price)}
+📉 **24h Change**: {self._safe_format_percentage(change_24h)}
 
-{direction_emoji} **SIGNAL**: {signal_data['direction']}
-⭐ **Confidence**: {signal_data['confidence']}% ({self._get_confidence_level(signal_data['confidence'])})
+{direction_emoji} **SIGNAL**: {self._escape_markdown_v2(signal_data['direction'])}
+⭐ **Confidence**: {signal_data['confidence']}% \\({self._escape_markdown_v2(self._get_confidence_level(signal_data['confidence']))}\\)
 
-💰 **TRADING SETUP**:
-• **Entry**: {self._format_price(trading_levels['entry'])}
-• **Stop Loss**: {self._format_price(trading_levels['stop_loss'])}
-• **TP1**: {self._format_price(trading_levels['tp1'])} | **TP2**: {self._format_price(trading_levels['tp2'])}
-• **RR**: {trading_levels['rr_ratio']:.1f}:1
+```
+💰 TRADING SETUP:
+• Entry: {self._format_price(trading_levels['entry'])}
+• Stop Loss: {self._format_price(trading_levels['stop_loss'])}
+• TP1: {self._format_price(trading_levels['tp1'])} | TP2: {self._format_price(trading_levels['tp2'])}
+• RR: {trading_levels['rr_ratio']:.1f}:1
+```
 
-📊 **TECHNICAL ({timeframe})**:
-• **EMA50**: {self._format_price(indicators.get('ema_50'))}
-• **EMA200**: {self._format_price(indicators.get('ema_200'))}
-• **RSI**: {indicators.get('rsi', 'N/A'):.1f} if isinstance(indicators.get('rsi'), (int, float)) else 'N/A'
-• **ATR**: {self._format_price(indicators.get('atr'))}
+```
+📊 TECHNICAL ({timeframe}):
+• EMA50: {self._format_price(indicators.get('ema_50'))}
+• EMA200: {self._format_price(indicators.get('ema_200'))}
+• RSI: {rsi_display}
+• ATR: {self._format_price(indicators.get('atr'))}
+```
 
 🔮 **FUTURES METRICS**:"""
 
@@ -540,14 +678,16 @@ class AIAssistant:
             analysis += f"""
 
 ⚠️ **Risk Management**:
-• Position size: 1-3% of capital maximum
+• Position size: 1\\-3% of capital maximum
 • Always use stop loss before entry
 • Monitor market conditions
 
-🕐 **Analysis Time**: {current_time}
-📡 **Data Sources**: CoinAPI + Binance Futures"""
+🕐 **Analysis Time**: {self._escape_markdown_v2(current_time)}
+📡 **Data Sources**: CoinAPI \\+ Binance Futures"""
 
-            return analysis
+            # Validate and return safe output
+            safe_text, parse_mode = self._safe_output(analysis)
+            return safe_text
 
         except Exception as e:
             return self._error_fallback(symbol, f"futures analysis: {str(e)[:50]}")
@@ -555,6 +695,11 @@ class AIAssistant:
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
         """Generate futures signals following system prompt template"""
         try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("FUTURES_SIGNALS")
+            if not db_available:
+                return db_error
+
             current_time = self._get_wib_time()
 
             # Get global market conditions
@@ -583,16 +728,16 @@ class AIAssistant:
                     print(f"Error scanning {symbol}: {e}")
                     continue
 
-            # Format response
+            # Format response with safe markdown
             if not high_confidence_signals:
-                return f"""🚨 **FUTURES SIGNALS SCAN**
+                no_signals_msg = f"""🚨 **FUTURES SIGNALS SCAN**
 
-🕐 **Scan Time**: {current_time}
-🌍 **Market Conditions**: {market_conditions}
+🕐 **Scan Time**: {self._escape_markdown_v2(current_time)}
+🌍 **Market Conditions**: {self._escape_markdown_v2(market_conditions)}
 
-❌ **No High-Confidence Signals Found**
+❌ **No High\\-Confidence Signals Found**
 
-📊 **Symbols Scanned**: {', '.join(target_symbols)}
+📊 **Symbols Scanned**: {self._escape_markdown_v2(', '.join(target_symbols))}
 ⚠️ **Status**: Tidak ada setup trading yang jelas saat ini
 
 💡 **Kemungkinan Penyebab**:
@@ -604,14 +749,17 @@ class AIAssistant:
 • Coba `/futures btc` untuk analisis spesifik
 • Gunakan `/analyze eth` untuk analisis fundamental
 • Monitor kondisi market dengan `/market`"""
+                
+                safe_text, parse_mode = self._safe_output(no_signals_msg)
+                return safe_text
 
-            # Format signals found
+            # Format signals found with safe markdown
             message = f"""🚨 **FUTURES SIGNALS SCAN**
 
-🕐 **Scan Time**: {current_time}
-🌍 **Market Conditions**: {market_conditions}
+🕐 **Scan Time**: {self._escape_markdown_v2(current_time)}
+🌍 **Market Conditions**: {self._escape_markdown_v2(market_conditions)}
 
-📈 **HIGH-CONFIDENCE SIGNALS** ({len(high_confidence_signals)} found):
+📈 **HIGH\\-CONFIDENCE SIGNALS** \\({len(high_confidence_signals)} found\\):
 
 """
 
@@ -619,11 +767,13 @@ class AIAssistant:
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
                 confidence_level = "🔥" if signal['confidence'] >= 80 else "⚡"
 
-                message += f"""**{i}. {signal['symbol']}** {direction_emoji} **{signal['direction']}** {confidence_level}
-**Entry**: {self._format_price(signal['entry'])}
-**TP1**: {self._format_price(signal['tp1'])} | **TP2**: {self._format_price(signal['tp2'])}
-**SL**: {self._format_price(signal['sl'])}
-**Confidence**: {signal['confidence']}% | **RR**: {signal.get('rr', 'N/A')}
+                message += f"""```
+{i}. {signal['symbol']} {direction_emoji} {signal['direction']} {confidence_level}
+Entry: {self._format_price(signal['entry'])}
+TP1: {self._format_price(signal['tp1'])} | TP2: {self._format_price(signal['tp2'])}
+SL: {self._format_price(signal['sl'])}
+Confidence: {signal['confidence']}% | RR: {signal.get('rr', 'N/A')}
+```
 
 """
 
@@ -631,12 +781,14 @@ class AIAssistant:
 • Maksimal 2% risk per position
 • Entry dengan konfirmasi price action
 • Gunakan stop loss sebelum entry
-• Take profit bertahap (50% di TP1, 50% di TP2)
+• Take profit bertahap \\(50% di TP1, 50% di TP2\\)
 
-🕐 **Analysis Time**: {current_time}
-📡 **Data Sources**: CoinAPI Real-time + Binance Futures"""
+🕐 **Analysis Time**: {self._escape_markdown_v2(current_time)}
+📡 **Data Sources**: CoinAPI Real\\-time \\+ Binance Futures"""
 
-            return message
+            # Validate and return safe output
+            safe_text, parse_mode = self._safe_output(message)
+            return safe_text
 
         except Exception as e:
             return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
@@ -1013,6 +1165,11 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
     def get_market_sentiment(self, language='id', crypto_api=None):
         """Get market sentiment analysis"""
         try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("MARKET_SENTIMENT")
+            if not db_available:
+                return db_error
+
             current_time = self._get_wib_time()
             market_data = self.get_cmc_global_metrics()
 
@@ -1035,20 +1192,26 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
             else:
                 sentiment = "💥 VERY BEARISH"
 
-            return f"""🌍 **MARKET SENTIMENT ANALYSIS**
+            sentiment_analysis = f"""🌍 **MARKET SENTIMENT ANALYSIS**
 
-📊 **Global Sentiment**: {sentiment}
+📊 **Global Sentiment**: {self._escape_markdown_v2(sentiment)}
 
-💰 **Key Metrics**:
-• **Total Market Cap**: ${total_market_cap/1e12:.2f}T
-• **24h Change**: {self._format_percentage(market_cap_change)}
-• **BTC Dominance**: {btc_dominance:.1f}%
+```
+💰 Key Metrics:
+• Total Market Cap: ${total_market_cap/1e12:.2f}T
+• 24h Change: {self._format_percentage(market_cap_change)}
+• BTC Dominance: {btc_dominance:.1f}%
+```
 
 📈 **Trading Implications**:
-{self._get_trading_implications(market_cap_change, btc_dominance)}
+{self._escape_markdown_v2(self._get_trading_implications(market_cap_change, btc_dominance))}
 
-🕐 **Update**: {current_time}
+🕐 **Update**: {self._escape_markdown_v2(current_time)}
 📡 **Source**: CoinMarketCap Global Metrics"""
+
+            # Validate and return safe output
+            safe_text, parse_mode = self._safe_output(sentiment_analysis)
+            return safe_text
 
         except Exception as e:
             return self._error_fallback("MARKET", f"sentiment analysis: {str(e)[:50]}")
@@ -1070,6 +1233,20 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
             implications.append(f"• 🏛️ Alt season potential - BTC dominance low")
 
         return "\n".join(implications)
+
+    def get_admin_logs(self, last_n=10):
+        """Get recent admin logs for debugging"""
+        return self.admin_log[-last_n:] if self.admin_log else []
+
+    def get_system_status(self):
+        """Get system status for admin"""
+        return {
+            'supabase_connected': self.supabase_connected,
+            'coinapi_key_available': bool(self.coinapi_key),
+            'cmc_key_available': bool(self.cmc_api_key),
+            'recent_errors': len(self.admin_log),
+            'last_error': self.admin_log[-1] if self.admin_log else None
+        }
 
     # Compatibility aliases for bot.py
     def analyze_text(self, text):
