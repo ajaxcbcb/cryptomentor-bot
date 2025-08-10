@@ -151,8 +151,14 @@ if not ADMIN_IDS:
 
 class TelegramBot:
     def __init__(self):
-        # Initialize database connection
+        # Initialize database router system
         try:
+            from app.db_router import init_db, db_status
+            mode, ready, note = init_db()
+            print(f"🗄️ DB Mode: {mode} | Ready: {ready} | {note}")
+            logger.info(f"Database router initialized: {mode} ({note})")
+            
+            # Keep original database for compatibility
             self.db = Database()
             logger.info("✅ Database connection established")
         except Exception as e:
@@ -426,9 +432,15 @@ class TelegramBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
+        from app.chat_store import remember_chat
+        
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
+
+        # Remember chat consent
+        if user and update.effective_chat:
+            remember_chat(user.id, update.effective_chat.id)
 
         # Debug: Show that command handler is working
         print(f"📞 Start command handler called successfully")
@@ -1913,111 +1925,97 @@ Gunakan `/subscribe` untuk upgrade!
 
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk set premium user dengan Admin Agent"""
-
-        # Admin access check using new system
+        """Admin command untuk set premium user dengan Database Router"""
+        from app.db_router import add_premium
+        from app.safe_send import safe_reply
+        
         user_id = update.effective_user.id
         if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
+            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
+            return
+
+        if len(context.args) != 2 or not context.args[0].isdigit():
+            await safe_reply(update.effective_message, 
+                "❌ Format salah!\n"
+                "Gunakan: /setpremium <user_id> <duration>\n\n"
+                "Duration format:\n"
+                "• `30` - 30 hari\n"
+                "• `lifetime` - Seumur hidup"
+            )
             return
 
         try:
-            # Parse arguments
-            if len(context.args) < 2:
-                await update.message.reply_text(
-                    "❌ Format salah!\n"
-                    "Gunakan: /setpremium <user_id> <duration>\n\n"
-                    "Duration format:\n"
-                    "• `month` atau `bulan` - 30 hari\n"
-                    "• `lifetime` - Seumur hidup\n"
-                    "• `30d` - 30 hari\n"
-                    "• `days:90` - 90 hari",
-                    parse_mode='Markdown'
-                )
-                return
-
-            target_user_id = context.args[0]
-            duration_arg = context.args[1]
-
-            # Execute via Admin Agent
-            bot_instance = context.bot_data.get('bot_instance')
-            if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
-                await update.message.reply_text("❌ Admin Agent tidak tersedia")
-                return
-
-            result = bot_instance.admin_agent.execute_command("/setpremium", target_user_id, duration_arg)
-
-            if result["status"] == "success":
-                await update.message.reply_text(
-                    f"✅ {result['message']}\n"
-                    f"👤 User: {target_user_id}\n"
-                    f"📝 Command: /setpremium {duration_arg}",
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ {result['message']}\n"
-                    f"🔧 Code: {result.get('code', 'UNKNOWN')}"
-                )
-
+            target_user_id = int(context.args[0])
+            duration = context.args[1]
+            
+            # Map common duration formats
+            if duration.lower() in ['month', 'bulan']:
+                duration = '30'
+            elif duration.endswith('d'):
+                duration = duration[:-1]
+            elif duration.startswith('days:'):
+                duration = duration[5:]
+            
+            _, msg = add_premium(target_user_id, duration)
+            await safe_reply(update.effective_message, msg)
+            
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_setpremium",
+                f"Set premium {duration} for user {target_user_id}"
+            )
+            
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in setpremium command: {e}")
 
     async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /grant_credits command"""
+        """Handle /grant_credits command with Database Router"""
+        from app.db_router import grant_credits
+        from app.safe_send import safe_reply, safe_dm
+        
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+            await safe_reply(update.message, "❌ Access denied. Admin only command.")
             return
 
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ Gunakan format: `/grant_credits <user_id> <amount>`\nContoh: `/grant_credits 123456789 100`")
+        if len(context.args) == 2 and context.args[0].isdigit() and context.args[1].isdigit():
+            target_user_id, amount = int(context.args[0]), int(context.args[1])
+        else:
+            await safe_reply(update.message, "Format: /grant_credits <user_id> <credits>")
             return
 
-        target_user_id = context.args[0]
-        amount_str = context.args[1] # Keep as string for agent
-
-        # Execute via Admin Agent
-        bot_instance = context.bot_data.get('bot_instance')
-        if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
-            await update.message.reply_text("❌ Admin Agent tidak tersedia")
-            return
-
-        result = bot_instance.admin_agent.execute_command("/grant_credits", target_user_id, amount_str)
-
-        if result["status"] == "success":
-            data = result["data"]
+        try:
+            _, total = grant_credits(target_user_id, amount)
             message = f"✅ **Credits Granted Successfully**\n\n"
             message += f"👤 **User ID**: {target_user_id}\n"
-            message += f"💳 **Credits Added**: +{data['credits_added']}\n"
-            message += f"📊 **Previous Total**: {data['previous_credits']}\n"
-            message += f"🎯 **New Total**: {data['new_total']}\n\n"
-            message += f"💡 {result['message']}"
+            message += f"💳 **Credits Added**: +{amount}\n"
+            message += f"🎯 **New Total**: {total}\n\n"
+            message += f"💡 Credits berhasil ditambahkan via database router"
 
             # Log admin action
             self.db.log_user_activity(
                 user_id,
                 "admin_grant_credits",
-                f"Added {amount_str} credits to user {target_user_id}"
+                f"Added {amount} credits to user {target_user_id}"
             )
-        else:
-            message = f"❌ **Error**: {result['message']}\n"
-            message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
+            
+            await safe_reply(update.message, message)
 
-        from app.safe_send import safe_reply, safe_dm
-        await safe_reply(update.message, message)
-
-        # Optional DM to target user if credits were granted
-        if result["status"] == "success":
+            # Optional DM to target user
             try:
-                await safe_dm(context.bot, int(target_user_id), f"💳 Anda mendapat {amount_str} credit bonus dari admin!")
+                await safe_dm(context.bot, target_user_id, f"💳 Anda mendapat {amount} credit bonus dari admin!")
                 await safe_reply(update.message, "📱 User berhasil di-DM tentang credit bonus.")
             except PermissionError:
                 await safe_reply(update.message, "ℹ️ User belum /start bot, DM dilewati.")
             except Exception as e:
                 await safe_reply(update.message, f"⚠️ DM gagal: {e}")
+                
+        except Exception as e:
+            await safe_reply(update.message, f"❌ Gagal: {e}")
+            print(f"❌ Error in grant_credits command: {e}")
 
 
     async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2071,47 +2069,33 @@ Gunakan `/subscribe` untuk upgrade!
 
 
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk revoke premium user dengan Admin Agent"""
-
-        # Admin access check using new system
+        """Admin command untuk revoke premium user dengan Database Router"""
+        from app.db_router import remove_premium
+        from app.safe_send import safe_reply
+        
         user_id = update.effective_user.id
         if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
+            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
+            return
+
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            await safe_reply(update.effective_message, "Format: /revoke_premium <user_id>")
             return
 
         try:
-            # Parse arguments
-            if len(context.args) < 1:
-                await update.message.reply_text(
-                    "❌ Format salah!\n"
-                    "Gunakan: /revoke_premium <user_id>"
-                )
-                return
-
-            target_user_id = context.args[0]
-
-            # Execute via Admin Agent
-            bot_instance = context.bot_data.get('bot_instance')
-            if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
-                await update.message.reply_text("❌ Admin Agent tidak tersedia")
-                return
-
-            result = bot_instance.admin_agent.execute_command("/revoke_premium", target_user_id)
-
-            if result["status"] == "success":
-                await update.message.reply_text(
-                    f"✅ {result['message']}\n"
-                    f"👤 User: {target_user_id}",
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ {result['message']}\n"
-                    f"🔧 Code: {result.get('code', 'UNKNOWN')}"
-                )
-
+            target_user_id = int(context.args[0])
+            remove_premium(target_user_id)
+            await safe_reply(update.effective_message, f"✅ Premium untuk {target_user_id} dicabut.")
+            
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_revoke_premium",
+                f"Revoked premium for user {target_user_id}"
+            )
+            
         except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
 
 
@@ -2559,6 +2543,28 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
     async def setup_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /setup_admin command - Shows admin setup instructions"""
+
+    async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /db_status command"""
+        from app.db_router import db_status
+        from app.safe_send import safe_reply
+        
+        status = db_status()
+        message = f"🗄️ **Database Status**\n\n"
+        message += f"• **Mode**: {status['mode']}\n"
+        message += f"• **Ready**: {status['ready']}\n"
+        message += f"• **Note**: {status['note']}\n\n"
+        
+        if status['mode'] == 'supabase':
+            message += "📊 **Backend**: Supabase Cloud Database\n"
+        elif status['mode'] == 'local':
+            message += "📁 **Backend**: Local JSON Storage\n"
+        else:
+            message += "❌ **Backend**: No database available\n"
+        
+        await safe_reply(update.effective_message, message)
+
+
         user_id = update.message.from_user.id
         first_name = update.message.from_user.first_name or "User"
 
@@ -2620,15 +2626,18 @@ ADMIN2 = [optional_second_admin_id]
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def banned_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /banned command - Admin only"""
+        """Handle /banned command with Database Router"""
+        from app.db_router import ban_user, unban_user, get_user_info, check_user_banned
+        from app.safe_send import safe_reply
+        
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+            await safe_reply(update.message, "❌ Access denied. Admin only command.")
             return
 
         if len(context.args) < 2:
-            await update.message.reply_text(
+            await safe_reply(update.message,
                 "❌ **Format salah!**\n\n"
                 "Gunakan: `/banned <user_id> <action>`\n\n"
                 "**Available Actions:**\n"
@@ -2638,8 +2647,7 @@ ADMIN2 = [optional_second_admin_id]
                 "**Contoh:**\n"
                 "• `/banned 123456789 ban`\n"
                 "• `/banned 123456789 unban`\n"
-                "• `/banned 123456789 check`",
-                parse_mode='Markdown'
+                "• `/banned 123456789 check`"
             )
             return
 
@@ -2647,28 +2655,26 @@ ADMIN2 = [optional_second_admin_id]
             target_user_id = int(context.args[0])
             action = context.args[1].lower()
         except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!")
-            return
-
-        # Check if user exists
-        existing_user = self.db.get_user(target_user_id)
-        if not existing_user:
-            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+            await safe_reply(update.message, "❌ User ID harus berupa angka!")
             return
 
         try:
-            user_info = self.db.get_user(target_user_id)
+            # Get user info from router
+            user_info = get_user_info(target_user_id)
+            if not user_info:
+                await safe_reply(update.message, f"❌ User {target_user_id} tidak ditemukan.")
+                return
+            
             username = user_info.get('username', 'No username')
             first_name = user_info.get('first_name', 'Unknown')
-            current_banned_status = user_info.get('banned', False)
+            current_banned_status = check_user_banned(target_user_id)
 
             if action == 'ban':
                 if current_banned_status:
                     message = f"⚠️ **User sudah dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
                 else:
-                    success = self.db.ban_user(target_user_id)
-                    if success:
-                        message = f"""🚫 **User berhasil dibanned!**
+                    ban_user(target_user_id)
+                    message = f"""🚫 **User berhasil dibanned!**
 
 👤 **User Info:**
 • **ID**: {target_user_id}
@@ -2678,22 +2684,19 @@ ADMIN2 = [optional_second_admin_id]
 
 ⚠️ User tidak dapat menggunakan bot lagi sampai di-unban."""
 
-                        # Log admin action
-                        self.db.log_user_activity(
-                            user_id,
-                            "admin_ban_user",
-                            f"Banned user {target_user_id} ({first_name})"
-                        )
-                    else:
-                        message = f"❌ **Gagal melakukan ban!** Terjadi kesalahan dalam proses."
+                    # Log admin action
+                    self.db.log_user_activity(
+                        user_id,
+                        "admin_ban_user",
+                        f"Banned user {target_user_id} ({first_name})"
+                    )
 
             elif action == 'unban':
                 if not current_banned_status:
                     message = f"⚠️ **User tidak dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
                 else:
-                    success = self.db.unban_user(target_user_id)
-                    if success:
-                        message = f"""✅ **User berhasil di-unban!**
+                    unban_user(target_user_id)
+                    message = f"""✅ **User berhasil di-unban!**
 
 👤 **User Info:**
 • **ID**: {target_user_id}
@@ -2703,14 +2706,12 @@ ADMIN2 = [optional_second_admin_id]
 
 ✅ User sekarang dapat menggunakan bot kembali."""
 
-                        # Log admin action
-                        self.db.log_user_activity(
-                            user_id,
-                            "admin_unban_user",
-                            f"Unbanned user {target_user_id} ({first_name})"
-                        )
-                    else:
-                        message = f"❌ **Gagal melakukan unban!** Terjadi kesalahan dalam proses."
+                    # Log admin action
+                    self.db.log_user_activity(
+                        user_id,
+                        "admin_unban_user",
+                        f"Unbanned user {target_user_id} ({first_name})"
+                    )
 
             elif action == 'check':
                 ban_status = "🚫 BANNED" if current_banned_status else "✅ ACTIVE"
@@ -2725,14 +2726,14 @@ ADMIN2 = [optional_second_admin_id]
 💡 User {'tidak dapat menggunakan bot' if current_banned_status else 'dapat menggunakan bot normal'}."""
 
             else:
-                await update.message.reply_text(f"❌ Action '{action}' tidak dikenali! Gunakan: ban, unban, atau check.")
+                await safe_reply(update.message, f"❌ Action '{action}' tidak dikenali! Gunakan: ban, unban, atau check.")
                 return
 
-        except Exception as e:
-            message = f"❌ **Error sistem saat memproses ban command!**\n\n**Error**: {str(e)}"
-            print(f"Error in banned_command: {e}")
+            await safe_reply(update.message, message)
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        except Exception as e:
+            await safe_reply(update.message, f"❌ Error sistem: {str(e)}")
+            print(f"Error in banned_command: {e}")
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
@@ -2861,6 +2862,9 @@ ADMIN2 = [optional_second_admin_id]
 
         # Add callback query handler
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+
+        # Add database status command
+        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
 
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:
