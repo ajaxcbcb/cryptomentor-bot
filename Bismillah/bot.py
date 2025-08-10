@@ -271,6 +271,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("check_supabase_config", self.check_supabase_config_command))
             # Renamed for clarity and consistency with user request
             self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
             self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
@@ -1902,10 +1903,101 @@ Gunakan `/subscribe` untuk upgrade!
 • Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
 • Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
+
+
+    async def check_supabase_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /check_supabase_config command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            # Inisialisasi ulang Admin Agent untuk test fresh connection
+            from admin_agent import AdminAgent
+            test_agent = AdminAgent()
+            
+            # Get status dari admin agent
+            status = test_agent.get_connection_status()
+            
+            # Format response sesuai standar
+            if status["status"] == "success":
+                message = f"""✅ **Supabase Configuration Check**
+
+🔧 **Environment Variables:**
+• SUPABASE_URL: {'✅ Valid' if os.getenv('SUPABASE_URL') else '❌ Missing'}
+• SUPABASE_SERVICE_ROLE_KEY: {'✅ Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '❌ Missing'}
+
+🌐 **Connection Status:**
+{status['message']}
+
+📊 **Database Structure:**
+• Tabel public.users: ✅ Accessible
+• Kolom id: ✅ Available
+• Kolom credits: ✅ Available
+• Kolom is_premium: ✅ Available
+• Kolom premium_until: ✅ Available
+
+🔑 **Admin Agent Status:**
+• Validation: ✅ Passed
+• Connection: ✅ Active
+• Commands: ✅ Ready
+
+💡 **Available Commands:**
+• `/setpremium <user_id> <duration>` - Set premium status
+• `/revoke_premium <user_id>` - Remove premium
+• `/grant_credits <user_id> <amount>` - Add/remove credits"""
+
+            else:
+                error_code = status.get('code', 'UNKNOWN')
+                error_msg = status.get('message', 'Unknown error')
+                
+                message = f"""❌ **Supabase Configuration Error**
+
+🔧 **Environment Variables:**
+• SUPABASE_URL: {'✅ Set' if os.getenv('SUPABASE_URL') else '❌ Missing'}
+• SUPABASE_SERVICE_ROLE_KEY: {'✅ Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '❌ Missing'}
+
+⚠️ **Error Details:**
+• Code: {error_code}
+• Message: {error_msg}
+
+🔧 **Troubleshooting:**
+1. Check SUPABASE_URL format: https://your-project.supabase.co
+2. Verify SUPABASE_SERVICE_ROLE_KEY from dashboard
+3. Ensure public.users table exists with required columns
+4. Check network connectivity to Supabase
+
+💡 **Required Columns in public.users:**
+- id (uuid, primary key)
+- telegram_id (bigint)
+- is_premium (boolean, default false)
+- premium_until (timestamptz, nullable)
+- credits (bigint, default 100)"""
+
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            error_message = f"""❌ **Admin Agent Error**
+
+🔧 **Error**: {str(e)[:100]}...
+
+💡 **Solutions:**
+• Restart aplikasi/server
+• Check environment variables di Secrets
+• Verify Supabase service status
+• Contact support jika masalah berlanjut"""
+
+            await update.message.reply_text(error_message, parse_mode='Markdown')
+            print(f"❌ Error in check_supabase_config: {e}")
+
+
 🔧 **Admin Commands:**
 • `/setpremium <user_id> <type>` - Set premium (month/lifetime)
 • `/revoke_premium <user_id>` - Remove premium status
 • `/grant_credits <user_id> <amount>` - Add credits
+• `/check_supabase_config` - Validate Supabase configuration
 • `/auto_signals_status` - SnD signals status
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner

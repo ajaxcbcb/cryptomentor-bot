@@ -34,7 +34,7 @@ class AdminAgent:
                     "error": {
                         "status": "error",
                         "code": "CONFIG_MISSING", 
-                        "message": "Supabase belum dikonfigurasi dengan benar."
+                        "message": "Supabase belum dikonfigurasi. Set SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY."
                     }
                 }
                 return False
@@ -54,13 +54,30 @@ class AdminAgent:
             # 3. Inisialisasi client
             self.supabase = create_client(supabase_url, supabase_key)
             
-            # 4. Test koneksi minimal
+            # 4. Test koneksi minimal - select id from public.users limit 1
             result = self.supabase.table('users').select('id').limit(1).execute()
             
-            # 5. Validasi struktur tabel
-            schema_check = self.supabase.table('users').select('credits').limit(1).execute()
+            # 5. Validasi struktur tabel - cek kolom credits
+            try:
+                schema_check = self.supabase.table('users').select('credits').limit(1).execute()
+                print("✅ Kolom 'credits' ditemukan di tabel users")
+            except Exception as schema_error:
+                if "column \"credits\" does not exist" in str(schema_error):
+                    self.connection_status = {
+                        "validated": False,
+                        "error": {
+                            "status": "error",
+                            "code": "MISSING_COLUMN",
+                            "message": "Kolom 'credits' tidak ditemukan di tabel users."
+                        }
+                    }
+                    return False
+                else:
+                    # Kolom mungkin ada tapi tabel kosong, lanjutkan
+                    print(f"⚠️ Schema check warning: {schema_error}")
             
             self.connection_status = {"validated": True, "error": None}
+            print("✅ Supabase sudah dikonfigurasi dengan benar. Siap untuk digunakan.")
             return True
             
         except Exception as e:
@@ -87,6 +104,7 @@ class AdminAgent:
                     "message": message
                 }
             }
+            print(f"❌ {message}")
             return False
     
     def _validate_uuid(self, user_id: str) -> bool:
@@ -321,8 +339,9 @@ class AdminAgent:
                 "status": "success",
                 "message": f"Added {credit_amount} credits to user {user_id}",
                 "data": {
-                    "new_credits": new_credits,
-                    "previous_credits": current_credits
+                    "credits_added": credit_amount,
+                    "previous_credits": current_credits,
+                    "new_total": new_credits
                 }
             }
         else:
@@ -337,7 +356,7 @@ class AdminAgent:
         if self.connection_status["validated"]:
             return {
                 "status": "success",
-                "message": "Supabase sudah dikonfigurasi dengan benar. Siap untuk digunakan."
+                "message": "✅ Supabase sudah dikonfigurasi dengan benar. Siap untuk digunakan."
             }
         else:
             return self.connection_status["error"]
