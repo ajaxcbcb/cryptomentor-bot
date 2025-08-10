@@ -267,6 +267,14 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            
+            # Supabase health check command
+            try:
+                from handlers_sb import cmd_sb_status
+                self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+                print("✅ Supabase status command registered")
+            except ImportError as e:
+                print(f"⚠️ Supabase handler not available: {e}")
             # Renamed for clarity and consistency with user request
             self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
             self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
