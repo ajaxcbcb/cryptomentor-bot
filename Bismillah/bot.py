@@ -132,7 +132,7 @@ else:
     # Dynamically load ADMIN_IDS from environment variables
     ADMIN_IDS = set()
     for i in range(1, 10):
-        env_key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+        env_key = f'ADMIN{i}_USER_ID' # Changed to ADMIN{i}_USER_ID
         admin_id_str = os.getenv(env_key, '0')
         try:
             admin_id = int(admin_id_str)
@@ -143,7 +143,7 @@ else:
                 logger.warning(f"Invalid {env_key}: {admin_id_str}")
 
 if not ADMIN_IDS:
-    logger.warning("No ADMIN_USER_ID found in environment variables. Admin commands will be inaccessible.")
+    logger.warning("No ADMIN_USER_ID or ADMIN{i}_USER_ID found in environment variables. Admin commands will be inaccessible.")
 
 class TelegramBot:
     def __init__(self):
@@ -267,6 +267,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
 
             # Supabase health check command
             try:
@@ -1694,7 +1695,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 💵 **Keuntungan PREMIUM:**
 • Anda dapat **Rp 10.000** per user yang subscribe premium
 • Reward uang asli, bukan credit!
-• Withdraw ke rekening/e-wallet
+• Withdraw earnings ke rekening/e-wallet
 
 📊 **Status PREMIUM Referral:**
 • Total Premium Referrals: {premium_stats['total_referrals']}
@@ -1873,7 +1874,7 @@ Gunakan `/subscribe` untuk upgrade!
         # Enhanced admin verification for multiple admins
         admin_env_vars = {}
         for i in range(1, 10):
-            key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+            key = f'ADMIN{i}' # Changed to ADMIN{i}
             env_value = os.getenv(key)
             if env_value and env_value != '0':
                 admin_env_vars[key] = env_value
@@ -1918,6 +1919,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner
 • `/broadcast <message>` - Send broadcast
+• `/setup_admin` - Show admin setup instructions
 
 🌐 **API Status:**
 • CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
@@ -2554,6 +2556,83 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
         self.broadcast_in_progress = False
 
         await update.message.reply_text(f"✅ Broadcast selesai! Berhasil dikirim ke {success_count}/{len(all_users)} users.")
+
+    async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /cancel_broadcast command"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.pending_broadcast:
+            await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
+            return
+
+        self.pending_broadcast = None
+        await update.message.reply_text("✅ Broadcast dibatalkan.")
+
+    async def setup_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /setup_admin command - Shows admin setup instructions"""
+        user_id = update.message.from_user.id
+        first_name = update.message.from_user.first_name or "User"
+
+        # Get current admin configuration
+        admin_env_vars = {}
+        for i in range(1, 10):
+            key = f'ADMIN{i}'
+            env_value = os.getenv(key)
+            if env_value and env_value != '0':
+                admin_env_vars[key] = env_value
+
+        is_admin = self.is_admin(user_id)
+
+        message = f"""🔧 **Admin Setup Instructions**
+
+👤 **Your Information:**
+• **User ID**: `{user_id}`
+• **Name**: {first_name}
+• **Current Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
+
+📊 **Current Admin Configuration:**
+• **Configured Admins**: {len(self.admin_ids)}
+• **Admin IDs**: {sorted(list(self.admin_ids)) if self.admin_ids else 'NONE SET'}
+• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
+
+⚙️ **Setup Instructions:**
+
+**Step 1: Buka Replit Secrets**
+• Klik tab "Secrets" di sidebar kiri
+• Atau buka: Tools → Secrets
+
+**Step 2: Tambahkan Admin Configuration**
+• Key: `ADMIN1`
+• Value: `{user_id}` (your User ID)
+
+**Step 3 (Optional): Tambah Admin Kedua**
+• Key: `ADMIN2` 
+• Value: `[USER_ID_ADMIN_KEDUA]`
+
+**Step 4: Restart Bot**
+• Klik Stop → Run untuk restart bot
+• Bot akan memuat konfigurasi admin baru
+
+💡 **Format Environment Variables:**
+```
+ADMIN1 = {user_id}
+ADMIN2 = [optional_second_admin_id]
+```
+
+🔍 **Verifikasi Setup:**
+• Gunakan `/admin` setelah restart
+• Gunakan `/sb_status` untuk test admin access
+
+⚠️ **Catatan Penting:**
+• Hanya user dengan ID yang sesuai yang bisa akses admin commands
+• Maksimal 9 admin (ADMIN1 sampai ADMIN9)
+• Restart diperlukan setelah mengubah environment variables"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
