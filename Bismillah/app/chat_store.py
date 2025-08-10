@@ -2,6 +2,47 @@
 # app/chat_store.py
 import os
 import json
+from typing import Optional
+
+DATA_DIR = os.getenv("DATA_DIR", "data")
+CHAT_MAP_PATH = os.path.join(DATA_DIR, "chat_map.json")
+
+def _ensure_dir():
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+def _load_chat_map():
+    _ensure_dir()
+    if not os.path.exists(CHAT_MAP_PATH):
+        return {}
+    try:
+        with open(CHAT_MAP_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_chat_map(data):
+    _ensure_dir()
+    tmp = CHAT_MAP_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, CHAT_MAP_PATH)
+
+def remember_chat(user_id: int, chat_id: int):
+    """Remember that user has consented to receive DMs"""
+    chat_map = _load_chat_map()
+    chat_map[str(user_id)] = chat_id
+    _save_chat_map(chat_map)
+
+def get_private_chat_id(user_id: int) -> Optional[int]:
+    """Get stored chat ID for user (indicates consent)"""
+    chat_map = _load_chat_map()
+    chat_id = chat_map.get(str(user_id))
+    return int(chat_id) if chat_id else None
+
+
+# app/chat_store.py
+import os
+import json
 import threading
 import time
 from typing import Optional, Dict, Any

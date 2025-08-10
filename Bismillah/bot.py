@@ -322,6 +322,14 @@ class TelegramBot:
             # Store bot instance in context for admin agent access
             self.application.bot_data['bot_instance'] = self
 
+            # Initialize AutoSignal scheduler
+            try:
+                from app.autosignal import start_background_scheduler
+                start_background_scheduler(self.application)
+                print("✅ AutoSignal scheduler initialized")
+            except ImportError as e:
+                print(f"⚠️ Could not initialize AutoSignal scheduler: {e}")
+
             # Start polling with proper error handling
             await self.application.updater.start_polling(
                 poll_interval=1.0,
@@ -2885,6 +2893,17 @@ ADMIN2 = [optional_second_admin_id]
                 print("✅ Admin debug commands registered")
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
+
+        # Add AutoSignal admin commands
+        try:
+            from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
+            self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
+            self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
+            self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
+            self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
+            print("✅ AutoSignal admin commands registered")
+        except ImportError as e:
+            print(f"⚠️ Could not register AutoSignal commands: {e}")
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
