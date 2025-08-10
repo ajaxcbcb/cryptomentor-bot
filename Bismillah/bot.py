@@ -267,7 +267,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-            
+
             # Supabase health check command
             try:
                 from handlers_sb import cmd_sb_status
@@ -772,12 +772,16 @@ class TelegramBot:
 - **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
-✨ **Fitur Auto Signal:**
+🚀 **Fitur Auto Signal:**
 • **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
 • **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
 • **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
 • **Scheduled Check**: Setiap 5 menit
 • **Optimized**: Anti-spam, cooldown, no duplicates
+
+🔧 **Admin Setup:**
+• `/setup_admin` - Petunjuk setup admin access
+• Perlu konfigurasi ADMIN_USER_ID di Replit Secrets
 
 """
         await update.message.reply_text(help_text, parse_mode='Markdown')
