@@ -408,16 +408,7 @@ class AIAssistant:
             return datetime.now().strftime('%H:%M:%S WIB')
 
     def _normalize_data(self, data, field_aliases):
-        """Normalize data using field aliases"""
-        try:
-            normalized = {}
-            for key, value in data.items():
-                normalized_key = field_aliases.get(key, key)
-                normalized[normalized_key] = value
-            return normalized
-        except Exception as e:
-            self._log_admin_error("NORMALIZE_DATA", f"Data normalization failed: {e}")
-            return datalize data fields using aliases"""
+        """Normalize data fields using aliases"""
         if not isinstance(data, dict):
             return None
 

@@ -8,12 +8,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Core telegram imports
+# Add missing imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 
-# Local module imports
+# Import required modules for database operations
 from database import Database
 
 from crypto_api import CryptoAPI
@@ -69,10 +69,10 @@ deployment_env_checks = {
 IS_DEPLOYMENT = any(deployment_env_checks.values())
 
 # Log deployment detection for debugging
-print(f"[SCAN] Bot Deployment Detection:")
+print(f"🔍 Bot Deployment Detection:")
 for check, result in deployment_env_checks.items():
-    print(f"  {'[OK]' if result else '[NO]'} {check}: {result}")
-print(f"[STAT] Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
+    print(f"  {'✅' if result else '❌'} {check}: {result}")
+print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
 # Setup logging with INFO level for production
 logging.basicConfig(
@@ -120,27 +120,27 @@ class TelegramBot:
         # Initialize database connection
         try:
             self.db = Database()
-            logger.info("[OK] Database connection established")
+            logger.info("✅ Database connection established")
         except Exception as e:
-            logger.error(f"[ERR] Database connection failed: {e}")
+            logger.error(f"❌ Database connection failed: {e}")
             # Continue without database - some features will be limited
             self.db = None
 
         # Initialize Supabase functions if available
         self.supabase_enabled = SUPABASE_AVAILABLE
         if self.supabase_enabled:
-            logger.info("[OK] Supabase functions imported")
+            logger.info("✅ Supabase functions imported")
         else:
-            logger.error("[ERR] Supabase functions not available. Some features will be limited.")
+            logger.error("❌ Supabase functions not available. Some features will be limited.")
 
         # Initialize Admin Agent if available
         self.admin_agent = None
         if self.supabase_enabled: # Admin Agent depends on Supabase client availability
             try:
                 self.admin_agent = AdminAgent()
-                logger.info("[OK] Admin Agent initialized")
+                logger.info("✅ Admin Agent initialized")
             except Exception as e:
-                logger.error(f"[ERR] Failed to initialize Admin Agent: {e}")
+                logger.error(f"❌ Failed to initialize Admin Agent: {e}")
                 self.admin_agent = None
         else:
             logger.warning("Admin Agent not initialized because Supabase is not available.")
@@ -162,7 +162,7 @@ class TelegramBot:
         self.admin_ids = ADMIN_IDS # Use the dynamically loaded ADMIN_IDS
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
-        logger.info(f"[OK] Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
+        logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
 
         # Initialize components with CoinAPI integration
         self.crypto_api = CryptoAPI()
@@ -177,17 +177,17 @@ class TelegramBot:
 
         # Validate token before creating application
         if not self.token:
-            logger.error("[ERR] TELEGRAM_BOT_TOKEN not found!")
-            logger.error("[INFO] Please set TOKEN in Replit Secrets")
-            logger.error("[NOTE] Go to Secrets tab and add your bot token")
+            logger.error("❌ TELEGRAM_BOT_TOKEN not found!")
+            logger.error("💡 Please set TOKEN in Replit Secrets")
+            logger.error("📝 Go to Secrets tab and add your bot token")
             sys.exit(1)
 
         # Initialize application with token
         try:
             self.application = Application.builder().token(self.token).build()
-            logger.info("[OK] Bot initialized successfully")
+            logger.info("✅ Bot initialized successfully")
         except Exception as e:
-            logger.error(f"[ERR] Failed to initialize bot: {e}")
+            logger.error(f"❌ Failed to initialize bot: {e}")
             sys.exit(1)
 
     def is_admin(self, user_id: int) -> bool:
@@ -197,14 +197,14 @@ class TelegramBot:
     def register_user_supabase(self, user):
         """Register new user in Supabase database - simplified without validation"""
         if not self.supabase_enabled:
-            print(f"[WARN] Supabase not enabled, skipping registration for user {user.id}")
+            print(f"⚠️ Supabase not enabled, skipping registration for user {user.id}")
             return False
 
         try:
             from supabase_client import add_user
 
-            print(f"[PROC] Registering user {user.id} in Supabase...")
-            print(f"[DATA] User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
+            print(f"🔄 Registering user {user.id} in Supabase...")
+            print(f"📝 User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
 
             # Direct registration without validation checks
             result = add_user(
@@ -215,16 +215,16 @@ class TelegramBot:
             )
 
             if result["success"]:
-                logger.info(f"[OK] User {user.id} registered in Supabase successfully")
+                logger.info(f"✅ User {user.id} registered in Supabase successfully")
                 return True
             else:
                 error_msg = result.get('error', 'Unknown error')
-                logger.error(f"[ERR] Failed to register user {user.id} in Supabase: {error_msg}")
+                logger.error(f"❌ Failed to register user {user.id} in Supabase: {error_msg}")
                 return False
 
         except Exception as e:
             error_msg = f"Error registering user {user.id} in Supabase: {str(e)}"
-            logger.error(f"[ERR] {error_msg}")
+            logger.error(f"❌ {error_msg}")
             return False
 
     async def run_bot(self):
@@ -271,7 +271,6 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
             self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
             self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-            self.application.add_handler(CommandHandler("check_supabase_config", self.check_supabase_config_command))
             # Renamed for clarity and consistency with user request
             self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
             self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
@@ -399,7 +398,7 @@ class TelegramBot:
                             if proc.info['name'] == 'python3' or proc.info['name'] == 'python':
                                 cmdline = ' '.join(proc.info['cmdline'] or [])
                                 if 'main.py' in cmdline and proc.pid != os.getpid():
-                                    print(f"[STOP] Terminating conflicting process: {proc.pid}")
+                                    print(f"🛑 Terminating conflicting process: {proc.pid}")
                                     proc.terminate()
                                     proc.wait(timeout=3)
                         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
@@ -407,25 +406,25 @@ class TelegramBot:
 
                     import time
                     time.sleep(5)  # Wait for cleanup
-                    print("[OK] Cleanup completed, restarting...")
+                    print("✅ Cleanup completed, restarting...")
 
                     # Force exit to restart cleanly
                     if IS_DEPLOYMENT:
-                        print("[PROC] Deployment will restart automatically...")
+                        print("🔄 Deployment will restart automatically...")
                         sys.exit(1)
                     else:
                         # Restart in development
-                        print("[PROC] Restarting bot...")
+                        print("🔄 Restarting bot...")
                         raise
 
                 except ImportError:
-                    print("[WARN] psutil not available, manual restart required")
+                    print("⚠️ psutil not available, manual restart required")
                     if IS_DEPLOYMENT:
                         sys.exit(1)
                     else:
                         raise
                 except Exception as cleanup_error:
-                    print(f"[WARN] Cleanup failed: {cleanup_error}")
+                    print(f"⚠️ Cleanup failed: {cleanup_error}")
                     if IS_DEPLOYMENT:
                         sys.exit(1)
                     else:
@@ -705,76 +704,76 @@ class TelegramBot:
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """[BOT] **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
 
-[STAR] **BEST COMMANDS untuk Pemula:**
-- `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
-- `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
-- `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
+⭐ **BEST COMMANDS untuk Pemula:**
+• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
+• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
+• `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
-[STAT] **Harga & Data Pasar:**
-- `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
+📊 **Harga & Data Pasar:**
+• `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
-- `/market` - Overview pasar global dari CoinAPI (20 credit) [STAR]
+• `/market` - Overview pasar global dari CoinAPI (20 credit) ⭐
   Data: Total market cap, dominance, volume global, fear & greed
 
-[CHART] **Analisis Trading dengan SnD:**
-- `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) [STAR] **RECOMMENDED**
-  Contoh: `/analyze btc` -> Fundamental dari CoinAPI + Technical analysis
+📈 **Analisis Trading dengan SnD:**
+• `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
+  Contoh: `/analyze btc` → Fundamental dari CoinAPI + Technical analysis
   Data: Rank, market cap, volume, description, website, price prediction
 
-- `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
-  Contoh: `/futures btc` -> Pilih timeframe dengan SnD entry/exit points
+• `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
+  Contoh: `/futures btc` → Pilih timeframe dengan SnD entry/exit points
   Hasil: Entry, TP, SL, confidence level, risk management
 
-- `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
+• `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
   Multiple coins dengan konfirmasi Supply/Demand zones
 
-[PORTFOLIO] **Portfolio & Credit:**
-- `/portfolio` - Lihat portfolio dengan CoinAPI prices
-- `/add_coin <symbol> <amount>` - Tambah ke portfolio
+💼 **Portfolio & Credit:**
+• `/portfolio` - Lihat portfolio dengan CoinAPI prices
+• `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
-- `/credits` - Cek sisa credit
-- `/subscribe` - Upgrade premium
+• `/credits` - Cek sisa credit
+• `/subscribe` - Upgrade premium
 
-[TARGET] **Lainnya:**
-- `/ask_ai <pertanyaan>` - Tanya AI crypto **[GRATIS]**
+🎯 **Lainnya:**
+• `/ask_ai <pertanyaan>` - Tanya AI crypto **[GRATIS]**
   Contoh: `/ask_ai apa itu DeFi?`
-- `/referral` - Program referral (Credit + Uang)
-- `/premium_earnings` - Dashboard earnings (Premium only)
-- `/language` - Ubah bahasa
+• `/referral` - Program referral (Credit + Uang)
+• `/premium_earnings` - Dashboard earnings (Premium only)
+• `/language` - Ubah bahasa
 
-[CREDIT] **Sistem Credit:**
+💳 **Sistem Credit:**
 - User baru: 100 credit gratis
-- `/analyze` = 20 credit [STAR] (CoinAPI Analysis)
-- `/futures` = 20 credit [STAR] (dengan SnD)
+- `/analyze` = 20 credit ⭐ (CoinAPI Analysis)
+- `/futures` = 20 credit ⭐ (dengan SnD)
 - `/futures_signals` = 60 credit (Multiple SnD signals)
 - `/market` = 20 credit (Global overview CoinAPI)
 
-[TARGET] **Langkah untuk Pemula:**
+🎯 **Langkah untuk Pemula:**
 1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
 2. **Coba `/market`** (20 credit) - overview pasar global CoinAPI
 3. **Test `/analyze btc`** (20 credit) - CoinAPI fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
 5. **Upgrade premium** untuk unlimited access
 
-[INFO] **Fitur Premium:**
+💡 **Fitur Premium:**
 - Unlimited access semua fitur CoinAPI + SnD
 - Auto SnD signals (Admin & Lifetime only)
 - Priority support
 - No credit limits
 
-[START] **Data Sources:**
+🚀 **Data Sources:**
 - **Fundamental & Prices**: CoinAPI Real-time
 - **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
-[SPARK] **Fitur Auto Signal:**
-- **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
-- **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
-- **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
-- **Scheduled Check**: Setiap 5 menit
-- **Optimized**: Anti-spam, cooldown, no duplicates
+✨ **Fitur Auto Signal:**
+• **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
+• **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
+• **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
+• **Scheduled Check**: Setiap 5 menit
+• **Optimized**: Anti-spam, cooldown, no duplicates
 
 """
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -1355,8 +1354,7 @@ Selamat mengelola CryptoMentor AI!"""
 
 🚀 **Fitur Premium:**
 • Unlimited analisis CoinAPI + SnD
-• Akses prioritas ke semua fitur
-• 📊 Data real-time CoinAPI tanpa batas
+• Akses semua command SnD
 • {'Auto SnD signals (Lifetime only)' if is_lifetime else 'Priority support'}
 • Priority support
 
@@ -1872,49 +1870,63 @@ Gunakan `/subscribe` untuk upgrade!
             if env_value and env_value != '0':
                 admin_env_vars[key] = env_value
 
-        message = f"""[ADMIN] **CryptoMentor AI - Admin Panel** ({deployment_mode})
+        if not self.is_admin(user_id):
+            await update.message.reply_text(
+                f"❌ **Access Denied**\n\n"
+                f"**Your ID**: {user_id}\n"
+                f"**Configured Admin IDs**: {sorted(list(self.admin_ids))}\n"
+                f"**Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}\n\n"
+                f"⚠️ Admin access hanya untuk user dengan ID yang sesuai dengan admin environment variables di Secrets.",
+                parse_mode='Markdown'
+            )
+            return
 
-[KEY] **Admin Verification:**
-- Your User ID: {user_id} [OK]
-- Your Admin Status: {'[OK] PRIMARY' if user_id == self.admin_id else '[OK] SECONDARY'}
-- All Admin IDs: {sorted(list(self.admin_ids))}
-- Environment Variables: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
-- Admin Access: [OK] VERIFIED & GRANTED
+        message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
 
-[STAT] **Bot Statistics:**
-- Total Users: {stats['total_users']}
-- Premium Users: {stats['premium_users']}
-- Active Today: {stats['active_today']}
-- Total Credits: {stats['total_credits']:,}
+🔑 **Admin Verification:**
+• **Your User ID**: {user_id} ✅
+• **Your Admin Status**: {'✅ PRIMARY' if user_id == self.admin_id else '✅ SECONDARY'}
+• **All Admin IDs**: {sorted(list(self.admin_ids))}
+• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
+• **Admin Access**: ✅ VERIFIED & GRANTED
 
-[TARGET] **Auto SnD Signals:**
-- Status: {auto_status}
-- Mode: Works in {deployment_mode} mode
-- Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
-- Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
+📊 **Bot Statistics:**
+• Total Users: {stats['total_users']}
+• Premium Users: {stats['premium_users']}
+• Active Today: {stats['active_today']}
+• Total Credits: {stats['total_credits']:,}
 
-[TOOL] **Admin Commands:**
-- `/setpremium <user_id> <type>` - Set premium (month/lifetime)
-- `/revoke_premium <user_id>` - Remove premium status
-- `/grant_credits <user_id> <amount>` - Add credits
-- `/check_supabase_config` - Validate Supabase configuration
-- `/auto_signal_ai_status` - SnD signals status
-- `/enable_auto_signal_ai` - Start momentum signals scanner
-- `/disable_auto_signal_ai` - Stop momentum signals scanner
-- `/broadcast <message>` - Send broadcast
+🎯 **Auto SnD Signals:**
+• Status: {auto_status}
+• Mode: Works in {deployment_mode} mode
+• Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
+• Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
-[NETWORK] **API Status:**
-- CoinAPI: {'Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else 'No Provider'}
-- Binance: Active (Public API)
-- Auto Signals: {auto_status}
+🔧 **Admin Commands:**
+• `/setpremium <user_id> <type>` - Set premium (month/lifetime)
+• `/revoke_premium <user_id>` - Remove premium status
+• `/grant_credits <user_id> <amount>` - Add credits
+• `/auto_signals_status` - SnD signals status
+• `/enable_auto_signal_ai` - Start momentum signals scanner
+• `/disable_auto_signal_ai` - Stop momentum signals scanner
+• `/broadcast <message>` - Send broadcast
 
-[INFO] **V4 Features:**
+🌐 **API Status:**
+• CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
+• Binance: ✅ Active (Public API)
+• Auto Signals: {auto_status}
+
+💡 **V4 Features:**
 - CoinAPI integration
 - Advanced futures analysis with real-time data
 - Supply & Demand analysis for futures
 - Auto signals for admin & lifetime users"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+
+
+
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk set premium user dengan Admin Agent"""
@@ -2120,15 +2132,15 @@ Gunakan `/subscribe` untuk upgrade!
             # Fix NULL and negative credits
             fixed_count = self.db.fix_all_user_credits()
 
-            message = f"""[OK] **Mass Credit Fix Completed!**
+            message = f"""✅ **Mass Credit Fix Completed!**
 
-[TOOL] **Fixed Issues:**
-- **Users Fixed**: {fixed_count}
-- **Actions**: NULL credits -> 100, Negative credits -> 10
+🔧 **Fixed Issues:**
+• **Users Fixed**: {fixed_count}
+• **Actions**: NULL credits → 100, Negative credits → 10
 
-[STAT] **Database Health**: All users now have valid credits
+📊 **Database Health**: All users now have valid credits
 
-[INFO] **Next Steps**: Monitor for any remaining issues."""
+💡 **Next Steps**: Monitor for any remaining issues."""
 
             # Log admin action
             self.db.log_user_activity(
