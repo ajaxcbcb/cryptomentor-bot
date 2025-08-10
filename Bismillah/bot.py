@@ -1943,7 +1943,7 @@ Gunakan `/subscribe` untuk upgrade!
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def grant_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /grant_premium command"""
+        """Handle /grant_premium command dengan integrasi langsung ke Supabase"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -1953,98 +1953,118 @@ Gunakan `/subscribe` untuk upgrade!
         if len(context.args) < 1:
             await update.message.reply_text(
                 "❌ **Format salah!**\n\n"
-                "Gunakan: `/grant_premium <user_id> [days]`\n\n"
+                "Gunakan: `/grant_premium <telegram_id> <durasi>`\n\n"
                 "**Contoh:**\n"
                 "• `/grant_premium 123456789 30` - Premium 30 hari\n"
-                "• `/grant_premium 123456789 0` - Premium permanent (Lifetime)\n"
+                "• `/grant_premium 123456789 lifetime` - Premium lifetime\n"
                 "• `/grant_premium 123456789` - Premium 30 hari (default)",
                 parse_mode='Markdown'
             )
             return
 
         try:
-            target_user_id = int(context.args[0])
-            days = int(context.args[1]) if len(context.args) > 1 else 30
+            target_telegram_id = int(context.args[0])
+            duration = context.args[1] if len(context.args) > 1 else "30"
         except ValueError:
-            await update.message.reply_text("❌ User ID dan days harus berupa angka!\n\nContoh: `/grant_premium 123456789 30`")
+            await update.message.reply_text("❌ Telegram ID harus berupa angka!")
             return
 
-        # Check if user exists in database
-        existing_user = self.db.get_user(target_user_id)
-        if not existing_user:
-            await update.message.reply_text(
-                f"⚠️ **User {target_user_id} belum terdaftar!**\n\n"
-                "User harus menggunakan bot terlebih dahulu dengan command `/start` sebelum bisa diberi premium."
-            )
-            return
-
-        # Grant premium status
+        # Grant premium dengan integrasi Supabase
         try:
-            if days == 0:
-                success = self.db.grant_permanent_premium(target_user_id)
-                premium_type = "LIFETIME (Auto Signals Access)"
-                package_amount = 5000000  # Rp 5 juta for lifetime
-            else:
-                success = self.db.grant_premium(target_user_id, days)
-                premium_type = f"{days} hari"
-                # Calculate package amount based on days
-                if days == 30:
-                    package_amount = 320000
-                elif days == 60:
-                    package_amount = 600000
-                elif days == 180:
-                    package_amount = 1800000
-                elif days == 365:
-                    package_amount = 3000000
+            # Import Supabase functions
+            from supabase_client import supabase_service, add_user, update_user, get_user
+            
+            # Cek apakah user sudah ada di Supabase
+            user_result = get_user(target_telegram_id)
+            
+            if user_result["success"]:
+                # User sudah ada, update premium status
+                if duration.lower() == "lifetime":
+                    update_data = {
+                        "is_premium": True,
+                        "subscription_end": "9999-12-31T23:59:59+00:00"
+                    }
+                    premium_type = "LIFETIME"
                 else:
-                    package_amount = days * 10000  # Default calculation
-
-            if success:
-                user_info = self.db.get_user(target_user_id)
-                username = user_info.get('username', 'No username')
-                first_name = user_info.get('first_name', 'Unknown')
-
-                # Check if user was referred via premium referral
-                referrer_id = self.db.check_premium_referral(target_user_id)
-                referral_reward_msg = ""
-
-                if referrer_id and self.db.is_user_premium(referrer_id):
-                    # Give premium referral reward
-                    reward_success = self.db.record_premium_referral_reward(
-                        referrer_id, target_user_id, premium_type, package_amount
-                    )
-                    if reward_success:
-                        referrer_info = self.db.get_user(referrer_id)
-                        referrer_name = referrer_info.get('first_name', 'Unknown') if referrer_info else 'Unknown'
-                        referral_reward_msg = f"\n💰 **Premium Referral Reward**: Rp 10,000 diberikan ke {referrer_name} (ID: {referrer_id})"
-
-                message = f"""✅ **Premium berhasil diberikan!**
+                    try:
+                        days = int(duration)
+                        # Calculate premium_until date
+                        from datetime import datetime, timedelta, timezone
+                        premium_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+                        update_data = {
+                            "is_premium": True,
+                            "subscription_end": premium_until
+                        }
+                        premium_type = f"{days} hari"
+                    except ValueError:
+                        await update.message.reply_text("❌ Durasi harus berupa angka (hari) atau 'lifetime'!")
+                        return
+                
+                update_result = update_user(target_telegram_id, update_data)
+                
+                if update_result["success"]:
+                    user_data = user_result["data"]
+                    username = user_data.get('username', 'no_username')
+                    first_name = user_data.get('first_name', 'Unknown')
+                    
+                    message = f"""✅ **Premium berhasil diberikan via Supabase!**
 
 👤 **User Info:**
-• **ID**: {target_user_id}
+• **Telegram ID**: {target_telegram_id}
 • **Name**: {first_name}
 • **Username**: @{username}
 
 ⭐ **Premium Status:**
 • **Type**: {premium_type}
+• **Database**: ✅ Updated in Supabase
 • **CoinAPI Access**: ✅ Unlimited
-• **SnD Analysis**: ✅ Unlimited
-• **Auto Signals**: {'✅ Enabled' if days == 0 else '❌ Lifetime Only'}
+• **Auto Signals**: {'✅ Enabled' if duration.lower() == 'lifetime' else '❌ Lifetime Only'}
 
-🎉 User sekarang memiliki akses unlimited ke semua fitur CoinAPI + SnD!{referral_reward_msg}"""
-
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_grant_premium",
-                    f"Granted {premium_type} premium to user {target_user_id}"
-                )
-
+🎉 User sekarang memiliki akses unlimited ke semua fitur!"""
+                else:
+                    message = f"❌ **Gagal update premium di Supabase!**\n\n**Error**: {update_result.get('error', 'Unknown error')}"
             else:
-                message = f"❌ **Gagal memberikan premium!** Coba lagi atau hubungi developer."
+                # User belum ada, buat user baru dengan premium
+                if duration.lower() == "lifetime":
+                    subscription_end = "9999-12-31T23:59:59+00:00"
+                    premium_type = "LIFETIME"
+                else:
+                    try:
+                        days = int(duration)
+                        from datetime import datetime, timedelta, timezone
+                        subscription_end = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+                        premium_type = f"{days} hari"
+                    except ValueError:
+                        await update.message.reply_text("❌ Durasi harus berupa angka (hari) atau 'lifetime'!")
+                        return
+                
+                # Insert user baru dengan premium
+                add_result = add_user(
+                    user_id=target_telegram_id,
+                    username="new_premium_user",
+                    first_name="Premium User",
+                    is_premium=True,
+                    expired_date=subscription_end
+                )
+                
+                if add_result["success"]:
+                    message = f"""✅ **User baru dengan premium berhasil dibuat!**
+
+👤 **User Info:**
+• **Telegram ID**: {target_telegram_id}
+• **Status**: New premium user
+
+⭐ **Premium Status:**
+• **Type**: {premium_type}
+• **Database**: ✅ Created in Supabase
+• **CoinAPI Access**: ✅ Unlimited
+
+🎉 User baru langsung memiliki akses premium!"""
+                else:
+                    message = f"❌ **Gagal membuat user premium di Supabase!**\n\n**Error**: {add_result.get('error', 'Unknown error')}"
 
         except Exception as e:
-            message = f"❌ **Error sistem saat memberikan premium!**\n\n**Error**: {str(e)}"
+            message = f"❌ **Error koneksi ke Supabase!**\n\n**Error**: {str(e)}"
             print(f"Error in grant_premium_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')
@@ -2109,7 +2129,7 @@ Gunakan `/subscribe` untuk upgrade!
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /revoke_premium command"""
+        """Handle /revoke_premium command dengan integrasi langsung ke Supabase"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -2117,53 +2137,67 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) < 1:
-            await update.message.reply_text("❌ Gunakan format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
+            await update.message.reply_text("❌ Gunakan format: `/revoke_premium <telegram_id>`\nContoh: `/revoke_premium 123456789`")
             return
 
         try:
-            target_user_id = int(context.args[0])
+            target_telegram_id = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!")
+            await update.message.reply_text("❌ Telegram ID harus berupa angka!")
             return
 
-        # Check if user exists
-        existing_user = self.db.get_user(target_user_id)
-        if not existing_user:
-            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
-            return
-
-        # Revoke premium status
+        # Revoke premium dengan integrasi Supabase
         try:
-            success = self.db.revoke_premium(target_user_id)
+            # Import Supabase functions
+            from supabase_client import get_user, update_user
+            
+            # Cek apakah user ada di Supabase
+            user_result = get_user(target_telegram_id)
+            
+            if user_result["success"]:
+                # User ada, revoke premium status
+                update_data = {
+                    "is_premium": False,
+                    "subscription_end": None
+                }
+                
+                update_result = update_user(target_telegram_id, update_data)
+                
+                if update_result["success"]:
+                    user_data = user_result["data"]
+                    username = user_data.get('username', 'no_username')
+                    first_name = user_data.get('first_name', 'Unknown')
 
-            if success:
-                user_info = self.db.get_user(target_user_id)
-                username = user_info.get('username', 'No username')
-                first_name = user_info.get('first_name', 'Unknown')
-
-                message = f"""✅ **Premium berhasil dicabut!**
+                    message = f"""✅ **Premium berhasil dicabut via Supabase!**
 
 👤 **User Info:**
-• **ID**: {target_user_id}
+• **Telegram ID**: {target_telegram_id}
 • **Name**: {first_name}
 • **Username**: @{username}
 
 ❌ **Status**: Premium access removed
-💳 **Credits**: User akan menggunakan sistem credit normal
+💳 **Database**: ✅ Updated in Supabase
+🔄 **Credits**: User kembali ke sistem credit normal
 
-🔄 User sekarang kembali ke akun free dengan sistem credit."""
-
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_revoke_premium",
-                    f"Revoked premium from user {target_user_id}"
-                )
+User sekarang kembali ke akun free dengan sistem credit."""
+                else:
+                    message = f"❌ **Gagal revoke premium di Supabase!**\n\n**Error**: {update_result.get('error', 'Unknown error')}"
             else:
-                message = f"❌ **Gagal mencabut premium!** User mungkin sudah tidak premium."
+                # User tidak ditemukan
+                message = f"""❌ **User tidak ditemukan!**
+
+🔍 **Telegram ID**: {target_telegram_id}
+📍 **Status**: User tidak ada di database Supabase
+
+💡 **Kemungkinan penyebab:**
+• User belum pernah menggunakan bot
+• Telegram ID salah
+• Data user tidak tersinkronisasi
+
+Pastikan Telegram ID benar dan user pernah menggunakan bot."""
 
         except Exception as e:
-            message = f"❌ **Error sistem saat mencabut premium!**\n\n**Error**: {str(e)}"
+            message = f"❌ **Error koneksi ke Supabase!**\n\n**Error**: {str(e)}"
             print(f"Error in revoke_premium_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')
