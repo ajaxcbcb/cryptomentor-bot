@@ -1,17 +1,8 @@
 
-#!/usr/bin/env python3
-"""
-AI Agent Server-side untuk Command Admin CryptoMentor AI
-Mengelola status premium dan credits user dengan validasi keamanan
-"""
-
 import os
 import json
-import re
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
 from supabase import create_client, Client
-import uuid
 
 class AdminAgent:
     """AI Agent untuk menjalankan command admin secara aman"""
@@ -54,180 +45,157 @@ class AdminAgent:
             # 3. Inisialisasi client
             self.supabase = create_client(supabase_url, supabase_key)
             
-            # 4. Test koneksi minimal - select id from public.users limit 1
+            # 4. Test koneksi minimal
             result = self.supabase.table('users').select('id').limit(1).execute()
             
-            # 5. Validasi struktur tabel - cek kolom credits
-            try:
-                schema_check = self.supabase.table('users').select('credits').limit(1).execute()
-                print("✅ Kolom 'credits' ditemukan di tabel users")
-            except Exception as schema_error:
-                if "column \"credits\" does not exist" in str(schema_error):
-                    self.connection_status = {
-                        "validated": False,
-                        "error": {
-                            "status": "error",
-                            "code": "MISSING_COLUMN",
-                            "message": "Kolom 'credits' tidak ditemukan di tabel users."
-                        }
-                    }
-                    return False
-                else:
-                    # Kolom mungkin ada tapi tabel kosong, lanjutkan
-                    print(f"⚠️ Schema check warning: {schema_error}")
+            # 5. Validasi kolom credits
+            columns_check = self.supabase.table('users').select('id, credits, is_premium, premium_until').limit(1).execute()
             
-            self.connection_status = {"validated": True, "error": None}
-            print("✅ Supabase sudah dikonfigurasi dengan benar. Siap untuk digunakan.")
+            self.connection_status = {
+                "validated": True,
+                "error": None
+            }
             return True
             
         except Exception as e:
-            error_msg = str(e)
-            
-            if "relation \"public.users\" does not exist" in error_msg:
-                error_code = "CONNECTION_FAILED"
-                message = "Tabel 'users' tidak ditemukan di Supabase database."
-            elif "column \"credits\" does not exist" in error_msg:
+            error_str = str(e)
+            if "column" in error_str.lower() and "credits" in error_str.lower():
                 error_code = "MISSING_COLUMN"
-                message = "Kolom 'credits' tidak ditemukan di tabel users."
-            elif "PGRST301" in error_msg or "authentication" in error_msg.lower():
+                error_msg = "Kolom 'credits' tidak ditemukan di public.users."
+            elif "relation" in error_str.lower() and "users" in error_str.lower():
                 error_code = "CONNECTION_FAILED"
-                message = "Authentication failed - check SUPABASE_SERVICE_ROLE_KEY."
+                error_msg = "Tabel 'users' tidak ditemukan."
             else:
                 error_code = "CONNECTION_FAILED"
-                message = "Gagal konek ke Supabase."
+                error_msg = "Gagal konek ke Supabase."
             
             self.connection_status = {
                 "validated": False,
                 "error": {
                     "status": "error",
                     "code": error_code,
-                    "message": message
+                    "message": error_msg
                 }
             }
-            print(f"❌ {message}")
             return False
     
-    def _validate_uuid(self, user_id: str) -> bool:
-        """Validasi format UUID"""
-        try:
-            uuid.UUID(user_id)
-            return True
-        except ValueError:
-            return False
+    def get_connection_status(self):
+        """Get status koneksi untuk diagnostik"""
+        if self.connection_status["validated"]:
+            return {
+                "status": "success",
+                "message": "Supabase connection validated successfully"
+            }
+        else:
+            return self.connection_status["error"]
     
-    def _parse_duration(self, duration: str) -> Optional[datetime]:
-        """Parse duration string ke datetime expiry"""
-        try:
-            duration = duration.lower().strip()
-            current_time = datetime.now(timezone.utc)
-            
-            if duration in ['lifetime', 'seumur_hidup']:
-                return None  # null = lifetime
-            
-            elif duration in ['month', 'months', 'bulan']:
-                return current_time + timedelta(days=30)
-            
-            elif duration.endswith('d'):
-                days = int(duration[:-1])
-                return current_time + timedelta(days=days)
-            
-            elif duration.startswith('days:'):
-                days = int(duration.split(':')[1])
-                return current_time + timedelta(days=days)
-            
-            else:
-                return None
-                
-        except (ValueError, IndexError):
-            return None
-    
-    def _get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Ambil data user berdasarkan ID"""
-        try:
-            result = self.supabase.table('users').select('*').eq('id', user_id).execute()
-            return result.data[0] if result.data else None
-        except Exception:
-            return None
-    
-    def execute_command(self, command: str, *args) -> Dict[str, Any]:
-        """Execute admin command dengan validasi penuh"""
-        
-        # 1. Validasi koneksi Supabase
+    def execute_command(self, command, *args):
+        """Execute admin command dengan validasi"""
+        # Check connection first
         if not self.connection_status["validated"]:
             return self.connection_status["error"]
         
         try:
-            # 2. Route command ke handler yang sesuai
             if command == "/setpremium":
-                return self._handle_setpremium(*args)
+                return self._set_premium(*args)
             elif command == "/revoke_premium":
-                return self._handle_revoke_premium(*args)
+                return self._revoke_premium(*args)
             elif command == "/grant_credits":
-                return self._handle_grant_credits(*args)
+                return self._grant_credits(*args)
+            elif command == "/check_user_status":
+                return self._check_user_status(*args)
             else:
                 return {
                     "status": "error",
-                    "code": "PARAM_INVALID",
-                    "message": f"Command '{command}' tidak dikenal."
+                    "code": "COMMAND_UNKNOWN",
+                    "message": f"Command {command} tidak dikenali"
                 }
                 
         except Exception as e:
             return {
                 "status": "error",
-                "code": "DB_ERROR",
-                "message": f"Database error: {str(e)}"
+                "code": "DB_ERROR", 
+                "message": f"Database error: {str(e)[:100]}"
             }
     
-    def _handle_setpremium(self, user_id: str, duration: str) -> Dict[str, Any]:
-        """Handle /setpremium command"""
+    def _validate_user_id(self, user_id_str):
+        """Validasi user_id parameter"""
+        try:
+            user_id = int(user_id_str)
+            return user_id
+        except ValueError:
+            return None
+    
+    def _parse_duration(self, duration_str):
+        """Parse duration string ke timedelta atau None untuk lifetime"""
+        duration_lower = duration_str.lower()
         
-        # 1. Validasi parameter
-        if not user_id or not duration:
+        if duration_lower in ["lifetime"]:
+            return None  # Lifetime
+        elif duration_lower in ["month", "months", "bulan"]:
+            return timedelta(days=30)
+        elif duration_lower.endswith("d"):
+            try:
+                days = int(duration_lower[:-1])
+                return timedelta(days=days)
+            except ValueError:
+                return False
+        elif duration_lower.startswith("days:"):
+            try:
+                days = int(duration_lower[5:])
+                return timedelta(days=days)
+            except ValueError:
+                return False
+        else:
+            return False
+    
+    def _set_premium(self, user_id_str, duration_str):
+        """Set premium status untuk user"""
+        # Validasi user_id
+        user_id = self._validate_user_id(user_id_str)
+        if user_id is None:
             return {
                 "status": "error",
                 "code": "PARAM_INVALID",
-                "message": "Parameter tidak lengkap. Format: /setpremium <user_id> <duration>"
+                "message": "user_id invalid."
             }
         
-        if not self._validate_uuid(user_id):
+        # Validasi duration
+        duration_delta = self._parse_duration(duration_str)
+        if duration_delta is False:
             return {
-                "status": "error",
-                "code": "PARAM_INVALID",
-                "message": "user_id harus UUID valid."
-            }
-        
-        # 2. Parse duration
-        premium_until = self._parse_duration(duration)
-        if premium_until is False:  # Invalid format
-            return {
-                "status": "error",
+                "status": "error", 
                 "code": "DURATION_INVALID",
                 "message": "Gunakan month|lifetime|<N>d|days:<N>."
             }
         
-        # 3. Cek user exists
-        user = self._get_user_by_id(user_id)
-        if not user:
+        # Check if user exists
+        user_check = self.supabase.table('users').select('id').eq('telegram_id', user_id).execute()
+        if not user_check.data:
             return {
                 "status": "error",
-                "code": "USER_NOT_FOUND",
-                "message": f"User {user_id} tidak ditemukan."
+                "code": "USER_NOT_FOUND", 
+                "message": f"User {user_id} not found."
             }
         
-        # 4. Update premium status
+        # Calculate premium_until
+        if duration_delta is None:
+            # Lifetime
+            premium_until = None
+            message = f"Premium set for user {user_id} as lifetime"
+        else:
+            premium_until = (datetime.now(timezone.utc) + duration_delta).isoformat()
+            message = f"Premium set for user {user_id} until {premium_until}"
+        
+        # Update database
         update_data = {
             "is_premium": True,
-            "premium_until": premium_until.isoformat() if premium_until else None
+            "premium_until": premium_until
         }
         
-        result = self.supabase.table('users').update(update_data).eq('id', user_id).execute()
+        result = self.supabase.table('users').update(update_data).eq('telegram_id', user_id).execute()
         
         if result.data:
-            if premium_until is None:
-                message = f"Premium set for user {user_id} as lifetime"
-            else:
-                message = f"Premium set for user {user_id} until {premium_until.isoformat()}"
-            
             return {
                 "status": "success",
                 "message": message
@@ -236,43 +204,35 @@ class AdminAgent:
             return {
                 "status": "error",
                 "code": "DB_ERROR",
-                "message": "Gagal update status premium."
+                "message": "Failed to update user premium status"
             }
     
-    def _handle_revoke_premium(self, user_id: str) -> Dict[str, Any]:
-        """Handle /revoke_premium command"""
-        
-        # 1. Validasi parameter
-        if not user_id:
+    def _revoke_premium(self, user_id_str):
+        """Revoke premium status"""
+        user_id = self._validate_user_id(user_id_str)
+        if user_id is None:
             return {
                 "status": "error",
                 "code": "PARAM_INVALID",
-                "message": "Parameter tidak lengkap. Format: /revoke_premium <user_id>"
+                "message": "user_id invalid."
             }
         
-        if not self._validate_uuid(user_id):
-            return {
-                "status": "error",
-                "code": "PARAM_INVALID",
-                "message": "user_id harus UUID valid."
-            }
-        
-        # 2. Cek user exists
-        user = self._get_user_by_id(user_id)
-        if not user:
+        # Check if user exists
+        user_check = self.supabase.table('users').select('id').eq('telegram_id', user_id).execute()
+        if not user_check.data:
             return {
                 "status": "error",
                 "code": "USER_NOT_FOUND",
-                "message": f"User {user_id} tidak ditemukan."
+                "message": f"User {user_id} not found."
             }
         
-        # 3. Revoke premium
+        # Update database
         update_data = {
             "is_premium": False,
             "premium_until": None
         }
         
-        result = self.supabase.table('users').update(update_data).eq('id', user_id).execute()
+        result = self.supabase.table('users').update(update_data).eq('telegram_id', user_id).execute()
         
         if result.data:
             return {
@@ -281,65 +241,59 @@ class AdminAgent:
             }
         else:
             return {
-                "status": "error",
+                "status": "error", 
                 "code": "DB_ERROR",
-                "message": "Gagal revoke premium."
+                "message": "Failed to revoke premium"
             }
     
-    def _handle_grant_credits(self, user_id: str, amount: str) -> Dict[str, Any]:
-        """Handle /grant_credits command"""
-        
-        # 1. Validasi parameter
-        if not user_id or not amount:
+    def _grant_credits(self, user_id_str, amount_str):
+        """Grant credits to user"""
+        user_id = self._validate_user_id(user_id_str)
+        if user_id is None:
             return {
                 "status": "error",
-                "code": "PARAM_INVALID",
-                "message": "Parameter tidak lengkap. Format: /grant_credits <user_id> <amount>"
-            }
-        
-        if not self._validate_uuid(user_id):
-            return {
-                "status": "error",
-                "code": "PARAM_INVALID",
-                "message": "user_id harus UUID valid."
+                "code": "PARAM_INVALID", 
+                "message": "user_id invalid."
             }
         
         try:
-            credit_amount = int(amount)
-            if credit_amount == 0:
+            amount = int(amount_str)
+            if amount == 0:
                 return {
                     "status": "error",
                     "code": "PARAM_INVALID",
-                    "message": "amount harus integer non-zero."
+                    "message": "amount cannot be zero."
                 }
         except ValueError:
             return {
                 "status": "error",
                 "code": "PARAM_INVALID",
-                "message": "amount harus integer valid."
+                "message": "amount must be integer."
             }
         
-        # 2. Cek user exists dan ambil credits saat ini
-        user = self._get_user_by_id(user_id)
-        if not user:
+        # Check if user exists and get current credits
+        user_check = self.supabase.table('users').select('id, credits').eq('telegram_id', user_id).execute()
+        if not user_check.data:
             return {
-                "status": "error",
+                "status": "error", 
                 "code": "USER_NOT_FOUND",
-                "message": f"User {user_id} tidak ditemukan."
+                "message": f"User {user_id} not found."
             }
         
-        current_credits = user.get('credits', 0) or 0
-        new_credits = current_credits + credit_amount
+        current_credits = user_check.data[0].get('credits', 0)
+        new_credits = current_credits + amount
         
-        # 3. Update credits
-        result = self.supabase.table('users').update({"credits": new_credits}).eq('id', user_id).execute()
+        # Update credits
+        result = self.supabase.table('users').update({
+            "credits": new_credits
+        }).eq('telegram_id', user_id).execute()
         
         if result.data:
             return {
                 "status": "success",
-                "message": f"Added {credit_amount} credits to user {user_id}",
+                "message": f"Added {amount} credits to user {user_id}",
                 "data": {
-                    "credits_added": credit_amount,
+                    "credits_added": amount,
                     "previous_credits": current_credits,
                     "new_total": new_credits
                 }
@@ -347,39 +301,50 @@ class AdminAgent:
         else:
             return {
                 "status": "error",
-                "code": "DB_ERROR",
-                "message": "Gagal update credits."
+                "code": "DB_ERROR", 
+                "message": "Failed to update credits"
             }
     
-    def get_connection_status(self) -> Dict[str, Any]:
-        """Get status koneksi Supabase"""
-        if self.connection_status["validated"]:
+    def _check_user_status(self, user_id_str):
+        """Check user status"""
+        user_id = self._validate_user_id(user_id_str)
+        if user_id is None:
             return {
-                "status": "success",
-                "message": "✅ Supabase sudah dikonfigurasi dengan benar. Siap untuk digunakan."
+                "status": "error",
+                "code": "PARAM_INVALID",
+                "message": "user_id invalid."
             }
+        
+        # Get user data
+        result = self.supabase.table('users').select('*').eq('telegram_id', user_id).execute()
+        if not result.data:
+            return {
+                "status": "error",
+                "code": "USER_NOT_FOUND",
+                "message": f"User {user_id} not found."
+            }
+        
+        user_data = result.data[0]
+        is_premium = user_data.get('is_premium', False)
+        premium_until = user_data.get('premium_until')
+        credits = user_data.get('credits', 0)
+        
+        # Determine premium type
+        if is_premium:
+            if premium_until is None:
+                premium_type = "lifetime"
+            else:
+                premium_type = "timed"
         else:
-            return self.connection_status["error"]
-
-
-def main():
-    """Test function untuk admin agent"""
-    print("🤖 AI Agent Admin CryptoMentor AI")
-    print("=" * 50)
-    
-    agent = AdminAgent()
-    
-    # Test koneksi
-    status = agent.get_connection_status()
-    print(json.dumps(status, indent=2, ensure_ascii=False))
-    
-    if status["status"] == "success":
-        print("\n✅ Agent siap menerima command admin!")
-        print("Commands yang didukung:")
-        print("- /setpremium <user_id> <month|lifetime|30d|days:N>")
-        print("- /revoke_premium <user_id>")
-        print("- /grant_credits <user_id> <amount>")
-
-
-if __name__ == "__main__":
-    main()
+            premium_type = "free"
+        
+        return {
+            "status": "success", 
+            "message": f"User status retrieved for {user_id}",
+            "data": {
+                "is_premium": is_premium,
+                "premium_type": premium_type,
+                "premium_until": premium_until,
+                "credits": credits
+            }
+        }

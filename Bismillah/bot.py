@@ -1923,28 +1923,28 @@ Gunakan `/subscribe` untuk upgrade!
             
             # Format response sesuai standar
             if status["status"] == "success":
-                message = f"""✅ **Supabase Configuration Check**
+                message = f"""**Supabase Configuration Check**
 
-🔧 **Environment Variables:**
-• SUPABASE_URL: {'✅ Valid' if os.getenv('SUPABASE_URL') else '❌ Missing'}
-• SUPABASE_SERVICE_ROLE_KEY: {'✅ Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '❌ Missing'}
+**Environment Variables:**
+• SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
+• SUPABASE_SERVICE_ROLE_KEY: {'Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
 
-🌐 **Connection Status:**
+**Connection Status:**
 {status['message']}
 
-📊 **Database Structure:**
-• Tabel public.users: ✅ Accessible
-• Kolom id: ✅ Available
-• Kolom credits: ✅ Available
-• Kolom is_premium: ✅ Available
-• Kolom premium_until: ✅ Available
+**Database Structure:**
+• Tabel public.users: Accessible
+• Kolom id: Available
+• Kolom credits: Available
+• Kolom is_premium: Available
+• Kolom premium_until: Available
 
-🔑 **Admin Agent Status:**
-• Validation: ✅ Passed
-• Connection: ✅ Active
-• Commands: ✅ Ready
+**Admin Agent Status:**
+• Validation: Passed
+• Connection: Active
+• Commands: Ready
 
-💡 **Available Commands:**
+**Available Commands:**
 • `/setpremium <user_id> <duration>` - Set premium status
 • `/revoke_premium <user_id>` - Remove premium
 • `/grant_credits <user_id> <amount>` - Add/remove credits"""
@@ -1953,23 +1953,23 @@ Gunakan `/subscribe` untuk upgrade!
                 error_code = status.get('code', 'UNKNOWN')
                 error_msg = status.get('message', 'Unknown error')
                 
-                message = f"""❌ **Supabase Configuration Error**
+                message = f"""**Supabase Configuration Error**
 
-🔧 **Environment Variables:**
-• SUPABASE_URL: {'✅ Set' if os.getenv('SUPABASE_URL') else '❌ Missing'}
-• SUPABASE_SERVICE_ROLE_KEY: {'✅ Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '❌ Missing'}
+**Environment Variables:**
+• SUPABASE_URL: {'Set' if os.getenv('SUPABASE_URL') else 'Missing'}
+• SUPABASE_SERVICE_ROLE_KEY: {'Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
 
-⚠️ **Error Details:**
+**Error Details:**
 • Code: {error_code}
 • Message: {error_msg}
 
-🔧 **Troubleshooting:**
+**Troubleshooting:**
 1. Check SUPABASE_URL format: https://your-project.supabase.co
 2. Verify SUPABASE_SERVICE_ROLE_KEY from dashboard
 3. Ensure public.users table exists with required columns
 4. Check network connectivity to Supabase
 
-💡 **Required Columns in public.users:**
+**Required Columns in public.users:**
 - id (uuid, primary key)
 - telegram_id (bigint)
 - is_premium (boolean, default false)
@@ -1979,11 +1979,11 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text(message, parse_mode='Markdown')
             
         except Exception as e:
-            error_message = f"""❌ **Admin Agent Error**
+            error_message = f"""**Admin Agent Error**
 
-🔧 **Error**: {str(e)[:100]}...
+**Error**: {str(e)[:100]}...
 
-💡 **Solutions:**
+**Solutions:**
 • Restart aplikasi/server
 • Check environment variables di Secrets
 • Verify Supabase service status
