@@ -697,17 +697,17 @@ class TelegramBot:
 • `/market` - Overview pasar global dari CoinAPI (20 credit) ⭐
   Data: Total market cap, dominance, volume global, fear & greed
 
-📈 **Analisis Trading dengan SnD:**
+📈 **Analisis Trading dengan Unified Engine:**
 • `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
   Contoh: `/analyze btc` → Fundamental dari CoinAPI + Technical analysis
   Data: Rank, market cap, volume, description, website, price prediction
 
-• `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
-  Contoh: `/futures btc` → Pilih timeframe dengan SnD entry/exit points
-  Hasil: Entry, TP, SL, confidence level, risk management
+• `/futures <symbol> [timeframe]` - Analisis futures dengan Unified Engine (20 credit)
+  Contoh: `/futures btc 15m` → Professional futures analysis dengan unified engine
+  Hasil: Entry, TP, SL, confidence level, risk management, Multi-TF analysis
 
-• `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
-  Multiple coins dengan konfirmasi Supply/Demand zones
+• `/futures_signals [symbol] [timeframe]` - Sinyal futures dengan Unified Engine (60 credit)
+  Contoh: `/futures_signals btc 15m` → Sinyal berkualitas tinggi dengan engine terpadu
 
 💼 **Portfolio & Credit:**
 • `/portfolio` - Lihat portfolio dengan CoinAPI prices
@@ -994,7 +994,7 @@ class TelegramBot:
             traceback.print_exc()
 
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
+        """Handle /futures_signals command with unified engine"""
         user_id = update.message.from_user.id
 
         # Use unified access functions
@@ -1008,86 +1008,50 @@ class TelegramBot:
             await update.message.reply_text("❌ Credit tidak cukup! Sinyal futures membutuhkan 60 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
 
-        # Show loading message with query processing info
-        query_display = ""
-        if context.args:
-            # Clean the query for display - remove "SND" and show clean timeframe
-            raw_query = ' '.join(context.args).upper()
-            query_parts = raw_query.split()
-            cleaned_parts = [part for part in query_parts if part != 'SND']
+        # Parse arguments
+        symbol = context.args[0].upper() if context.args else "BTC"
+        timeframe = context.args[1] if len(context.args) > 1 else "15m"
 
-            if cleaned_parts:
-                # Show cleaned query in loading message
-                if any(tf in cleaned_parts[0] for tf in ['M', 'H', 'D', 'W']):
-                    clean_timeframe = cleaned_parts[0]
-                    query_display = f" untuk {clean_timeframe}"
-                else:
-                    query_display = f" untuk {cleaned_parts[0]}"
-
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures {symbol} {timeframe} dengan engine terpadu...")
 
         try:
-            print(f"🔄 Starting futures signals generation for user {user_id}")
-
-            # Generate signals using new async method with query args
-            signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
-
-            if not signals or len(signals.strip()) < 50:
-                fallback_msg = f"""❌ **Gagal Generate Sinyal Futures**
-
-💡 **Kemungkinan Penyebab:**
-• Market volatilitas rendah
-• Tidak ada setup trading yang jelas
-• API rate limiting
-
-🔄 **Solusi:**
-• Coba lagi dalam 15-30 menit
-• Gunakan `/futures btc` untuk analisis spesifik
-• Gunakan `/analyze btc` untuk analisis fundamental"""
-
-                await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
-                return
+            # Use unified engine
+            from app.futures.engine import analyze_symbol
+            from app.futures.formatters import format_signals_list
+            
+            result = analyze_symbol(symbol, timeframe, crypto_api=self.crypto_api)
+            signals_text = format_signals_list(result.get('signals', []), result)
 
             # Deduct credit only for non-premium, non-admin users
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 60)
                 remaining_credits = self.db.get_user_credits(user_id)
-                signals += f"\n\n💳 Credit tersisa: {remaining_credits} (Sinyal futures: -60 credit)"
+                signals_text += f"\n\n💳 Credit tersisa: {remaining_credits} (Sinyal futures: -60 credit)"
             elif is_premium:
-                signals += f"\n\n⭐ **Status Premium** - Unlimited Access"
+                signals_text += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
-                signals += f"\n\n👑 **Admin Access** - Unlimited"
+                signals_text += f"\n\n👑 **Admin Access** - Unlimited"
 
-            # Handle long messages
-            if len(signals) > 4000:
-                chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
-                try:
-                    await loading_msg.edit_text(chunks[0], parse_mode='MarkdownV2')
-                    for chunk in chunks[1:]:
-                        await update.message.reply_text(chunk, parse_mode='MarkdownV2')
-                except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    await loading_msg.edit_text(chunks[0], parse_mode=None)
-                    for chunk in chunks[1:]:
-                        await update.message.reply_text(chunk, parse_mode=None)
+            # Send response
+            if len(signals_text) > 4000:
+                chunks = [signals_text[i:i+4000] for i in range(0, len(signals_text), 4000)]
+                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                for chunk in chunks[1:]:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
             else:
-                try:
-                    await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
-                except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    await loading_msg.edit_text(signals, parse_mode=None)
+                await loading_msg.edit_text(signals_text, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
+            error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures {symbol.lower()}` untuk analisis spesifik."
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"❌ Error in futures_signals command: {e}")
             import traceback
             traceback.print_exc()
 
     async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /futures command with SnD timeframe selection"""
+        """Handle /futures command with unified engine"""
         if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/futures <symbol>`\nContoh: `/futures btc`", parse_mode='Markdown')
+            await update.message.reply_text("❌ Gunakan format: `/futures <symbol> [timeframe]`\nContoh: `/futures btc 15m`", parse_mode='Markdown')
             return
 
         user_id = update.message.from_user.id
@@ -1098,52 +1062,51 @@ class TelegramBot:
         is_premium = has_premium(user_id)
         is_admin = self.is_admin(user_id)
 
-        # Check credits for non-premium, non-admin users (20 credits for SnD futures analysis)
+        # Check credits for non-premium, non-admin users
         if not is_premium and not is_admin and credits < 20:
-            await update.message.reply_text("❌ Credit tidak cukup! Analisis SnD futures membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
+            await update.message.reply_text("❌ Credit tidak cukup! Analisis futures membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
 
-        # Clean the symbol query - remove "SND" if present and extract timeframe
-        raw_query = ' '.join(context.args).upper()
-        query_parts = raw_query.split()
+        # Parse arguments
+        symbol = context.args[0].upper()
+        timeframe = context.args[1] if len(context.args) > 1 else "15m"
 
-        # Check if first part looks like a timeframe (contains M, H, D, W)
-        if len(query_parts) >= 2 and any(tf in query_parts[0] for tf in ['M', 'H', 'D', 'W']):
-            # Extract timeframe and symbol, remove "SND" if present
-            timeframe_input = query_parts[0].upper()
-            remaining_parts = [part for part in query_parts[1:] if part.upper() != 'SND']
-            symbol = remaining_parts[0] if remaining_parts else 'BTC'
-        else:
-            # Standard format: symbol only
-            symbol = query_parts[0] if query_parts else 'BTC'
-            timeframe_input = None
+        # Show loading
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis {symbol} {timeframe} dengan engine terpadu...")
 
-        # Show timeframe selection with inline keyboard for SnD analysis
-        keyboard = [
-            [InlineKeyboardButton("⚡ 15M", callback_data=f'snd_futures_{symbol}_15m'),
-             InlineKeyboardButton("🔥 30M", callback_data=f'snd_futures_{symbol}_30m')],
-            [InlineKeyboardButton("📈 1H", callback_data=f'snd_futures_{symbol}_1h'),
-             InlineKeyboardButton("🚀 4H", callback_data=f'snd_futures_{symbol}_4h')],
-            [InlineKeyboardButton("💎 1D", callback_data=f'snd_futures_{symbol}_1d'),
-             InlineKeyboardButton("🌟 1W", callback_data=f'snd_futures_{symbol}_1w')]
-        ]
+        try:
+            # Use unified engine
+            from app.futures.engine import analyze_symbol
+            from app.futures.formatters import format_futures_summary
+            
+            result = analyze_symbol(symbol, timeframe, crypto_api=self.crypto_api)
+            analysis_text = format_futures_summary(result)
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            # Deduct credits
+            if not is_premium and not is_admin:
+                self.db.deduct_credit(user_id, 20)
+                remaining_credits = self.db.get_user_credits(user_id)
+                analysis_text += f"\n\n💳 Credit tersisa: {remaining_credits} (Futures {timeframe}: -20 credit)"
+            elif is_premium:
+                analysis_text += f"\n\n⭐ **Status Premium** - Unlimited Access"
+            elif is_admin:
+                analysis_text += f"\n\n👑 **Admin Access** - Unlimited"
 
-        # Display cleaned timeframe if provided in query
-        display_text = f"📊 **Analisis Supply & Demand Futures {symbol}**\n\n"
-        if timeframe_input:
-            # Clean display: show only timeframe without "SND"
-            clean_timeframe = timeframe_input.replace('SND', '').strip()
-            display_text += f"🎯 **Timeframe yang diminta**: {clean_timeframe}\n\n"
+            # Send response
+            if len(analysis_text) > 4000:
+                chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                for chunk in chunks[1:]:
+                    await update.message.reply_text(chunk, parse_mode='Markdown')
+            else:
+                await loading_msg.edit_text(analysis_text, parse_mode='Markdown')
 
-        display_text += "Pilih timeframe untuk analisis SnD dengan Entry/TP/SL:"
-
-        await update.message.reply_text(
-            display_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        except Exception as e:
+            error_msg = f"❌ Error dalam analisis futures: {str(e)[:100]}...\n\n💡 Solusi:\n• Coba /price {symbol} untuk harga basic\n• Gunakan /futures_signals untuk multiple signals\n• Contact admin jika masalah berlanjut"
+            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            print(f"❌ Error in futures command: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline keyboards"""
@@ -1478,6 +1441,89 @@ Gunakan credit dengan bijak!"""
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
             logger.error(f"Error stopping auto signals: {e}")
+
+    async def signal_tick_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /signal_tick command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        loading_msg = await update.message.reply_text("🔄 **Menjalankan scan manual...**")
+
+        try:
+            # Perform one scan
+            await self.auto_signals._perform_scan()
+            
+            message = f"✅ **Manual scan completed**\n\n"
+            message += f"🕐 **Scan time**: {datetime.now().strftime('%H:%M:%S WIB')}\n"
+            message += f"📊 **Symbols scanned**: {len(self.auto_signals.target_symbols[:10])}\n"
+            message += f"⚡ **Min confidence**: {self.auto_signals.min_confidence}%\n"
+            message += f"👥 **Eligible users**: {len(self.auto_signals._get_eligible_users())}\n\n"
+            message += f"Check console logs for detailed results."
+
+            await loading_msg.edit_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Manual scan failed: {e}")
+
+    async def signal_trace_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /signal_trace <symbol> command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not context.args:
+            await update.message.reply_text("❌ Gunakan format: `/signal_trace <symbol>`\nContoh: `/signal_trace BTC`", parse_mode='Markdown')
+            return
+
+        symbol = context.args[0].upper()
+        loading_msg = await update.message.reply_text(f"🔍 **Analyzing {symbol} for debug...**")
+
+        try:
+            # Use unified engine directly
+            from app.futures.engine import analyze_symbol
+            
+            result = analyze_symbol(symbol, "15m", crypto_api=self.crypto_api)
+            
+            signals = result.get('signals', [])
+            meta = result.get('meta', {})
+            indicators = meta.get('indicators', {})
+            
+            message = f"🔍 **Signal Trace - {symbol}**\n\n"
+            message += f"💰 **Price**: ${result.get('price', 0):,.2f}\n"
+            message += f"📊 **Signals found**: {len(signals)}\n\n"
+            
+            if signals:
+                best = signals[0]
+                message += f"🎯 **Best Signal**:\n"
+                message += f"• Side: {best.get('side')}\n"
+                message += f"• Confidence: {best.get('confidence')}%\n"
+                message += f"• Reasons: {', '.join(best.get('reasons', [])[:3])}\n\n"
+            
+            if indicators:
+                message += f"📈 **Indicators**:\n"
+                message += f"• RSI: {indicators.get('rsi', 0):.1f}\n"
+                message += f"• EMA50: ${indicators.get('ema_50', 0):,.2f}\n"
+                message += f"• EMA200: ${indicators.get('ema_200', 0):,.2f}\n"
+                message += f"• MACD: {indicators.get('macd_histogram', 0):.4f}\n\n"
+            
+            message += f"⚡ **Latency**: {meta.get('latency_ms', 0)}ms\n"
+            message += f"📊 **Data points**: {meta.get('data_points', 0)}\n"
+            message += f"🎯 **Min confidence**: {self.auto_signals.min_confidence}%\n"
+            message += f"✅ **Would send**: {'Yes' if signals and signals[0].get('confidence', 0) >= self.auto_signals.min_confidence else 'No'}"
+
+            await loading_msg.edit_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ Trace failed: {e}", parse_mode='Markdown')
 
 
     # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
@@ -2869,10 +2915,12 @@ ADMIN2 = [optional_second_admin_id]
             print("✅ Supabase status command registered")
         except ImportError as e:
             print(f"⚠️ Supabase handler not available: {e}")
-        # Renamed for clarity and consistency with user request
+        # Auto signal commands
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
         self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
         self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
+        self.application.add_handler(CommandHandler("signal_tick", self.signal_tick_command))
+        self.application.add_handler(CommandHandler("signal_trace", self.signal_trace_command))
 
 
         # Add callback query handler
