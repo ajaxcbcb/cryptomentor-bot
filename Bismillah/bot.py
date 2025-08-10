@@ -124,26 +124,20 @@ def admin_revoke_premium(*args, **kwargs):
 def admin_grant_credits(*args, **kwargs):
     return {"success": False, "error": "Database not configured"}
 
-# Placeholder for ADMIN_IDS if Supabase is not available
-if not SUPABASE_AVAILABLE:
-    ADMIN_IDS = set()
-    logger.warning("Supabase and Admin Agent not available. Admin commands might not function correctly.")
-else:
-    # Dynamically load ADMIN_IDS from environment variables
-    ADMIN_IDS = set()
-    for i in range(1, 10):
-        env_key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
-        admin_id_str = os.getenv(env_key, '0')
-        try:
-            admin_id = int(admin_id_str)
-            if admin_id > 0:
-                ADMIN_IDS.add(admin_id)
-        except ValueError:
-            if admin_id_str != '0':
-                logger.warning(f"Invalid {env_key}: {admin_id_str}")
+# Standardized admin check function - only reads ADMIN_USER_ID and ADMIN2_USER_ID
+def is_admin(user_id) -> bool:
+    """Check if user_id is admin based on Replit Secrets"""
+    if user_id is None:
+        return False
+    uid = str(user_id)
+    a1 = (os.getenv("ADMIN_USER_ID") or "").strip()
+    a2 = (os.getenv("ADMIN2_USER_ID") or "").strip()
+    return uid == a1 or uid == a2
 
-if not ADMIN_IDS:
-    logger.warning("No ADMIN_USER_ID found in environment variables. Admin commands will be inaccessible.")
+# Get admin info for logging (without exposing secrets)
+admin1_exists = bool((os.getenv("ADMIN_USER_ID") or "").strip())
+admin2_exists = bool((os.getenv("ADMIN2_USER_ID") or "").strip())
+logger.info(f"✅ Admin setup: ADMIN_USER_ID={'SET' if admin1_exists else 'NOT_SET'}, ADMIN2_USER_ID={'SET' if admin2_exists else 'NOT_SET'}")
 
 class TelegramBot:
     def __init__(self):
@@ -182,11 +176,10 @@ class TelegramBot:
 
         logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
-        # Get all admin IDs with better error handling
-        self.admin_ids = ADMIN_IDS # Use the dynamically loaded ADMIN_IDS
-        self.admin_id = min(self.admin_ids) if self.admin_ids else 0
-
-        logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
+        # Admin setup info (without exposing actual IDs)
+        admin1_exists = bool((os.getenv("ADMIN_USER_ID") or "").strip())
+        admin2_exists = bool((os.getenv("ADMIN2_USER_ID") or "").strip())
+        logger.info(f"✅ Admin configuration: Primary={'SET' if admin1_exists else 'MISSING'}, Secondary={'SET' if admin2_exists else 'MISSING'}")
 
         # Initialize components with CoinAPI integration
         self.crypto_api = CryptoAPI()
@@ -214,9 +207,7 @@ class TelegramBot:
             logger.error(f"❌ Failed to initialize bot: {e}")
             sys.exit(1)
 
-    def is_admin(self, user_id: int) -> bool:
-        """Check if the user ID is one of the configured admins."""
-        return user_id in self.admin_ids
+    
 
     def register_user_supabase(self, user):
         """TODO: Register new user in database after setup"""
@@ -1389,10 +1380,11 @@ Gunakan credit dengan bijak!"""
     # Auto Signals Admin Commands
     async def auto_signals_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /auto_signals_status command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if not self.auto_signals:
@@ -1421,10 +1413,11 @@ Gunakan credit dengan bijak!"""
 
     async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /enable_auto_signal_ai command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if not self.auto_signals:
@@ -1454,10 +1447,11 @@ Gunakan credit dengan bijak!"""
 
     async def stop_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /disable_auto_signal_ai command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if not self.auto_signals:
@@ -1846,10 +1840,11 @@ Gunakan `/subscribe` untuk upgrade!
     # Essential admin commands
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         # Get bot statistics
@@ -1858,32 +1853,17 @@ Gunakan `/subscribe` untuk upgrade!
         auto_status = "🟢 RUNNING" if self.auto_signals and self.auto_signals.is_running else "🔴 STOPPED"
         deployment_mode = "🚀 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
 
-        # Enhanced admin verification for multiple admins
-        admin_env_vars = {}
-        for i in range(1, 10):
-            key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
-            env_value = os.getenv(key)
-            if env_value and env_value != '0':
-                admin_env_vars[key] = env_value
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text(
-                f"❌ **Access Denied**\n\n"
-                f"**Your ID**: {user_id}\n"
-                f"**Configured Admin IDs**: {sorted(list(self.admin_ids))}\n"
-                f"**Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}\n\n"
-                f"⚠️ Admin access hanya untuk user dengan ID yang sesuai dengan admin environment variables di Secrets.",
-                parse_mode='Markdown'
-            )
-            return
+        # Check admin environment variables (without exposing values)
+        admin1_exists = bool((os.getenv("ADMIN_USER_ID") or "").strip())
+        admin2_exists = bool((os.getenv("ADMIN2_USER_ID") or "").strip())
 
         message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
 
 🔑 **Admin Verification:**
 • **Your User ID**: {user_id} ✅
-• **Your Admin Status**: {'✅ PRIMARY' if user_id == self.admin_id else '✅ SECONDARY'}
-• **All Admin IDs**: {sorted(list(self.admin_ids))}
-• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
+• **Your Admin Status**: ✅ VERIFIED
+• **Primary Admin (ADMIN_USER_ID)**: {'SET' if admin1_exists else 'NOT_SET'}
+• **Secondary Admin (ADMIN2_USER_ID)**: {'SET' if admin2_exists else 'NOT_SET'}
 • **Admin Access**: ✅ VERIFIED & GRANTED
 
 📊 **Bot Statistics:**
@@ -1928,9 +1908,10 @@ Gunakan `/subscribe` untuk upgrade!
         """Admin command untuk set premium user dengan Admin Agent"""
 
         # Admin access check
-        user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
-            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         try:
@@ -1978,10 +1959,11 @@ Gunakan `/subscribe` untuk upgrade!
 
     async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_credits command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if len(context.args) < 2:
@@ -2023,10 +2005,11 @@ Gunakan `/subscribe` untuk upgrade!
 
     async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /check_user_status command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if len(context.args) < 1:
@@ -2075,9 +2058,10 @@ Gunakan `/subscribe` untuk upgrade!
         """Admin command untuk revoke premium user dengan Admin Agent"""
 
         # Admin access check
-        user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
-            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         try:
@@ -2118,10 +2102,11 @@ Gunakan `/subscribe` untuk upgrade!
 
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         try:
@@ -2153,10 +2138,11 @@ Gunakan `/subscribe` untuk upgrade!
 
     async def broadcast_welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /broadcast_welcome command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         welcome_message = """🎉 **CryptoMentor AI Update - CoinAPI Integration!**
@@ -2187,10 +2173,11 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
     async def recovery_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /recovery_stats command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         try:
@@ -2226,27 +2213,32 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
     async def check_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /check_admin command"""
-        user_id = update.message.from_user.id
-
-        is_admin = self.is_admin(user_id)
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        is_admin_status = is_admin(user_id)
+        
+        admin1_exists = bool((os.getenv("ADMIN_USER_ID") or "").strip())
+        admin2_exists = bool((os.getenv("ADMIN2_USER_ID") or "").strip())
 
         message = f"""🔍 **Admin Check**
 
 👤 **Your Info:**
 • **User ID**: {user_id}
-• **Admin Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
-• **Configured Admin ID**: {self.admin_id}
+• **Admin Status**: {'✅ ADMIN' if is_admin_status else '❌ NOT ADMIN'}
+• **Primary Admin**: {'SET' if admin1_exists else 'NOT_SET'}
+• **Secondary Admin**: {'SET' if admin2_exists else 'NOT_SET'}
 
-{'👑 You have full admin access!' if is_admin else '⚠️ You do not have admin privileges.'}"""
+{'👑 You have full admin access!' if is_admin_status else '⚠️ You do not have admin privileges.'}"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /restart command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         await update.message.reply_text(
@@ -2268,10 +2260,11 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
     async def refresh_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /refresh_credits command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         try:
@@ -2358,10 +2351,11 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
     async def grant_package_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_package command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if len(context.args) < 2:
@@ -2454,10 +2448,11 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         # Get the original message text and extract everything after "/broadcast "
@@ -2487,10 +2482,11 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
     async def confirm_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /confirm_broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if not self.pending_broadcast:
@@ -2545,10 +2541,11 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
             return
 
         if not self.pending_broadcast:
