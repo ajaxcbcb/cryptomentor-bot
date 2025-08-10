@@ -399,7 +399,7 @@ class TelegramBot:
                             if proc.info['name'] == 'python3' or proc.info['name'] == 'python':
                                 cmdline = ' '.join(proc.info['cmdline'] or [])
                                 if 'main.py' in cmdline and proc.pid != os.getpid():
-                                    print(f"🛑 Terminating conflicting process: {proc.pid}")
+                                    print(f"[STOP] Terminating conflicting process: {proc.pid}")
                                     proc.terminate()
                                     proc.wait(timeout=3)
                         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
@@ -407,25 +407,25 @@ class TelegramBot:
 
                     import time
                     time.sleep(5)  # Wait for cleanup
-                    print("✅ Cleanup completed, restarting...")
+                    print("[OK] Cleanup completed, restarting...")
 
                     # Force exit to restart cleanly
                     if IS_DEPLOYMENT:
-                        print("🔄 Deployment will restart automatically...")
+                        print("[PROC] Deployment will restart automatically...")
                         sys.exit(1)
                     else:
                         # Restart in development
-                        print("🔄 Restarting bot...")
+                        print("[PROC] Restarting bot...")
                         raise
 
                 except ImportError:
-                    print("⚠️ psutil not available, manual restart required")
+                    print("[WARN] psutil not available, manual restart required")
                     if IS_DEPLOYMENT:
                         sys.exit(1)
                     else:
                         raise
                 except Exception as cleanup_error:
-                    print(f"⚠️ Cleanup failed: {cleanup_error}")
+                    print(f"[WARN] Cleanup failed: {cleanup_error}")
                     if IS_DEPLOYMENT:
                         sys.exit(1)
                     else:
@@ -1355,7 +1355,8 @@ Selamat mengelola CryptoMentor AI!"""
 
 🚀 **Fitur Premium:**
 • Unlimited analisis CoinAPI + SnD
-• Akses semua command SnD
+• Akses prioritas ke semua fitur
+• 📊 Data real-time CoinAPI tanpa batas
 • {'Auto SnD signals (Lifetime only)' if is_lifetime else 'Priority support'}
 • Priority support
 
@@ -1914,121 +1915,6 @@ Gunakan `/subscribe` untuk upgrade!
 - Auto signals for admin & lifetime users"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def check_supabase_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /check_supabase_config command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        try:
-            # Inisialisasi ulang Admin Agent untuk test fresh connection
-            from admin_agent import AdminAgent
-            test_agent = AdminAgent()
-            
-            # Get status dari admin agent
-            status = test_agent.get_connection_status()
-            
-            # Format response sesuai standar
-            if status["status"] == "success":
-                message = f"""**Supabase Configuration Check**
-
-**Environment Variables:**
-- SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
-- SUPABASE_SERVICE_ROLE_KEY: {'Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
-
-**Connection Status:**
-{status['message']}
-
-**Database Structure:**
-- Tabel public.users: Accessible
-- Kolom id: Available
-- Kolom credits: Available
-- Kolom is_premium: Available
-- Kolom premium_until: Available
-
-**Admin Agent Status:**
-- Validation: Passed
-- Connection: Active
-- Commands: Ready
-
-**Available Commands:**
-- `/setpremium <user_id> <duration>` - Set premium status
-- `/revoke_premium <user_id>` - Remove premium
-- `/grant_credits <user_id> <amount>` - Add/remove credits"""
-
-            else:
-                error_code = status.get('code', 'UNKNOWN')
-                error_msg = status.get('message', 'Unknown error')
-                
-                message = f"""**Supabase Configuration Error**
-
-**Environment Variables:**
-- SUPABASE_URL: {'Set' if os.getenv('SUPABASE_URL') else 'Missing'}
-- SUPABASE_SERVICE_ROLE_KEY: {'Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
-
-**Error Details:**
-- Code: {error_code}
-- Message: {error_msg}
-
-**Troubleshooting:**
-1. Check SUPABASE_URL format: https://your-project.supabase.co
-2. Verify SUPABASE_SERVICE_ROLE_KEY from dashboard
-3. Ensure public.users table exists with required columns
-4. Check network connectivity to Supabase
-
-**Required Columns in public.users:**
-- id (uuid, primary key)
-- telegram_id (bigint)
-- is_premium (boolean, default false)
-- premium_until (timestamptz, nullable)
-- credits (bigint, default 100)"""
-
-            await update.message.reply_text(message, parse_mode='Markdown')
-            
-        except Exception as e:
-            error_message = f"""**Admin Agent Error**
-
-**Error**: {str(e)[:100]}...
-
-**Solutions:**
-- Restart aplikasi/server
-- Check environment variables di Secrets
-- Verify Supabase service status
-- Contact support jika masalah berlanjut"""
-
-            await update.message.reply_text(error_message, parse_mode='Markdown')
-            print(f"❌ Error in check_supabase_config: {e}")
-
-
-[TOOL] **Admin Commands:**
-- `/setpremium <user_id> <type>` - Set premium (month/lifetime)
-- `/revoke_premium <user_id>` - Remove premium status
-- `/grant_credits <user_id> <amount>` - Add credits
-- `/check_supabase_config` - Validate Supabase configuration
-- `/auto_signals_status` - SnD signals status
-- `/enable_auto_signal_ai` - Start momentum signals scanner
-- `/disable_auto_signal_ai` - Stop momentum signals scanner
-- `/broadcast <message>` - Send broadcast
-
-[NETWORK] **API Status:**
-- CoinAPI: {'[Active]' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '[No Provider]'}
-- Binance: [Active] (Public API)
-- Auto Signals: {auto_status}
-
-[INFO] **V4 Features:**
-- CoinAPI integration
-- Advanced futures analysis with real-time data
-- Supply & Demand analysis for futures
-- Auto signals for admin & lifetime users"""
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-
-
-
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk set premium user dengan Admin Agent"""
