@@ -1,0 +1,259 @@
+Prompt AI Agent — AutoSignal (Only Supabase Lifetime + Admin)
+Tujuan:
+
+Hapus semua sumber penerima dari local JSON / backup.
+
+Gunakan Supabase untuk ambil user lifetime saja (premium_until IS NULL).
+
+Sertakan admin dari environment Replit (ADMIN_USER_ID dan ADMIN2_USER_ID).
+
+Pastikan tidak mengirim ke user yang banned=true.
+
+Pastikan user sudah pernah /start di chat privat (ada chat_id di chat_store).
+
+Interval AutoSignal tetap 30 menit.
+
+Langkah Perubahan
+1️⃣ Pastikan fungsi koneksi Supabase tersedia
+File: app/supabase_conn.py
+
+python
+Copy
+import os
+import requests
+from typing import Dict, Any, List
+
+def _env():
+    url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
+    rest = f"{url}/rest/v1" if url else ""
+    return url, key, rest
+
+def _headers(key: str, *, count: bool = False):
+    h = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if count:
+        h["Prefer"] = "count=exact"
+    return h
+
+def sb_list_users(params: dict, columns: str = "telegram_id,is_premium,premium_until,banned", table: str = "users", limit: int = 1000, offset: int = 0) -> List[Dict[str, Any]]:
+    url, key, rest = _env()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing")
+    q = {"select": columns, "limit": str(limit), "offset": str(offset)}
+    q.update(params or {})
+    r = requests.get(f"{rest}/{table}", headers=_headers(key), params=q, timeout=20)
+    if r.status_code not in (200, 206):
+        raise RuntimeError(f"LIST {table} failed: {r.status_code} {r.text}")
+    return r.json()
+2️⃣ Ubah list_recipients() di AutoSignal
+File: app/autosignal.py
+
+python
+Copy
+import os
+from typing import List
+from app.supabase_conn import sb_list_users
+from app.chat_store import get_private_chat_id
+
+def list_recipients() -> List[int]:
+    """
+    Hanya admin + user lifetime dari Supabase,
+    tidak banned, sudah /start privat.
+    """
+    # Ambil admin dari secrets
+    admin_ids = set()
+    for key in ("ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        val = os.getenv(key)
+        if val and val.isdigit():
+            admin_ids.add(int(val))
+
+    # Ambil lifetime premium dari Supabase
+    rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null",  # lifetime
+        "limit": "1000",
+        "offset": "0",
+    })
+
+    tids = set(admin_ids)
+    for r in rows:
+        tid = r.get("telegram_id")
+        if tid is None:
+            continue
+        if get_private_chat_id(int(tid)) is not None:
+            tids.add(int(tid))
+
+    return list(tids)
+
+# Interval 30 menit
+SCAN_INTERVAL_SEC = int(os.getenv("AUTOSIGNAL_INTERVAL_SEC", "1800"))
+3️⃣ (Opsional) Command admin /signal_audience
+File: app/handlers_signal_audience.py
+
+python
+Copy
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.lib.guards import admin_guard
+from app.autosignal import list_recipients
+from app.safe_send import safe_reply
+
+@admin_guard
+async def cmd_signal_audience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    recs = list_recipients()
+    await safe_reply(update.effective_message,
+        "🛰️ AutoSignal Audience (Lifetime + Admin)\n"
+        f"count: {len(recs)}\n"
+        f"sample: {recs[:20]}"
+    )
+Register di bot:
+
+python
+Copy
+application.add_handler(CommandHandler("signal_audience", cmd_signal_audience))
+Dengan ini:
+
+AutoSignal hanya jalan untuk admin + user lifetime dari Supabase.
+
+Tidak ada lagi user dari local JSON / backup.
+
+Semua filter banned & DM consent sudah otomatis.
+
+Kalau kamu mau, aku bisa langsung tambahkan query debug biar setiap kali AutoSignal jalan, dia log ke console siapa aja yang terkirim.
+Mau aku buat sekalian?
+
+
+
+
+
+
+
+You said:
+premium usernya kalau bisa yang dari supabase aja (Tolong buat prompt AI Agentnya)
+
+
+ChatGPT said:
+Oke, berarti kita bikin prompt AI Agent untuk memastikan premium user yang dihitung & dipakai di semua fitur (termasuk AutoSignal) hanya dari Supabase.
+Tidak lagi ambil dari local JSON atau variabel di memory.
+
+Prompt AI Agent — Premium User Only from Supabase
+Tujuan:
+
+Semua pengecekan premium hanya berdasarkan data di Supabase.
+
+Hitung premium berdasarkan is_premium = true dan banned = false.
+
+Lifetime = premium_until IS NULL.
+
+Premium berjangka = premium_until >= NOW().
+
+Tidak pakai data dari local JSON/backup sama sekali.
+
+1️⃣ Buat fungsi helper cek premium di Supabase
+File: app/supabase_conn.py (tambahkan)
+
+python
+Copy
+from datetime import datetime, timezone
+
+def sb_is_premium_user(telegram_id: int) -> bool:
+    """
+    Cek apakah user premium (lifetime atau berjangka) di Supabase.
+    """
+    rows = sb_list_users({
+        "telegram_id": f"eq.{telegram_id}",
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "limit": "1"
+    })
+    if not rows:
+        return False
+    
+    user = rows[0]
+    # Lifetime
+    if user.get("premium_until") is None:
+        return True
+    # Berjangka
+    try:
+        until = datetime.fromisoformat(user["premium_until"].replace("Z", "+00:00"))
+        return until >= datetime.now(timezone.utc)
+    except Exception:
+        return False
+2️⃣ Ubah semua pengecekan premium di bot
+Cari semua:
+
+python
+Copy
+if user_id in premium_users:
+atau
+
+python
+Copy
+if is_premium(user_id):
+dan ganti dengan:
+
+python
+Copy
+from app.supabase_conn import sb_is_premium_user
+if sb_is_premium_user(user_id):
+3️⃣ Perbarui /premium_count untuk hitung dari Supabase
+File: handlers_admin.py
+
+python
+Copy
+@admin_guard
+async def cmd_premium_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lifetime_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null"
+    })
+    timed_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "gte.now()"
+    })
+    total = len(lifetime_rows) + len(timed_rows)
+    await update.effective_message.reply_text(
+        f"👑 Premium Count\n"
+        f"• Lifetime: {len(lifetime_rows)}\n"
+        f"• Timed: {len(timed_rows)}\n"
+        f"• Total: {total}"
+    )
+4️⃣ Ubah AutoSignal agar premium hanya dari Supabase
+File: app/autosignal.py
+
+python
+Copy
+def list_recipients() -> List[int]:
+    admin_ids = set()
+    for key in ("ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        val = os.getenv(key)
+        if val and val.isdigit():
+            admin_ids.add(int(val))
+
+    lifetime_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null"
+    })
+
+    tids = set(admin_ids)
+    for r in lifetime_rows:
+        tid = r.get("telegram_id")
+        if tid and get_private_chat_id(int(tid)):
+            tids.add(int(tid))
+
+    return list(tids)
+Dengan ini:
+
+Premium check hanya dari Supabase.
+
+AutoSignal cuma kirim ke admin + user lifetime dari Supabase.
+
+Tidak ada data premium yang diambil dari local JSON.
