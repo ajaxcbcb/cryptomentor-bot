@@ -14,23 +14,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ParseMode
 
 # Import required modules for database operations
-try:
-    from database import Database
-    self.db = Database()
-    logger.info("✅ Database connection established")
-except Exception as e:
-    logger.error(f"❌ Database connection failed: {e}")
-    # Continue without database - some features will be limited
-    self.db = None
+from database import Database
 
-# Import Supabase functions
-try:
-    from supabase_client import add_user, get_user, update_user
-    self.supabase_enabled = True
-    logger.info("✅ Supabase functions imported")
-except Exception as e:
-    logger.error(f"❌ Supabase functions not available: {e}")
-    self.supabase_enabled = False
+# Import Supabase functions - moved import logic to class __init__
 
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
@@ -90,15 +76,33 @@ for check, result in deployment_env_checks.items():
     print(f"  {'✅' if result else '❌'} {check}: {result}")
 print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
-# Setup logging with DEBUG level to catch hidden errors
+# Setup logging with INFO level for production use
 logging.basicConfig(
-    level=logging.DEBUG,  # Enable debug logging to catch hidden errors
+    level=logging.INFO,  # Use INFO level for production
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 class TelegramBot:
     def __init__(self):
+        # Initialize database connection
+        try:
+            self.db = Database()
+            logger.info("✅ Database connection established")
+        except Exception as e:
+            logger.error(f"❌ Database connection failed: {e}")
+            # Continue without database - some features will be limited
+            self.db = None
+
+        # Initialize Supabase functions
+        try:
+            from supabase_client import add_user, get_user, update_user
+            self.supabase_enabled = True
+            logger.info("✅ Supabase functions imported")
+        except Exception as e:
+            logger.error(f"❌ Supabase functions not available: {e}")
+            self.supabase_enabled = False
+
         # Get bot token from environment - try multiple possible keys including 'TOKEN'
         self.token = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
 
