@@ -157,7 +157,7 @@ class TelegramBot:
             mode, ready, note = init_db()
             print(f"🗄️ DB Mode: {mode} | Ready: {ready} | {note}")
             logger.info(f"Database router initialized: {mode} ({note})")
-
+            
             # Keep original database for compatibility
             self.db = Database()
             logger.info("✅ Database connection established")
@@ -433,7 +433,7 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         from app.chat_store import remember_chat
-
+        
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
@@ -873,11 +873,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-
-        # Use unified access functions
-        from app.access import has_premium, get_user_credits
-        credits = get_user_credits(user_id)
-        is_premium = has_premium(user_id)
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -927,11 +924,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-
-        # Use unified access functions
-        from app.access import has_premium, get_user_credits
-        credits = get_user_credits(user_id)
-        is_premium = has_premium(user_id)
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -996,11 +990,8 @@ class TelegramBot:
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         user_id = update.message.from_user.id
-
-        # Use unified access functions
-        from app.access import has_premium, get_user_credits
-        credits = get_user_credits(user_id)
-        is_premium = has_premium(user_id)
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -1091,11 +1082,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-
-        # Use unified access functions
-        from app.access import has_premium, get_user_credits
-        credits = get_user_credits(user_id)
-        is_premium = has_premium(user_id)
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users (20 credits for SnD futures analysis)
@@ -1321,11 +1309,8 @@ class TelegramBot:
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /credits command"""
         user_id = update.message.from_user.id
-
-        # Use unified access functions
-        from app.access import has_premium, get_user_credits, is_lifetime_premium
-        credits = get_user_credits(user_id)
-        is_premium = has_premium(user_id)
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         if is_admin:
@@ -1343,7 +1328,8 @@ class TelegramBot:
 Selamat mengelola CryptoMentor AI!"""
         elif is_premium:
             # Check if lifetime premium
-            is_lifetime = is_lifetime_premium(user_id)
+            user_data = self.db.get_user(user_id)
+            is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
 
             message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
@@ -1942,7 +1928,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Admin command untuk set premium user dengan Database Router"""
         from app.db_router import add_premium
         from app.safe_send import safe_reply
-
+        
         user_id = update.effective_user.id
         if not self.is_admin(user_id):
             await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
@@ -1961,7 +1947,7 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             target_user_id = int(context.args[0])
             duration = context.args[1]
-
+            
             # Map common duration formats
             if duration.lower() in ['month', 'bulan']:
                 duration = '30'
@@ -1969,17 +1955,17 @@ Gunakan `/subscribe` untuk upgrade!
                 duration = duration[:-1]
             elif duration.startswith('days:'):
                 duration = duration[5:]
-
+            
             _, msg = add_premium(target_user_id, duration)
             await safe_reply(update.effective_message, msg)
-
+            
             # Log admin action
             self.db.log_user_activity(
                 user_id,
                 "admin_setpremium",
                 f"Set premium {duration} for user {target_user_id}"
             )
-
+            
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in setpremium command: {e}")
@@ -1988,7 +1974,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle /grant_credits command with Database Router"""
         from app.db_router import grant_credits
         from app.safe_send import safe_reply, safe_dm
-
+        
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -2015,7 +2001,7 @@ Gunakan `/subscribe` untuk upgrade!
                 "admin_grant_credits",
                 f"Added {amount} credits to user {target_user_id}"
             )
-
+            
             await safe_reply(update.message, message)
 
             # Optional DM to target user
@@ -2026,7 +2012,7 @@ Gunakan `/subscribe` untuk upgrade!
                 await safe_reply(update.message, "ℹ️ User belum /start bot, DM dilewati.")
             except Exception as e:
                 await safe_reply(update.message, f"⚠️ DM gagal: {e}")
-
+                
         except Exception as e:
             await safe_reply(update.message, f"❌ Gagal: {e}")
             print(f"❌ Error in grant_credits command: {e}")
@@ -2086,7 +2072,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Admin command untuk revoke premium user dengan Database Router"""
         from app.db_router import remove_premium
         from app.safe_send import safe_reply
-
+        
         user_id = update.effective_user.id
         if not self.is_admin(user_id):
             await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
@@ -2100,14 +2086,14 @@ Gunakan `/subscribe` untuk upgrade!
             target_user_id = int(context.args[0])
             remove_premium(target_user_id)
             await safe_reply(update.effective_message, f"✅ Premium untuk {target_user_id} dicabut.")
-
+            
             # Log admin action
             self.db.log_user_activity(
                 user_id,
                 "admin_revoke_premium",
                 f"Revoked premium for user {target_user_id}"
             )
-
+            
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
@@ -2198,7 +2184,6 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 👥 **User Stats:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
-• Banned Users: {stats.get('banned_users', 0)}
 • Active Today: {stats['active_today']}
 
 💳 **Credit Stats:**
@@ -2563,20 +2548,20 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
         """Handle /db_status command"""
         from app.db_router import db_status
         from app.safe_send import safe_reply
-
+        
         status = db_status()
         message = f"🗄️ **Database Status**\n\n"
         message += f"• **Mode**: {status['mode']}\n"
         message += f"• **Ready**: {status['ready']}\n"
         message += f"• **Note**: {status['note']}\n\n"
-
+        
         if status['mode'] == 'supabase':
             message += "📊 **Backend**: Supabase Cloud Database\n"
         elif status['mode'] == 'local':
             message += "📁 **Backend**: Local JSON Storage\n"
         else:
             message += "❌ **Backend**: No database available\n"
-
+        
         await safe_reply(update.effective_message, message)
 
 
@@ -2644,7 +2629,7 @@ ADMIN2 = [optional_second_admin_id]
         """Handle /banned command with Database Router"""
         from app.db_router import ban_user, unban_user, get_user_info, check_user_banned
         from app.safe_send import safe_reply
-
+        
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -2679,7 +2664,7 @@ ADMIN2 = [optional_second_admin_id]
             if not user_info:
                 await safe_reply(update.message, f"❌ User {target_user_id} tidak ditemukan.")
                 return
-
+            
             username = user_info.get('username', 'No username')
             first_name = user_info.get('first_name', 'Unknown')
             current_banned_status = check_user_banned(target_user_id)
