@@ -1,0 +1,211 @@
+Target perbaikan (WAJIB):
+
+upsert_user_tid pakai on_conflict=telegram_id supaya benar-benar UPSERT ke baris user yang sama.
+
+Semua tempat yang membaca status premium (is_premium/premium_until) HARUS lewat db_router.get_user (bukan storage lokal/call lain).
+
+Setelah /setpremium (dan command admin lain) sukses, re-fetch user dari DB, validasi nilai, baru kirim “✅ sukses”. Kalau gagal → laporkan error yang jelas.
+
+Tambahkan command debug /db_trace <userid> untuk lihat backend apa yang dipakai + snapshot data user terkini.
+
+1) Patch Supabase connector: pakai on_conflict=telegram_id + logging minimal
+Edit app/supabase_conn.py:
+
+python
+Copy
+# tambahkan di top
+import json
+import os, requests
+from typing import Optional, Dict, Any, Tuple
+
+# ... variabel SB_URL, SB_KEY, SB_REST, HEADERS tetap
+
+def upsert_user_tid(telegram_id: int, table_name: str = "users", **fields) -> Dict[str, Any]:
+    if not SB_URL or not SB_KEY:
+        raise RuntimeError("Supabase env missing")
+    payload = [{ "telegram_id": telegram_id, **fields }]
+    hdrs = {**HEADERS, "Prefer": "resolution=merge-duplicates,return=representation"}
+    params = {"on_conflict": "telegram_id"}  # <-- penting!
+    r = requests.post(f"{SB_REST}/{table_name}", headers=hdrs, params=params, json=payload, timeout=20)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"UPSERT {table_name} failed: {r.status_code} {r.text}")
+    try:
+        data = r.json()
+    except Exception:
+        data = None
+    if isinstance(data, list) and data:
+        return data[0]
+    return data or {"telegram_id": telegram_id, **fields}
+
+def update_user_tid(telegram_id: int, table_name: str = "users", **fields) -> Dict[str, Any]:
+    if not SB_URL or not SB_KEY:
+        raise RuntimeError("Supabase env missing")
+    hdrs = {**HEADERS, "Prefer": "return=representation"}
+    params = {"telegram_id": f"eq.{telegram_id}"}
+    r = requests.patch(f"{SB_REST}/{table_name}", headers=hdrs, params=params, json=fields, timeout=20)
+    if r.status_code not in (200, 204):
+        raise RuntimeError(f"UPDATE {table_name} failed: {r.status_code} {r.text}")
+    return r.json()[0] if r.status_code == 200 and r.text else {"telegram_id": telegram_id, **fields}
+Pastikan di Postgres sudah ada unique index/constraint di public.users(telegram_id) (kamu sudah buat). on_conflict=telegram_id memastikan UPSERT berdasarkan kolom itu.
+
+2) Tambah API router: get_user konsisten + verifikasi write
+Edit app/db_router.py: tambahkan get_user dan “verify after write”.
+
+python
+Copy
+from typing import Tuple, Optional, Dict, Any
+# ... import yg lain tetap
+
+def get_user(telegram_id: int) -> Optional[Dict[str, Any]]:
+    if DB_MODE == "supabase" and DB_READY:
+        return sb_get(telegram_id)
+    # local
+    users = load_users()
+    return users.get(str(telegram_id))
+
+def _verify_set(fields: Dict[str, Any], fetched: Dict[str, Any]) -> Tuple[bool, str]:
+    # cek boolean premium & (opsional) premium_until match
+    want_prem = fields.get("is_premium")
+    got_prem  = fetched.get("is_premium")
+    if want_prem is not None and (bool(want_prem) != bool(got_prem)):
+        return False, f"is_premium mismatch (want={want_prem}, got={got_prem})"
+    if "premium_until" in fields:
+        want_until = fields.get("premium_until")
+        got_until  = fetched.get("premium_until")
+        # string compare cukup (ISO); toleransi None vs null
+        if (want_until or "") != (got_until or ""):
+            return False, f"premium_until mismatch (want={want_until}, got={got_until})"
+    return True, "ok"
+
+def add_premium(telegram_id: int, duration: str) -> Tuple[Dict[str, Any], str]:
+    duration = str(duration).strip().lower()
+    if duration == "lifetime":
+        fields = {"banned": False, "is_premium": True, "premium_until": None}
+        msg = f"✅ Premium lifetime diaktifkan untuk {telegram_id}."
+    else:
+        if not duration.isdigit() or int(duration) < 1:
+            raise ValueError("days harus angka >= 1 atau 'lifetime'")
+        iso = _iso_in_days(int(duration))
+        fields = {"banned": False, "is_premium": True, "premium_until": iso}
+        msg = f"✅ Premium {duration} hari diaktifkan untuk {telegram_id} sampai {fields['premium_until']}."
+
+    if DB_MODE == "supabase" and DB_READY:
+        rec = sb_upsert(telegram_id, **fields)
+        # verify
+        ref = sb_get(telegram_id) or {}
+        ok, why = _verify_set(fields, ref)
+        if not ok:
+            raise RuntimeError(f"Verify failed: {why}")
+        return ref, msg
+
+    # local
+    users = load_users()
+    rec = update_user(users, telegram_id, fields)
+    save_users(users)
+    return rec, msg
+
+def remove_premium(telegram_id: int) -> Dict[str, Any]:
+    if DB_MODE == "supabase" and DB_READY:
+        sb_update(telegram_id, is_premium=False, premium_until=None)
+        ref = sb_get(telegram_id) or {}
+        ok, why = _verify_set({"is_premium": False, "premium_until": None}, ref)
+        if not ok:
+            raise RuntimeError(f"Verify failed: {why}")
+        return ref
+    users = load_users()
+    rec = update_user(users, telegram_id, {"is_premium": False, "premium_until": None})
+    save_users(users)
+    return rec
+
+def grant_credits(telegram_id: int, amount: int) -> Tuple[Dict[str, Any], int]:
+    amt = int(amount)
+    if amt < 0:
+        raise ValueError("credits harus >= 0")
+    if DB_MODE == "supabase" and DB_READY:
+        cur = sb_get(telegram_id) or {"credits": 0}
+        total = int(cur.get("credits", 0)) + amt
+        sb_upsert(telegram_id, credits=total)
+        ref = sb_get(telegram_id) or {}
+        if int(ref.get("credits", 0)) != total:
+            raise RuntimeError(f"Verify failed: credits mismatch (want={total}, got={ref.get('credits')})")
+        return ref, total
+    # local
+    users = load_users()
+    rec = get_user(users, telegram_id)
+    total = int(rec.get("credits", 0) if rec else 0) + amt
+    rec = update_user(users, telegram_id, {"credits": total})
+    save_users(users)
+    return rec, total
+3) Unifikasikan semua pembacaan status premium ke db_router
+Cari DI SELURUH PROJECT:
+
+fungsi/guard seperti is_premium_user, is_lifetime, check_subscription, validate_access, dsb.
+
+Ganti implementasinya agar selalu panggil db_router.get_user(tid) dan baca is_premium, premium_until, banned.
+
+Contoh util:
+
+python
+Copy
+# app/access.py
+from datetime import datetime, timezone
+from app.db_router import get_user
+
+def has_premium(telegram_id: int) -> bool:
+    rec = get_user(telegram_id) or {}
+    if rec.get("banned"):
+        return False
+    if rec.get("is_premium"):
+        # lifetime?
+        if rec.get("premium_until") in (None, ""):
+            return True
+        try:
+            until = datetime.fromisoformat(rec["premium_until"])
+        except Exception:
+            return False
+        return until >= datetime.now(timezone.utc)
+    return False
+Pastikan semua command yang memerlukan premium memanggil util di atas.
+
+4) Tambahkan /db_trace <userid> (debug)
+Buat handler debug:
+
+python
+Copy
+# handlers_db_debug.py
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.db_router import db_status, get_user
+from app.safe_send import safe_reply  # jika sudah ada
+
+@admin_guard
+async def cmd_db_trace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /db_trace <userid>")
+    tid = int(context.args[0])
+    st = db_status()
+    rec = get_user(tid) or {}
+    await safe_reply(update.effective_message,
+        f"🗄️ DB mode={st['mode']} ready={st['ready']} note={st['note']}\n"
+        f"🔎 user {tid} → {rec}"
+    )
+Register CommandHandler("db_trace", cmd_db_trace).
+
+5) Acceptance steps
+Jalankan /db_status → pastikan mode=supabase, ready=True.
+
+Jalankan /setpremium <uid> lifetime → HARUS sukses, lalu cek /db_trace <uid>: is_premium=True, premium_until=None.
+
+Cek di Supabase → tabel public.users baris telegram_id=<uid> harus ada & kolom terisi.
+
+Jalankan command/fitur yang butuh premium → kini lolos (karena has_premium baca dari db_router).
+
+Coba /remove_premium <uid> → /db_trace & tabel Supabase ter-update.
+
+Coba /grant_credits <uid> 50 → /db_trace & tabel Supabase ter-update.
+
+Commit message:
+
+pgsql
+Copy
+fix(admin): enforce Supabase upsert with on_conflict=telegram_id, unify premium reads via db_router, verify write after set, add /db_trace
