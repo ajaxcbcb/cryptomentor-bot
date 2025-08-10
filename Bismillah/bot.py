@@ -124,33 +124,27 @@ def admin_revoke_premium(*args, **kwargs):
 def admin_grant_credits(*args, **kwargs):
     return {"success": False, "error": "Database not configured"}
 
-def _get_env_admin_ids():
-        """
-        Read admin IDs from Replit Secrets dynamically.
-        Priority:
-          1) ADMIN1, ADMIN2, etc.
-          2) ADMIN_USER_ID, ADMIN2_USER_ID (fallback)
-        """
-        admin_ids = set()
-
-        # Check ADMIN1, ADMIN2, etc.
-        for i in range(1, 10):
-            env_key = f'ADMIN{i}'
-            admin_id_str = (os.getenv(env_key) or "").strip()
-
-            # Fallback to old naming format
-            if not admin_id_str and i <= 2:
-                fallback_key = f'ADMIN{i}_USER_ID' if i > 1 else 'ADMIN_USER_ID'
-                admin_id_str = (os.getenv(fallback_key) or "").strip()
-
-            # Add to set if valid
-            if admin_id_str and admin_id_str.lower() != "none":
-                admin_ids.add(str(admin_id_str))
-
-        return admin_ids
+# Import new admin system
+try:
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from app.lib.auth import is_admin, get_admin_ids
+    from app.lib.guards import admin_guard
+    ADMIN_SYSTEM_AVAILABLE = True
+    logger.info("✅ New admin authentication system loaded")
+except ImportError as e:
+    logger.error(f"❌ Failed to import new admin system: {e}")
+    ADMIN_SYSTEM_AVAILABLE = False
+    
+    # Fallback to old system
+    def is_admin(user_id):
+        return False
+    
+    def get_admin_ids():
+        return []
 
 # Get initial admin IDs for logging
-ADMIN_IDS = _get_env_admin_ids()
+ADMIN_IDS = set(get_admin_ids()) if ADMIN_SYSTEM_AVAILABLE else set()
 
 if not ADMIN_IDS:
     logger.warning("No ADMIN1, ADMIN2 or fallback admin environment variables found. Admin commands will be inaccessible.")
@@ -193,10 +187,15 @@ class TelegramBot:
         logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
         # Get all admin IDs with better error handling
-        self.admin_ids = ADMIN_IDS # Use the dynamically loaded ADMIN_IDS
+        self.admin_ids = ADMIN_IDS if ADMIN_SYSTEM_AVAILABLE else set()
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
         logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
+        
+        if ADMIN_SYSTEM_AVAILABLE:
+            logger.info("✅ Using new dynamic admin authentication system")
+        else:
+            logger.warning("⚠️ Using fallback admin system - admin commands disabled")
 
         # Initialize components with CoinAPI integration
         self.crypto_api = CryptoAPI()
@@ -226,7 +225,10 @@ class TelegramBot:
 
     def is_admin(self, user_id: int) -> bool:
         """Check if the user ID is one of the configured admins."""
-        return str(user_id) in self.admin_ids
+        if ADMIN_SYSTEM_AVAILABLE:
+            return is_admin(user_id)
+        else:
+            return str(user_id) in self.admin_ids
 
     def register_user_supabase(self, user):
         """TODO: Register new user in database after setup"""
@@ -1914,9 +1916,9 @@ Gunakan `/subscribe` untuk upgrade!
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk set premium user dengan Admin Agent"""
 
-        # Admin access check
+        # Admin access check using new system
         user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
+        if not self.is_admin(user_id):
             await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
             return
 
@@ -2061,9 +2063,9 @@ Gunakan `/subscribe` untuk upgrade!
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk revoke premium user dengan Admin Agent"""
 
-        # Admin access check
+        # Admin access check using new system
         user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
+        if not self.is_admin(user_id):
             await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
             return
 
@@ -2755,42 +2757,36 @@ ADMIN2 = [optional_second_admin_id]
         """Handle /admin_debug command - shows admin configuration debug info"""
         user_id = update.effective_user.id if update.effective_user else None
 
-        # Get current admin configuration
-        admin_ids = set()
-        env_info = []
-
-        # Check ADMIN1, ADMIN2, etc.
-        for i in range(1, 10):
-            env_key = f'ADMIN{i}'
-            admin_id_str = (os.getenv(env_key) or "").strip()
-
-            if admin_id_str:
-                env_info.append(f"{env_key}=SET")
-                if admin_id_str.lower() != "none":
-                    admin_ids.add(str(admin_id_str))
-
-            # Check fallback
-            if i <= 2:
-                fallback_key = f'ADMIN{i}_USER_ID' if i > 1 else 'ADMIN_USER_ID'
-                fallback_str = (os.getenv(fallback_key) or "").strip()
-                if fallback_str and not admin_id_str:
-                    env_info.append(f"{fallback_key}=SET (fallback)")
-                    if fallback_str.lower() != "none":
-                        admin_ids.add(str(fallback_str))
-
-        is_caller_admin = self.is_admin(user_id)
-
         message = f"🔧 **Admin Debug Information**\n\n"
         message += f"👤 **Caller ID**: `{user_id}`\n"
-        message += f"✅ **Is Admin**: {is_caller_admin}\n"
-        message += f"👑 **Resolved Admin IDs**: {sorted(list(admin_ids)) if admin_ids else 'NONE'}\n"
-        message += f"⚙️ **Environment Variables**: {', '.join(env_info) if env_info else 'NONE SET'}\n\n"
+        message += f"✅ **Is Admin**: {self.is_admin(user_id)}\n"
+        
+        if ADMIN_SYSTEM_AVAILABLE:
+            admin_ids = get_admin_ids()
+            message += f"👑 **Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
+            message += f"🆕 **System**: New Dynamic Admin Auth\n\n"
+            
+            # Show environment variables
+            admin1 = os.getenv("ADMIN1", "").strip()
+            admin2 = os.getenv("ADMIN2", "").strip()
+            admin_user_id = os.getenv("ADMIN_USER_ID", "").strip()
+            admin2_user_id = os.getenv("ADMIN2_USER_ID", "").strip()
+            
+            env_vars = []
+            if admin1: env_vars.append("ADMIN1=SET")
+            if admin2: env_vars.append("ADMIN2=SET")
+            if admin_user_id: env_vars.append("ADMIN_USER_ID=SET")
+            if admin2_user_id: env_vars.append("ADMIN2_USER_ID=SET")
+            
+            message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
+        else:
+            message += f"⚠️ **System**: Fallback (New system failed to load)\n\n"
 
-        message += f"💡 **Expected Format in Replit Secrets:**\n"
-        message += f"• Key: `ADMIN1`, Value: `{user_id}` (your ID)\n"
-        message += f"• Key: `ADMIN2`, Value: `[second_admin_id]` (optional)\n\n"
-
-        message += f"🔄 **Remember**: Restart bot after changing Secrets!"
+        message += f"💡 **Setup Instructions:**\n"
+        message += f"• Set `ADMIN1` = `{user_id}` in Replit Secrets\n"
+        message += f"• Optional: Set `ADMIN2` for second admin\n"
+        message += f"• Restart bot after changes\n\n"
+        message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -2856,6 +2852,16 @@ ADMIN2 = [optional_second_admin_id]
         # Add callback query handler
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
+        # Add debug commands
+        if ADMIN_SYSTEM_AVAILABLE:
+            try:
+                from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
+                self.application.add_handler(CommandHandler("whoami", cmd_whoami))
+                self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
+                print("✅ Admin debug commands registered")
+            except ImportError as e:
+                print(f"⚠️ Could not register debug commands: {e}")
+        
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
