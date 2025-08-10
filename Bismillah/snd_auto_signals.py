@@ -80,7 +80,8 @@ class AutoSignalScanner:
                 print("[AUTO-SIGNAL] ⚠️ No eligible users found")
                 return
 
-            print(f"👥 Auto signals eligible: Admin1({eligible_users[0] if len(eligible_users) > 0 else 'None'}), Admin2({eligible_users[1] if len(eligible_users) > 1 else 'None'}) + {max(0, len(eligible_users) - 2)} Lifetime users")
+            print(f"[AUTO-SIGNAL] 📊 Eligible users: Admin + Supabase Lifetime only")
+            print(f"[AUTO-SIGNAL] 👥 Auto signals eligible: {len(eligible_users)} total (Admin + Lifetime from Supabase)")
 
             # Scan symbols for signals
             signals_found = []
@@ -203,24 +204,40 @@ class AutoSignalScanner:
         except Exception as e:
             print(f"[AUTO-SIGNAL] ❌ Error sending signals: {e}")
 
-    def _get_eligible_users(self) -> List[int]:
-        """Get list of eligible users (admin + lifetime premium)"""
+    def get_eligible_users(self) -> List[int]:
+        """Get eligible users for AutoSignal - Only admin + Supabase lifetime users"""
         try:
-            eligible = []
+            from app.supabase_conn import sb_list_users
+            from app.chat_store import get_private_chat_id
+            import os
 
-            # Add admins
-            admin_ids = self.bot_instance.admin_ids
-            eligible.extend(admin_ids)
+            # Get admin IDs from environment
+            admin_ids = set()
+            for key in ("ADMIN_USER_ID", "ADMIN2_USER_ID", "ADMIN1", "ADMIN2"):
+                val = os.getenv(key)
+                if val and val.isdigit():
+                    admin_ids.add(int(val))
 
-            # Add lifetime premium users
-            if hasattr(self.bot_instance, 'db') and self.bot_instance.db:
-                lifetime_users = self.bot_instance.db.get_eligible_auto_signal_users()
-                eligible.extend(lifetime_users)
+            eligible_users = list(admin_ids)
 
-            # Remove duplicates and ensure integers
-            unique_eligible = list(set(int(uid) for uid in eligible if uid))
+            # Get lifetime premium from Supabase only
+            try:
+                rows = sb_list_users({
+                    "is_premium": "eq.true",
+                    "banned": "eq.false",
+                    "premium_until": "is.null"  # lifetime only
+                }, columns="telegram_id")
 
-            return unique_eligible
+                # Add users who have private chat consent
+                for row in rows:
+                    tid = row.get("telegram_id")
+                    if tid and get_private_chat_id(int(tid)) is not None:
+                        eligible_users.append(int(tid))
+
+            except Exception as e:
+                print(f"[AUTO-SIGNAL] Error getting Supabase lifetime users: {e}")
+
+            return list(set(eligible_users))  # Remove duplicates
 
         except Exception as e:
             print(f"[AUTO-SIGNAL] Error getting eligible users: {e}")
