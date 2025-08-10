@@ -622,13 +622,23 @@ class SnDAutoSignals:
         return signal
 
     # --- New methods for consistent signal generation ---
-    except Exception as e:
+    def _handle_signal_generation_error(self, e):
+        """Handle errors in signal generation with fallback response"""
+        try:
             return {
                 'direction': 'NEUTRAL',
                 'confidence': 50,
                 'strategy': 'Basic Analysis',
                 'time_horizon': '4-24 hours',
                 'error': str(e)
+            }
+        except Exception as fallback_error:
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'strategy': 'Error Recovery',
+                'time_horizon': '4-24 hours',
+                'error': f'Signal generation failed: {str(fallback_error)}'
             }
 
     async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
