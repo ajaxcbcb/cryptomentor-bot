@@ -1,0 +1,94 @@
+Tujuan:
+Perbaiki dekorator handler di bot.py (sekitar line 159) yang saat ini menyebabkan error
+AttributeError: 'TelegramBot' object has no attribute 'effective_user'
+karena salah memetakan argumen self, update, dan context saat callback adalah method di dalam class.
+
+Instruksi Perbaikan:
+
+Cari dekorator lama yang melakukan pengecekan admin atau ban (misalnya wrapper atau guard di line 159 bot.py).
+
+Biasanya bentuknya seperti:
+
+python
+Copy
+def wrapper(func):
+    async def inner(update, context):
+        if update and update.effective_user:
+            ...
+Masalahnya: jika handler adalah bound method (self, update, context), update terisi self → menyebabkan error.
+
+Ganti implementasi dekorator dengan versi yang aman untuk method & function:
+
+python
+Copy
+from functools import wraps
+from app.lib.auth import is_admin  # atau modul auth yang benar
+
+def admin_guard(func):
+    @wraps(func)
+    async def _inner(*args, **kwargs):
+        # Deteksi apakah handler adalah bound method
+        if len(args) >= 3 and not hasattr(args[0], "effective_user"):
+            # pola method: self, update, context
+            self_obj, update, context = args[0], args[1], args[2]
+            tail_args = args[3:]
+        elif len(args) >= 2:
+            # pola function: update, context
+            self_obj = None
+            update, context = args[0], args[1]
+            tail_args = args[2:]
+        else:
+            raise RuntimeError("Handler signature tidak valid")
+
+        uid = getattr(getattr(update, "effective_user", None), "id", None)
+        if not is_admin(uid):
+            msg = getattr(update, "effective_message", None)
+            if msg:
+                await msg.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            return
+
+        if self_obj is not None:
+            return await func(self_obj, update, context, *tail_args, **kwargs)
+        return await func(update, context, *tail_args, **kwargs)
+    return _inner
+Pakai dekorator ini di semua handler admin method/function:
+
+python
+Copy
+class TelegramBot:
+    @admin_guard
+    async def cmd_add_premium(self, update, context):
+        ...
+atau:
+
+python
+Copy
+@admin_guard
+async def cmd_add_premium(update, context):
+    ...
+Pastikan registrasi handler memberikan bound method/fungsi yang benar:
+
+python
+Copy
+application.add_handler(CommandHandler("add_premium", self.cmd_add_premium))
+Tambahkan error handler global agar kesalahan lain tertangani:
+
+python
+Copy
+from telegram.ext import ContextTypes
+
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    who = getattr(getattr(update, "effective_user", None), "id", None)
+    print("⚠️ Error handler caught:", repr(context.error), "| from:", who)
+
+application.add_error_handler(on_error)
+Output yang diharapkan:
+
+Dekorator baru di bot.py menggantikan versi lama.
+
+Semua handler admin berjalan tanpa AttributeError.
+
+Bot tetap bisa membatasi akses command ke admin sesuai is_admin.
+
+Kesalahan lain tidak lagi menghentikan bot secara tiba-tiba.
+
