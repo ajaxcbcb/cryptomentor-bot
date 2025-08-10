@@ -9,6 +9,20 @@ class Database:
             self.conn = sqlite3.connect(db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
             self.create_tables()
+            
+            # Initialize Supabase integration
+            self.supabase_enabled = False
+            try:
+                from supabase_client import supabase_service, get_live_user_count, verify_database_integrity
+                self.supabase_service = supabase_service
+                self.get_live_user_count = get_live_user_count
+                self.verify_database_integrity = verify_database_integrity
+                self.supabase_enabled = True
+                print("✅ Database class integrated with Supabase service role client")
+            except Exception as supabase_error:
+                print(f"⚠️ Supabase integration failed: {supabase_error}")
+                self.supabase_enabled = False
+                
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
             raise
@@ -243,7 +257,7 @@ class Database:
         self.conn.commit()
 
     def create_user(self, telegram_id, username, first_name=None, last_name=None, language_code='id', referred_by=None):
-        """Create a new user in the database with enhanced persistence"""
+        """Create a new user in the database with enhanced persistence and Supabase sync"""
         try:
             # Validate telegram_id
             if not telegram_id or telegram_id <= 0:
@@ -256,6 +270,22 @@ class Database:
                 print(f"✅ User {telegram_id} already exists - updating info if needed")
                 # Update user info if provided (keep existing data intact)
                 self.update_user_info(telegram_id, username, first_name, last_name, language_code)
+                
+                # Sync with Supabase if enabled
+                if self.supabase_enabled:
+                    try:
+                        from supabase_client import add_user
+                        sync_result = add_user(
+                            user_id=telegram_id,
+                            username=username,
+                            first_name=first_name,
+                            last_name=last_name,
+                            is_premium=existing_user.get('is_premium', False)
+                        )
+                        print(f"🔄 Supabase sync result for existing user: {sync_result['success']}")
+                    except Exception as sync_error:
+                        print(f"⚠️ Supabase sync failed for existing user: {sync_error}")
+                
                 return True
 
             # Generate unique referral codes
@@ -302,6 +332,33 @@ class Database:
                 return False
 
             self.cursor.execute("COMMIT")
+
+            # Sync with Supabase if enabled
+            if self.supabase_enabled:
+                try:
+                    from supabase_client import add_user
+                    print(f"🔄 Syncing new user {telegram_id} to Supabase...")
+                    sync_result = add_user(
+                        user_id=telegram_id,
+                        username=clean_username,
+                        first_name=clean_first_name,
+                        last_name=clean_last_name,
+                        is_premium=False
+                    )
+                    
+                    if sync_result["success"]:
+                        print(f"✅ User {telegram_id} successfully synced to Supabase")
+                        # Verify user count immediately
+                        if hasattr(self, 'get_live_user_count'):
+                            live_count = self.get_live_user_count()
+                            print(f"📊 Live Supabase user count after sync: {live_count}")
+                    else:
+                        print(f"❌ Supabase sync failed: {sync_result.get('error')}")
+                        
+                except Exception as sync_error:
+                    print(f"❌ Critical Supabase sync error: {sync_error}")
+                    # Don't fail the whole operation, but log it
+                    self.log_user_activity(telegram_id, "supabase_sync_failed", str(sync_error))
 
             # Log the user creation
             credit_msg = f"New user registered with {total_credits} credits ({base_credits} base"

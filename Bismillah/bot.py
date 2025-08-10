@@ -188,12 +188,20 @@ class TelegramBot:
         return user_id in self.admin_ids
 
     def register_user_supabase(self, user):
-        """Register new user in Supabase database"""
+        """Register new user in Supabase database with detailed logging"""
         if not self.supabase_enabled:
+            print(f"⚠️ Supabase not enabled, skipping registration for user {user.id}")
             return False
 
         try:
-            from supabase_client import add_user
+            from supabase_client import add_user, get_live_user_count, verify_database_integrity
+
+            print(f"🔄 Registering user {user.id} in Supabase...")
+            print(f"📝 User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
+
+            # Get count before insert
+            count_before = get_live_user_count()
+            print(f"📊 User count before insert: {count_before}")
 
             result = add_user(
                 user_id=user.id,
@@ -205,14 +213,40 @@ class TelegramBot:
             )
 
             if result["success"]:
-                logger.info(f"✅ User {user.id} registered in Supabase")
+                logger.info(f"✅ User {user.id} registered in Supabase successfully")
+                
+                # Verify count increased
+                count_after = get_live_user_count()
+                print(f"📊 User count after insert: {count_after}")
+                
+                if count_after > count_before:
+                    print(f"✅ User count increased from {count_before} to {count_after}")
+                else:
+                    print(f"⚠️ User count did not increase (before: {count_before}, after: {count_after})")
+                
+                # Verify database integrity
+                verify_database_integrity()
+                
                 return True
             else:
-                logger.error(f"❌ Failed to register user {user.id} in Supabase: {result.get('error')}")
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"❌ Failed to register user {user.id} in Supabase: {error_msg}")
+                print(f"🚨 CRITICAL: Supabase registration failed for user {user.id}")
+                print(f"🔍 Error details: {error_msg}")
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Error registering user {user.id} in Supabase: {e}")
+            error_msg = f"Error registering user {user.id} in Supabase: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            print(f"🚨 CRITICAL: Exception during Supabase registration")
+            print(f"🔍 Exception details: {e}")
+            
+            # Log to database activity for debugging
+            try:
+                self.db.log_user_activity(user.id, "supabase_registration_error", str(e))
+            except:
+                pass
+                
             return False
 
     async def run_bot(self):
