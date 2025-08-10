@@ -13,7 +13,7 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Load admin IDs from environment variables
     for i in range(1, 10):
-        env_key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+        env_key = f'ADMIN{i}'
         admin_id_str = os.getenv(env_key, '0')
         try:
             admin_id = int(admin_id_str)
@@ -32,7 +32,7 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"**Admin IDs**: {sorted(list(admin_ids)) if admin_ids else 'NONE CONFIGURED'}\n\n"
             f"⚙️ **Setup Instructions:**\n"
             f"1. Buka Secrets tab di Replit\n"
-            f"2. Tambahkan `ADMIN_USER_ID` = {uid}\n"
+            f"2. Tambahkan `ADMIN1` = {uid}\n"
             f"3. Restart bot untuk apply changes\n\n"
             f"💡 Atau contact owner untuk menambahkan ID Anda ke admin list.",
             parse_mode='Markdown'
