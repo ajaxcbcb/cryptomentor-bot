@@ -1,164 +1,176 @@
 
-# app/supabase_conn.py
 import os
+import time
 import requests
-from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+def _env():
+    """Get Supabase environment variables"""
+    url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
+    rest = f"{url}/rest/v1" if url else ""
+    return url, key, rest
 
-def _headers():
-    return {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json"
+def _headers(key: str, prefer: str | None = None):
+    """Generate headers for Supabase requests"""
+    h = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
     }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
 
 def health() -> Tuple[bool, str]:
     """Check Supabase connection health"""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return False, "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY"
-    
     try:
-        url = f"{SUPABASE_URL}/rest/v1/users?select=count&limit=1"
-        response = requests.get(url, headers=_headers(), timeout=10)
-        if response.status_code == 200:
-            return True, "Connected"
+        url, key, rest = _env()
+        if not url or not key:
+            return False, "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY"
+        
+        r = requests.get(f"{rest}/users", headers=_headers(key), params={"limit": "1"}, timeout=10)
+        
+        if r.status_code == 200:
+            return True, f"Connected to {url} (service_role)"
         else:
-            return False, f"HTTP {response.status_code}: {response.text[:100]}"
+            return False, f"HTTP {r.status_code}: {r.text[:100]}"
     except Exception as e:
         return False, f"Connection error: {str(e)}"
 
-def get_user_by_tid(telegram_id: int) -> Optional[Dict[str, Any]]:
-    """Get user by telegram ID from Supabase"""
+def sb_list_users(filters: Dict[str, str] = None, table: str = "users") -> List[Dict[str, Any]]:
+    """List users with optional filters"""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/users?telegram_id=eq.{telegram_id}&select=*"
-        response = requests.get(url, headers=_headers(), timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return data[0] if data else None
-        return None
-    except Exception as e:
-        print(f"Error getting user from Supabase: {e}")
-        return None
-
-def upsert_user_tid(telegram_id: int, **fields) -> Dict[str, Any]:
-    """Upsert user in Supabase"""
-    try:
-        # Prepare data
-        data = {
-            "telegram_id": telegram_id,
-            "updated_at": datetime.now().isoformat(),
-            **fields
-        }
+        url, key, rest = _env()
+        if not url or not key:
+            raise RuntimeError("Supabase env missing")
         
-        url = f"{SUPABASE_URL}/rest/v1/users"
-        headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+        params = filters or {}
+        r = requests.get(f"{rest}/{table}", headers=_headers(key), params=params, timeout=15)
         
-        response = requests.post(url, json=data, headers=headers, timeout=10)
-        if response.status_code in [200, 201]:
-            return {"success": True, "data": data}
+        if r.status_code == 200:
+            return r.json()
         else:
-            return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def update_user_tid(telegram_id: int, **fields) -> Dict[str, Any]:
-    """Update user in Supabase"""
-    try:
-        data = {
-            "updated_at": datetime.now().isoformat(),
-            **fields
-        }
-        
-        url = f"{SUPABASE_URL}/rest/v1/users?telegram_id=eq.{telegram_id}"
-        response = requests.patch(url, json=data, headers=_headers(), timeout=10)
-        
-        if response.status_code == 200:
-            return {"success": True, "data": data}
-        else:
-            return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def sb_is_premium_user(telegram_id: int) -> bool:
-    """
-    Check if user is premium (lifetime or timed) in Supabase.
-    Returns True if user has is_premium=true, banned=false, and valid premium_until
-    """
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/users?telegram_id=eq.{telegram_id}&is_premium=eq.true&banned=eq.false&limit=1"
-        response = requests.get(url, headers=_headers(), timeout=10)
-        
-        if response.status_code == 200:
-            rows = response.json()
-            if not rows:
-                return False
-            
-            user = rows[0]
-            # Lifetime premium (premium_until is NULL)
-            if user.get("premium_until") is None:
-                return True
-            
-            # Timed premium - check if still valid
-            try:
-                from datetime import timezone
-                until = datetime.fromisoformat(user["premium_until"].replace("Z", "+00:00"))
-                return until >= datetime.now(timezone.utc)
-            except Exception:
-                return False
-        
-        return False
-    except Exception as e:
-        print(f"Error checking premium status for {telegram_id}: {e}")
-        return False
-
-def sb_list_users(filters: Dict[str, str]) -> list:
-    """
-    List users from Supabase with filters
-    """
-    try:
-        params = "&".join([f"{k}={v}" for k, v in filters.items()])
-        url = f"{SUPABASE_URL}/rest/v1/users?{params}"
-        response = requests.get(url, headers=_headers(), timeout=10)
-        
-        if response.status_code == 200:
-            return response.json()
-        return []
+            raise RuntimeError(f"List users failed: {r.status_code} {r.text}")
     except Exception as e:
         print(f"Error listing users: {e}")
         return []
 
-def sb_get_premium_count() -> Dict[str, int]:
-    """
-    Get premium user counts from Supabase
-    """
+def get_user_by_tid(telegram_id: int, table: str = "users") -> Optional[Dict[str, Any]]:
+    """Get user by telegram_id"""
     try:
-        # Count lifetime premium users
-        lifetime_url = f"{SUPABASE_URL}/rest/v1/users?is_premium=eq.true&banned=eq.false&premium_until=is.null&select=count"
-        lifetime_response = requests.get(lifetime_url, headers={**_headers(), "Prefer": "count=exact"}, timeout=10)
+        url, key, rest = _env()
+        if not url or not key:
+            return None
         
-        # Count timed premium users (with valid premium_until)
-        from datetime import timezone
-        now = datetime.now(timezone.utc).isoformat()
-        timed_url = f"{SUPABASE_URL}/rest/v1/users?is_premium=eq.true&banned=eq.false&premium_until=gte.{now}&select=count"
-        timed_response = requests.get(timed_url, headers={**_headers(), "Prefer": "count=exact"}, timeout=10)
+        r = requests.get(
+            f"{rest}/{table}",
+            headers=_headers(key),
+            params={"telegram_id": f"eq.{int(telegram_id)}", "limit": "1"},
+            timeout=10
+        )
         
-        lifetime_count = 0
-        timed_count = 0
-        
-        if lifetime_response.status_code == 200:
-            lifetime_count = int(lifetime_response.headers.get('Content-Range', '0').split('/')[-1])
-        
-        if timed_response.status_code == 200:
-            timed_count = int(timed_response.headers.get('Content-Range', '0').split('/')[-1])
-        
-        return {
-            "lifetime": lifetime_count,
-            "timed": timed_count,
-            "total": lifetime_count + timed_count
-        }
+        if r.status_code == 200:
+            data = r.json()
+            return data[0] if data else None
+        else:
+            return None
     except Exception as e:
-        print(f"Error getting premium counts: {e}")
-        return {"lifetime": 0, "timed": 0, "total": 0}
+        print(f"Error getting user {telegram_id}: {e}")
+        return None
+
+def upsert_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    """Upsert user by telegram_id with conflict resolution"""
+    url, key, rest = _env()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing")
+    
+    payload = [{"telegram_id": int(telegram_id), **fields}]
+    
+    r = requests.post(
+        f"{rest}/{table}",
+        headers=_headers(key, "resolution=merge-duplicates,return=representation"),
+        params={"on_conflict": "telegram_id"},
+        json=payload,
+        timeout=20
+    )
+    
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"UPSERT failed: {r.status_code} {r.text}")
+    
+    try:
+        data = r.json()
+    except Exception:
+        data = None
+    
+    return data[0] if isinstance(data, list) and data else {"telegram_id": telegram_id, **fields}
+
+def update_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    """Update user by telegram_id"""
+    url, key, rest = _env()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing")
+    
+    r = requests.patch(
+        f"{rest}/{table}",
+        headers=_headers(key, "return=representation"),
+        params={"telegram_id": f"eq.{int(telegram_id)}"},
+        json=fields,
+        timeout=20
+    )
+    
+    # PostgREST returns 204 if no rows changed - treat as success
+    if r.status_code not in (200, 204):
+        raise RuntimeError(f"UPDATE failed: {r.status_code} {r.text}")
+    
+    return r.json()[0] if (r.status_code == 200 and r.text) else {"telegram_id": telegram_id, **fields}
+
+def sb_is_premium_user(telegram_id: int) -> bool:
+    """Check if user is premium (lifetime or active subscription)"""
+    from datetime import datetime, timezone
+    
+    user = get_user_by_tid(telegram_id)
+    if not user:
+        return False
+    
+    # Check banned status
+    if user.get("banned", False):
+        return False
+    
+    # Check premium status
+    if not user.get("is_premium", False):
+        return False
+    
+    # Lifetime premium (premium_until is NULL)
+    if user.get("premium_until") is None:
+        return True
+    
+    # Time-based premium
+    try:
+        premium_until = datetime.fromisoformat(user["premium_until"].replace('Z', '+00:00'))
+        return premium_until >= datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+def add_credits(telegram_id: int, amount: int) -> int:
+    """Add credits to user and return new total"""
+    current_user = get_user_by_tid(telegram_id)
+    current_credits = current_user.get("credits", 0) if current_user else 0
+    new_total = current_credits + amount
+    
+    upsert_user_tid(telegram_id, credits=new_total)
+    return new_total
+
+def deduct_credits(telegram_id: int, amount: int) -> bool:
+    """Deduct credits from user, return success status"""
+    current_user = get_user_by_tid(telegram_id)
+    if not current_user:
+        return False
+    
+    current_credits = current_user.get("credits", 0)
+    if current_credits < amount:
+        return False
+    
+    new_total = current_credits - amount
+    upsert_user_tid(telegram_id, credits=new_total)
+    return True

@@ -2884,6 +2884,25 @@ ADMIN2 = [optional_second_admin_id]
         # Add database status command
         self.application.add_handler(CommandHandler("db_status", self.db_status_command))
 
+        # Add Supabase repair and diagnostic commands
+        try:
+            from app.handlers_sb_repair import cmd_sb_repair
+            from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
+            from app.handlers_user_set import cmd_user_set
+            from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+            
+            self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
+            self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
+            self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+            self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+            self.application.add_handler(CommandHandler("user_set", cmd_user_set))
+            self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+            self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
+            
+            print("✅ Supabase admin commands registered")
+        except ImportError as e:
+            print(f"⚠️ Could not register Supabase commands: {e}")
+
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:
             try:
