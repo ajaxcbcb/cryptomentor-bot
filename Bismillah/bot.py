@@ -1927,13 +1927,12 @@ Gunakan `/subscribe` untuk upgrade!
 
         if len(context.args) < 2:
             await update.message.reply_text(
-                "❌ **Format salah!**\n\n"
-                "Gunakan: `/setpremium <user_id> <days|months|lifetime> [value]`\n\n"
-                "**Contoh:**\n"
-                "• `/setpremium 123456789 days 30` - Premium 30 hari\n"
-                "• `/setpremium 123456789 months 6` - Premium 6 bulan\n"
-                "• `/setpremium 123456789 lifetime` - Premium selamanya",
-                parse_mode='Markdown'
+                "❌ Format salah!\n\n"
+                "Gunakan: /setpremium <user_id> <days|months|lifetime> [value]\n\n"
+                "Contoh:\n"
+                "• /setpremium 123456789 days 30 - Premium 30 hari\n"
+                "• /setpremium 123456789 months 6 - Premium 6 bulan\n"
+                "• /setpremium 123456789 lifetime - Premium selamanya"
             )
             return
 
@@ -1967,7 +1966,7 @@ Gunakan `/subscribe` untuk upgrade!
                 expiry_text = result.get('expiry_text', 'unknown')
                 expiry_date = result.get('expiry_date')
                 
-                if expiry_date:
+                if expiry_date and expiry_date != "9999-12-31T23:59:59Z":
                     # Format date for display
                     from datetime import datetime
                     try:
@@ -1979,26 +1978,23 @@ Gunakan `/subscribe` untuk upgrade!
                 else:
                     expiry_display = "LIFETIME (tanpa batas)"
                 
-                message = f"""✅ **Premium berhasil diatur untuk user {target_user_id} {expiry_display}**
-
-👤 **User Info:**
-• **Telegram ID**: {target_user_id}
-
-⭐ **Premium Status:**
-• **Type**: {expiry_text}
-• **Duration**: {duration_type}
-• **Value**: {duration_value if duration_value else 'N/A'}
-• **Database**: ✅ Updated in Supabase
-
-🎉 User sekarang memiliki akses premium!"""
+                message = f"✅ Premium berhasil diatur untuk user {target_user_id} {expiry_display}\n\n" \
+                         f"👤 User Info:\n" \
+                         f"• Telegram ID: {target_user_id}\n\n" \
+                         f"⭐ Premium Status:\n" \
+                         f"• Type: {expiry_text}\n" \
+                         f"• Duration: {duration_type}\n" \
+                         f"• Value: {duration_value if duration_value else 'N/A'}\n" \
+                         f"• Database: ✅ Updated in Supabase\n\n" \
+                         f"🎉 User sekarang memiliki akses premium!"
             else:
-                message = f"❌ **Gagal mengatur premium!**\n\n**Error**: {result.get('error', 'Unknown error')}"
+                message = f"❌ Gagal mengatur premium!\n\nError: {result.get('error', 'Unknown error')}"
 
         except Exception as e:
-            message = f"❌ **Error sistem!**\n\n**Error**: {str(e)}"
+            message = f"❌ Error sistem!\n\nError: {str(e)}"
             print(f"Error in setpremium_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
 
     async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_credits command"""

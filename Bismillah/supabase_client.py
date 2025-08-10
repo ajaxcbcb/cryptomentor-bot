@@ -73,13 +73,13 @@ def add_user(user_id, username=None, is_premium=False, expired_date=None, first_
             print(f"❌ {error_msg}")
             return {"success": False, "error": error_msg}
 
+        # Only include columns that exist in the schema
         user_data = {
             'telegram_id': telegram_id,
             'username': username or 'no_username',
             'first_name': first_name or 'Unknown',
             'last_name': last_name,
             'is_premium': bool(is_premium),
-            'credits': 100,  # Default credits
             'language_code': 'id'  # Default Indonesian
         }
 
@@ -204,7 +204,8 @@ def set_premium(user_id, duration_type, duration_value=None):
         
         # Calculate premium expiry date
         if duration_type == "lifetime":
-            premium_expired_at = None  # NULL for lifetime
+            # Set to far future date for lifetime premium
+            premium_expired_at = "9999-12-31T23:59:59Z"
             expiry_text = "lifetime"
         elif duration_type == "days":
             if not duration_value:
@@ -222,14 +223,13 @@ def set_premium(user_id, duration_type, duration_value=None):
             return {"success": False, "error": "Invalid duration_type. Use 'days', 'months', or 'lifetime'"}
 
         # Prepare user data for upsert (insert if not exists, update if exists)
+        # Only include columns that exist in the schema
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": True,
             "subscription_end": premium_expired_at,
-            "updated_at": current_time.isoformat(),
             "username": f"user_{telegram_id}",
             "first_name": "Premium User",
-            "credits": 1000,
             "language_code": "id"
         }
 
@@ -288,17 +288,15 @@ def revoke_premium(user_id):
 
     try:
         telegram_id = int(user_id)
-        current_time = datetime.now(timezone.utc)
         
         # Prepare user data for upsert (handles both existing and non-existing users)
+        # Only include columns that exist in the schema
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": False,
             "subscription_end": None,
-            "updated_at": current_time.isoformat(),
             "username": f"user_{telegram_id}",
             "first_name": "User",
-            "credits": 100,
             "language_code": "id"
         }
 

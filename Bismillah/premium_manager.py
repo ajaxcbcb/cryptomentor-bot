@@ -67,7 +67,6 @@ def add_premium_user(user_id, duration_days=None, lifetime=False):
             'last_name': None,
             'is_premium': True,
             'subscription_end': expires_at,
-            'credits': 1000,  # Premium users get more credits
             'language_code': 'id'
         }
         
