@@ -2939,15 +2939,6 @@ ADMIN2 = [optional_second_admin_id]
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
 
-        # Add stats commands
-        try:
-            from app.handlers_stats import cmd_stats, cmd_premium_breakdown
-            self.application.add_handler(CommandHandler("stats", cmd_stats))
-            self.application.add_handler(CommandHandler("premium_breakdown", cmd_premium_breakdown))
-            print("✅ Stats commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register stats commands: {e}")
-
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 

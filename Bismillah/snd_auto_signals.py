@@ -203,87 +203,27 @@ class AutoSignalScanner:
         except Exception as e:
             print(f"[AUTO-SIGNAL] ❌ Error sending signals: {e}")
 
-    def _get_eligible_users(self):
-        """Get list of eligible users for auto signals from Supabase"""
+    def _get_eligible_users(self) -> List[int]:
+        """Get list of eligible users (admin + lifetime premium)"""
         try:
-            from app.supabase_conn import sb_list_users
-            from app.chat_store import get_private_chat_id
-            from datetime import datetime, timezone
-
-            eligible_users = []
-
-            # Get admin IDs
-            admin_ids = [1234500009, 7255533151]  # Your admin IDs
+            eligible = []
 
             # Add admins
-            for admin_id in admin_ids:
-                eligible_users.append(admin_id)
-                print(f"   Admin{admin_ids.index(admin_id)+1}({admin_id})")
+            admin_ids = self.bot_instance.admin_ids
+            eligible.extend(admin_ids)
 
-            try:
-                # Get premium active users from Supabase
-                nowiso = datetime.now(timezone.utc).isoformat()
+            # Add lifetime premium users
+            if hasattr(self.bot_instance, 'db') and self.bot_instance.db:
+                lifetime_users = self.bot_instance.db.get_eligible_auto_signal_users()
+                eligible.extend(lifetime_users)
 
-                # Eligible = is_premium=true AND (premium_until IS NULL OR >= now) AND not banned
-                users = sb_list_users({
-                    "is_premium": "eq.true",
-                    "banned": "eq.false",
-                    "or": f"(premium_until.is.null,premium_until.gte.{nowiso})",
-                }, columns="telegram_id,premium_until", limit=1000)
+            # Remove duplicates and ensure integers
+            unique_eligible = list(set(int(uid) for uid in eligible if uid))
 
-                print(f"   Found {len(users)} premium users in Supabase")
-
-                for user in users:
-                    tid = user.get("telegram_id")
-                    if tid is None:
-                        continue
-
-                    try:
-                        # Handle both int and dict cases
-                        if isinstance(tid, dict):
-                            print(f"   Skipping invalid telegram_id (dict): {tid}")
-                            continue
-
-                        user_id = int(tid)
-                        # Skip if already added (admin)
-                        if user_id in eligible_users:
-                            continue
-
-                        # Check DM consent (user must have /start privately)
-                        if get_private_chat_id(user_id) is not None:
-                            eligible_users.append(user_id)
-                        else:
-                            print(f"   Skipping user {user_id}: No DM consent")
-
-                    except (ValueError, TypeError) as e:
-                        print(f"   Error processing telegram_id {tid}: {e}")
-                        continue
-
-            except Exception as supabase_error:
-                print(f"[AUTO-SIGNAL] Error getting Supabase users: {supabase_error}")
-                # Fallback to local database if Supabase fails
-                if hasattr(self.bot_instance, 'db') and self.bot_instance.db:
-                    try:
-                        cursor = self.bot_instance.db.cursor
-                        cursor.execute("""
-                            SELECT telegram_id FROM users 
-                            WHERE is_premium = 1 AND premium_until IS NULL AND telegram_id NOT IN (?, ?)
-                        """, (admin_ids[0], admin_ids[1]))
-
-                        lifetime_users = cursor.fetchall()
-                        for user in lifetime_users:
-                            user_id = user[0] if isinstance(user, tuple) else user.get('telegram_id')
-                            if user_id and user_id not in eligible_users:
-                                eligible_users.append(user_id)
-
-                    except Exception as db_error:
-                        print(f"[AUTO-SIGNAL] Fallback database error: {db_error}")
-
-            print(f"   Total eligible: {len(eligible_users)}")
-            return eligible_users
+            return unique_eligible
 
         except Exception as e:
-            print(f"[AUTO-SIGNAL] Error in _get_eligible_users: {e}")
+            print(f"[AUTO-SIGNAL] Error getting eligible users: {e}")
             return []
 
 def initialize_auto_signals(bot_instance):
