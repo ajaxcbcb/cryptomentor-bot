@@ -250,6 +250,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
             self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
             self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
+            self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
             self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
@@ -1926,84 +1927,61 @@ Gunakan `/subscribe` untuk upgrade!
         if len(context.args) < 2:
             await update.message.reply_text(
                 "❌ Format salah!\n\n"
-                "Gunakan: /setpremium <user_id> <durasi>\n\n"
-                "Format durasi:\n"
-                "• `30d` - Premium 30 hari\n"
-                "• `2m` - Premium 2 bulan\n"
+                "Gunakan: `/setpremium <user_id> <type>`\n\n"
+                "Types:\n"
+                "• `month` - Premium 30 hari\n"
                 "• `lifetime` - Premium selamanya\n\n"
                 "Contoh:\n"
-                "• /setpremium 123456789 30d\n"
-                "• /setpremium 123456789 2m\n"
-                "• /setpremium 123456789 lifetime",
+                "• `/setpremium 123456789 month`\n"
+                "• `/setpremium 123456789 lifetime`",
                 parse_mode='Markdown'
             )
             return
 
         try:
-            target_user_id = int(context.args[0])
-            duration_arg = context.args[1].lower()
+            target_user_id = context.args[0]
+            premium_type = context.args[1].lower()
             
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!")
-            return
-
-        # Parse duration using new function
-        try:
-            from supabase_client import parse_premium_duration, set_premium
-            
-            expiry_date, expiry_text = parse_premium_duration(duration_arg)
-            
-            if not expiry_date:
+            if premium_type not in ['month', 'lifetime']:
                 await update.message.reply_text(
-                    "❌ Format durasi tidak valid!\n\n"
-                    "Gunakan format: `30d`, `2m`, atau `lifetime`",
+                    "❌ Premium type tidak valid!\n\n"
+                    "Gunakan: `month` atau `lifetime`",
                     parse_mode='Markdown'
                 )
                 return
             
-            # Set premium status directly without checking user existence
-            user_data = {
-                "telegram_id": target_user_id,
-                "is_premium": True,
-                "premium_until": expiry_date,
-                "username": f"user_{target_user_id}"
-            }
+        except ValueError:
+            await update.message.reply_text("❌ Parameter tidak valid!")
+            return
 
-            print(f"📝 Setting premium for user {target_user_id}: {expiry_text}")
-            print(f"📅 Premium expires at: {expiry_date}")
-
-            # Direct upsert to Supabase
-            from supabase_client import supabase
-            result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
+        # Use new admin function
+        try:
+            from supabase_client import admin_set_premium
             
-            if result.data:
-                if expiry_date != "9999-12-31T23:59:59Z":
-                    # Format date for display
-                    from datetime import datetime
-                    try:
-                        exp_dt = datetime.fromisoformat(expiry_date.replace('Z', '+00:00'))
-                        formatted_date = exp_dt.strftime('%d/%m/%Y %H:%M WIB')
-                        expiry_display = f"sampai {formatted_date}"
-                    except:
-                        expiry_display = f"sampai {expiry_date[:10]}"
-                else:
-                    expiry_display = "LIFETIME (tanpa batas)"
+            result = admin_set_premium(target_user_id, premium_type)
+            
+            if result["status"] == "success":
+                # Format success message
+                message = f"✅ **Premium Status Updated**\n\n"
+                message += f"👤 **User ID**: {target_user_id}\n"
+                message += f"⭐ **Type**: {premium_type.title()}\n"
+                message += f"📅 **Expires**: {result['data']['premium_until'] if result['data']['premium_until'] else 'Never (Lifetime)'}\n\n"
+                message += f"🎉 {result['message']}"
                 
-                message = f"✅ Premium berhasil diatur untuk user {target_user_id} {expiry_display}\n\n" \
-                         f"👤 User Info:\n" \
-                         f"• Telegram ID: {target_user_id}\n\n" \
-                         f"⭐ Premium Status:\n" \
-                         f"• Duration: {expiry_text}\n" \
-                         f"• Database: ✅ Updated in Supabase\n\n" \
-                         f"🎉 User sekarang memiliki akses premium!"
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_set_premium",
+                    f"Set {premium_type} premium for user {target_user_id}"
+                )
             else:
-                message = f"❌ Gagal mengatur premium! No data returned from Supabase."
+                message = f"❌ **Error**: {result['message']}"
 
         except Exception as e:
-            message = f"❌ Error sistem!\n\nError: {str(e)}"
+            message = f"❌ **System Error**: {str(e)}"
             print(f"Error in setpremium_command: {e}")
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_credits command"""
@@ -2017,50 +1995,87 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ Gunakan format: `/grant_credits <user_id> <amount>`\nContoh: `/grant_credits 123456789 100`")
             return
 
+        target_user_id = context.args[0]
+        amount = context.args[1]
+
+
+
+    async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /check_user_status command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Gunakan format: `/check_user_status <user_id>`\nContoh: `/check_user_status 123456789`")
+            return
+
+        target_user_id = context.args[0]
+
         try:
-            target_user_id = int(context.args[0])
-            amount = int(context.args[1])
-        except ValueError:
-            await update.message.reply_text("❌ User ID dan amount harus berupa angka!")
-            return
+            from supabase_client import get_user_premium_status
+            
+            result = get_user_premium_status(target_user_id)
+            
+            if result["status"] == "success":
+                data = result["data"]
+                
+                # Format premium status
+                if data["premium_type"] == "lifetime":
+                    premium_status = "🌟 LIFETIME PREMIUM"
+                elif data["premium_type"] == "timed":
+                    premium_status = f"⭐ PREMIUM (until {data['premium_until'][:10]})"
+                else:
+                    premium_status = "❌ FREE USER"
+                
+                message = f"📊 **User Status Report**\n\n"
+                message += f"👤 **User ID**: {target_user_id}\n"
+                message += f"💎 **Premium Status**: {premium_status}\n"
+                message += f"💳 **Credits**: {data['credits']}\n"
+                message += f"📅 **Premium Until**: {data['premium_until'] if data['premium_until'] else 'N/A'}\n\n"
+                
+                if data["is_premium"]:
+                    message += "✅ User has active premium access"
+                else:
+                    message += "⚠️ User is on free tier"
+            else:
+                message = f"❌ **Error**: {result['message']}"
 
-        if amount <= 0:
-            await update.message.reply_text("❌ Amount harus lebih dari 0!")
-            return
+        except Exception as e:
+            message = f"❌ **System Error**: {str(e)}"
+            print(f"Error in check_user_status_command: {e}")
 
-        # Add credits
-        success = self.db.add_credits(target_user_id, amount)
+        await update.message.reply_text(message, parse_mode='Markdown')
 
-        if success:
-            user_info = self.db.get_user(target_user_id)
-            username = user_info.get('username', 'No username')
-            first_name = user_info.get('first_name', 'Unknown')
-            current_credits = self.db.get_user_credits(target_user_id)
+        # Use new admin function
+        try:
+            from supabase_client import admin_grant_credits
+            
+            result = admin_grant_credits(target_user_id, amount)
+            
+            if result["status"] == "success":
+                data = result["data"]
+                message = f"✅ **Credits Granted Successfully**\n\n"
+                message += f"👤 **User ID**: {target_user_id}\n"
+                message += f"💳 **Credits Added**: +{data['credits_added']}\n"
+                message += f"📊 **Previous Total**: {data['previous_credits']}\n"
+                message += f"🎯 **New Total**: {data['new_total']}\n\n"
+                message += f"💡 {result['message']}"
+                
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_grant_credits",
+                    f"Added {amount} credits to user {target_user_id}"
+                )
+            else:
+                message = f"❌ **Error**: {result['message']}"
 
-            message = f"""✅ **Credit berhasil ditambahkan!**
-
-👤 **User Info:**
-• **ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
-
-💳 **Credit Update:**
-• **Added**: +{amount} credits
-• **Current Total**: {current_credits} credits
-
-💡 User dapat menggunakan credit untuk:
-- CoinAPI price analysis
-- SnD futures signals
-- Market overview data"""
-
-            # Log admin action
-            self.db.log_user_activity(
-                user_id,
-                "admin_grant_credits",
-                f"Added {amount} credits to user {target_user_id}"
-            )
-        else:
-            message = f"❌ **Gagal menambahkan credit!** User {target_user_id} tidak ditemukan."
+        except Exception as e:
+            message = f"❌ **System Error**: {str(e)}"
+            print(f"Error in grant_credits_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -2076,46 +2091,32 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ Gunakan format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
             return
 
+        target_user_id = context.args[0]
+
+        # Use new admin function
         try:
-            target_user_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!")
-            return
-
-        # Revoke premium directly without user validation
-        try:
-            from supabase_client import supabase
+            from supabase_client import admin_revoke_premium
             
-            # Prepare user data for upsert (handles both existing and non-existing users)
-            user_data = {
-                "telegram_id": target_user_id,
-                "is_premium": False,
-                "premium_until": None,
-                "username": f"user_{target_user_id}"
-            }
-
-            print(f"📝 Revoking premium for user {target_user_id}")
-
-            # Direct upsert to Supabase
-            result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
+            result = admin_revoke_premium(target_user_id)
             
-            if result.data:
-                print(f"✅ Premium revoked successfully for user {target_user_id}")
-                message = f"""✅ **Premium berhasil dicabut!**
-
-👤 **User Info:**
-• **Telegram ID**: {target_user_id}
-
-❌ **Status**: Premium access removed
-💳 **Database**: ✅ Updated in Supabase
-🔄 **Access**: User kembali ke sistem credit
-
-User sekarang kembali ke akun free."""
+            if result["status"] == "success":
+                message = f"✅ **Premium Revoked Successfully**\n\n"
+                message += f"👤 **User ID**: {target_user_id}\n"
+                message += f"❌ **Premium Status**: Removed\n"
+                message += f"💳 **Access**: Returned to free tier\n\n"
+                message += f"🔄 {result['message']}"
+                
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_revoke_premium",
+                    f"Revoked premium for user {target_user_id}"
+                )
             else:
-                message = f"❌ **Gagal mencabut premium!** No data returned from Supabase."
+                message = f"❌ **Error**: {result['message']}"
 
         except Exception as e:
-            message = f"❌ **Error sistem!**\n\n**Error**: {str(e)}"
+            message = f"❌ **System Error**: {str(e)}"
             print(f"Error in revoke_premium_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')

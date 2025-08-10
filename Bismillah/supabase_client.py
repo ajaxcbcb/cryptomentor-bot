@@ -370,6 +370,226 @@ def get_live_user_count():
         print(f"❌ Error getting live user count: {e}")
         return 0
 
+def admin_set_premium(user_id, premium_type):
+    """
+    Admin command to set premium status
+    
+    Args:
+        user_id (int): Telegram user ID
+        premium_type (str): 'month' for 30 days or 'lifetime' for permanent
+    
+    Returns:
+        dict: JSON response with status and message
+    """
+    if not supabase:
+        return {"status": "error", "message": "Supabase not configured"}
+
+    try:
+        telegram_id = int(user_id)
+        current_time = datetime.now(timezone.utc)
+        
+        # Check if user exists
+        user_check = supabase.table('users').select('id, telegram_id').eq('telegram_id', telegram_id).execute()
+        
+        if not user_check.data:
+            return {"status": "error", "message": f"User {user_id} not found"}
+        
+        # Calculate premium expiry
+        if premium_type.lower() == 'lifetime':
+            premium_until = None  # null means lifetime
+            expiry_text = "lifetime"
+        elif premium_type.lower() == 'month':
+            premium_until = (current_time + timedelta(days=30)).isoformat()
+            expiry_text = f"until {(current_time + timedelta(days=30)).strftime('%Y-%m-%d')}"
+        else:
+            return {"status": "error", "message": "Invalid premium type. Use 'month' or 'lifetime'"}
+        
+        # Update user premium status
+        update_data = {
+            "is_premium": True,
+            "premium_until": premium_until
+        }
+        
+        result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
+        
+        if result.data:
+            return {
+                "status": "success", 
+                "message": f"Premium set for user {user_id} {expiry_text}",
+                "data": {
+                    "user_id": user_id,
+                    "premium_type": premium_type,
+                    "premium_until": premium_until
+                }
+            }
+        else:
+            return {"status": "error", "message": f"Failed to update premium for user {user_id}"}
+            
+    except ValueError:
+        return {"status": "error", "message": "Invalid user_id. Must be a number"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error setting premium: {str(e)}"}
+
+def admin_revoke_premium(user_id):
+    """
+    Admin command to revoke premium status
+    
+    Args:
+        user_id (int): Telegram user ID
+    
+    Returns:
+        dict: JSON response with status and message
+    """
+    if not supabase:
+        return {"status": "error", "message": "Supabase not configured"}
+
+    try:
+        telegram_id = int(user_id)
+        
+        # Check if user exists
+        user_check = supabase.table('users').select('id, telegram_id').eq('telegram_id', telegram_id).execute()
+        
+        if not user_check.data:
+            return {"status": "error", "message": f"User {user_id} not found"}
+        
+        # Revoke premium status
+        update_data = {
+            "is_premium": False,
+            "premium_until": None
+        }
+        
+        result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
+        
+        if result.data:
+            return {
+                "status": "success",
+                "message": f"Premium revoked for user {user_id}",
+                "data": {
+                    "user_id": user_id,
+                    "is_premium": False,
+                    "premium_until": None
+                }
+            }
+        else:
+            return {"status": "error", "message": f"Failed to revoke premium for user {user_id}"}
+            
+    except ValueError:
+        return {"status": "error", "message": "Invalid user_id. Must be a number"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error revoking premium: {str(e)}"}
+
+def admin_grant_credits(user_id, amount):
+    """
+    Admin command to grant credits to user
+    
+    Args:
+        user_id (int): Telegram user ID
+        amount (int): Amount of credits to add
+    
+    Returns:
+        dict: JSON response with status and message
+    """
+    if not supabase:
+        return {"status": "error", "message": "Supabase not configured"}
+
+    try:
+        telegram_id = int(user_id)
+        credit_amount = int(amount)
+        
+        if credit_amount <= 0:
+            return {"status": "error", "message": "Credit amount must be positive"}
+        
+        # Check if user exists and get current credits
+        user_check = supabase.table('users').select('id, telegram_id, credits').eq('telegram_id', telegram_id).execute()
+        
+        if not user_check.data:
+            return {"status": "error", "message": f"User {user_id} not found"}
+        
+        current_user = user_check.data[0]
+        
+        # Check if credits column exists
+        if 'credits' not in current_user:
+            return {"status": "error", "message": "Credits column not found in database schema"}
+        
+        current_credits = current_user.get('credits', 0) or 0
+        new_credits = current_credits + credit_amount
+        
+        # Update user credits
+        update_data = {"credits": new_credits}
+        
+        result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
+        
+        if result.data:
+            return {
+                "status": "success",
+                "message": f"Granted {amount} credits to user {user_id}. Total: {new_credits}",
+                "data": {
+                    "user_id": user_id,
+                    "credits_added": credit_amount,
+                    "previous_credits": current_credits,
+                    "new_total": new_credits
+                }
+            }
+        else:
+            return {"status": "error", "message": f"Failed to grant credits to user {user_id}"}
+            
+    except ValueError:
+        return {"status": "error", "message": "Invalid user_id or amount. Must be numbers"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error granting credits: {str(e)}"}
+
+def get_user_premium_status(user_id):
+    """
+    Get detailed premium status for a user
+    
+    Args:
+        user_id (int): Telegram user ID
+    
+    Returns:
+        dict: User premium status information
+    """
+    if not supabase:
+        return {"status": "error", "message": "Supabase not configured"}
+
+    try:
+        telegram_id = int(user_id)
+        
+        result = supabase.table('users').select('telegram_id, is_premium, premium_until, credits').eq('telegram_id', telegram_id).execute()
+        
+        if result.data:
+            user = result.data[0]
+            
+            # Check if premium is still active
+            is_active = user.get('is_premium', False)
+            premium_until = user.get('premium_until')
+            
+            if is_active and premium_until:
+                # Check if premium has expired
+                try:
+                    expiry_date = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
+                    if datetime.now(timezone.utc) > expiry_date:
+                        is_active = False
+                except:
+                    pass
+            
+            return {
+                "status": "success",
+                "data": {
+                    "user_id": user_id,
+                    "is_premium": is_active,
+                    "premium_until": premium_until,
+                    "credits": user.get('credits', 0),
+                    "premium_type": "lifetime" if (is_active and premium_until is None) else "timed" if is_active else "none"
+                }
+            }
+        else:
+            return {"status": "error", "message": f"User {user_id} not found"}
+            
+    except ValueError:
+        return {"status": "error", "message": "Invalid user_id. Must be a number"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error getting user status: {str(e)}"}
+
 # Validate connection on import
 if supabase and not validate_supabase_connection():
     print("⚠️ Supabase validation failed - bot will continue with limited functionality")
