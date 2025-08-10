@@ -1,0 +1,81 @@
+ROLE
+Kamu adalah AI Agent yang membersihkan source code Python dari karakter non-ASCII penyebab SyntaxError.
+Target utama: /home/runner/workspace/Bismillah/bot.py (dan file .py lain bila ditemukan kasus serupa).
+
+GOAL
+1) Hilangkan semua karakter non-ASCII (emoji/simbol) dari source Python.
+2) Ganti dengan padanan ASCII aman tanpa mengubah logika/ekspresi Python.
+3) Pastikan file dapat di-import tanpa SyntaxError.
+4) Pertahankan teks dan format sebisa mungkin, tapi ASCII-only.
+
+SCOPE
+- Perbaiki baris bermasalah seperti:
+  - Line 1929: "• SUPABASE_URL: {...}"  --> replace '•' (U+2022)
+  - Line 2006: "🔧 **Admin Commands:**" --> replace '🔧' (U+1F527)
+- Scan seluruh file .py untuk karakter non-ASCII lain dan bersihkan konsisten.
+
+MANDATORY RULES (ASCII-ONLY)
+- Dilarang menyisakan karakter non-ASCII di source: emoji (✅, 🔧), bullet (•), en/em dashes (–, —), kutip melengkung (“ ” ‘ ’), dsb.
+- Mapping penggantian:
+  - Emoji status (✅, ❌, ⚠️, 🚀, 🔧, 🔍, 📊, 📅)  -> "[OK]", "[ERR]", "[WARN]", "[START]", "[TOOL]", "[SCAN]", "[STAT]", "[DATE]"
+  - Bullet "•" (U+2022)                          -> "-"
+  - En dash "–" (U+2013) / em dash "—" (U+2014) -> "-"
+  - Kutip melengkung “ ” ‘ ’                    -> " " (double quote) / ' (single quote) biasa
+  - Tanda panah → "->"
+- Jika ada karakter non-ASCII lain, hapus atau gantikan dengan padanan ASCII terdekat.
+- Jangan ubah ekspresi Python di dalam f-string/formatting, hanya teks literalnya.
+
+STRING & DOC RULES
+- Gunakan ASCII saja dalam string literal dan docstring.
+- Untuk blok teks panjang, pakai triple quotes **tanpa** emoji dan **hindari indent tidak perlu**.
+- Alternatif aman: bangun string dengan "\n" bergaris.
+- Tambahkan encoding header jika belum ada:
+  # -*- coding: utf-8 -*-
+
+OUTPUT FORMAT
+Berikan hasil dalam salah satu:
+A) Unified diff (prefer), ASCII-only.
+B) JSON daftar penggantian:
+   {
+     "file": "Bismillah/bot.py",
+     "replacements": [
+       { "line": 1929, "from": "• SUPABASE_URL: {...}", "to": "- SUPABASE_URL: {...}" },
+       { "line": 2006, "from": "🔧 **Admin Commands:**", "to": "[TOOL] **Admin Commands:**" }
+     ]
+   }
+
+STEPS (DO THIS)
+1) Baca file .py target.
+2) Deteksi semua karakter non-ASCII (codepoint > 127).
+3) Terapkan mapping penggantian di atas; jika tidak ada mapping, hapus karakter tsb.
+4) Pastikan tidak mengubah logika/ekspresi Python selain teks tampilan.
+5) Tulis kembali file.
+6) (Opsional) Validasi cepat: pastikan setiap baris hasil hanya ASCII (byte <= 0x7F).
+
+POST-FIX CHECKLIST
+- Import test mental: "from bot import TelegramBot" tidak lagi memicu SyntaxError.
+- Tidak ada karakter non-ASCII tersisa dalam file.
+- Blok teks status seperti header/start/log sudah ASCII-only, contoh aman:
+  "START: CryptoMentor AI Bot\n--------------------------------\nDATE: 2025-08-10 02:44:33\nSCAN: ...\nSTAT: Bot Deployment Status: ENABLED\n"
+
+ERROR HANDLING
+- Jika ada bagian yang tidak bisa dipetakan aman, hapus karakter non-ASCII tersebut dan lanjutkan.
+- Laporkan baris yang dibersihkan pada output diff/JSON.
+
+CONSTRAINTS
+- Jangan menambah dependensi.
+- Jangan ubah logika fungsi/class.
+- Jangan keluarkan emoji baru di output.
+Contoh patch yang dimaksud (ilustrasi aman)
+Sebelum:
+
+lua
+Copy
+• SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
+🔧 **Admin Commands:**
+Sesudah:
+
+lua
+Copy
+- SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
+[TOOL] **Admin Commands:**
