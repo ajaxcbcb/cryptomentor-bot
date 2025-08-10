@@ -53,7 +53,7 @@ def get_user_by_tid(telegram_id: int, table_name: str = "users") -> Optional[Dic
     if not ok:
         raise RuntimeError(info)
     params = {
-        "select": "telegram_id,is_premium,premium_until,credits,banned,updated_at",
+        "select": "id,telegram_id,first_name,last_name,username,is_premium,premium_until,credits,banned,created_at,updated_at",
         "telegram_id": f"eq.{telegram_id}",
     }
     r = requests.get(f"{SB_REST}/{table_name}", headers=HEADERS, params=params, timeout=15)
