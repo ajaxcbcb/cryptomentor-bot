@@ -43,10 +43,110 @@ def init_db() -> Tuple[str, bool, str]:
 def db_status() -> Dict[str, Any]:
     return {"mode": DB_MODE, "ready": DB_READY, "note": DB_NOTE}
 
+def get_user(telegram_id: int) -> Optional[Dict[str, Any]]:
+    """Get user data konsisten dari router"""
+    if DB_MODE == "supabase" and DB_READY:
+        return sb_get(telegram_id)
+    # local
+    users = load_users()
+    return users.get(str(telegram_id))
+
+def _verify_set(fields: Dict[str, Any], fetched: Dict[str, Any]) -> Tuple[bool, str]:
+    """Verifikasi write berhasil dengan membandingkan field yang di-set"""
+    # cek boolean premium & (opsional) premium_until match
+    want_prem = fields.get("is_premium")
+    got_prem = fetched.get("is_premium")
+    if want_prem is not None and (bool(want_prem) != bool(got_prem)):
+        return False, f"is_premium mismatch (want={want_prem}, got={got_prem})"
+    
+    if "premium_until" in fields:
+        want_until = fields.get("premium_until")
+        got_until = fetched.get("premium_until")
+        # string compare cukup (ISO); toleransi None vs null
+        if (want_until or "") != (got_until or ""):
+            return False, f"premium_until mismatch (want={want_until}, got={got_until})"
+    
+    if "credits" in fields:
+        want_credits = fields.get("credits")
+        got_credits = fetched.get("credits")
+        if int(want_credits or 0) != int(got_credits or 0):
+            return False, f"credits mismatch (want={want_credits}, got={got_credits})"
+    
+    return True, "ok"
+
 # ======= Helpers bisnis =======
 
 def _iso_in_days(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=int(days))).isoformat()
+
+def add_premium(telegram_id: int, duration: str) -> Tuple[Dict[str, Any], str]:
+    """Tambah premium dengan verifikasi write"""
+    duration = str(duration).strip().lower()
+    
+    if duration == "lifetime":
+        fields = {"banned": False, "is_premium": True, "premium_until": None}
+        msg = f"✅ Premium lifetime diaktifkan untuk {telegram_id}."
+    else:
+        if not duration.isdigit() or int(duration) < 1:
+            raise ValueError("days harus angka >= 1 atau 'lifetime'")
+        iso = _iso_in_days(int(duration))
+        fields = {"banned": False, "is_premium": True, "premium_until": iso}
+        msg = f"✅ Premium {duration} hari diaktifkan untuk {telegram_id} sampai {fields['premium_until']}."
+
+    if DB_MODE == "supabase" and DB_READY:
+        rec = sb_upsert(telegram_id, **fields)
+        # verify
+        ref = sb_get(telegram_id) or {}
+        ok, why = _verify_set(fields, ref)
+        if not ok:
+            raise RuntimeError(f"Verify failed: {why}")
+        return ref, msg
+
+    # local
+    users = load_users()
+    rec = update_user(users, telegram_id, fields)
+    save_users(users)
+    return rec, msg
+
+def remove_premium(telegram_id: int) -> Dict[str, Any]:
+    """Remove premium dengan verifikasi"""
+    fields = {"is_premium": False, "premium_until": None}
+    
+    if DB_MODE == "supabase" and DB_READY:
+        sb_update(telegram_id, **fields)
+        ref = sb_get(telegram_id) or {}
+        ok, why = _verify_set(fields, ref)
+        if not ok:
+            raise RuntimeError(f"Verify failed: {why}")
+        return ref
+    
+    users = load_users()
+    rec = update_user(users, telegram_id, fields)
+    save_users(users)
+    return rec
+
+def grant_credits(telegram_id: int, amount: int) -> Tuple[Dict[str, Any], int]:
+    """Grant credits dengan verifikasi"""
+    amt = int(amount)
+    if amt < 0:
+        raise ValueError("credits harus >= 0")
+    
+    if DB_MODE == "supabase" and DB_READY:
+        cur = sb_get(telegram_id) or {"credits": 0}
+        total = int(cur.get("credits", 0)) + amt
+        sb_upsert(telegram_id, credits=total)
+        ref = sb_get(telegram_id) or {}
+        if int(ref.get("credits", 0)) != total:
+            raise RuntimeError(f"Verify failed: credits mismatch (want={total}, got={ref.get('credits')})")
+        return ref, total
+    
+    # local
+    users = load_users()
+    rec = get_user_dict(users, telegram_id)
+    total = int(rec.get("credits", 0) if rec else 0) + amt
+    rec = update_user(users, telegram_id, {"credits": total})
+    save_users(users)
+    return rec, total
 
 def ban_user(telegram_id: int) -> Dict[str, Any]:
     if DB_MODE == "supabase" and DB_READY:
