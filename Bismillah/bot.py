@@ -1926,28 +1926,28 @@ Gunakan `/subscribe` untuk upgrade!
                 message = f"""**Supabase Configuration Check**
 
 **Environment Variables:**
-• SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
-• SUPABASE_SERVICE_ROLE_KEY: {'Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
+- SUPABASE_URL: {'Valid' if os.getenv('SUPABASE_URL') else 'Missing'}
+- SUPABASE_SERVICE_ROLE_KEY: {'Valid' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
 
 **Connection Status:**
 {status['message']}
 
 **Database Structure:**
-• Tabel public.users: Accessible
-• Kolom id: Available
-• Kolom credits: Available
-• Kolom is_premium: Available
-• Kolom premium_until: Available
+- Tabel public.users: Accessible
+- Kolom id: Available
+- Kolom credits: Available
+- Kolom is_premium: Available
+- Kolom premium_until: Available
 
 **Admin Agent Status:**
-• Validation: Passed
-• Connection: Active
-• Commands: Ready
+- Validation: Passed
+- Connection: Active
+- Commands: Ready
 
 **Available Commands:**
-• `/setpremium <user_id> <duration>` - Set premium status
-• `/revoke_premium <user_id>` - Remove premium
-• `/grant_credits <user_id> <amount>` - Add/remove credits"""
+- `/setpremium <user_id> <duration>` - Set premium status
+- `/revoke_premium <user_id>` - Remove premium
+- `/grant_credits <user_id> <amount>` - Add/remove credits"""
 
             else:
                 error_code = status.get('code', 'UNKNOWN')
@@ -1956,12 +1956,12 @@ Gunakan `/subscribe` untuk upgrade!
                 message = f"""**Supabase Configuration Error**
 
 **Environment Variables:**
-• SUPABASE_URL: {'Set' if os.getenv('SUPABASE_URL') else 'Missing'}
-• SUPABASE_SERVICE_ROLE_KEY: {'Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
+- SUPABASE_URL: {'Set' if os.getenv('SUPABASE_URL') else 'Missing'}
+- SUPABASE_SERVICE_ROLE_KEY: {'Set' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'Missing'}
 
 **Error Details:**
-• Code: {error_code}
-• Message: {error_msg}
+- Code: {error_code}
+- Message: {error_msg}
 
 **Troubleshooting:**
 1. Check SUPABASE_URL format: https://your-project.supabase.co
@@ -1984,29 +1984,29 @@ Gunakan `/subscribe` untuk upgrade!
 **Error**: {str(e)[:100]}...
 
 **Solutions:**
-• Restart aplikasi/server
-• Check environment variables di Secrets
-• Verify Supabase service status
-• Contact support jika masalah berlanjut"""
+- Restart aplikasi/server
+- Check environment variables di Secrets
+- Verify Supabase service status
+- Contact support jika masalah berlanjut"""
 
             await update.message.reply_text(error_message, parse_mode='Markdown')
             print(f"❌ Error in check_supabase_config: {e}")
 
 
 🔧 **Admin Commands:**
-• `/setpremium <user_id> <type>` - Set premium (month/lifetime)
-• `/revoke_premium <user_id>` - Remove premium status
-• `/grant_credits <user_id> <amount>` - Add credits
-• `/check_supabase_config` - Validate Supabase configuration
-• `/auto_signals_status` - SnD signals status
-• `/enable_auto_signal_ai` - Start momentum signals scanner
-• `/disable_auto_signal_ai` - Stop momentum signals scanner
-• `/broadcast <message>` - Send broadcast
+- `/setpremium <user_id> <type>` - Set premium (month/lifetime)
+- `/revoke_premium <user_id>` - Remove premium status
+- `/grant_credits <user_id> <amount>` - Add credits
+- `/check_supabase_config` - Validate Supabase configuration
+- `/auto_signals_status` - SnD signals status
+- `/enable_auto_signal_ai` - Start momentum signals scanner
+- `/disable_auto_signal_ai` - Stop momentum signals scanner
+- `/broadcast <message>` - Send broadcast
 
 🌐 **API Status:**
-• CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
-• Binance: ✅ Active (Public API)
-• Auto Signals: {auto_status}
+- CoinAPI: {'[Active]' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '[No Provider]'}
+- Binance: [Active] (Public API)
+- Auto Signals: {auto_status}
 
 💡 **V4 Features:**
 - CoinAPI integration
