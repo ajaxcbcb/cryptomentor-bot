@@ -1808,6 +1808,16 @@ Gunakan `/subscribe` untuk upgrade!
         """Check if user needs to restart after admin restart"""
         user_id = update.message.from_user.id
 
+        # Check if user is banned
+        if self.db.is_user_banned(user_id):
+            await update.message.reply_text(
+                "🚫 **Akun Anda telah dibanned oleh admin**\n\n"
+                "Anda tidak dapat menggunakan bot ini lagi.\n"
+                "Hubungi admin jika ini adalah kesalahan.",
+                parse_mode='Markdown'
+            )
+            return True
+
         if self.db.user_needs_restart(user_id):
             await update.message.reply_text(
                 "🔄 **Bot telah direstart oleh admin**\n\n"
@@ -1863,6 +1873,7 @@ Gunakan `/subscribe` untuk upgrade!
 📊 **Bot Statistics:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
+• Banned Users: {stats.get('banned_users', 0)}
 • Active Today: {stats['active_today']}
 • Total Credits: {stats['total_credits']:,}
 
@@ -1876,6 +1887,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/setpremium <user_id> <type>` - Set premium (month/lifetime)
 • `/revoke_premium <user_id>` - Remove premium status
 • `/grant_credits <user_id> <amount>` - Add credits
+• `/banned <user_id> <ban|unban|check>` - Ban/unban user management
 • `/auto_signals_status` - SnD signals status
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner
@@ -2595,6 +2607,121 @@ ADMIN2 = [optional_second_admin_id]
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def banned_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /banned command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/banned <user_id> <action>`\n\n"
+                "**Available Actions:**\n"
+                "• `ban` - Ban user from using bot\n"
+                "• `unban` - Unban user\n"
+                "• `check` - Check ban status\n\n"
+                "**Contoh:**\n"
+                "• `/banned 123456789 ban`\n"
+                "• `/banned 123456789 unban`\n"
+                "• `/banned 123456789 check`",
+                parse_mode='Markdown'
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            action = context.args[1].lower()
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        # Check if user exists
+        existing_user = self.db.get_user(target_user_id)
+        if not existing_user:
+            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+            return
+
+        try:
+            user_info = self.db.get_user(target_user_id)
+            username = user_info.get('username', 'No username')
+            first_name = user_info.get('first_name', 'Unknown')
+            current_banned_status = user_info.get('banned', False)
+
+            if action == 'ban':
+                if current_banned_status:
+                    message = f"⚠️ **User sudah dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
+                else:
+                    success = self.db.ban_user(target_user_id)
+                    if success:
+                        message = f"""🚫 **User berhasil dibanned!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+• **Status**: BANNED
+
+⚠️ User tidak dapat menggunakan bot lagi sampai di-unban."""
+
+                        # Log admin action
+                        self.db.log_user_activity(
+                            user_id,
+                            "admin_ban_user",
+                            f"Banned user {target_user_id} ({first_name})"
+                        )
+                    else:
+                        message = f"❌ **Gagal melakukan ban!** Terjadi kesalahan dalam proses."
+
+            elif action == 'unban':
+                if not current_banned_status:
+                    message = f"⚠️ **User tidak dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
+                else:
+                    success = self.db.unban_user(target_user_id)
+                    if success:
+                        message = f"""✅ **User berhasil di-unban!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+• **Status**: ACTIVE
+
+✅ User sekarang dapat menggunakan bot kembali."""
+
+                        # Log admin action
+                        self.db.log_user_activity(
+                            user_id,
+                            "admin_unban_user",
+                            f"Unbanned user {target_user_id} ({first_name})"
+                        )
+                    else:
+                        message = f"❌ **Gagal melakukan unban!** Terjadi kesalahan dalam proses."
+
+            elif action == 'check':
+                ban_status = "🚫 BANNED" if current_banned_status else "✅ ACTIVE"
+                message = f"""📊 **Ban Status Check**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+• **Ban Status**: {ban_status}
+
+💡 User {'tidak dapat menggunakan bot' if current_banned_status else 'dapat menggunakan bot normal'}."""
+
+            else:
+                await update.message.reply_text(f"❌ Action '{action}' tidak dikenali! Gunakan: ban, unban, atau check.")
+                return
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat memproses ban command!**\n\n**Error**: {str(e)}"
+            print(f"Error in banned_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
         user_id = update.message.from_user.id
@@ -2711,6 +2838,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
         self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
         self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
+        self.application.add_handler(CommandHandler("banned", self.banned_command))
 
         # Supabase health check command
         try:

@@ -9,7 +9,7 @@ class Database:
             self.conn = sqlite3.connect(db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
             self.create_tables()
-            
+
             # Initialize Supabase integration
             self.supabase_enabled = False
             try:
@@ -22,7 +22,7 @@ class Database:
             except Exception as supabase_error:
                 print(f"⚠️ Supabase integration failed: {supabase_error}")
                 self.supabase_enabled = False
-                
+
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
             raise
@@ -46,7 +46,8 @@ class Database:
                     referral_code TEXT,
                     premium_referral_code TEXT,
                     premium_earnings INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    banned INTEGER DEFAULT 0
                 )
             """)
 
@@ -65,7 +66,8 @@ class Database:
                 ('referred_by', 'INTEGER'),
                 ('referral_code', 'TEXT'),
                 ('premium_referral_code', 'TEXT'),
-                ('premium_earnings', 'INTEGER DEFAULT 0')
+                ('premium_earnings', 'INTEGER DEFAULT 0'),
+                ('banned', 'INTEGER DEFAULT 0')
             ]
 
             for column_name, column_def in missing_columns:
@@ -114,7 +116,8 @@ class Database:
                             referral_code TEXT,
                             premium_referral_code TEXT,
                             premium_earnings INTEGER DEFAULT 0,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            banned INTEGER DEFAULT 0
                         )
                     """)
 
@@ -122,7 +125,7 @@ class Database:
                     self.cursor.execute(f"""
                         INSERT INTO users (telegram_id, first_name, last_name, username, language_code, 
                                          is_premium, credits, subscription_end, referred_by, referral_code,
-                                         premium_referral_code, premium_earnings, created_at)
+                                         premium_referral_code, premium_earnings, created_at, banned)
                         SELECT telegram_id, 
                                COALESCE(first_name, 'User'),
                                last_name,
@@ -135,7 +138,8 @@ class Database:
                                referral_code,
                                premium_referral_code,
                                COALESCE(premium_earnings, 0),
-                               COALESCE(created_at, datetime('now'))
+                               COALESCE(created_at, datetime('now')),
+                               COALESCE(banned, 0)
                         FROM {backup_table}
                         WHERE telegram_id IS NOT NULL AND telegram_id != 0
                     """)
@@ -166,7 +170,8 @@ class Database:
                             referral_code TEXT,
                             premium_referral_code TEXT,
                             premium_earnings INTEGER DEFAULT 0,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            banned INTEGER DEFAULT 0
                         )
                     """)
                     print("✅ Empty table recreated with complete schema")
@@ -270,7 +275,7 @@ class Database:
                 print(f"✅ User {telegram_id} already exists - updating info if needed")
                 # Update user info if provided (keep existing data intact)
                 self.update_user_info(telegram_id, username, first_name, last_name, language_code)
-                
+
                 # Sync with Supabase if enabled
                 if self.supabase_enabled:
                     try:
@@ -285,7 +290,7 @@ class Database:
                         print(f"🔄 Supabase sync result for existing user: {sync_result['success']}")
                     except Exception as sync_error:
                         print(f"⚠️ Supabase sync failed for existing user: {sync_error}")
-                
+
                 return True
 
             # Generate unique referral codes
@@ -345,7 +350,7 @@ class Database:
                         last_name=clean_last_name,
                         is_premium=False
                     )
-                    
+
                     if sync_result["success"]:
                         print(f"✅ User {telegram_id} successfully synced to Supabase")
                         # Verify user count immediately
@@ -354,7 +359,7 @@ class Database:
                             print(f"📊 Live Supabase user count after sync: {live_count}")
                     else:
                         print(f"❌ Supabase sync failed: {sync_result.get('error')}")
-                        
+
                 except Exception as sync_error:
                     print(f"❌ Critical Supabase sync error: {sync_error}")
                     # Don't fail the whole operation, but log it
@@ -433,7 +438,7 @@ class Database:
         try:
             self.cursor.execute("""
                 SELECT telegram_id, first_name, last_name, username, language_code, 
-                       is_premium, credits, subscription_end, referred_by, referral_code, created_at
+                       is_premium, credits, subscription_end, referred_by, referral_code, created_at, banned
                 FROM users WHERE telegram_id = ?
             """, (telegram_id,))
             row = self.cursor.fetchone()
@@ -449,7 +454,8 @@ class Database:
                     'subscription_end': row[7],
                     'referred_by': row[8],
                     'referral_code': row[9],
-                    'created_at': row[10]
+                    'created_at': row[10],
+                    'banned': row[11]
                 }
             return None
         except Exception as e:
@@ -648,7 +654,7 @@ class Database:
             if not user:
                 print(f"❌ User {telegram_id} not found when getting credits")
                 return 0
-                
+
             credits = user.get('credits')
             if credits is None:
                 # Fix NULL credits by setting to default 100
@@ -656,7 +662,7 @@ class Database:
                 self.cursor.execute("UPDATE users SET credits = 100 WHERE telegram_id = ?", (telegram_id,))
                 self.conn.commit()
                 return 100
-                
+
             return max(0, credits)  # Ensure credits never go negative
         except Exception as e:
             print(f"Error getting user credits: {e}")
@@ -720,7 +726,7 @@ class Database:
             current_user = self.get_user(telegram_id)
             if not current_user:
                 return False
-                
+
             current_credits = current_user.get('credits', 0)
             if current_credits < amount:
                 print(f"❌ Insufficient credits for user {telegram_id}: has {current_credits}, needs {amount}")
@@ -742,7 +748,7 @@ class Database:
             return False
 
     def get_bot_stats(self):
-        """Get bot statistics for admin panel"""
+        """Get bot usage statistics"""
         try:
             # Total users
             self.cursor.execute("SELECT COUNT(*) FROM users")
@@ -759,14 +765,19 @@ class Database:
             """)
             active_today = self.cursor.fetchone()[0]
 
+            # Banned users
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE banned = 1")
+            banned_users = self.cursor.fetchone()[0]
+
             return {
                 'total_users': total_users,
                 'premium_users': premium_users,
-                'active_today': active_today
+                'active_today': active_today,
+                'banned_users': banned_users
             }
         except Exception as e:
             print(f"DB Error (get_bot_stats): {e}")
-            return {'total_users': 0, 'premium_users': 0, 'active_today': 0}
+            return {'total_users': 0, 'premium_users': 0, 'active_today': 0, 'banned_users': 0}
 
     def grant_premium(self, telegram_id, days=30):
         """Grant premium access to a user"""
@@ -814,7 +825,7 @@ class Database:
             print(f"DB Error (get_user_by_referral_code): {e}")
             return None
 
-    
+
 
     def get_bot_statistics(self):
         """Get bot usage statistics"""
@@ -858,6 +869,10 @@ class Database:
             """)
             analyses_count = self.cursor.fetchone()[0]
 
+            # Banned users
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE banned = 1")
+            banned_users = self.cursor.fetchone()[0]
+
             return {
                 'total_users': total_users,
                 'premium_users': premium_users,
@@ -865,7 +880,8 @@ class Database:
                 'total_credits': total_credits,
                 'commands_today': commands_today,
                 'avg_credits': avg_credits,
-                'analyses_count': analyses_count
+                'analyses_count': analyses_count,
+                'banned_users': banned_users
             }
         except Exception as e:
             print(f"DB Error (get_bot_statistics): {e}")
@@ -876,7 +892,8 @@ class Database:
                 'total_credits': 0,
                 'commands_today': 0,
                 'avg_credits': 0,
-                'analyses_count': 0
+                'analyses_count': 0,
+                'banned_users': 0
             }
 
     def get_recent_activity(self, limit=10):
@@ -941,15 +958,15 @@ class Database:
         except Exception as e:
             print(f"Error fixing all user credits: {e}")
             return 0
-            
+
     def fix_referral_data_integrity(self):
         """Fix missing referral codes and other referral-related issues"""
         try:
             import random
             import string
-            
+
             fixed_count = 0
-            
+
             # Get users with missing referral codes
             self.cursor.execute("""
                 SELECT telegram_id, username, first_name 
@@ -957,31 +974,31 @@ class Database:
                 WHERE (referral_code IS NULL OR premium_referral_code IS NULL) 
                 AND telegram_id IS NOT NULL
             """)
-            
+
             users_to_fix = self.cursor.fetchall()
-            
+
             for user in users_to_fix:
                 telegram_id, username, first_name = user
-                
+
                 # Generate referral codes if missing
                 self.cursor.execute("SELECT referral_code, premium_referral_code FROM users WHERE telegram_id = ?", (telegram_id,))
                 codes = self.cursor.fetchone()
-                
+
                 referral_code = codes[0] if codes and codes[0] else None
                 premium_referral_code = codes[1] if codes and codes[1] else None
-                
+
                 # Generate free referral code if missing
                 if not referral_code:
                     referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
                     while self.get_user_by_referral_code(referral_code):
                         referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-                
+
                 # Generate premium referral code if missing
                 if not premium_referral_code:
                     premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
                     while self.get_user_by_premium_referral_code(premium_referral_code):
                         premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-                
+
                 # Update the user
                 self.cursor.execute("""
                     UPDATE users 
@@ -989,15 +1006,15 @@ class Database:
                         premium_referral_code = COALESCE(premium_referral_code, ?)
                     WHERE telegram_id = ?
                 """, (referral_code, premium_referral_code, telegram_id))
-                
+
                 if self.cursor.rowcount > 0:
                     fixed_count += 1
                     print(f"✅ Fixed referral codes for user {telegram_id} ({first_name})")
-            
+
             self.conn.commit()
             print(f"✅ Fixed referral data for {fixed_count} users")
             return fixed_count
-            
+
         except Exception as e:
             print(f"❌ Error fixing referral data integrity: {e}")
             return 0
@@ -1191,13 +1208,13 @@ class Database:
             if not referrer_id or not referred_id:
                 print(f"❌ Invalid referral IDs: referrer={referrer_id}, referred={referred_id}")
                 return False
-                
+
             # Check if referrer exists and is premium (only premium users can earn money)
             referrer = self.get_user(referrer_id)
             if not referrer:
                 print(f"❌ Referrer {referrer_id} not found")
                 return False
-                
+
             if not self.is_user_premium(referrer_id):
                 print(f"❌ Referrer {referrer_id} is not premium, cannot earn money rewards")
                 return False
@@ -1210,7 +1227,7 @@ class Database:
                 SELECT id FROM premium_referrals 
                 WHERE referrer_id = ? AND referred_id = ? AND status = 'paid'
             """, (referrer_id, referred_id))
-            
+
             if self.cursor.fetchone():
                 print(f"⚠️ Premium referral reward already exists for {referrer_id} → {referred_id}")
                 return True  # Not an error, just already processed
@@ -1231,7 +1248,7 @@ class Database:
             # Log the reward
             self.log_user_activity(referrer_id, "premium_referral_reward", 
                                  f"Earned Rp {earnings:,} from {referred_id} subscribing {subscription_type}")
-            
+
             print(f"✅ Premium referral reward processed: {referrer_id} earned Rp {earnings:,}")
             return True
         except Exception as e:
@@ -1257,15 +1274,15 @@ class Database:
             if amount <= 0:
                 print(f"❌ Invalid credit amount: {amount}")
                 return False
-                
+
             # Get current credits for logging
             current_user = self.get_user(telegram_id)
             if not current_user:
                 print(f"❌ User {telegram_id} not found when adding credits")
                 return False
-                
+
             current_credits = current_user.get('credits', 0)
-            
+
             self.cursor.execute("""
                 UPDATE users SET credits = credits + ? WHERE telegram_id = ?
             """, (amount, telegram_id))
@@ -1375,14 +1392,18 @@ class Database:
             # Check for data corruption
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
             corrupt_count = self.cursor.fetchone()[0]
-            
+
             # Check for referral data integrity
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE referral_code IS NULL AND telegram_id IS NOT NULL")
             missing_referral_codes = self.cursor.fetchone()[0]
-            
+
             # Check for NULL or negative credits
             self.cursor.execute("SELECT COUNT(*) FROM users WHERE credits IS NULL OR credits < 0")
             invalid_credits = self.cursor.fetchone()[0]
+
+            # Check for banned users
+            self.cursor.execute("SELECT COUNT(*) FROM users WHERE banned = 1")
+            banned_users_count = self.cursor.fetchone()[0]
 
             integrity_report = {
                 'premium_users': premium_count,
@@ -1390,17 +1411,66 @@ class Database:
                 'corrupt_entries': corrupt_count,
                 'missing_referral_codes': missing_referral_codes,
                 'invalid_credits': invalid_credits,
+                'banned_users': banned_users_count,
                 'integrity_ok': corrupt_count == 0 and missing_referral_codes == 0 and invalid_credits == 0
             }
 
             print(f"📊 Data Integrity: Premium={premium_count}, Lifetime={lifetime_count}, Corrupt={corrupt_count}")
-            print(f"📊 Referral Integrity: Missing codes={missing_referral_codes}, Invalid credits={invalid_credits}")
-            
+            print(f"📊 Referral Integrity: Missing codes={missing_referral_codes}, Invalid credits={invalid_credits}, Banned={banned_users_count}")
+
             return integrity_report
 
         except Exception as e:
             print(f"❌ Error verifying data integrity: {e}")
             return {'integrity_ok': False, 'error': str(e)}
+
+    def ban_user(self, telegram_id):
+        """Ban a user from using the bot"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET banned = 1 
+                WHERE telegram_id = ?
+            """, (telegram_id,))
+            self.conn.commit()
+
+            # Log the ban action
+            self.log_user_activity(telegram_id, "user_banned", "User has been banned by admin")
+
+            print(f"✅ User {telegram_id} has been banned")
+            return True
+        except Exception as e:
+            print(f"❌ Error banning user {telegram_id}: {e}")
+            return False
+
+    def unban_user(self, telegram_id):
+        """Unban a user, allowing them to use the bot again"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET banned = 0 
+                WHERE telegram_id = ?
+            """, (telegram_id,))
+            self.conn.commit()
+
+            # Log the unban action
+            self.log_user_activity(telegram_id, "user_unbanned", "User has been unbanned by admin")
+
+            print(f"✅ User {telegram_id} has been unbanned")
+            return True
+        except Exception as e:
+            print(f"❌ Error unbanning user {telegram_id}: {e}")
+            return False
+
+    def is_user_banned(self, telegram_id):
+        """Check if a user is banned"""
+        try:
+            self.cursor.execute("""
+                SELECT banned FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            result = self.cursor.fetchone()
+            return bool(result[0]) if result else False
+        except Exception as e:
+            print(f"❌ Error checking ban status for user {telegram_id}: {e}")
+            return False
 
     def close(self):
         """Close database connection"""
