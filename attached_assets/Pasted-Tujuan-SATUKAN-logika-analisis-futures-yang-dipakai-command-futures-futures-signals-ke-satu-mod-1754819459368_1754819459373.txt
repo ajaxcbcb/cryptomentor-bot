@@ -1,0 +1,198 @@
+Tujuan
+
+SATUKAN logika analisis futures yang dipakai command /futures & /futures_signals ke satu modul reusable (engine).
+
+AutoSignal memanggil engine yang sama untuk setiap koin top CMC, lalu mengirim hanya sinyal dengan confidence ≥ threshold (default 75).
+
+Jaga output/format pesan konsisten dengan command manual (/futures, /futures_signals).
+
+Tetap hormati premium/banned, DM consent, anti-spam cooldown, dan interval 30 menit.
+
+0) Inventaris kode (AI Agent lakukan)
+Cari implementasi command:
+
+/futures handler
+
+/futures_signals handler
+
+Identifikasi fungsi/kelas yang menghitung:
+
+arah (LONG/SHORT)
+
+indikator (RSI/EMA/MACD/ADX/dst)
+
+confidence (0–100)
+
+Catat dependensi (Binance Futures klines, timeframe default, normalisasi symbol → BTCUSDT, dsb).
+
+Kalau logika masih “nempel” di handler, ekstrak ke modul baru.
+
+1) Buat modul engine bersama
+Tambah file: app/futures/engine.py (buat folder kalau belum ada).
+
+Kontrak fungsi (wajib):
+
+python
+Copy
+# app/futures/engine.py
+from typing import List, Dict, Any, Optional
+
+class FuturesSignalError(Exception):
+    pass
+
+def analyze_symbol(
+    symbol: str,
+    timeframe: str = "15m",
+    market: str = "USDT",
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """
+    Ambil data (klines/ticker) -> hitung indikator -> kembalikan ringkasan analisis
+    Return:
+    {
+      "symbol": "BTCUSDT",
+      "timeframe": "15m",
+      "price": 64123.5,
+      "signals": [
+        {
+          "side": "LONG" | "SHORT",
+          "confidence": 0..100,
+          "reasons": ["RSI<30", "EMA12>EMA26", ...],
+          "entry": 64100.0,          # optional
+          "sl": 63800.0,             # optional
+          "tp": [64500.0, 65000.0],  # optional
+          "time": "ISO-8601"         # optional
+        },
+        ...
+      ],
+      "meta": {
+        "indicators": {...},  # skor/komponen opsional
+        "latency_ms": int,
+      }
+    }
+    """
+    # IMPLEMENTASI: pindahkan dari /futures & /futures_signals ke sini.
+    # Wajib: hasil "signals" & perhitungan confidence sama dengan command.
+    raise NotImplementedError
+Pindahkan semua kalkulasi indikator & logika confidence dari handler ke sini tanpa mengubah rumusnya.
+
+2) Buat adapter untuk command agar pakai engine
+/futures: panggil analyze_symbol(...), render ringkasan seperti sebelumnya.
+
+/futures_signals: panggil analyze_symbol(...), ambil signals dan format list-nya sama seperti dulu.
+
+Contoh (ringkas):
+
+python
+Copy
+# app/handlers_futures.py
+from app.futures.engine import analyze_symbol
+from app.safe_send import safe_reply
+
+async def cmd_futures(update, context):
+    sym = (context.args[0] if context.args else "BTC").upper()
+    tf = (context.args[1] if len(context.args) > 1 else "15m")
+    res = analyze_symbol(sym, timeframe=tf)
+    # format hasilnya sama seperti sebelumnya (pakai res["meta"], res["price"], dsb.)
+    await safe_reply(update.effective_message, format_futures_summary(res))
+
+async def cmd_futures_signals(update, context):
+    sym = (context.args[0] if context.args else "BTC").upper()
+    tf = (context.args[1] if len(context.args) > 1 else "15m")
+    res = analyze_symbol(sym, timeframe=tf)
+    await safe_reply(update.effective_message, format_signals_list(res["signals"], res))
+Pastikan format output tidak berubah dari versi lama agar user familiar.
+
+3) Hubungkan AutoSignal ke engine (ganti dummy)
+Di app/autosignal.py, ganti compute_signal_confidence agar menggunakan engine:
+
+python
+Copy
+# app/autosignal.py
+from app.futures.engine import analyze_symbol
+
+def compute_signal_confidence(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Panggil engine yang sama dengan /futures_signals.
+    Return satu sinyal terbaik (confidence tertinggi) atau None.
+    """
+    try:
+        res = analyze_symbol(symbol, timeframe=os.getenv("FUTURES_TF", "15m"), market=TARGET_MARKET)
+        sigs = res.get("signals", []) or []
+        if not sigs:
+            return None
+        best = max(sigs, key=lambda s: int(s.get("confidence", 0)))
+        out = {
+            "symbol": res.get("symbol") or f"{symbol}{TARGET_MARKET}",
+            "side": best.get("side"),
+            "confidence": int(best.get("confidence", 0)),
+            "reason": ", ".join(best.get("reasons", []))[:300],
+            "price": res.get("price"),
+            "meta": res.get("meta", {}),
+        }
+        return out
+    except Exception:
+        return None
+Threshold kirim tetap dipakai dari MIN_CONFIDENCE (default 75).
+Cooldown tetap berdasarkan (symbol, side) seperti sebelumnya.
+
+4) Samakan format pesan AutoSignal dengan /futures_signals
+Ganti _fmt_signal supaya sama gaya formatting:
+
+python
+Copy
+def _fmt_signal(sig: Dict[str, Any]) -> str:
+    pair = sig["symbol"]
+    side = sig["side"]
+    conf = sig["confidence"]
+    price = sig.get("price")
+    rsn = sig.get("reason", "")
+    price_line = f"\nEntry ~ {price}" if price is not None else ""
+    # Contoh selaras: bold pair, side, confidence; alasan di bullet
+    return (
+        f"📈 *Futures Signal*\n"
+        f"Pair: *{pair}*\n"
+        f"Side: *{side}*\n"
+        f"Confidence: *{conf}%*{price_line}\n"
+        f"Reason: {rsn}"
+    )
+Kalau kamu punya formatter lama untuk /futures_signals, pakai itu di sini biar identik. Bisa diekspor sebagai util format_signal(sig, res).
+
+5) Rate limit & error handling
+Pastikan engine punya caching klines pendek (mis. 15–30 dtk in-memory) agar 10–15 koin tidak mem-banjiri API.
+
+Tambahkan timeout dan retry ringan ketika ambil data exchange.
+
+Kalau ada error satu koin, skip saja; jangan hentikan keseluruhan batch.
+
+6) Eligibility & pengiriman (tetap)
+Hanya kirim ke user premium aktif/lifetime, tidak banned, punya chat privat (consent).
+
+Anti-spam: cooldown per (symbol, side) minimal COOLDOWN_MIN menit.
+
+Interval scheduler 30 menit (sudah kamu minta).
+
+7) Admin controls & debug
+/signal_tick → jalankan scan sekali, balas jumlah sinyal terkirim.
+
+/signal_status → tampilkan ON/OFF, interval, top_n, threshold, TF.
+
+/signal_on / /signal_off → toggle fitur.
+
+(Opsional) /signal_trace <symbol> → tampilkan debug dari analyze_symbol (tanpa DM) untuk satu coin (admin only).
+
+8) Acceptance test
+Jalankan /futures BTC 15m dan /futures_signals BTC 15m → catat side/confidence.
+
+Jalankan /signal_tick:
+
+Untuk top coins (BTC/ETH), AutoSignal harus menghasilkan sinyal yang konsisten (side/confidence sama) dengan command manual, karena keduanya now calling the same engine.
+
+Turunkan sementara threshold AUTOSIGNAL_MIN_CONF=60 untuk memastikan pesan terkirim saat uji, lalu kembalikan ke 75.
+
+Cek user premium yang sudah /start privat menerima DM sinyal.
+
+9) Commit message
+bash
+Copy
+refactor(futures): extract shared engine for /futures and /futures_signals; autosignal now uses the same engine; unified formatting; 30m scheduler; cooldown & eligibility preserved
