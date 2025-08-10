@@ -1018,7 +1018,7 @@ class TelegramBot:
             # Use unified engine
             from app.futures.engine import analyze_symbol
             from app.futures.formatters import format_signals_list
-            
+
             result = analyze_symbol(symbol, timeframe, crypto_api=self.crypto_api)
             signals_text = format_signals_list(result.get('signals', []), result)
 
@@ -1042,7 +1042,7 @@ class TelegramBot:
                 await loading_msg.edit_text(signals_text, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures {symbol.lower()}` untuk analisis spesifik."
+            error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba /futures {symbol.lower()} untuk analisis spesifik."
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"❌ Error in futures_signals command: {e}")
             import traceback
@@ -1078,7 +1078,7 @@ class TelegramBot:
             # Use unified engine
             from app.futures.engine import analyze_symbol
             from app.futures.formatters import format_futures_summary
-            
+
             result = analyze_symbol(symbol, timeframe, crypto_api=self.crypto_api)
             analysis_text = format_futures_summary(result)
 
@@ -1459,7 +1459,7 @@ Gunakan credit dengan bijak!"""
         try:
             # Perform one scan
             await self.auto_signals._perform_scan()
-            
+
             message = f"✅ **Manual scan completed**\n\n"
             message += f"🕐 **Scan time**: {datetime.now().strftime('%H:%M:%S WIB')}\n"
             message += f"📊 **Symbols scanned**: {len(self.auto_signals.target_symbols[:10])}\n"
@@ -1471,6 +1471,7 @@ Gunakan credit dengan bijak!"""
 
         except Exception as e:
             await loading_msg.edit_text(f"❌ Manual scan failed: {e}")
+
 
     async def signal_trace_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /signal_trace <symbol> command - Admin only"""
@@ -1490,31 +1491,31 @@ Gunakan credit dengan bijak!"""
         try:
             # Use unified engine directly
             from app.futures.engine import analyze_symbol
-            
+
             result = analyze_symbol(symbol, "15m", crypto_api=self.crypto_api)
-            
+
             signals = result.get('signals', [])
             meta = result.get('meta', {})
             indicators = meta.get('indicators', {})
-            
+
             message = f"🔍 **Signal Trace - {symbol}**\n\n"
             message += f"💰 **Price**: ${result.get('price', 0):,.2f}\n"
             message += f"📊 **Signals found**: {len(signals)}\n\n"
-            
+
             if signals:
                 best = signals[0]
                 message += f"🎯 **Best Signal**:\n"
                 message += f"• Side: {best.get('side')}\n"
                 message += f"• Confidence: {best.get('confidence')}%\n"
                 message += f"• Reasons: {', '.join(best.get('reasons', [])[:3])}\n\n"
-            
+
             if indicators:
                 message += f"📈 **Indicators**:\n"
                 message += f"• RSI: {indicators.get('rsi', 0):.1f}\n"
                 message += f"• EMA50: ${indicators.get('ema_50', 0):,.2f}\n"
                 message += f"• EMA200: ${indicators.get('ema_200', 0):,.2f}\n"
                 message += f"• MACD: {indicators.get('macd_histogram', 0):.4f}\n\n"
-            
+
             message += f"⚡ **Latency**: {meta.get('latency_ms', 0)}ms\n"
             message += f"📊 **Data points**: {meta.get('data_points', 0)}\n"
             message += f"🎯 **Min confidence**: {self.auto_signals.min_confidence}%\n"
@@ -1904,7 +1905,6 @@ Gunakan `/subscribe` untuk upgrade!
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command"""
         user_id = update.message.from_user.id
-
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
@@ -1961,7 +1961,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/revoke_premium <user_id>` - Remove premium status
 • `/grant_credits <user_id> <amount>` - Add credits
 • `/banned <user_id> <ban|unban|check>` - Ban/unban user management
-• `/auto_signals_status` - SnD signals status
+• `/auto_signal_ai_status` - SnD signals status
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner
 • `/broadcast <message>` - Send broadcast
@@ -1995,7 +1995,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 2 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ Format salah!\n"
                 "Gunakan: /setpremium <user_id> <duration>\n\n"
                 "Duration format:\n"
@@ -2605,6 +2605,66 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
     async def setup_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /setup_admin command - Shows admin setup instructions"""
 
+        user_id = update.message.from_user.id
+        first_name = update.message.from_user.first_name or "User"
+
+        # Get current admin configuration
+        admin_env_vars = {}
+        for i in range(1, 10):
+            key = f'ADMIN{i}'
+            env_value = os.getenv(key)
+            if env_value and env_value != '0':
+                admin_env_vars[key] = env_value
+
+        is_admin = self.is_admin(user_id)
+
+        message = f"""🔧 **Admin Setup Instructions**
+
+👤 **Your Information:**
+• **User ID**: `{user_id}`
+• **Name**: {first_name}
+• **Current Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
+
+📊 **Current Admin Configuration:**
+• **Configured Admins**: {len(self.admin_ids)}
+• **Admin IDs**: {sorted(list(self.admin_ids)) if self.admin_ids else 'NONE SET'}
+• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
+
+⚙️ **Setup Instructions:**
+
+**Step 1: Buka Replit Secrets**
+• Klik tab "Secrets" di sidebar kiri
+• Atau buka: Tools → Secrets
+
+**Step 2: Tambahkan Admin Configuration**
+• Key: `ADMIN1`
+• Value: `{user_id}` (your User ID)
+
+**Step 3 (Optional): Tambah Admin Kedua**
+• Key: `ADMIN2`
+• Value: `[USER_ID_ADMIN_KEDUA]`
+
+**Step 4: Restart Bot**
+• Klik Stop → Run untuk restart bot
+• Bot akan memuat konfigurasi admin baru
+
+💡 **Format Environment Variables:**
+```
+ADMIN1 = {user_id}
+ADMIN2 = [optional_second_admin_id]
+```
+
+🔍 **Verifikasi Setup:**
+• Gunakan `/admin` setelah restart
+• Gunakan `/sb_status` untuk test admin access
+
+⚠️ **Catatan Penting:**
+• Hanya user dengan ID yang sesuai yang bisa akses admin commands
+• Maksimal 9 admin (ADMIN1 sampai ADMIN9)
+• Restart diperlukan setelah mengubah environment variables"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
     async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /db_status command"""
         from app.db_router import db_status
@@ -2938,6 +2998,11 @@ ADMIN2 = [optional_second_admin_id]
                 print("✅ Admin debug commands registered")
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
+
+        # Register signal audience inspector
+        from telegram.ext import CommandHandler
+        from app.handlers_signal_audience import cmd_signal_audience
+        self.application.add_handler(CommandHandler("signal_audience", cmd_signal_audience))
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
