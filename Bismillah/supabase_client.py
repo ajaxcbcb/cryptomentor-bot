@@ -185,7 +185,7 @@ def delete_user(user_id):
 
 def set_premium(user_id, duration_type, duration_value=None):
     """
-    Set premium status for user with flexible duration
+    Set premium status for user with flexible duration - direct insert/update without validation
     
     Args:
         user_id: Telegram user ID
@@ -221,17 +221,23 @@ def set_premium(user_id, duration_type, duration_value=None):
         else:
             return {"success": False, "error": "Invalid duration_type. Use 'days', 'months', or 'lifetime'"}
 
-        # Update user premium status
-        update_data = {
+        # Prepare user data for upsert (insert if not exists, update if exists)
+        user_data = {
+            "telegram_id": telegram_id,
             "is_premium": True,
             "subscription_end": premium_expired_at,
-            "updated_at": current_time.isoformat()
+            "updated_at": current_time.isoformat(),
+            "username": f"user_{telegram_id}",
+            "first_name": "Premium User",
+            "credits": 1000,
+            "language_code": "id"
         }
 
         print(f"📝 Setting premium for user {telegram_id}: {expiry_text}")
         print(f"📅 Premium expires at: {premium_expired_at}")
 
-        result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
+        # Use upsert to insert or update without validation
+        result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
 
         if result.data:
             print(f"✅ Premium set successfully for user {telegram_id}")
@@ -276,21 +282,47 @@ def add_premium(user_id, duration_days=None):
         return {"success": False, "error": str(e)}
 
 def revoke_premium(user_id):
-    """Revoke premium status from user"""
+    """Revoke premium status from user - direct update without validation"""
     if not supabase:
         return {"success": False, "error": "Supabase not configured"}
 
     try:
-        update_data = {
+        telegram_id = int(user_id)
+        current_time = datetime.now(timezone.utc)
+        
+        # Prepare user data for upsert (handles both existing and non-existing users)
+        user_data = {
+            "telegram_id": telegram_id,
             "is_premium": False,
             "subscription_end": None,
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "updated_at": current_time.isoformat(),
+            "username": f"user_{telegram_id}",
+            "first_name": "User",
+            "credits": 100,
+            "language_code": "id"
         }
 
-        return update_user(user_id, update_data)
+        print(f"📝 Revoking premium for user {telegram_id}")
+
+        # Use upsert to update or insert without validation
+        result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
+
+        if result.data:
+            print(f"✅ Premium revoked successfully for user {telegram_id}")
+            return {
+                "success": True,
+                "user_id": telegram_id,
+                "data": result.data[0]
+            }
+        else:
+            error_msg = f"Failed to revoke premium for user {telegram_id}"
+            print(f"❌ {error_msg}")
+            return {"success": False, "error": error_msg}
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        error_msg = f"Error revoking premium for user {user_id}: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"success": False, "error": error_msg}
 
 def get_live_user_count():
     """Get live user count directly from Supabase"""
@@ -312,4 +344,8 @@ if supabase and not validate_supabase_connection():
     print("🔧 To fix: Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to Replit Secrets")
 elif supabase:
     print("✅ Supabase fully operational")
-    print(f"📊 Current user count: {get_live_user_count()}")
+    try:
+        count = get_live_user_count()
+        print(f"📊 Current user count: {count}")
+    except:
+        print("📊 Current user count: Unable to fetch")

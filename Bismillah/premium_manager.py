@@ -57,72 +57,40 @@ def add_premium_user(user_id, duration_days=None, lifetime=False):
         print(f"📝 Premium type: {premium_type}")
         print(f"📅 Expires at: {expires_at}")
         
-        # Check if user exists
-        existing_user = supabase.table('users').select('*').eq('telegram_id', telegram_id).execute()
+        # Direct upsert without user existence validation
+        print(f"🔄 Setting premium for user {telegram_id} (direct upsert)...")
         
-        if existing_user.data:
-            # User exists - update premium status
-            print(f"✅ User {telegram_id} found, updating premium status...")
-            
-            update_data = {
-                'is_premium': True,
-                'subscription_end': expires_at
+        user_data = {
+            'telegram_id': telegram_id,
+            'username': f'premium_user_{telegram_id}',
+            'first_name': 'Premium User',
+            'last_name': None,
+            'is_premium': True,
+            'subscription_end': expires_at,
+            'credits': 1000,  # Premium users get more credits
+            'language_code': 'id'
+        }
+        
+        # Use upsert to insert or update without validation
+        result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
+        
+        if result.data:
+            print(f"✅ Premium status set successfully for user {telegram_id}")
+            return {
+                'success': True,
+                'action': 'upserted',
+                'user_id': telegram_id,
+                'premium_type': premium_type,
+                'expires_at': expires_at,
+                'message': f"User {telegram_id} premium status set successfully"
             }
-            
-            result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
-            
-            if result.data:
-                print(f"✅ Premium status updated for user {telegram_id}")
-                return {
-                    'success': True,
-                    'action': 'updated',
-                    'user_id': telegram_id,
-                    'premium_type': premium_type,
-                    'expires_at': expires_at,
-                    'message': f"User {telegram_id} premium status updated successfully"
-                }
-            else:
-                error_msg = f"Failed to update premium status for user {telegram_id}"
-                print(f"❌ {error_msg}")
-                return {
-                    'success': False,
-                    'error': error_msg
-                }
-        
         else:
-            # User doesn't exist - create new user with premium status
-            print(f"⚠️ User {telegram_id} not found, creating new user with premium...")
-            
-            user_data = {
-                'telegram_id': telegram_id,
-                'username': f'premium_user_{telegram_id}',
-                'first_name': 'Premium User',
-                'last_name': None,
-                'is_premium': True,
-                'subscription_end': expires_at,
-                'credits': 1000,  # Premium users get more credits
-                'language_code': 'id'
+            error_msg = f"Failed to set premium status for user {telegram_id}"
+            print(f"❌ {error_msg}")
+            return {
+                'success': False,
+                'error': error_msg
             }
-            
-            result = supabase.table('users').insert(user_data).execute()
-            
-            if result.data:
-                print(f"✅ New premium user {telegram_id} created successfully")
-                return {
-                    'success': True,
-                    'action': 'created',
-                    'user_id': telegram_id,
-                    'premium_type': premium_type,
-                    'expires_at': expires_at,
-                    'message': f"New premium user {telegram_id} created successfully"
-                }
-            else:
-                error_msg = f"Failed to create premium user {telegram_id}"
-                print(f"❌ {error_msg}")
-                return {
-                    'success': False,
-                    'error': error_msg
-                }
     
     except Exception as e:
         error_msg = f"Error processing premium user {user_id}: {str(e)}"

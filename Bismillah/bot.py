@@ -186,21 +186,18 @@ class TelegramBot:
         return user_id in self.admin_ids
 
     def register_user_supabase(self, user):
-        """Register new user in Supabase database with detailed logging"""
+        """Register new user in Supabase database - simplified without validation"""
         if not self.supabase_enabled:
             print(f"⚠️ Supabase not enabled, skipping registration for user {user.id}")
             return False
 
         try:
-            from supabase_client import add_user, get_live_user_count
+            from supabase_client import add_user
 
             print(f"🔄 Registering user {user.id} in Supabase...")
             print(f"📝 User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
 
-            # Get count before insert
-            count_before = get_live_user_count()
-            print(f"📊 User count before insert: {count_before}")
-
+            # Direct registration without validation checks
             result = add_user(
                 user_id=user.id,
                 username=user.username,
@@ -212,38 +209,15 @@ class TelegramBot:
 
             if result["success"]:
                 logger.info(f"✅ User {user.id} registered in Supabase successfully")
-                
-                # Verify count increased
-                count_after = get_live_user_count()
-                print(f"📊 User count after insert: {count_after}")
-                
-                if count_after > count_before:
-                    print(f"✅ User count increased from {count_before} to {count_after}")
-                else:
-                    print(f"⚠️ User count did not increase (before: {count_before}, after: {count_after})")
-                
-                # User count verified above
-                
                 return True
             else:
                 error_msg = result.get('error', 'Unknown error')
                 logger.error(f"❌ Failed to register user {user.id} in Supabase: {error_msg}")
-                print(f"🚨 CRITICAL: Supabase registration failed for user {user.id}")
-                print(f"🔍 Error details: {error_msg}")
                 return False
 
         except Exception as e:
             error_msg = f"Error registering user {user.id} in Supabase: {str(e)}"
             logger.error(f"❌ {error_msg}")
-            print(f"🚨 CRITICAL: Exception during Supabase registration")
-            print(f"🔍 Exception details: {e}")
-            
-            # Log to database activity for debugging
-            try:
-                self.db.log_user_activity(user.id, "supabase_registration_error", str(e))
-            except:
-                pass
-                
             return False
 
     async def run_bot(self):
@@ -1982,29 +1956,14 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ User ID harus berupa angka!")
             return
 
-        # Set premium using new function
+        # Set premium using new function - direct without user validation
         try:
-            from supabase_client import set_premium, get_user
+            from supabase_client import set_premium
             
-            # Check if user exists first
-            user_result = get_user(target_user_id)
-            
-            if not user_result["success"]:
-                await update.message.reply_text(
-                    f"❌ **User tidak ditemukan!**\n\n"
-                    f"User ID {target_user_id} tidak ada di database.\n"
-                    f"Pastikan user sudah pernah menggunakan bot."
-                )
-                return
-            
-            # Set premium status
+            # Set premium status directly without checking user existence
             result = set_premium(target_user_id, duration_type, duration_value)
             
             if result["success"]:
-                user_data = user_result["data"]
-                username = user_data.get('username', 'no_username')
-                first_name = user_data.get('first_name', 'Unknown')
-                
                 expiry_text = result.get('expiry_text', 'unknown')
                 expiry_date = result.get('expiry_date')
                 
@@ -2024,8 +1983,6 @@ Gunakan `/subscribe` untuk upgrade!
 
 👤 **User Info:**
 • **Telegram ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
 
 ⭐ **Premium Status:**
 • **Type**: {expiry_text}
@@ -2120,35 +2077,18 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ User ID harus berupa angka!")
             return
 
-        # Revoke premium using Supabase
+        # Revoke premium using Supabase - direct without user validation
         try:
-            from supabase_client import revoke_premium, get_user
+            from supabase_client import revoke_premium
             
-            # Check if user exists first
-            user_result = get_user(target_user_id)
-            
-            if not user_result["success"]:
-                await update.message.reply_text(
-                    f"❌ **User tidak ditemukan!**\n\n"
-                    f"User ID {target_user_id} tidak ada di database.\n"
-                    f"Pastikan user sudah pernah menggunakan bot."
-                )
-                return
-            
-            # Revoke premium status
+            # Revoke premium status directly without checking user existence
             result = revoke_premium(target_user_id)
             
             if result["success"]:
-                user_data = user_result["data"]
-                username = user_data.get('username', 'no_username')
-                first_name = user_data.get('first_name', 'Unknown')
-                
                 message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User Info:**
 • **Telegram ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
 
 ❌ **Status**: Premium access removed
 💳 **Database**: ✅ Updated in Supabase
