@@ -1,0 +1,265 @@
+PROMPT AI AGENT — Fix “nggak bisa update setelah premium”
+1) Pastikan pakai SERVICE KEY & policy RLS aman
+A. ENV (wajib pakai service key untuk server-side):
+
+SUPABASE_URL ✅
+
+SUPABASE_SERVICE_KEY ✅ (service_role, bukan anon!)
+
+B. Tambah command untuk mengekspor SQL perbaikan RLS:
+
+python
+Copy code
+# app/handlers_sb_repair.py
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+
+REPAIR_SQL = """-- RUN di Supabase SQL Editor
+create extension if not exists "uuid-ossp";
+
+create table if not exists public.users (
+  id uuid primary key default uuid_generate_v4(),
+  telegram_id bigint unique,
+  is_premium boolean not null default false,
+  premium_until timestamptz,
+  credits integer not null default 0,
+  banned boolean not null default false,
+  updated_at timestamptz default now()
+);
+
+create unique index if not exists users_telegram_id_idx on public.users(telegram_id);
+
+alter table public.users enable row level security;
+
+do $$
+begin
+  if not exists (select 1 from pg_policies where tablename='users' and policyname='allow_service_role_all') then
+    create policy allow_service_role_all on public.users
+      for all
+      to service_role
+      using (true)
+      with check (true);
+  end if;
+end$$;
+"""
+
+@admin_guard
+async def cmd_sb_repair(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await safe_reply(update.effective_message, "🛠️ SQL RLS/Schema:\n```\n"+REPAIR_SQL+"\n```")
+Register:
+
+python
+Copy code
+application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
+Jalankan /sb_repair, copy SQL ke Supabase SQL Editor, RUN (sekali saja).
+
+2) Perkuat konektor: UPSERT & UPDATE yang bener
+Timpa app/supabase_conn.py bagian tulis & verifikasi:
+
+python
+Copy code
+# app/supabase_conn.py (potongan penting)
+import os, time, requests
+from typing import Optional, Dict, Any, Tuple
+
+def _env():
+    url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
+    rest = f"{url}/rest/v1" if url else ""
+    return url, key, rest
+
+def _headers(key: str, prefer: str | None = None):
+    h = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
+
+def upsert_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    url, key, rest = _env()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing")
+    payload = [{ "telegram_id": int(telegram_id), **fields }]
+    r = requests.post(
+        f"{rest}/{table}",
+        headers=_headers(key, "resolution=merge-duplicates,return=representation"),
+        params={"on_conflict": "telegram_id"},
+        json=payload,
+        timeout=20
+    )
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"UPSERT failed: {r.status_code} {r.text}")
+    try:
+        data = r.json()
+    except Exception:
+        data = None
+    return data[0] if isinstance(data, list) and data else {"telegram_id": telegram_id, **fields}
+
+def update_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    url, key, rest = _env()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing")
+    r = requests.patch(
+        f"{rest}/{table}",
+        headers=_headers(key, "return=representation"),
+        params={"telegram_id": f"eq.{int(telegram_id)}"},
+        json=fields,
+        timeout=20
+    )
+    # PostgREST bisa balikin 204 kalau tidak ada kolom berubah — anggap sukses
+    if r.status_code not in (200, 204):
+        raise RuntimeError(f"UPDATE failed: {r.status_code} {r.text}")
+    return r.json()[0] if (r.status_code == 200 and r.text) else {"telegram_id": telegram_id, **fields}
+3) Jangan “mengunci” user setelah premium (hapus short-circuit)
+Audit handler admin kamu; hapus/ubah guard yang mencegah update setelah premium, contoh:
+
+Salah (jangan begini):
+
+python
+Copy code
+if rec.get("is_premium"):
+    return await reply("User sudah premium; skip.")
+Benar (tetap update):
+
+python
+Copy code
+# selalu izinkan update oleh admin
+_ = upsert_user_tid(tid, is_premium=True, premium_until=until_iso, banned=False)
+4) Perbaiki command admin dengan verifikasi pasca-tulis
+Tambahkan/replace handler admin seperti ini:
+
+python
+Copy code
+# app/handlers_admin_premium.py
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+from datetime import datetime, timedelta, timezone
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+from app.supabase_conn import upsert_user_tid, update_user_tid, get_user_by_tid
+
+def _iso_days_from_now(days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=int(days))).isoformat()
+
+@admin_guard
+async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) != 2 or not args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /setpremium <userid> <days|lifetime>")
+    tid = int(args[0]); dur = args[1].lower()
+
+    if dur == "lifetime":
+        upsert_user_tid(tid, is_premium=True, premium_until=None, banned=False)
+    else:
+        if not dur.isdigit() or int(dur) < 0:
+            return await safe_reply(update.effective_message, "days harus angka ≥ 0 atau 'lifetime'")
+        until = _iso_days_from_now(int(dur))
+        upsert_user_tid(tid, is_premium=True, premium_until=until, banned=False)
+
+    ref = get_user_by_tid(tid) or {}
+    await safe_reply(update.effective_message, f"✅ Set premium OK\n{ref}")
+
+@admin_guard
+async def cmd_remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /remove_premium <userid>")
+    tid = int(context.args[0])
+    update_user_tid(tid, is_premium=False, premium_until=None)
+    ref = get_user_by_tid(tid) or {}
+    await safe_reply(update.effective_message, f"✅ Remove premium OK\n{ref}")
+
+@admin_guard
+async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2 or not context.args[0].isdigit() or not context.args[1].isdigit():
+        return await safe_reply(update.effective_message, "Format: /grant_credits <userid> <amount>")
+    tid, amount = int(context.args[0]), int(context.args[1])
+    cur = get_user_by_tid(tid) or {}
+    total = int(cur.get("credits", 0)) + amount
+    upsert_user_tid(tid, credits=total)
+    ref = get_user_by_tid(tid) or {}
+    await safe_reply(update.effective_message, f"✅ Credits now: {ref.get('credits')} (was {cur.get('credits',0)})")
+Register:
+
+python
+Copy code
+application.add_handler(CommandHandler("setpremium", cmd_setpremium))
+application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+5) Tambah command /user_set untuk debug update sembarang kolom
+Memudahkan cek bahwa update bisa dilakukan setelah premium.
+
+python
+Copy code
+# app/handlers_user_set.py
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+from app.supabase_conn import update_user_tid, get_user_by_tid
+
+@admin_guard
+async def cmd_user_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # /user_set <userid> <field> <value>
+    if len(context.args) < 3 or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /user_set <userid> <field> <value>")
+    tid = int(context.args[0]); field = context.args[1]
+    value = " ".join(context.args[2:])
+    # coerce tipe sederhana
+    if value.lower() in ("true","false"):
+        payload = {field: value.lower()=="true"}
+    elif value.isdigit():
+        payload = {field: int(value)}
+    else:
+        payload = {field: None if value.lower()=="null" else value}
+    update_user_tid(tid, **payload)
+    ref = get_user_by_tid(tid) or {}
+    await safe_reply(update.effective_message, f"✅ Updated\n{ref}")
+Register:
+
+python
+Copy code
+application.add_handler(CommandHandler("user_set", cmd_user_set))
+6) Diagnostik cepat
+Tambahkan /sb_status & /sb_diag (kalau belum):
+
+python
+Copy code
+# app/handlers_sb_diag.py
+from app.supabase_conn import health, upsert_user_tid
+@admin_guard
+async def cmd_sb_status(update, context):
+    ok, info = health()
+    await safe_reply(update.effective_message, f"🗄️ Supabase: {'OK' if ok else 'FAIL'}\n{info}")
+
+@admin_guard
+async def cmd_sb_diag(update, context):
+    try:
+        upsert_user_tid(999999999, test_probe=True)
+        await safe_reply(update.effective_message, "🔍 Upsert test OK")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"🔍 Upsert test FAIL: {e}")
+7) Acceptance test
+Jalankan /sb_repair → copy SQL → run di Supabase (sekali).
+
+/sb_status → OK.
+
+/setpremium <uid> lifetime → sukses.
+
+/grant_credits <uid> 50 → nilai berubah (verifikasi di reply & Supabase).
+
+/user_set <uid> banned true → ubah lagi (lalu kembalikan false).
+
+/remove_premium <uid> → status berubah.
+
+Catatan penting
+
+Pastikan semua path yang mengubah user (ban/unban, premium, credits) lewat upsert_user_tid/update_user_tid di atas.
+
+Jangan pernah pakai anon key untuk operasi write.
+
+Kalau PATCH membalas 204, itu bukan error—kita sudah handle dan tetap GET buat konfirmasi di handler.
