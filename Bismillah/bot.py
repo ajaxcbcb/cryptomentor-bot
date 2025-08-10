@@ -69,10 +69,10 @@ deployment_env_checks = {
 IS_DEPLOYMENT = any(deployment_env_checks.values())
 
 # Log deployment detection for debugging
-print(f"🔍 Bot Deployment Detection:")
+print(f"[SCAN] Bot Deployment Detection:")
 for check, result in deployment_env_checks.items():
-    print(f"  {'✅' if result else '❌'} {check}: {result}")
-print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
+    print(f"  {'[OK]' if result else '[NO]'} {check}: {result}")
+print(f"[STAT] Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
 # Setup logging with INFO level for production
 logging.basicConfig(
@@ -120,27 +120,27 @@ class TelegramBot:
         # Initialize database connection
         try:
             self.db = Database()
-            logger.info("✅ Database connection established")
+            logger.info("[OK] Database connection established")
         except Exception as e:
-            logger.error(f"❌ Database connection failed: {e}")
+            logger.error(f"[ERR] Database connection failed: {e}")
             # Continue without database - some features will be limited
             self.db = None
 
         # Initialize Supabase functions if available
         self.supabase_enabled = SUPABASE_AVAILABLE
         if self.supabase_enabled:
-            logger.info("✅ Supabase functions imported")
+            logger.info("[OK] Supabase functions imported")
         else:
-            logger.error("❌ Supabase functions not available. Some features will be limited.")
+            logger.error("[ERR] Supabase functions not available. Some features will be limited.")
 
         # Initialize Admin Agent if available
         self.admin_agent = None
         if self.supabase_enabled: # Admin Agent depends on Supabase client availability
             try:
                 self.admin_agent = AdminAgent()
-                logger.info("✅ Admin Agent initialized")
+                logger.info("[OK] Admin Agent initialized")
             except Exception as e:
-                logger.error(f"❌ Failed to initialize Admin Agent: {e}")
+                logger.error(f"[ERR] Failed to initialize Admin Agent: {e}")
                 self.admin_agent = None
         else:
             logger.warning("Admin Agent not initialized because Supabase is not available.")
@@ -162,7 +162,7 @@ class TelegramBot:
         self.admin_ids = ADMIN_IDS # Use the dynamically loaded ADMIN_IDS
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
-        logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
+        logger.info(f"[OK] Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
 
         # Initialize components with CoinAPI integration
         self.crypto_api = CryptoAPI()
@@ -177,17 +177,17 @@ class TelegramBot:
 
         # Validate token before creating application
         if not self.token:
-            logger.error("❌ TELEGRAM_BOT_TOKEN not found!")
-            logger.error("💡 Please set TOKEN in Replit Secrets")
-            logger.error("📝 Go to Secrets tab and add your bot token")
+            logger.error("[ERR] TELEGRAM_BOT_TOKEN not found!")
+            logger.error("[INFO] Please set TOKEN in Replit Secrets")
+            logger.error("[NOTE] Go to Secrets tab and add your bot token")
             sys.exit(1)
 
         # Initialize application with token
         try:
             self.application = Application.builder().token(self.token).build()
-            logger.info("✅ Bot initialized successfully")
+            logger.info("[OK] Bot initialized successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize bot: {e}")
+            logger.error(f"[ERR] Failed to initialize bot: {e}")
             sys.exit(1)
 
     def is_admin(self, user_id: int) -> bool:
@@ -197,14 +197,14 @@ class TelegramBot:
     def register_user_supabase(self, user):
         """Register new user in Supabase database - simplified without validation"""
         if not self.supabase_enabled:
-            print(f"⚠️ Supabase not enabled, skipping registration for user {user.id}")
+            print(f"[WARN] Supabase not enabled, skipping registration for user {user.id}")
             return False
 
         try:
             from supabase_client import add_user
 
-            print(f"🔄 Registering user {user.id} in Supabase...")
-            print(f"📝 User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
+            print(f"[PROC] Registering user {user.id} in Supabase...")
+            print(f"[DATA] User data: ID={user.id}, Username={user.username}, Name={user.first_name}")
 
             # Direct registration without validation checks
             result = add_user(
@@ -215,16 +215,16 @@ class TelegramBot:
             )
 
             if result["success"]:
-                logger.info(f"✅ User {user.id} registered in Supabase successfully")
+                logger.info(f"[OK] User {user.id} registered in Supabase successfully")
                 return True
             else:
                 error_msg = result.get('error', 'Unknown error')
-                logger.error(f"❌ Failed to register user {user.id} in Supabase: {error_msg}")
+                logger.error(f"[ERR] Failed to register user {user.id} in Supabase: {error_msg}")
                 return False
 
         except Exception as e:
             error_msg = f"Error registering user {user.id} in Supabase: {str(e)}"
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"[ERR] {error_msg}")
             return False
 
     async def run_bot(self):
@@ -2003,7 +2003,7 @@ Gunakan `/subscribe` untuk upgrade!
             print(f"❌ Error in check_supabase_config: {e}")
 
 
-🔧 **Admin Commands:**
+[TOOL] **Admin Commands:**
 - `/setpremium <user_id> <type>` - Set premium (month/lifetime)
 - `/revoke_premium <user_id>` - Remove premium status
 - `/grant_credits <user_id> <amount>` - Add credits
@@ -2013,12 +2013,12 @@ Gunakan `/subscribe` untuk upgrade!
 - `/disable_auto_signal_ai` - Stop momentum signals scanner
 - `/broadcast <message>` - Send broadcast
 
-🌐 **API Status:**
+[NETWORK] **API Status:**
 - CoinAPI: {'[Active]' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '[No Provider]'}
 - Binance: [Active] (Public API)
 - Auto Signals: {auto_status}
 
-💡 **V4 Features:**
+[INFO] **V4 Features:**
 - CoinAPI integration
 - Advanced futures analysis with real-time data
 - Supply & Demand analysis for futures
