@@ -135,11 +135,11 @@ try:
 except ImportError as e:
     logger.error(f"❌ Failed to import new admin system: {e}")
     ADMIN_SYSTEM_AVAILABLE = False
-    
+
     # Fallback to old system
     def is_admin(user_id):
         return False
-    
+
     def get_admin_ids():
         return []
 
@@ -191,7 +191,7 @@ class TelegramBot:
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
         logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
-        
+
         if ADMIN_SYSTEM_AVAILABLE:
             logger.info("✅ Using new dynamic admin authentication system")
         else:
@@ -1535,7 +1535,6 @@ Harga akan diambil real-time dari CoinAPI."""
 
 🚀 **Keuntungan yang Anda nikmati:**
 • ♾️ Unlimited analisis CoinAPI + SnD
-• 🎯 Akses prioritas ke semua fitur
 • 📊 Data real-time CoinAPI tanpa batas
 • {auto_signals_status}
 • 🛡️ Support premium
@@ -2007,7 +2006,18 @@ Gunakan `/subscribe` untuk upgrade!
             message = f"❌ **Error**: {result['message']}\n"
             message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        from app.safe_send import safe_reply, safe_dm
+        await safe_reply(update.message, message)
+
+        # Optional DM to target user if credits were granted
+        if result["status"] == "success":
+            try:
+                await safe_dm(context.bot, int(target_user_id), f"💳 Anda mendapat {amount_str} credit bonus dari admin!")
+                await safe_reply(update.message, "📱 User berhasil di-DM tentang credit bonus.")
+            except PermissionError:
+                await safe_reply(update.message, "ℹ️ User belum /start bot, DM dilewati.")
+            except Exception as e:
+                await safe_reply(update.message, f"⚠️ DM gagal: {e}")
 
 
     async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2760,24 +2770,24 @@ ADMIN2 = [optional_second_admin_id]
         message = f"🔧 **Admin Debug Information**\n\n"
         message += f"👤 **Caller ID**: `{user_id}`\n"
         message += f"✅ **Is Admin**: {self.is_admin(user_id)}\n"
-        
+
         if ADMIN_SYSTEM_AVAILABLE:
             admin_ids = get_admin_ids()
             message += f"👑 **Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
             message += f"🆕 **System**: New Dynamic Admin Auth\n\n"
-            
+
             # Show environment variables
             admin1 = os.getenv("ADMIN1", "").strip()
             admin2 = os.getenv("ADMIN2", "").strip()
             admin_user_id = os.getenv("ADMIN_USER_ID", "").strip()
             admin2_user_id = os.getenv("ADMIN2_USER_ID", "").strip()
-            
+
             env_vars = []
             if admin1: env_vars.append("ADMIN1=SET")
             if admin2: env_vars.append("ADMIN2=SET")
             if admin_user_id: env_vars.append("ADMIN_USER_ID=SET")
             if admin2_user_id: env_vars.append("ADMIN2_USER_ID=SET")
-            
+
             message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
         else:
             message += f"⚠️ **System**: Fallback (New system failed to load)\n\n"
@@ -2861,7 +2871,7 @@ ADMIN2 = [optional_second_admin_id]
                 print("✅ Admin debug commands registered")
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
-        
+
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
