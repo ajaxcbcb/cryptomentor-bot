@@ -74,12 +74,46 @@ for check, result in deployment_env_checks.items():
     print(f"  {'✅' if result else '❌'} {check}: {result}")
 print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
-# Setup logging with INFO level for production use
+# Setup logging with INFO level for production
 logging.basicConfig(
     level=logging.INFO,  # Use INFO level for production
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Import Supabase and Admin Agent
+try:
+    from supabase_client import (
+        supabase, add_user, get_user, update_user, delete_user,
+        add_premium, revoke_premium, set_premium, parse_premium_duration,
+        admin_set_premium, admin_revoke_premium, admin_grant_credits
+    )
+    from admin_agent import AdminAgent
+    SUPABASE_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"❌ Failed to import Supabase or Admin Agent: {e}")
+    SUPABASE_AVAILABLE = False
+
+# Placeholder for ADMIN_IDS if Supabase is not available
+if not SUPABASE_AVAILABLE:
+    ADMIN_IDS = set()
+    logger.warning("Supabase and Admin Agent not available. Admin commands might not function correctly.")
+else:
+    # Dynamically load ADMIN_IDS from environment variables
+    ADMIN_IDS = set()
+    for i in range(1, 10):
+        env_key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
+        admin_id_str = os.getenv(env_key, '0')
+        try:
+            admin_id = int(admin_id_str)
+            if admin_id > 0:
+                ADMIN_IDS.add(admin_id)
+        except ValueError:
+            if admin_id_str != '0':
+                logger.warning(f"Invalid {env_key}: {admin_id_str}")
+
+if not ADMIN_IDS:
+    logger.warning("No ADMIN_USER_ID found in environment variables. Admin commands will be inaccessible.")
 
 class TelegramBot:
     def __init__(self):
@@ -92,14 +126,25 @@ class TelegramBot:
             # Continue without database - some features will be limited
             self.db = None
 
-        # Initialize Supabase functions
-        try:
-            from supabase_client import add_user, get_user, update_user, add_premium, revoke_premium
-            self.supabase_enabled = True
+        # Initialize Supabase functions if available
+        self.supabase_enabled = SUPABASE_AVAILABLE
+        if self.supabase_enabled:
             logger.info("✅ Supabase functions imported")
-        except Exception as e:
-            logger.error(f"❌ Supabase functions not available: {e}")
-            self.supabase_enabled = False
+        else:
+            logger.error("❌ Supabase functions not available. Some features will be limited.")
+
+        # Initialize Admin Agent if available
+        self.admin_agent = None
+        if self.supabase_enabled: # Admin Agent depends on Supabase client availability
+            try:
+                self.admin_agent = AdminAgent()
+                logger.info("✅ Admin Agent initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Admin Agent: {e}")
+                self.admin_agent = None
+        else:
+            logger.warning("Admin Agent not initialized because Supabase is not available.")
+
 
         # Get bot token from environment - try multiple possible keys including 'TOKEN'
         self.token = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
@@ -114,43 +159,7 @@ class TelegramBot:
         logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
         # Get all admin IDs with better error handling
-        self.admin_ids = set()
-
-        # Primary admin
-        admin_id_str = os.getenv('ADMIN_USER_ID', '0')
-        try:
-            admin_id = int(admin_id_str)
-            if admin_id > 0:
-                self.admin_ids.add(admin_id)
-                logger.info(f"✅ Primary Admin ID configured: {admin_id}")
-        except ValueError:
-            logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}")
-
-        # Secondary admin
-        admin2_id_str = os.getenv('ADMIN2_USER_ID', '0')
-        try:
-            admin2_id = int(admin2_id_str)
-            if admin2_id > 0:
-                self.admin_ids.add(admin2_id)
-                logger.info(f"✅ Secondary Admin ID configured: {admin2_id}")
-        except ValueError:
-            if admin2_id_str != '0':
-                logger.warning(f"Invalid ADMIN2_USER_ID: {admin2_id_str}")
-
-        # Support for future admin IDs (ADMIN3_USER_ID, ADMIN4_USER_ID, etc.)
-        for i in range(3, 10):  # Support up to ADMIN9_USER_ID
-            admin_key = f'ADMIN{i}_USER_ID'
-            admin_id_str = os.getenv(admin_key, '0')
-            try:
-                admin_id = int(admin_id_str)
-                if admin_id > 0:
-                    self.admin_ids.add(admin_id)
-                    logger.info(f"✅ Admin{i} ID configured: {admin_id}")
-            except ValueError:
-                if admin_id_str != '0':
-                    logger.warning(f"Invalid {admin_key}: {admin_id_str}")
-
-        # Backward compatibility
+        self.admin_ids = ADMIN_IDS # Use the dynamically loaded ADMIN_IDS
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
         logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
@@ -335,6 +344,9 @@ class TelegramBot:
 
             await self.application.start()
             print("✅ Application started")
+
+            # Store bot instance in context for admin agent access
+            self.application.bot_data['bot_instance'] = self
 
             # Start polling with proper error handling
             await self.application.updater.start_polling(
@@ -888,7 +900,7 @@ class TelegramBot:
 
         symbol = context.args[0].upper()
 
-        # Show loading message
+        # Show loading
         loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
 
         try:
@@ -1361,8 +1373,9 @@ Terima kasih telah menjadi member premium!"""
 
 🎯 **Rekomendasi untuk Pemula:**
 • Mulai dengan `/price btc` (GRATIS - CoinAPI)
-• Coba `/analyze btc` (20 credit) - CoinAPI analysis!
-• Test `/futures btc` (20 credit) - SnD signals untuk trading
+• Coba `/market` (20 credit) - overview pasar global CoinAPI
+• Test `/analyze btc` (20 credit) - CoinAPI analysis!
+• Coba `/futures btc` (20 credit) - SnD signals untuk trading
 
 💡 **Cara Mendapat Credit:**
 • `/referral` - Ajak teman (10 credit/referral)
@@ -1887,11 +1900,10 @@ Gunakan `/subscribe` untuk upgrade!
 • Status: {auto_status}
 • Mode: Works in {deployment_mode} mode
 • Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
-• Target Coins: {len(self.auto_signals.target_symbols) if self.auto_signals else 0} top coins
 • Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
 🔧 **Admin Commands:**
-• `/setpremium <user_id> <type> [value]` - Set premium (flexible)
+• `/setpremium <user_id> <type>` - Set premium (month/lifetime)
 • `/revoke_premium <user_id>` - Remove premium status
 • `/grant_credits <user_id> <amount>` - Add credits
 • `/auto_signals_status` - SnD signals status
@@ -1912,76 +1924,61 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
-    
 
-    
+
+
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /setpremium command"""
-        user_id = update.message.from_user.id
+        """Admin command untuk set premium user dengan Admin Agent"""
 
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Format salah!\n\n"
-                "Gunakan: `/setpremium <user_id> <type>`\n\n"
-                "Types:\n"
-                "• `month` - Premium 30 hari\n"
-                "• `lifetime` - Premium selamanya\n\n"
-                "Contoh:\n"
-                "• `/setpremium 123456789 month`\n"
-                "• `/setpremium 123456789 lifetime`",
-                parse_mode='Markdown'
-            )
+        # Admin access check
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
             return
 
         try:
-            target_user_id = context.args[0]
-            premium_type = context.args[1].lower()
-            
-            if premium_type not in ['month', 'lifetime']:
+            # Parse arguments
+            if len(context.args) < 2:
                 await update.message.reply_text(
-                    "❌ Premium type tidak valid!\n\n"
-                    "Gunakan: `month` atau `lifetime`",
+                    "❌ Format salah!\n"
+                    "Gunakan: /setpremium <user_id> <duration>\n\n"
+                    "Duration format:\n"
+                    "• `month` atau `bulan` - 30 hari\n"
+                    "• `lifetime` - Seumur hidup\n"
+                    "• `30d` - 30 hari\n"
+                    "• `days:90` - 90 hari",
                     parse_mode='Markdown'
                 )
                 return
-            
-        except ValueError:
-            await update.message.reply_text("❌ Parameter tidak valid!")
-            return
 
-        # Use new admin function
-        try:
-            from supabase_client import admin_set_premium
-            
-            result = admin_set_premium(target_user_id, premium_type)
-            
+            target_user_id = context.args[0]
+            duration_arg = context.args[1]
+
+            # Execute via Admin Agent
+            bot_instance = context.bot_data.get('bot_instance')
+            if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
+                await update.message.reply_text("❌ Admin Agent tidak tersedia")
+                return
+
+            result = bot_instance.admin_agent.execute_command("/setpremium", target_user_id, duration_arg)
+
             if result["status"] == "success":
-                # Format success message
-                message = f"✅ **Premium Status Updated**\n\n"
-                message += f"👤 **User ID**: {target_user_id}\n"
-                message += f"⭐ **Type**: {premium_type.title()}\n"
-                message += f"📅 **Expires**: {result['data']['premium_until'] if result['data']['premium_until'] else 'Never (Lifetime)'}\n\n"
-                message += f"🎉 {result['message']}"
-                
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_set_premium",
-                    f"Set {premium_type} premium for user {target_user_id}"
+                await update.message.reply_text(
+                    f"✅ {result['message']}\n"
+                    f"👤 User: {target_user_id}\n"
+                    f"📝 Command: /setpremium {duration_arg}",
+                    parse_mode='Markdown'
                 )
             else:
-                message = f"❌ **Error**: {result['message']}"
+                await update.message.reply_text(
+                    f"❌ {result['message']}\n"
+                    f"🔧 Code: {result.get('code', 'UNKNOWN')}"
+                )
 
         except Exception as e:
-            message = f"❌ **System Error**: {str(e)}"
-            print(f"Error in setpremium_command: {e}")
-
-        await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+            print(f"❌ Error in setpremium command: {e}")
 
     async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_credits command"""
@@ -1996,8 +1993,36 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         target_user_id = context.args[0]
-        amount = context.args[1]
+        amount_str = context.args[1] # Keep as string for agent
 
+        # Execute via Admin Agent
+        bot_instance = context.bot_data.get('bot_instance')
+        if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
+            await update.message.reply_text("❌ Admin Agent tidak tersedia")
+            return
+
+        result = bot_instance.admin_agent.execute_command("/grant_credits", target_user_id, amount_str)
+
+        if result["status"] == "success":
+            data = result["data"]
+            message = f"✅ **Credits Granted Successfully**\n\n"
+            message += f"👤 **User ID**: {target_user_id}\n"
+            message += f"💳 **Credits Added**: +{data['credits_added']}\n"
+            message += f"📊 **Previous Total**: {data['previous_credits']}\n"
+            message += f"🎯 **New Total**: {data['new_total']}\n\n"
+            message += f"💡 {result['message']}"
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_grant_credits",
+                f"Added {amount_str} credits to user {target_user_id}"
+            )
+        else:
+            message = f"❌ **Error**: {result['message']}\n"
+            message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
 
 
     async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2014,112 +2039,86 @@ Gunakan `/subscribe` untuk upgrade!
 
         target_user_id = context.args[0]
 
-        try:
-            from supabase_client import get_user_premium_status
-            
-            result = get_user_premium_status(target_user_id)
-            
-            if result["status"] == "success":
-                data = result["data"]
-                
-                # Format premium status
-                if data["premium_type"] == "lifetime":
-                    premium_status = "🌟 LIFETIME PREMIUM"
-                elif data["premium_type"] == "timed":
-                    premium_status = f"⭐ PREMIUM (until {data['premium_until'][:10]})"
-                else:
-                    premium_status = "❌ FREE USER"
-                
-                message = f"📊 **User Status Report**\n\n"
-                message += f"👤 **User ID**: {target_user_id}\n"
-                message += f"💎 **Premium Status**: {premium_status}\n"
-                message += f"💳 **Credits**: {data['credits']}\n"
-                message += f"📅 **Premium Until**: {data['premium_until'] if data['premium_until'] else 'N/A'}\n\n"
-                
-                if data["is_premium"]:
-                    message += "✅ User has active premium access"
-                else:
-                    message += "⚠️ User is on free tier"
-            else:
-                message = f"❌ **Error**: {result['message']}"
+        # Execute via Admin Agent
+        bot_instance = context.bot_data.get('bot_instance')
+        if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
+            await update.message.reply_text("❌ Admin Agent tidak tersedia")
+            return
 
-        except Exception as e:
-            message = f"❌ **System Error**: {str(e)}"
-            print(f"Error in check_user_status_command: {e}")
+        result = bot_instance.admin_agent.execute_command("/check_user_status", target_user_id)
+
+        if result["status"] == "success":
+            data = result["data"]
+
+            # Format premium status
+            if data["premium_type"] == "lifetime":
+                premium_status = "🌟 LIFETIME PREMIUM"
+            elif data["premium_type"] == "timed":
+                premium_status = f"⭐ PREMIUM (until {data['premium_until'][:10]})"
+            else:
+                premium_status = "❌ FREE USER"
+
+            message = f"📊 **User Status Report**\n\n"
+            message += f"👤 **User ID**: {target_user_id}\n"
+            message += f"💎 **Premium Status**: {premium_status}\n"
+            message += f"💳 **Credits**: {data['credits']}\n"
+            message += f"📅 **Premium Until**: {data['premium_until'] if data['premium_until'] else 'N/A'}\n\n"
+
+            if data["is_premium"]:
+                message += "✅ User has active premium access"
+            else:
+                message += "⚠️ User is on free tier"
+        else:
+            message = f"❌ **Error**: {result['message']}\n"
+            message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
-        # Use new admin function
-        try:
-            from supabase_client import admin_grant_credits
-            
-            result = admin_grant_credits(target_user_id, amount)
-            
-            if result["status"] == "success":
-                data = result["data"]
-                message = f"✅ **Credits Granted Successfully**\n\n"
-                message += f"👤 **User ID**: {target_user_id}\n"
-                message += f"💳 **Credits Added**: +{data['credits_added']}\n"
-                message += f"📊 **Previous Total**: {data['previous_credits']}\n"
-                message += f"🎯 **New Total**: {data['new_total']}\n\n"
-                message += f"💡 {result['message']}"
-                
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_grant_credits",
-                    f"Added {amount} credits to user {target_user_id}"
-                )
-            else:
-                message = f"❌ **Error**: {result['message']}"
-
-        except Exception as e:
-            message = f"❌ **System Error**: {str(e)}"
-            print(f"Error in grant_credits_command: {e}")
-
-        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /revoke_premium command"""
-        user_id = update.message.from_user.id
+        """Admin command untuk revoke premium user dengan Admin Agent"""
 
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+        # Admin access check
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("❌ Akses ditolak. Command ini hanya untuk admin.")
             return
 
-        if len(context.args) < 1:
-            await update.message.reply_text("❌ Gunakan format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
-            return
-
-        target_user_id = context.args[0]
-
-        # Use new admin function
         try:
-            from supabase_client import admin_revoke_premium
-            
-            result = admin_revoke_premium(target_user_id)
-            
+            # Parse arguments
+            if len(context.args) < 1:
+                await update.message.reply_text(
+                    "❌ Format salah!\n"
+                    "Gunakan: /revoke_premium <user_id>"
+                )
+                return
+
+            target_user_id = context.args[0]
+
+            # Execute via Admin Agent
+            bot_instance = context.bot_data.get('bot_instance')
+            if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
+                await update.message.reply_text("❌ Admin Agent tidak tersedia")
+                return
+
+            result = bot_instance.admin_agent.execute_command("/revoke_premium", target_user_id)
+
             if result["status"] == "success":
-                message = f"✅ **Premium Revoked Successfully**\n\n"
-                message += f"👤 **User ID**: {target_user_id}\n"
-                message += f"❌ **Premium Status**: Removed\n"
-                message += f"💳 **Access**: Returned to free tier\n\n"
-                message += f"🔄 {result['message']}"
-                
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_revoke_premium",
-                    f"Revoked premium for user {target_user_id}"
+                await update.message.reply_text(
+                    f"✅ {result['message']}\n"
+                    f"👤 User: {target_user_id}",
+                    parse_mode='Markdown'
                 )
             else:
-                message = f"❌ **Error**: {result['message']}"
+                await update.message.reply_text(
+                    f"❌ {result['message']}\n"
+                    f"🔧 Code: {result.get('code', 'UNKNOWN')}"
+                )
 
         except Exception as e:
-            message = f"❌ **System Error**: {str(e)}"
-            print(f"Error in revoke_premium_command: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+            print(f"❌ Error in revoke_premium command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
