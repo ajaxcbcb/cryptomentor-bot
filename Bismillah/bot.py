@@ -134,6 +134,44 @@ def is_admin(user_id) -> bool:
     a2 = (os.getenv("ADMIN2_USER_ID") or "").strip()
     return uid == a1 or uid == a2
 
+def is_banned(user_id) -> bool:
+    """Check if user_id is banned using database"""
+    if user_id is None:
+        return False
+    try:
+        # Use the database instance from TelegramBot class if available
+        # For now, we'll create a temporary database connection
+        from database import Database
+        temp_db = Database()
+        user_data = temp_db.get_user(user_id)
+        return bool(user_data and user_data.get("banned", False))
+    except Exception as e:
+        print(f"Error checking ban status for user {user_id}: {e}")
+        return False
+
+def require_not_banned(handler):
+    """Decorator to block banned users from using commands (admin bypass)"""
+    from functools import wraps
+    
+    @wraps(handler)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = None
+        if update and update.effective_user:
+            user_id = update.effective_user.id
+        
+        # Admin bypass - admins can use commands even if flagged as banned
+        if is_admin(user_id):
+            return await handler(update, context, *args, **kwargs)
+        
+        # Block banned users
+        if is_banned(user_id):
+            if update and update.effective_message:
+                await update.effective_message.reply_text("⛔ Akun kamu diblokir dari penggunaan command.")
+            return  # Stop execution here
+        
+        return await handler(update, context, *args, **kwargs)
+    return wrapper
+
 # Get admin info for logging (without exposing secrets)
 admin1_exists = bool((os.getenv("ADMIN_USER_ID") or "").strip())
 admin2_exists = bool((os.getenv("ADMIN2_USER_ID") or "").strip())
@@ -251,6 +289,9 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
             self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+            self.application.add_handler(CommandHandler("ban", self.ban_command))
+            self.application.add_handler(CommandHandler("unban", self.unban_command))
+            self.application.add_handler(CommandHandler("status", self.status_command))
             self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
             self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
             self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
@@ -443,6 +484,7 @@ class TelegramBot:
                 logger.error(f"Error during bot shutdown: {e}")
                 print(f"⚠️ Cleanup error: {e}")
 
+    @require_not_banned
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         user = update.effective_user
@@ -686,6 +728,7 @@ class TelegramBot:
 
         await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
+    @require_not_banned
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         user_id = update.effective_user.id
@@ -765,6 +808,7 @@ class TelegramBot:
 """
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
+    @require_not_banned
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
         print(f"🎯 /price command received from user {update.effective_user.id}")
@@ -865,6 +909,7 @@ class TelegramBot:
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
+    @require_not_banned
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /analyze command - comprehensive analysis with CoinAPI integration"""
         # Check if user needs restart
@@ -920,6 +965,7 @@ class TelegramBot:
             import traceback
             traceback.print_exc()
 
+    @require_not_banned
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /market command with CoinAPI integration"""
         # Check if user needs restart
@@ -990,6 +1036,7 @@ class TelegramBot:
             import traceback
             traceback.print_exc()
 
+    @require_not_banned
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         user_id = update.message.from_user.id
@@ -1078,6 +1125,7 @@ class TelegramBot:
             import traceback
             traceback.print_exc()
 
+    @require_not_banned
     async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures command with SnD timeframe selection"""
         if not context.args:
@@ -1309,6 +1357,7 @@ class TelegramBot:
         except Exception as e:
             return f"❌ Error formatting SnD analysis: {str(e)}"
 
+    @require_not_banned
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /credits command"""
         user_id = update.message.from_user.id
@@ -1475,6 +1524,7 @@ Gunakan credit dengan bijak!"""
     # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
     # I'll include the essential ones for functionality
 
+    @require_not_banned
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /portfolio command"""
         user_id = update.message.from_user.id
@@ -1511,6 +1561,7 @@ Harga akan diambil real-time dari CoinAPI."""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    @require_not_banned
     async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /add_coin command"""
         if len(context.args) < 2:
@@ -1532,6 +1583,7 @@ Harga akan diambil real-time dari CoinAPI."""
         message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari CoinAPI saat Anda cek `/portfolio`."
         await update.message.reply_text(message)
 
+    @require_not_banned
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /subscribe command"""
         user_id = update.message.from_user.id
@@ -1615,6 +1667,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    @require_not_banned
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
@@ -1723,6 +1776,7 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    @require_not_banned
     async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /language command"""
         keyboard = [
@@ -1737,6 +1791,7 @@ Gunakan `/subscribe` untuk upgrade!
             parse_mode='Markdown'
         )
 
+    @require_not_banned
     async def handle_ask_ai(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /ask_ai command - Free AI questions"""
         if not context.args:
@@ -1767,6 +1822,7 @@ Gunakan `/subscribe` untuk upgrade!
             await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
             print(f"Error in ask_ai command: {e}")
 
+    @require_not_banned
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle regular text messages"""
         text = update.message.text.lower().strip()
@@ -2295,6 +2351,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    @require_not_banned
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
         user_id = update.message.from_user.id
@@ -2554,6 +2611,185 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
         self.pending_broadcast = None
         await update.message.reply_text("✅ Broadcast dibatalkan.")
+
+    async def ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /ban command - Admin only"""
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
+            return
+
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Gunakan format: `/ban <user_id>`\nContoh: `/ban 123456789`")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        try:
+            # Get user info first
+            user_info = self.db.get_user(target_user_id)
+            if not user_info:
+                # Create user if doesn't exist
+                self.db.create_user(
+                    telegram_id=target_user_id,
+                    username='unknown',
+                    first_name='Unknown User',
+                    last_name=None,
+                    language_code='id'
+                )
+
+            # Ban the user
+            success = self.db.ban_user(target_user_id)
+
+            if success:
+                user_info = self.db.get_user(target_user_id)
+                username = user_info.get('username', 'No username') if user_info else 'Unknown'
+                first_name = user_info.get('first_name', 'Unknown') if user_info else 'Unknown'
+
+                message = f"""✅ **User berhasil dibanned!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+⛔ **Status**: BANNED
+🚫 User ini tidak bisa menggunakan command bot (kecuali admin)
+
+💡 Gunakan `/unban {target_user_id}` untuk membatalkan ban."""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_ban_user",
+                    f"Banned user {target_user_id} ({first_name})"
+                )
+            else:
+                message = f"❌ **Gagal mem-ban user!** Terjadi kesalahan dalam proses."
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat mem-ban user!**\n\n**Error**: {str(e)}"
+            print(f"Error in ban_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /unban command - Admin only"""
+        user_id = update.effective_user.id if update and update.effective_user else None
+        
+        if not is_admin(user_id):
+            await update.message.reply_text("❌ Kamu tidak punya izin untuk perintah ini.")
+            print("admin_denied", {"userId": str(user_id)})
+            return
+
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Gunakan format: `/unban <user_id>`\nContoh: `/unban 123456789`")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        try:
+            # Check if user exists
+            user_info = self.db.get_user(target_user_id)
+            if not user_info:
+                await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+                return
+
+            # Unban the user
+            success = self.db.unban_user(target_user_id)
+
+            if success:
+                username = user_info.get('username', 'No username')
+                first_name = user_info.get('first_name', 'Unknown')
+
+                message = f"""✅ **User berhasil di-unban!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+🟢 **Status**: UNBANNED
+✅ User ini sekarang bisa menggunakan command bot lagi
+
+💡 Gunakan `/ban {target_user_id}` untuk mem-ban kembali jika diperlukan."""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_unban_user",
+                    f"Unbanned user {target_user_id} ({first_name})"
+                )
+            else:
+                message = f"❌ **Gagal meng-unban user!** Terjadi kesalahan dalam proses."
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat meng-unban user!**\n\n**Error**: {str(e)}"
+            print(f"Error in unban_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    @require_not_banned
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /status command - Check user status"""
+        user_id = update.message.from_user.id
+
+        try:
+            user_info = self.db.get_user(user_id)
+            
+            if not user_info:
+                await update.message.reply_text("❌ Data user tidak ditemukan.")
+                return
+
+            # Get status information
+            is_premium = self.db.is_user_premium(user_id)
+            is_banned_status = user_info.get('banned', False)
+            is_admin_status = is_admin(user_id)
+            credits = user_info.get('credits', 0)
+            premium_until = user_info.get('subscription_end')
+
+            # Format premium status
+            if is_premium:
+                if premium_until is None:
+                    premium_status = "🌟 LIFETIME PREMIUM"
+                else:
+                    premium_status = f"⭐ PREMIUM (until {premium_until[:10]})"
+            else:
+                premium_status = "❌ FREE USER"
+
+            # Ban status
+            ban_status = "⛔ BANNED" if is_banned_status else "✅ ACTIVE"
+
+            # Admin status
+            admin_status = "👑 ADMIN" if is_admin_status else "👤 USER"
+
+            message = f"""📊 **Status Akun Anda**
+
+👤 **User ID**: {user_id}
+🏷️ **Role**: {admin_status}
+🚦 **Status**: {ban_status}
+💎 **Premium**: {premium_status}
+💳 **Credits**: {credits}
+
+⏰ **Last Check**: {datetime.now().strftime('%H:%M:%S WIB')}
+
+{'⚠️ Akun Anda sedang dibanned dari penggunaan command!' if is_banned_status else '✅ Akun Anda dalam kondisi normal'}"""
+
+        except Exception as e:
+            message = f"❌ **Error getting status!**\n\n**Error**: {str(e)}"
+            print(f"Error in status_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
 
 if __name__ == "__main__":
     bot = TelegramBot()
