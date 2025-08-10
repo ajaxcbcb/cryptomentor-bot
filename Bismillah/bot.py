@@ -1928,45 +1928,59 @@ Gunakan `/subscribe` untuk upgrade!
         if len(context.args) < 2:
             await update.message.reply_text(
                 "❌ Format salah!\n\n"
-                "Gunakan: /setpremium <user_id> <days|months|lifetime> [value]\n\n"
+                "Gunakan: /setpremium <user_id> <durasi>\n\n"
+                "Format durasi:\n"
+                "• `30d` - Premium 30 hari\n"
+                "• `2m` - Premium 2 bulan\n"
+                "• `lifetime` - Premium selamanya\n\n"
                 "Contoh:\n"
-                "• /setpremium 123456789 days 30 - Premium 30 hari\n"
-                "• /setpremium 123456789 months 6 - Premium 6 bulan\n"
-                "• /setpremium 123456789 lifetime - Premium selamanya"
+                "• /setpremium 123456789 30d\n"
+                "• /setpremium 123456789 2m\n"
+                "• /setpremium 123456789 lifetime",
+                parse_mode='Markdown'
             )
             return
 
         try:
             target_user_id = int(context.args[0])
-            duration_type = context.args[1].lower()
-            
-            duration_value = None
-            if duration_type in ["days", "months"]:
-                if len(context.args) < 3:
-                    await update.message.reply_text(f"❌ Value diperlukan untuk {duration_type}!")
-                    return
-                try:
-                    duration_value = int(context.args[2])
-                except ValueError:
-                    await update.message.reply_text("❌ Value harus berupa angka!")
-                    return
+            duration_arg = context.args[1].lower()
             
         except ValueError:
             await update.message.reply_text("❌ User ID harus berupa angka!")
             return
 
-        # Set premium using new function - direct without user validation
+        # Parse duration using new function
         try:
-            from supabase_client import set_premium
+            from supabase_client import parse_premium_duration, set_premium
+            
+            expiry_date, expiry_text = parse_premium_duration(duration_arg)
+            
+            if not expiry_date:
+                await update.message.reply_text(
+                    "❌ Format durasi tidak valid!\n\n"
+                    "Gunakan format: `30d`, `2m`, atau `lifetime`",
+                    parse_mode='Markdown'
+                )
+                return
             
             # Set premium status directly without checking user existence
-            result = set_premium(target_user_id, duration_type, duration_value)
+            user_data = {
+                "telegram_id": target_user_id,
+                "is_premium": True,
+                "premium_until": expiry_date,
+                "username": f"user_{target_user_id}",
+                "language_code": "id"
+            }
+
+            print(f"📝 Setting premium for user {target_user_id}: {expiry_text}")
+            print(f"📅 Premium expires at: {expiry_date}")
+
+            # Direct upsert to Supabase
+            from supabase_client import supabase
+            result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
             
-            if result["success"]:
-                expiry_text = result.get('expiry_text', 'unknown')
-                expiry_date = result.get('expiry_date')
-                
-                if expiry_date and expiry_date != "9999-12-31T23:59:59Z":
+            if result.data:
+                if expiry_date != "9999-12-31T23:59:59Z":
                     # Format date for display
                     from datetime import datetime
                     try:
@@ -1982,13 +1996,11 @@ Gunakan `/subscribe` untuk upgrade!
                          f"👤 User Info:\n" \
                          f"• Telegram ID: {target_user_id}\n\n" \
                          f"⭐ Premium Status:\n" \
-                         f"• Type: {expiry_text}\n" \
-                         f"• Duration: {duration_type}\n" \
-                         f"• Value: {duration_value if duration_value else 'N/A'}\n" \
+                         f"• Duration: {expiry_text}\n" \
                          f"• Database: ✅ Updated in Supabase\n\n" \
                          f"🎉 User sekarang memiliki akses premium!"
             else:
-                message = f"❌ Gagal mengatur premium!\n\nError: {result.get('error', 'Unknown error')}"
+                message = f"❌ Gagal mengatur premium! No data returned from Supabase."
 
         except Exception as e:
             message = f"❌ Error sistem!\n\nError: {str(e)}"
@@ -2073,14 +2085,26 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ User ID harus berupa angka!")
             return
 
-        # Revoke premium using Supabase - direct without user validation
+        # Revoke premium directly without user validation
         try:
-            from supabase_client import revoke_premium
+            from supabase_client import supabase
             
-            # Revoke premium status directly without checking user existence
-            result = revoke_premium(target_user_id)
+            # Prepare user data for upsert (handles both existing and non-existing users)
+            user_data = {
+                "telegram_id": target_user_id,
+                "is_premium": False,
+                "premium_until": None,
+                "username": f"user_{target_user_id}",
+                "language_code": "id"
+            }
+
+            print(f"📝 Revoking premium for user {target_user_id}")
+
+            # Direct upsert to Supabase
+            result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
             
-            if result["success"]:
+            if result.data:
+                print(f"✅ Premium revoked successfully for user {target_user_id}")
                 message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User Info:**
@@ -2092,7 +2116,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 User sekarang kembali ke akun free."""
             else:
-                message = f"❌ **Gagal mencabut premium!**\n\n**Error**: {result.get('error', 'Unknown error')}"
+                message = f"❌ **Gagal mencabut premium!** No data returned from Supabase."
 
         except Exception as e:
             message = f"❌ **Error sistem!**\n\n**Error**: {str(e)}"

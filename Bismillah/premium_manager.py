@@ -63,10 +63,8 @@ def add_premium_user(user_id, duration_days=None, lifetime=False):
         user_data = {
             'telegram_id': telegram_id,
             'username': f'premium_user_{telegram_id}',
-            'first_name': 'Premium User',
-            'last_name': None,
             'is_premium': True,
-            'subscription_end': expires_at,
+            'premium_until': expires_at,
             'language_code': 'id'
         }
         
@@ -118,7 +116,7 @@ def remove_premium_user(user_id):
         # Update user to remove premium status
         update_data = {
             'is_premium': False,
-            'subscription_end': None
+            'premium_until': None
         }
         
         result = supabase.table('users').update(update_data).eq('telegram_id', telegram_id).execute()
@@ -165,7 +163,7 @@ def check_premium_user(user_id):
         if result.data:
             user = result.data[0]
             is_premium = user.get('is_premium', False)
-            subscription_end = user.get('subscription_end')
+            subscription_end = user.get('premium_until')
             
             if is_premium:
                 if subscription_end is None:
@@ -226,17 +224,17 @@ def list_premium_users(limit=50):
     try:
         supabase = get_supabase_client()
         
-        result = supabase.table('users').select('telegram_id, first_name, username, is_premium, subscription_end').eq('is_premium', True).limit(limit).execute()
+        result = supabase.table('users').select('telegram_id, username, is_premium, premium_until').eq('is_premium', True).limit(limit).execute()
         
         if result.data:
             premium_users = []
             for user in result.data:
-                subscription_end = user.get('subscription_end')
-                if subscription_end is None:
+                premium_until = user.get('premium_until')
+                if premium_until is None:
                     status = "lifetime"
                 else:
                     try:
-                        end_date = datetime.fromisoformat(subscription_end.replace('Z', '+00:00'))
+                        end_date = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
                         if datetime.now(timezone.utc) < end_date:
                             days_remaining = (end_date - datetime.now(timezone.utc)).days
                             status = f"active ({days_remaining} days left)"
@@ -247,10 +245,9 @@ def list_premium_users(limit=50):
                 
                 premium_users.append({
                     'telegram_id': user['telegram_id'],
-                    'first_name': user.get('first_name', 'Unknown'),
                     'username': user.get('username', 'no_username'),
                     'status': status,
-                    'subscription_end': subscription_end
+                    'premium_until': premium_until
                 })
             
             return {

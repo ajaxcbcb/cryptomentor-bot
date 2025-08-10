@@ -59,8 +59,8 @@ else:
 supabase_service = supabase
 
 # CRUD Functions for User Management
-def add_user(user_id, username=None, is_premium=False, expired_date=None, first_name=None, last_name=None):
-    """Add a new user to Supabase users table"""
+def add_user(user_id, username=None, is_premium=False, expired_date=None):
+    """Add a new user to Supabase users table - simplified version"""
     if not supabase:
         print("⚠️ Supabase not available")
         return {"success": False, "error": "Supabase not configured"}
@@ -77,14 +77,12 @@ def add_user(user_id, username=None, is_premium=False, expired_date=None, first_
         user_data = {
             'telegram_id': telegram_id,
             'username': username or 'no_username',
-            'first_name': first_name or 'Unknown',
-            'last_name': last_name,
             'is_premium': bool(is_premium),
             'language_code': 'id'  # Default Indonesian
         }
 
         if expired_date:
-            user_data['subscription_end'] = expired_date
+            user_data['premium_until'] = expired_date
 
         print(f"📝 Inserting user payload: {user_data}")
 
@@ -183,13 +181,54 @@ def delete_user(user_id):
         print(f"❌ {error_msg}")
         return {"success": False, "error": error_msg}
 
+def parse_premium_duration(duration_arg):
+    """Parse premium duration argument and return expiry date"""
+    try:
+        current_time = datetime.now(timezone.utc)
+        
+        if duration_arg.lower() == 'lifetime':
+            return "9999-12-31T23:59:59Z", "lifetime"
+        
+        # Parse format like "30d" or "2m"
+        if duration_arg.endswith('d'):
+            # Days format
+            try:
+                days = int(duration_arg[:-1])
+                expiry_date = (current_time + timedelta(days=days)).isoformat()
+                return expiry_date, f"{days} hari"
+            except ValueError:
+                return None, None
+        
+        elif duration_arg.endswith('m'):
+            # Months format (approximate as 30 days per month)
+            try:
+                months = int(duration_arg[:-1])
+                days = months * 30
+                expiry_date = (current_time + timedelta(days=days)).isoformat()
+                return expiry_date, f"{months} bulan"
+            except ValueError:
+                return None, None
+        
+        else:
+            # Try to parse as plain number (assume days)
+            try:
+                days = int(duration_arg)
+                expiry_date = (current_time + timedelta(days=days)).isoformat()
+                return expiry_date, f"{days} hari"
+            except ValueError:
+                return None, None
+    
+    except Exception as e:
+        print(f"Error parsing duration: {e}")
+        return None, None
+
 def set_premium(user_id, duration_type, duration_value=None):
     """
     Set premium status for user with flexible duration - direct insert/update without validation
     
     Args:
         user_id: Telegram user ID
-        duration_type: "days", "months", or "lifetime"
+        duration_type: "days", "months", or "lifetime" 
         duration_value: Number of days/months (required for days/months)
     
     Returns:
@@ -205,19 +244,19 @@ def set_premium(user_id, duration_type, duration_value=None):
         # Calculate premium expiry date
         if duration_type == "lifetime":
             # Set to far future date for lifetime premium
-            premium_expired_at = "9999-12-31T23:59:59Z"
+            premium_until = "9999-12-31T23:59:59Z"
             expiry_text = "lifetime"
         elif duration_type == "days":
             if not duration_value:
                 return {"success": False, "error": "duration_value required for days"}
-            premium_expired_at = (current_time + timedelta(days=int(duration_value))).isoformat()
+            premium_until = (current_time + timedelta(days=int(duration_value))).isoformat()
             expiry_text = f"{duration_value} hari"
         elif duration_type == "months":
             if not duration_value:
                 return {"success": False, "error": "duration_value required for months"}
             # Calculate months (approximate as 30 days per month)
             days = int(duration_value) * 30
-            premium_expired_at = (current_time + timedelta(days=days)).isoformat()
+            premium_until = (current_time + timedelta(days=days)).isoformat()
             expiry_text = f"{duration_value} bulan"
         else:
             return {"success": False, "error": "Invalid duration_type. Use 'days', 'months', or 'lifetime'"}
@@ -227,14 +266,13 @@ def set_premium(user_id, duration_type, duration_value=None):
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": True,
-            "subscription_end": premium_expired_at,
+            "premium_until": premium_until,
             "username": f"user_{telegram_id}",
-            "first_name": "Premium User",
             "language_code": "id"
         }
 
         print(f"📝 Setting premium for user {telegram_id}: {expiry_text}")
-        print(f"📅 Premium expires at: {premium_expired_at}")
+        print(f"📅 Premium expires at: {premium_until}")
 
         # Use upsert to insert or update without validation
         result = supabase.table('users').upsert(user_data, on_conflict='telegram_id').execute()
@@ -246,7 +284,7 @@ def set_premium(user_id, duration_type, duration_value=None):
                 "user_id": telegram_id,
                 "duration_type": duration_type,
                 "duration_value": duration_value,
-                "expiry_date": premium_expired_at,
+                "expiry_date": premium_until,
                 "expiry_text": expiry_text,
                 "data": result.data[0]
             }
@@ -294,9 +332,8 @@ def revoke_premium(user_id):
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": False,
-            "subscription_end": None,
+            "premium_until": None,
             "username": f"user_{telegram_id}",
-            "first_name": "User",
             "language_code": "id"
         }
 
