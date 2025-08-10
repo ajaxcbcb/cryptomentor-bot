@@ -154,14 +154,29 @@ def require_not_banned(handler):
     from functools import wraps
     
     @wraps(handler)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+    async def wrapper(*args, **kwargs):
+        # Detect if handler is a bound method or function
+        if len(args) >= 3 and not hasattr(args[0], "effective_user"):
+            # Method pattern: self, update, context
+            self_obj, update, context = args[0], args[1], args[2]
+            tail_args = args[3:]
+        elif len(args) >= 2:
+            # Function pattern: update, context
+            self_obj = None
+            update, context = args[0], args[1]
+            tail_args = args[2:]
+        else:
+            raise RuntimeError("Handler signature tidak valid")
+
         user_id = None
         if update and update.effective_user:
             user_id = update.effective_user.id
         
         # Admin bypass - admins can use commands even if flagged as banned
         if is_admin(user_id):
-            return await handler(update, context, *args, **kwargs)
+            if self_obj is not None:
+                return await handler(self_obj, update, context, *tail_args, **kwargs)
+            return await handler(update, context, *tail_args, **kwargs)
         
         # Block banned users
         if is_banned(user_id):
@@ -169,7 +184,9 @@ def require_not_banned(handler):
                 await update.effective_message.reply_text("⛔ Akun kamu diblokir dari penggunaan command.")
             return  # Stop execution here
         
-        return await handler(update, context, *args, **kwargs)
+        if self_obj is not None:
+            return await handler(self_obj, update, context, *tail_args, **kwargs)
+        return await handler(update, context, *tail_args, **kwargs)
     return wrapper
 
 # Get admin info for logging (without exposing secrets)
@@ -270,6 +287,31 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("analyze", self.analyze_command))
             self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
             self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
+
+
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Global error handler to catch and log errors"""
+        try:
+            user_id = None
+            if update and update.effective_user:
+                user_id = update.effective_user.id
+            
+            error_msg = str(context.error)
+            logger.error(f"Error from user {user_id}: {error_msg}")
+            print(f"⚠️ Error handler caught: {repr(context.error)} | from user: {user_id}")
+            
+            # Try to send user-friendly error message
+            if update and update.effective_message:
+                try:
+                    await update.effective_message.reply_text(
+                        "❌ Terjadi kesalahan dalam memproses perintah Anda. Silakan coba lagi."
+                    )
+                except Exception as reply_error:
+                    print(f"Failed to send error message: {reply_error}")
+                    
+        except Exception as handler_error:
+            print(f"Error in error handler: {handler_error}")
+
             self.application.add_handler(CommandHandler("market", self.market_command))
             self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
             self.application.add_handler(CommandHandler("futures", self.futures_command))
@@ -310,6 +352,9 @@ class TelegramBot:
 
             # Add message handler for regular text (should be last)
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+
+            # Add global error handler
+            self.application.add_error_handler(self.error_handler)
 
             print("🤖 Bot handlers registered successfully")
             mode_text = "🌐 DEPLOYMENT (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT (Workspace)"
