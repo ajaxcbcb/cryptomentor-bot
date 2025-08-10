@@ -64,8 +64,7 @@ def add_premium_user(user_id, duration_days=None, lifetime=False):
             'telegram_id': telegram_id,
             'username': f'premium_user_{telegram_id}',
             'is_premium': True,
-            'premium_until': expires_at,
-            'language_code': 'id'
+            'premium_until': expires_at
         }
         
         # Use upsert to insert or update without validation

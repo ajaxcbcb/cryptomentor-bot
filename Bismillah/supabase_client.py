@@ -73,12 +73,11 @@ def add_user(user_id, username=None, is_premium=False, expired_date=None):
             print(f"❌ {error_msg}")
             return {"success": False, "error": error_msg}
 
-        # Only include columns that exist in the schema
+        # Only include columns that exist in the schema (language_code removed)
         user_data = {
             'telegram_id': telegram_id,
             'username': username or 'no_username',
-            'is_premium': bool(is_premium),
-            'language_code': 'id'  # Default Indonesian
+            'is_premium': bool(is_premium)
         }
 
         if expired_date:
@@ -262,13 +261,12 @@ def set_premium(user_id, duration_type, duration_value=None):
             return {"success": False, "error": "Invalid duration_type. Use 'days', 'months', or 'lifetime'"}
 
         # Prepare user data for upsert (insert if not exists, update if exists)
-        # Only include columns that exist in the schema
+        # Only include columns that exist in the schema (language_code removed)
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": True,
             "premium_until": premium_until,
-            "username": f"user_{telegram_id}",
-            "language_code": "id"
+            "username": f"user_{telegram_id}"
         }
 
         print(f"📝 Setting premium for user {telegram_id}: {expiry_text}")
@@ -328,13 +326,12 @@ def revoke_premium(user_id):
         telegram_id = int(user_id)
         
         # Prepare user data for upsert (handles both existing and non-existing users)
-        # Only include columns that exist in the schema
+        # Only include columns that exist in the schema (language_code removed)
         user_data = {
             "telegram_id": telegram_id,
             "is_premium": False,
             "premium_until": None,
-            "username": f"user_{telegram_id}",
-            "language_code": "id"
+            "username": f"user_{telegram_id}"
         }
 
         print(f"📝 Revoking premium for user {telegram_id}")
