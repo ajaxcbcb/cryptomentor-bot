@@ -705,76 +705,76 @@ class TelegramBot:
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
+        help_text = """[BOT] **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
 
-⭐ **BEST COMMANDS untuk Pemula:**
-• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
-• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
-• `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
+[STAR] **BEST COMMANDS untuk Pemula:**
+- `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
+- `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
+- `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
-📊 **Harga & Data Pasar:**
-• `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
+[STAT] **Harga & Data Pasar:**
+- `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
-• `/market` - Overview pasar global dari CoinAPI (20 credit) ⭐
+- `/market` - Overview pasar global dari CoinAPI (20 credit) [STAR]
   Data: Total market cap, dominance, volume global, fear & greed
 
-📈 **Analisis Trading dengan SnD:**
-• `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
-  Contoh: `/analyze btc` → Fundamental dari CoinAPI + Technical analysis
+[CHART] **Analisis Trading dengan SnD:**
+- `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) [STAR] **RECOMMENDED**
+  Contoh: `/analyze btc` -> Fundamental dari CoinAPI + Technical analysis
   Data: Rank, market cap, volume, description, website, price prediction
 
-• `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
-  Contoh: `/futures btc` → Pilih timeframe dengan SnD entry/exit points
+- `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
+  Contoh: `/futures btc` -> Pilih timeframe dengan SnD entry/exit points
   Hasil: Entry, TP, SL, confidence level, risk management
 
-• `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
+- `/futures_signals` - Sinyal futures lengkap dengan SnD analysis (60 credit)
   Multiple coins dengan konfirmasi Supply/Demand zones
 
-💼 **Portfolio & Credit:**
-• `/portfolio` - Lihat portfolio dengan CoinAPI prices
-• `/add_coin <symbol> <amount>` - Tambah ke portfolio
+[PORTFOLIO] **Portfolio & Credit:**
+- `/portfolio` - Lihat portfolio dengan CoinAPI prices
+- `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
-• `/credits` - Cek sisa credit
-• `/subscribe` - Upgrade premium
+- `/credits` - Cek sisa credit
+- `/subscribe` - Upgrade premium
 
-🎯 **Lainnya:**
-• `/ask_ai <pertanyaan>` - Tanya AI crypto **[GRATIS]**
+[TARGET] **Lainnya:**
+- `/ask_ai <pertanyaan>` - Tanya AI crypto **[GRATIS]**
   Contoh: `/ask_ai apa itu DeFi?`
-• `/referral` - Program referral (Credit + Uang)
-• `/premium_earnings` - Dashboard earnings (Premium only)
-• `/language` - Ubah bahasa
+- `/referral` - Program referral (Credit + Uang)
+- `/premium_earnings` - Dashboard earnings (Premium only)
+- `/language` - Ubah bahasa
 
-💳 **Sistem Credit:**
+[CREDIT] **Sistem Credit:**
 - User baru: 100 credit gratis
-- `/analyze` = 20 credit ⭐ (CoinAPI Analysis)
-- `/futures` = 20 credit ⭐ (dengan SnD)
+- `/analyze` = 20 credit [STAR] (CoinAPI Analysis)
+- `/futures` = 20 credit [STAR] (dengan SnD)
 - `/futures_signals` = 60 credit (Multiple SnD signals)
 - `/market` = 20 credit (Global overview CoinAPI)
 
-🎯 **Langkah untuk Pemula:**
+[TARGET] **Langkah untuk Pemula:**
 1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
 2. **Coba `/market`** (20 credit) - overview pasar global CoinAPI
 3. **Test `/analyze btc`** (20 credit) - CoinAPI fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
 5. **Upgrade premium** untuk unlimited access
 
-💡 **Fitur Premium:**
+[INFO] **Fitur Premium:**
 - Unlimited access semua fitur CoinAPI + SnD
 - Auto SnD signals (Admin & Lifetime only)
 - Priority support
 - No credit limits
 
-🚀 **Data Sources:**
+[START] **Data Sources:**
 - **Fundamental & Prices**: CoinAPI Real-time
 - **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
-✨ **Fitur Auto Signal:**
-• **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
-• **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
-• **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
-• **Scheduled Check**: Setiap 5 menit
-• **Optimized**: Anti-spam, cooldown, no duplicates
+[SPARK] **Fitur Auto Signal:**
+- **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
+- **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
+- **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
+- **Scheduled Check**: Setiap 5 menit
+- **Optimized**: Anti-spam, cooldown, no duplicates
 
 """
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -1871,28 +1871,28 @@ Gunakan `/subscribe` untuk upgrade!
             if env_value and env_value != '0':
                 admin_env_vars[key] = env_value
 
-        message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
+        message = f"""[ADMIN] **CryptoMentor AI - Admin Panel** ({deployment_mode})
 
-🔑 **Admin Verification:**
-- Your User ID: {user_id} ✅
-- Your Admin Status: {'✅ PRIMARY' if user_id == self.admin_id else '✅ SECONDARY'}
+[KEY] **Admin Verification:**
+- Your User ID: {user_id} [OK]
+- Your Admin Status: {'[OK] PRIMARY' if user_id == self.admin_id else '[OK] SECONDARY'}
 - All Admin IDs: {sorted(list(self.admin_ids))}
 - Environment Variables: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
-- Admin Access: ✅ VERIFIED & GRANTED
+- Admin Access: [OK] VERIFIED & GRANTED
 
-📊 **Bot Statistics:**
+[STAT] **Bot Statistics:**
 - Total Users: {stats['total_users']}
 - Premium Users: {stats['premium_users']}
 - Active Today: {stats['active_today']}
 - Total Credits: {stats['total_credits']:,}
 
-🎯 **Auto SnD Signals:**
-• Status: {auto_status}
-• Mode: Works in {deployment_mode} mode
-• Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
-• Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
+[TARGET] **Auto SnD Signals:**
+- Status: {auto_status}
+- Mode: Works in {deployment_mode} mode
+- Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
+- Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
-🔧 **Admin Commands:**
+[TOOL] **Admin Commands:**
 - `/setpremium <user_id> <type>` - Set premium (month/lifetime)
 - `/revoke_premium <user_id>` - Remove premium status
 - `/grant_credits <user_id> <amount>` - Add credits
@@ -1902,12 +1902,12 @@ Gunakan `/subscribe` untuk upgrade!
 - `/disable_auto_signal_ai` - Stop momentum signals scanner
 - `/broadcast <message>` - Send broadcast
 
-🌐 **API Status:**
+[NETWORK] **API Status:**
 - CoinAPI: {'Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else 'No Provider'}
 - Binance: Active (Public API)
 - Auto Signals: {auto_status}
 
-💡 **V4 Features:**
+[INFO] **V4 Features:**
 - CoinAPI integration
 - Advanced futures analysis with real-time data
 - Supply & Demand analysis for futures
@@ -2234,15 +2234,15 @@ Gunakan `/subscribe` untuk upgrade!
             # Fix NULL and negative credits
             fixed_count = self.db.fix_all_user_credits()
 
-            message = f"""✅ **Mass Credit Fix Completed!**
+            message = f"""[OK] **Mass Credit Fix Completed!**
 
-🔧 **Fixed Issues:**
-• **Users Fixed**: {fixed_count}
-• **Actions**: NULL credits → 100, Negative credits → 10
+[TOOL] **Fixed Issues:**
+- **Users Fixed**: {fixed_count}
+- **Actions**: NULL credits -> 100, Negative credits -> 10
 
-📊 **Database Health**: All users now have valid credits
+[STAT] **Database Health**: All users now have valid credits
 
-💡 **Next Steps**: Monitor for any remaining issues."""
+[INFO] **Next Steps**: Monitor for any remaining issues."""
 
             # Log admin action
             self.db.log_user_activity(
