@@ -13,7 +13,25 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 
-from database import Database
+# Import required modules for database operations
+try:
+    from database import Database
+    self.db = Database()
+    logger.info("✅ Database connection established")
+except Exception as e:
+    logger.error(f"❌ Database connection failed: {e}")
+    # Continue without database - some features will be limited
+    self.db = None
+
+# Import Supabase functions
+try:
+    from supabase_client import add_user, get_user, update_user
+    self.supabase_enabled = True
+    logger.info("✅ Supabase functions imported")
+except Exception as e:
+    logger.error(f"❌ Supabase functions not available: {e}")
+    self.supabase_enabled = False
+
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
 # Assuming snd_auto_signals.py contains the AutoSignalScanner class and initialize_auto_signals function
@@ -95,7 +113,7 @@ class TelegramBot:
 
         # Get all admin IDs with better error handling
         self.admin_ids = set()
-        
+
         # Primary admin
         admin_id_str = os.getenv('ADMIN_USER_ID', '0')
         try:
@@ -105,7 +123,7 @@ class TelegramBot:
                 logger.info(f"✅ Primary Admin ID configured: {admin_id}")
         except ValueError:
             logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}")
-        
+
         # Secondary admin
         admin2_id_str = os.getenv('ADMIN2_USER_ID', '0')
         try:
@@ -116,7 +134,7 @@ class TelegramBot:
         except ValueError:
             if admin2_id_str != '0':
                 logger.warning(f"Invalid ADMIN2_USER_ID: {admin2_id_str}")
-        
+
         # Support for future admin IDs (ADMIN3_USER_ID, ADMIN4_USER_ID, etc.)
         for i in range(3, 10):  # Support up to ADMIN9_USER_ID
             admin_key = f'ADMIN{i}_USER_ID'
@@ -129,14 +147,13 @@ class TelegramBot:
             except ValueError:
                 if admin_id_str != '0':
                     logger.warning(f"Invalid {admin_key}: {admin_id_str}")
-        
+
         # Backward compatibility
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
-        
+
         logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
 
         # Initialize components with CoinAPI integration
-        self.db = Database()
         self.crypto_api = CryptoAPI()
         self.ai = AIAssistant()
 
@@ -166,6 +183,34 @@ class TelegramBot:
         """Check if the user ID is one of the configured admins."""
         return user_id in self.admin_ids
 
+    def register_user_supabase(self, user):
+        """Register new user in Supabase database"""
+        if not self.supabase_enabled:
+            return False
+
+        try:
+            from supabase_client import add_user
+
+            result = add_user(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_premium=False,
+                expired_date=None
+            )
+
+            if result["success"]:
+                logger.info(f"✅ User {user.id} registered in Supabase")
+                return True
+            else:
+                logger.error(f"❌ Failed to register user {user.id} in Supabase: {result.get('error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ Error registering user {user.id} in Supabase: {e}")
+            return False
+
     async def run_bot(self):
         """Main method to run the bot"""
         try:
@@ -178,7 +223,7 @@ class TelegramBot:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
 
             # Add command handlers with proper async functions
-            self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("start", self.start))
             self.application.add_handler(CommandHandler("help", self.help_command))
             self.application.add_handler(CommandHandler("price", self.price_command))
             self.application.add_handler(CommandHandler("analyze", self.analyze_command))
@@ -222,7 +267,7 @@ class TelegramBot:
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
             print("🤖 Bot handlers registered successfully")
-            mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
+            mode_text = "🌐 DEPLOYMENT (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT (Workspace)"
             print(f"🌍 Environment: {mode_text}")
             print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
             print("🚀 Starting bot polling with Coinglass V4 integration...")
@@ -391,7 +436,7 @@ class TelegramBot:
                 logger.error(f"Error during bot shutdown: {e}")
                 print(f"⚠️ Cleanup error: {e}")
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
@@ -541,11 +586,12 @@ class TelegramBot:
 
                 if final_attempt:
                     print(f"✅ Final attempt successful for user: {user.id}")
-                    self.db.log_user_activity(user.id, "user_created_final_attempt", f"User created on final attempt: {user.first_name}")
-                else:
-                    print(f"❌ All attempts failed for user: {user.id}")
-                    # Still continue to show welcome message
+                    self.db.log_user_activity(user.id, "user_created", f"New user: {user.first_name}")
 
+                    # Also register in Supabase
+                    self.register_user_supabase(user)
+
+            # Generate response message
         except Exception as e:
             print(f"❌ Error in start command: {e}")
             # Log the error but continue to show welcome message
