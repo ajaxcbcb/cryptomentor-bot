@@ -1966,8 +1966,7 @@ Gunakan `/subscribe` untuk upgrade!
                 "telegram_id": target_user_id,
                 "is_premium": True,
                 "premium_until": expiry_date,
-                "username": f"user_{target_user_id}",
-                "language_code": "id"
+                "username": f"user_{target_user_id}"
             }
 
             print(f"📝 Setting premium for user {target_user_id}: {expiry_text}")
@@ -2092,8 +2091,7 @@ Gunakan `/subscribe` untuk upgrade!
                 "telegram_id": target_user_id,
                 "is_premium": False,
                 "premium_until": None,
-                "username": f"user_{target_user_id}",
-                "language_code": "id"
+                "username": f"user_{target_user_id}"
             }
 
             print(f"📝 Revoking premium for user {target_user_id}")
