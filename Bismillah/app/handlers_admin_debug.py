@@ -58,3 +58,62 @@ async def cmd_admin_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Restart bot after changes"""
     
     await update.effective_message.reply_text(message, parse_mode='Markdown')
+
+
+
+@admin_guard
+async def cmd_debug_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug premium user data"""
+    from app.supabase_conn import sb_list_users, sb_get_premium_count
+    from app.safe_send import safe_reply
+    
+    try:
+        # Get premium count
+        counts = sb_get_premium_count()
+        
+        # Get all users with is_premium=true
+        premium_users = sb_list_users({"is_premium": "eq.true"})
+        
+        # Get all users (first 20)
+        all_users = sb_list_users({"limit": "20"})
+        
+        message = f"""🔍 **Premium Debug Info**
+
+📊 **Premium Counts:**
+🔓 Lifetime: {counts.get('lifetime', 0)}
+⏰ Timed: {counts.get('timed', 0)}
+📈 Total: {counts.get('total', 0)}
+
+📋 **Premium Users in DB:** {len(premium_users)}
+📋 **Total Users Sample:** {len(all_users)}
+
+🔍 **Recent Premium Users:**"""
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        
+        for i, user in enumerate(premium_users[:5]):  # Show first 5
+            tid = user.get('telegram_id', 'Unknown')
+            premium_until = user.get('premium_until')
+            banned = user.get('banned', False)
+            
+            if premium_until is None:
+                status = "LIFETIME"
+            else:
+                try:
+                    until_date = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
+                    if until_date >= now:
+                        days_left = (until_date - now).days
+                        status = f"ACTIVE ({days_left}d)"
+                    else:
+                        status = "EXPIRED"
+                except:
+                    status = "INVALID_DATE"
+            
+            ban_status = "🚫BANNED" if banned else "✅"
+            message += f"\n{i+1}. {tid} - {status} {ban_status}"
+        
+        await safe_reply(update.effective_message, message)
+        
+    except Exception as e:
+        await safe_reply(update.effective_message, f"❌ Debug error: {str(e)}")

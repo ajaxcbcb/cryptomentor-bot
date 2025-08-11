@@ -173,25 +173,34 @@ def sb_is_premium_user(telegram_id: int) -> bool:
     
     user = get_user_by_tid(telegram_id)
     if not user:
+        print(f"❌ Premium check: User {telegram_id} not found")
         return False
     
     # Check banned status
     if user.get("banned", False):
+        print(f"❌ Premium check: User {telegram_id} is banned")
         return False
     
     # Check premium status
     if not user.get("is_premium", False):
+        print(f"❌ Premium check: User {telegram_id} is_premium=False")
         return False
     
     # Lifetime premium (premium_until is NULL)
-    if user.get("premium_until") is None:
+    premium_until = user.get("premium_until")
+    if premium_until is None:
+        print(f"✅ Premium check: User {telegram_id} has lifetime premium")
         return True
     
     # Time-based premium
     try:
-        premium_until = datetime.fromisoformat(user["premium_until"].replace('Z', '+00:00'))
-        return premium_until >= datetime.now(timezone.utc)
-    except Exception:
+        until_date = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        is_active = until_date >= now
+        print(f"{'✅' if is_active else '❌'} Premium check: User {telegram_id} timed premium until {until_date}, now {now}, active: {is_active}")
+        return is_active
+    except Exception as e:
+        print(f"❌ Premium check: User {telegram_id} invalid date format: {e}")
         return False
 
 def add_credits(telegram_id: int, amount: int) -> int:
@@ -216,3 +225,60 @@ def deduct_credits(telegram_id: int, amount: int) -> bool:
     new_total = current_credits - amount
     upsert_user_tid(telegram_id, credits=new_total)
     return True
+
+def sb_get_premium_count() -> Dict[str, int]:
+    """Get premium user counts from Supabase"""
+    from datetime import datetime, timezone
+    
+    try:
+        url, key, rest = _env()
+        if not url or not key:
+            return {"lifetime": 0, "timed": 0, "total": 0, "error": "Missing env"}
+        
+        # Get all premium users
+        r = requests.get(
+            f"{rest}/users",
+            headers=_headers(key),
+            params={
+                "is_premium": "eq.true",
+                "banned": "eq.false",
+                "select": "telegram_id,premium_until"
+            },
+            timeout=15
+        )
+        
+        if r.status_code != 200:
+            return {"lifetime": 0, "timed": 0, "total": 0, "error": f"HTTP {r.status_code}"}
+        
+        users = r.json()
+        lifetime = 0
+        timed = 0
+        now = datetime.now(timezone.utc)
+        
+        for user in users:
+            premium_until = user.get("premium_until")
+            
+            if premium_until is None:
+                # Lifetime premium
+                lifetime += 1
+            else:
+                # Check if still active
+                try:
+                    until_date = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
+                    if until_date >= now:
+                        timed += 1
+                except:
+                    # Invalid date format, skip
+                    pass
+        
+        total = lifetime + timed
+        
+        return {
+            "lifetime": lifetime,
+            "timed": timed,
+            "total": total
+        }
+        
+    except Exception as e:
+        print(f"Error getting premium count: {e}")
+        return {"lifetime": 0, "timed": 0, "total": 0, "error": str(e)}
