@@ -14,7 +14,7 @@ def _iso_days_from_now(days: int) -> str:
 async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set premium status for user"""
     args = context.args
-    if len(args) != 2:
+    if len(args) != 2 or not args[0].isdigit():
         return await safe_reply(update.effective_message, 
             "❌ **Format:** `/setpremium <userid> <days|lifetime>`\n\n"
             "**Examples:**\n"
@@ -22,17 +22,10 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/setpremium 123456789 lifetime` - Lifetime premium"
         )
     
-    # Validate user ID
-    try:
-        tid = int(args[0])
-    except ValueError:
-        return await safe_reply(update.effective_message, "❌ User ID must be a number")
-    
+    tid = int(args[0])
     dur = args[1].lower()
     
     try:
-        print(f"Setting premium for user {tid}, duration: {dur}")
-        
         if dur == "lifetime":
             result = upsert_user_tid(tid, is_premium=True, premium_until=None, banned=False)
             status = "✅ **LIFETIME PREMIUM SET**"
@@ -44,20 +37,12 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = upsert_user_tid(tid, is_premium=True, premium_until=until, banned=False)
             status = f"✅ **{dur} DAYS PREMIUM SET**"
         
-        print(f"Upsert result: {result}")
-        
         # Verify the update
-        verify = get_user_by_tid(tid)
-        if not verify:
-            return await safe_reply(update.effective_message, f"❌ **Failed to verify user {tid} after update**")
-        
+        verify = get_user_by_tid(tid) or {}
         premium_until = verify.get("premium_until")
         if premium_until:
-            try:
-                until_date = premium_until[:10] if isinstance(premium_until, str) else str(premium_until)[:10]
-                premium_info = f"Until: {until_date}"
-            except:
-                premium_info = f"Until: {premium_until}"
+            until_date = premium_until[:10]  # Just date part
+            premium_info = f"Until: {until_date}"
         else:
             premium_info = "LIFETIME"
         
@@ -74,9 +59,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update.effective_message, message)
         
     except Exception as e:
-        error_msg = f"❌ **Failed to set premium:** {str(e)}"
-        print(f"Setpremium error: {e}")
-        await safe_reply(update.effective_message, error_msg)
+        await safe_reply(update.effective_message, f"❌ **Failed to set premium:** {str(e)}")
 
 @admin_guard
 async def cmd_remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
