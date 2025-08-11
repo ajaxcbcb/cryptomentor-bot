@@ -1,0 +1,329 @@
+PROMPT AI AGENT — Full Switch to Supabase + Hardened /setpremium (No Local)
+0) ENV (Wajib)
+Pastikan hanya ini yang dipakai:
+
+SUPABASE_URL
+
+SUPABASE_SERVICE_KEY (service_role, bukan anon)
+
+Hapus/abaikan env/data lokal seperti USERS_JSON, dsb.
+
+1) Konektor Supabase (runtime ENV + retry + on_conflict + verifikasi)
+File: app/supabase_conn.py (timpa)
+
+python
+Copy
+import os, time, requests
+from typing import Optional, Dict, Any, Tuple, List
+from datetime import datetime, timezone
+
+# --- ENV & Headers (runtime) ---
+def _env() -> Tuple[str, str, str]:
+    url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
+    rest = f"{url}/rest/v1" if url else ""
+    return url, key, rest
+
+def _headers(key: str, prefer: Optional[str] = None) -> Dict[str, str]:
+    h = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
+
+def _retry(fn, retries=3, base=0.6):
+    last = None
+    for i in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            time.sleep(base * (2 ** i))
+    raise last
+
+# --- Health & Diagnostics ---
+def health(table: str = "users") -> Tuple[bool, str]:
+    def _once():
+        url, key, rest = _env()
+        if not url: raise RuntimeError("ENV SUPABASE_URL missing")
+        if not key: raise RuntimeError("ENV SUPABASE_SERVICE_KEY missing")
+        r0 = requests.get(rest, headers=_headers(key), timeout=8)
+        r1 = requests.get(f"{rest}/{table}",
+                          headers=_headers(key),
+                          params={"select":"telegram_id","limit":"1"},
+                          timeout=12)
+        ok = (r0.status_code in (200,401,404)) and (r1.status_code in (200,206))
+        return ok, f"root={r0.status_code}, table={r1.status_code}, body={r1.text[:150]}"
+    try:
+        return _retry(_once, retries=2)
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+# --- CRUD ---
+def sb_list_users(params: dict, columns: str = "telegram_id,is_premium,premium_until,banned,credits,updated_at",
+                  table: str = "users", limit: int = 1000, offset: int = 0) -> List[Dict[str, Any]]:
+    def _once():
+        url, key, rest = _env()
+        if not url or not key: raise RuntimeError("Supabase env missing")
+        q = {"select": columns, "limit": str(limit), "offset": str(offset)}
+        q.update(params or {})
+        r = requests.get(f"{rest}/{table}", headers=_headers(key), params=q, timeout=20)
+        if r.status_code not in (200,206):
+            raise RuntimeError(f"LIST {table} {r.status_code} {r.text}")
+        return r.json()
+    return _retry(_once)
+
+def get_user_by_tid(telegram_id: int, table: str = "users") -> Optional[Dict[str, Any]]:
+    def _once():
+        url, key, rest = _env()
+        if not url or not key: raise RuntimeError("Supabase env missing")
+        r = requests.get(
+            f"{rest}/{table}",
+            headers=_headers(key),
+            params={"select":"telegram_id,is_premium,premium_until,credits,banned,updated_at",
+                    "telegram_id": f"eq.{int(telegram_id)}"},
+            timeout=15
+        )
+        if r.status_code not in (200,206):
+            raise RuntimeError(f"GET {table} {r.status_code} {r.text}")
+        data = r.json()
+        return data[0] if isinstance(data, list) and data else None
+    return _retry(_once)
+
+def upsert_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    def _once():
+        url, key, rest = _env()
+        if not url or not key: raise RuntimeError("Supabase env missing")
+        payload = [{ "telegram_id": int(telegram_id), **fields }]
+        r = requests.post(
+            f"{rest}/{table}",
+            headers=_headers(key, "resolution=merge-duplicates,return=representation"),
+            params={"on_conflict": "telegram_id"},
+            json=payload,
+            timeout=20
+        )
+        if r.status_code == 429:
+            raise RuntimeError(f"UPSERT 429 {r.text}")
+        if r.status_code not in (200,201):
+            raise RuntimeError(f"UPSERT {table} {r.status_code} {r.text}")
+        try:
+            data = r.json()
+        except Exception:
+            data = None
+        return data[0] if isinstance(data, list) and data else {"telegram_id": telegram_id, **fields}
+    return _retry(_once)
+
+def update_user_tid(telegram_id: int, table: str = "users", **fields) -> Dict[str, Any]:
+    def _once():
+        url, key, rest = _env()
+        if not url or not key: raise RuntimeError("Supabase env missing")
+        r = requests.patch(
+            f"{rest}/{table}",
+            headers=_headers(key, "return=representation"),
+            params={"telegram_id": f"eq.{int(telegram_id)}"},
+            json=fields,
+            timeout=20
+        )
+        if r.status_code == 429:
+            raise RuntimeError(f"UPDATE 429 {r.text}")
+        if r.status_code not in (200,204):
+            raise RuntimeError(f"UPDATE {table} {r.status_code} {r.text}")
+        return r.json()[0] if (r.status_code == 200 and r.text) else {"telegram_id": telegram_id, **fields}
+    return _retry(_once)
+2) Handler /setpremium (write → read-after-write verify + lock per user)
+File: app/handlers_admin_premium.py (timpa)
+
+python
+Copy
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+from datetime import datetime, timedelta, timezone
+import asyncio
+
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+from app.supabase_conn import upsert_user_tid, get_user_by_tid, health
+
+_locks = {}
+def _lock(uid: int) -> asyncio.Lock:
+    if uid not in _locks:
+        _locks[uid] = asyncio.Lock()
+    return _locks[uid]
+
+def _iso_days_from_now(days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=int(days))).isoformat()
+
+@admin_guard
+async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if len(context.args) != 2 or not context.args[0].isdigit():
+        return await safe_reply(msg, "Format: /setpremium <userid> <days|lifetime>")
+
+    tid = int(context.args[0])
+    dur = context.args[1].lower().strip()
+
+    ok, info = health()
+    if not ok:
+        await safe_reply(msg, f"⚠️ Supabase not ready: {info}\nTetap mencoba menulis...")
+
+    async with _lock(tid):
+        # 1) Write (UPSERT idempoten)
+        if dur == "lifetime":
+            upsert_user_tid(tid, is_premium=True, premium_until=None, banned=False)
+        else:
+            if not dur.isdigit() or int(dur) < 0:
+                return await safe_reply(msg, "days harus angka ≥ 0 atau 'lifetime'")
+            until = _iso_days_from_now(int(dur))
+            upsert_user_tid(tid, is_premium=True, premium_until=until, banned=False)
+
+        # 2) Read-after-write verify (langsung dipakai fitur lain)
+        ref = get_user_by_tid(tid) or {}
+        good = bool(ref.get("is_premium")) and not ref.get("banned")
+        if dur == "lifetime":
+            dur_ok = (ref.get("premium_until") is None)
+        else:
+            want_date = _iso_days_from_now(int(dur))[:10]
+            got = ref.get("premium_until")
+            dur_ok = (got is None and int(dur)==0) or (isinstance(got, str) and got[:10] >= want_date)
+
+        if good and dur_ok:
+            return await safe_reply(msg, f"✅ Premium set untuk {tid}\n{ref}")
+        return await safe_reply(msg, f"❌ Verify gagal. DB terbaca:\n{ref}\nCek index/rls/policy & coba lagi.")
+Register (kalau belum):
+
+python
+Copy
+application.add_handler(CommandHandler("setpremium", cmd_setpremium))
+3) Hilangkan semua koneksi/data lokal
+Hapus/import-out semua storage_local, users.json, cache premium lokal.
+
+Semua pengecekan premium harus lewat Supabase. Tambah helper:
+
+File: app/premium_check.py
+
+python
+Copy
+from datetime import datetime, timezone
+from app.supabase_conn import get_user_by_tid
+
+def is_premium(tid: int) -> bool:
+    rec = get_user_by_tid(tid) or {}
+    if rec.get("banned"):
+        return False
+    if not rec.get("is_premium"):
+        return False
+    pu = rec.get("premium_until")
+    if pu is None:  # lifetime
+        return True
+    try:
+        return datetime.fromisoformat(pu) >= datetime.now(timezone.utc)
+    except Exception:
+        return False
+Ganti semua guard/command/fitur yang sebelumnya baca lokal → pakai is_premium() di atas.
+
+4) Tools Admin: status/diag/repair (SQL)
+File: app/handlers_supabase_tools.py
+
+python
+Copy
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+from app.supabase_conn import health, upsert_user_tid
+
+REPAIR_SQL = """-- RUN IN SUPABASE SQL EDITOR (sekali saja)
+create extension if not exists "uuid-ossp";
+
+create table if not exists public.users (
+  id uuid primary key default uuid_generate_v4(),
+  telegram_id bigint unique,
+  is_premium boolean not null default false,
+  premium_until timestamptz,
+  credits integer not null default 0,
+  banned boolean not null default false,
+  updated_at timestamptz default now()
+);
+
+create unique index if not exists users_telegram_id_idx on public.users(telegram_id);
+alter table public.users enable row level security;
+
+do $$
+begin
+  if not exists (select 1 from pg_policies where tablename='users' and policyname='allow_service_role_all') then
+    create policy allow_service_role_all on public.users
+      for all
+      to service_role
+      using (true) with check (true);
+  end if;
+end$$;
+"""
+
+@admin_guard
+async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ok, info = health()
+    await safe_reply(update.effective_message, f"🗄️ Supabase: {'OK' if ok else 'FAIL'}\n{info}")
+
+@admin_guard
+async def cmd_sb_diag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        upsert_user_tid(999999999, test_probe=True)
+        await safe_reply(update.effective_message, "🔍 Upsert test OK (service key & policy aman)")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"🔍 Upsert test FAIL: {e}")
+
+@admin_guard
+async def cmd_sb_repair(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await safe_reply(update.effective_message, "🛠️ Jalankan SQL ini di Supabase SQL Editor:\n```\n"+REPAIR_SQL+"\n```")
+Register:
+
+python
+Copy
+application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
+application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
+5) Deployment-safe tips
+Satu instance polling saja (hindari dua bot jalan bareng).
+
+Semua write/read sudah retry & backoff.
+
+Per-user lock mencegah race.
+
+Supabase service_role policy diaktifkan (lihat /sb_repair).
+
+Jika muncul 429, konektor otomatis retry.
+
+6) Acceptance Test (kasus kamu)
+/sb_status → OK.
+
+Jalankan:
+
+bash
+Copy
+/setpremium 5378920396 2
+Bot harus balas ✅ dan menampilkan objek user; cek di Supabase row-nya berubah.
+
+Jalankan lagi perintah yang butuh premium pada user tersebut → harus langsung bisa (karena read-after-write verify memastikan data sudah commit).
+
+Coba di mode deployment → ulangi langkah 2; harus tetap sukses.
+
+7) (Opsional) Command helper lain yang sudah terdampak
+Pastikan semua admin command tidak pakai lokal:
+
+/remove_premium <uid> → update_user_tid(uid, is_premium=False, premium_until=None)
+
+/grant_credits <uid> <amount> → read get_user_by_tid() → hitung total → upsert_user_tid(uid, credits=total)
+
+/ban <uid> → update_user_tid(uid, banned=True)
+
+/unban <uid> → update_user_tid(uid, banned=False)
+
+Commit message (saran)
+pgsql
+Copy
+feat(db): full switch to Supabase; remove local storage
+fix(setpremium): robust upsert with retry/backoff + read-after-write verification + per-user lock
+chore(admin): add /sb_status /sb_diag /sb_repair diagnostics; all admin writes use Supabase
