@@ -26,8 +26,5 @@ async def cmd_signal_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_guard
 async def cmd_signal_tick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        res = await run_scan_once(context.bot)
-        await safe_reply(update.effective_message, f"⏱️ Manual scan completed: {res}")
-    except Exception as e:
-        await safe_reply(update.effective_message, f"❌ Manual scan failed: {str(e)}")️ Tick: {res}")
+    res = await run_scan_once(context.bot)
+    await safe_reply(update.effective_message, f"⏱️ Tick: {res}")

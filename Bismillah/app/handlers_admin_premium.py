@@ -57,10 +57,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not verify:
             return await safe_reply(update.effective_message, "❌ **Failed to verify user after update**")
         
-        # Double check the premium status
-        is_premium = verify.get('is_premium', False)
         premium_until = verify.get("premium_until")
-        
         if premium_until:
             try:
                 until_date = premium_until[:10]  # Just date part
@@ -70,22 +67,13 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             premium_info = "LIFETIME"
         
-        # Get fresh premium count to show impact
-        from app.supabase_conn import sb_get_premium_count
-        counts = sb_get_premium_count()
-        
         message = f"""{status}
 
 👤 **User ID:** {tid}
-💎 **Premium:** {is_premium}
+💎 **Premium:** {verify.get('is_premium', False)}
 📅 **{premium_info}**
 💳 **Credits:** {verify.get('credits', 0)}
 🚫 **Banned:** {verify.get('banned', False)}
-
-📊 **Current Premium Count:**
-🔓 Lifetime: {counts.get('lifetime', 0)}
-⏰ Timed: {counts.get('timed', 0)}
-📈 Total: {counts.get('total', 0)}
 
 ✅ **Update successful!**"""
         
