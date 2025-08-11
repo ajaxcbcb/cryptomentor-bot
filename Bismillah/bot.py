@@ -881,8 +881,17 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
+
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+            credits = self.db.get_user_credits(user_id)
+
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -932,8 +941,16 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+            credits = self.db.get_user_credits(user_id)
+
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -998,8 +1015,16 @@ class TelegramBot:
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+            credits = self.db.get_user_credits(user_id)
+
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -1074,7 +1099,9 @@ class TelegramBot:
                     await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    await loading_msg.edit_text(signals, parse_mode=None)
+                    # Remove escape characters for plain text
+                    plain_text = signals.replace('\\', '')
+                    await loading_msg.edit_text(plain_text, parse_mode=None)
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
@@ -1090,8 +1117,16 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+            credits = self.db.get_user_credits(user_id)
+
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users (20 credits for SnD futures analysis)
@@ -1157,9 +1192,17 @@ class TelegramBot:
                     timeframe = parts[3]
 
                     # Check credits
-                    is_premium = self.db.is_user_premium(user_id)
+                    # Use Supabase for premium checks
+                    try:
+                        from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+                        is_premium = sb_is_premium(user_id)
+                        credits = sb_get_credits(user_id)
+                    except Exception as e:
+                        print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+                        is_premium = self.db.is_user_premium(user_id)
+                        credits = self.db.get_user_credits(user_id)
+
                     is_admin = self.is_admin(user_id)
-                    credits = self.db.get_user_credits(user_id)
 
                     if not is_premium and not is_admin and credits < 20:
                         await query.edit_message_text("❌ Credit tidak cukup untuk analisis futures!")
@@ -1317,8 +1360,17 @@ class TelegramBot:
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /credits command"""
         user_id = update.message.from_user.id
-        credits = self.db.get_user_credits(user_id)
-        is_premium = self.db.is_user_premium(user_id)
+
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+            credits = self.db.get_user_credits(user_id)
+
         is_admin = self.is_admin(user_id)
 
         if is_admin:
@@ -1541,7 +1593,14 @@ Harga akan diambil real-time dari CoinAPI."""
         first_name = update.message.from_user.first_name or ""
 
         # Check current status
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium
+            is_premium = sb_is_premium(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
+
         user_data = self.db.get_user(user_id)
         is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
 
@@ -1620,7 +1679,13 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium
+            is_premium = sb_is_premium(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
 
         # Get bot username dynamically
         try:
@@ -1759,15 +1824,28 @@ Gunakan `/subscribe` untuk upgrade!
             # Get AI response
             response = self.ai.get_ai_response(question, 'id')
             # Premium access check using Supabase
-            from app.supabase_conn import sb_is_premium_user
-            if not sb_is_premium_user(user_id):
-                await update.effective_message.reply_text(
-                    "⚠️ **Premium Required**\n\n"
-                    "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
-                    "💎 Contact admin to upgrade your account.",
-                    parse_mode='Markdown'
-                )
-                return
+            try:
+                from app.premium_check import is_premium as sb_is_premium_ask_ai
+                if not sb_is_premium_ask_ai(user_id):
+                    await update.effective_message.reply_text(
+                        "⚠️ **Premium Required**\n\n"
+                        "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
+                        "💎 Contact admin to upgrade your account.",
+                        parse_mode='Markdown'
+                    )
+                    return
+            except Exception as e:
+                print(f"⚠️ Supabase premium check failed for ask_ai, using fallback: {e}")
+                # Fallback to local db check if Supabase fails
+                if not self.db.is_user_premium(user_id):
+                    await update.effective_message.reply_text(
+                        "⚠️ **Premium Required**\n\n"
+                        "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
+                        "💎 Contact admin to upgrade your account.",
+                        parse_mode='Markdown'
+                    )
+                    return
+
 
             # Log activity
             self.db.log_user_activity(user_id, "ask_ai", f"Question: {question[:50]}...")
@@ -1953,7 +2031,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 2 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ Format salah!\n"
                 "Gunakan: /setpremium <user_id> <duration>\n\n"
                 "Duration format:\n"
@@ -2202,6 +2280,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 👥 **User Stats:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
+• Banned Users: {stats.get('banned_users', 0)}
 • Active Today: {stats['active_today']}
 
 💳 **Credit Stats:**
@@ -2306,7 +2385,13 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
         user_id = update.message.from_user.id
-        is_premium = self.db.is_user_premium(user_id)
+        # Use Supabase for premium checks
+        try:
+            from app.premium_check import is_premium as sb_is_premium
+            is_premium = sb_is_premium(user_id)
+        except Exception as e:
+            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
+            is_premium = self.db.is_user_premium(user_id)
 
         if not is_premium:
             await update.message.reply_text(
@@ -2890,7 +2975,7 @@ ADMIN2 = [optional_second_admin_id]
             from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
             from app.handlers_user_set import cmd_user_set
             from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
-            
+
             self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
             self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
             self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
@@ -2898,7 +2983,7 @@ ADMIN2 = [optional_second_admin_id]
             self.application.add_handler(CommandHandler("user_set", cmd_user_set))
             self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
             self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
-            
+
             print("✅ Supabase admin commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register Supabase commands: {e}")
