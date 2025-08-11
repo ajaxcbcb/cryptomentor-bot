@@ -3,6 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from app.lib.auth import is_admin, _resolve_admin_ids
+from app.lib.guards import admin_guard
 import os
 
 async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
