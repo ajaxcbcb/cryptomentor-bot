@@ -1953,7 +1953,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 2 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ Format salah!\n"
                 "Gunakan: /setpremium <user_id> <duration>\n\n"
                 "Duration format:\n"
@@ -2890,7 +2890,7 @@ ADMIN2 = [optional_second_admin_id]
             from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
             from app.handlers_user_set import cmd_user_set
             from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
-            
+
             self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
             self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
             self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
@@ -2898,7 +2898,7 @@ ADMIN2 = [optional_second_admin_id]
             self.application.add_handler(CommandHandler("user_set", cmd_user_set))
             self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
             self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
-            
+
             print("✅ Supabase admin commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register Supabase commands: {e}")
