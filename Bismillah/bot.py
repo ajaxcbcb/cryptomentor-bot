@@ -1066,15 +1066,19 @@ class TelegramBot:
                         await update.message.reply_text(chunk, parse_mode='MarkdownV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    await loading_msg.edit_text(chunks[0], parse_mode=None)
-                    for chunk in chunks[1:]:
+                    # Remove escape characters for plain text
+                    plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
+                    await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
+                    for chunk in plain_chunks[1:]:
                         await update.message.reply_text(chunk, parse_mode=None)
             else:
                 try:
                     await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
                 except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    await loading_msg.edit_text(signals, parse_mode=None)
+                    print(f"⚠️ MarkdownV2 error, sending as plain text: {e}")
+                    # Remove escape characters for plain text
+                    plain_text = signals.replace('\\', '')
+                    await loading_msg.edit_text(plain_text, parse_mode=None)
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
@@ -1953,7 +1957,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 2 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ Format salah!\n"
                 "Gunakan: /setpremium <user_id> <duration>\n\n"
                 "Duration format:\n"
@@ -2890,7 +2894,7 @@ ADMIN2 = [optional_second_admin_id]
             from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
             from app.handlers_user_set import cmd_user_set
             from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
-            
+
             self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
             self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
             self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
@@ -2898,7 +2902,7 @@ ADMIN2 = [optional_second_admin_id]
             self.application.add_handler(CommandHandler("user_set", cmd_user_set))
             self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
             self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
-            
+
             print("✅ Supabase admin commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register Supabase commands: {e}")
@@ -2906,9 +2910,10 @@ ADMIN2 = [optional_second_admin_id]
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:
             try:
-                from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
+                from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug, cmd_debug_premium
                 self.application.add_handler(CommandHandler("whoami", cmd_whoami))
                 self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
+                self.application.add_handler(CommandHandler("debug_premium", cmd_debug_premium)) # Added debug_premium command
                 print("✅ Admin debug commands registered")
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
