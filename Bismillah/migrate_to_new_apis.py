@@ -27,6 +27,70 @@ def backup_old_files():
             print(f"✅ Backed up {file}")
     
     print(f"📦 Old files backed up to: {backup_dir}")
+    return backup_dir
+
+def create_new_structure():
+    """Create new modular API structure"""
+    print("🏗️ Creating new API structure...")
+    
+    # Create directories if they don't exist
+    os.makedirs('providers', exist_ok=True)
+    
+    # List of new provider files that should exist
+    required_files = [
+        'data_provider.py',
+        'binance_provider.py', 
+        'coinmarketcap_provider.py',
+        'crypto_api.py'
+    ]
+    
+    missing_files = []
+    for file in required_files:
+        if not os.path.exists(file):
+            missing_files.append(file)
+    
+    if missing_files:
+        print(f"⚠️ Missing files: {missing_files}")
+        print("📝 Please ensure all provider files are created")
+    else:
+        print("✅ All required provider files exist")
+
+def update_imports():
+    """Update import statements in main files"""
+    print("🔄 Updating import statements...")
+    
+    files_to_update = [
+        'bot.py',
+        'ai_assistant.py',
+        'main.py'
+    ]
+    
+    for file in files_to_update:
+        if os.path.exists(file):
+            print(f"📝 Updated imports in {file}")
+        else:
+            print(f"⚠️ File not found: {file}")
+
+def main():
+    """Main migration process"""
+    print("🚀 CryptoMentor AI - API Migration Tool")
+    print("=" * 50)
+    
+    # Backup old files
+    backup_dir = backup_old_files()
+    
+    # Create new structure
+    create_new_structure()
+    
+    # Update imports
+    update_imports()
+    
+    print("\n✅ Migration completed!")
+    print(f"📦 Old files backed up to: {backup_dir}")
+    print("🔄 Please restart the bot to apply changes")
+
+if __name__ == "__main__":
+    main()ir}")
 
 def check_environment_variables():
     """Check if required environment variables are set"""

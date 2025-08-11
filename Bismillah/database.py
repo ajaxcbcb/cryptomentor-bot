@@ -977,6 +977,33 @@ class Database:
 
             users_to_fix = self.cursor.fetchall()
 
+            for user_data in users_to_fix:
+                telegram_id = user_data[0]
+                username = user_data[1] or 'no_username'
+                first_name = user_data[2] or 'Unknown'
+                
+                # Generate referral codes if missing
+                free_code = f"F{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                premium_code = f"P{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                
+                # Update user with referral codes
+                self.cursor.execute("""
+                    UPDATE users 
+                    SET referral_code = COALESCE(referral_code, ?),
+                        premium_referral_code = COALESCE(premium_referral_code, ?)
+                    WHERE telegram_id = ?
+                """, (free_code, premium_code, telegram_id))
+                
+                fixed_count += 1
+            
+            self.conn.commit()
+            print(f"✅ Fixed referral data for {fixed_count} users")
+            return fixed_count
+            
+        except Exception as e:
+            print(f"Error fixing referral data integrity: {e}")
+            return 0
+
             for user in users_to_fix:
                 telegram_id, username, first_name = user
 

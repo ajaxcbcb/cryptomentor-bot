@@ -12,7 +12,7 @@ try:
     from database import Database
 except ImportError as e:
     print(f"❌ Cannot import Database: {e}")
-    sys.exit(1)
+    sys.exit(1)1)
 
 
 def fix_database_users():
@@ -49,7 +49,55 @@ def fix_database_users():
         print(f"➖ Negative credits: {negative_credits}")
 
         # Start fixing issues
-        print("\n🔧 Fixing Issues:")
+        print("\n🔧 Starting Database Fixes:")
+
+        # Fix NULL telegram_id
+        if null_telegram_id > 0:
+            print(f"❌ Found {null_telegram_id} users with NULL telegram_id - these will be removed")
+            db.cursor.execute("DELETE FROM users WHERE telegram_id IS NULL OR telegram_id = 0")
+            print(f"✅ Removed {db.cursor.rowcount} users with invalid telegram_id")
+
+        # Fix NULL credits
+        if null_credits > 0:
+            print(f"💳 Fixing {null_credits} users with NULL credits...")
+            db.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
+            print(f"✅ Fixed {db.cursor.rowcount} users with NULL credits (set to 100)")
+
+        # Fix negative credits
+        if negative_credits > 0:
+            print(f"➖ Fixing {negative_credits} users with negative credits...")
+            db.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
+            print(f"✅ Fixed {db.cursor.rowcount} users with negative credits (set to 10)")
+
+        # Commit all changes
+        db.conn.commit()
+        print("\n✅ All database fixes completed successfully!")
+
+        # Show final status
+        print("\n📊 Final Database Status:")
+        db.cursor.execute("SELECT COUNT(*) FROM users")
+        final_total = db.cursor.fetchone()[0]
+        
+        db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits IS NULL OR credits < 0")
+        final_bad_credits = db.cursor.fetchone()[0]
+        
+        print(f"👥 Total users: {final_total}")
+        print(f"💳 Users with bad credits: {final_bad_credits}")
+        
+        if final_bad_credits == 0:
+            print("🎉 All credit issues resolved!")
+
+    except Exception as e:
+        print(f"❌ Error during database fix: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        if 'db' in locals():
+            db.close()
+            print("🔐 Database connection closed")
+
+if __name__ == "__main__":
+    fix_database_users()\n🔧 Fixing Issues:")
 
         # Fix NULL credits
         if null_credits > 0:
