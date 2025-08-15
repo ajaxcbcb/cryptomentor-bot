@@ -13,9 +13,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 
-# Import required modules for database operations
 from database import Database
-
 from crypto_api import CryptoAPI
 from ai_assistant import AIAssistant
 # Assuming snd_auto_signals.py contains the AutoSignalScanner class and initialize_auto_signals function
@@ -74,107 +72,15 @@ for check, result in deployment_env_checks.items():
     print(f"  {'✅' if result else '❌'} {check}: {result}")
 print(f"📊 Bot Deployment Status: {'ENABLED' if IS_DEPLOYMENT else 'DISABLED'}")
 
-# Setup logging with INFO level for production
+# Setup logging with DEBUG level to catch hidden errors
 logging.basicConfig(
-    level=logging.INFO,  # Use INFO level for production
+    level=logging.DEBUG,  # Enable debug logging to catch hidden errors
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Local database only - no Supabase
-SUPABASE_AVAILABLE = False
-logger.info("✅ Using local SQLite database only")
-
-# Placeholder functions for compatibility
-def add_user(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def get_user(*args, **kwargs):
-    return None
-
-def update_user(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def delete_user(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def add_premium(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def revoke_premium(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def set_premium(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def parse_premium_duration(*args, **kwargs):
-    return None
-
-def admin_set_premium(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def admin_revoke_premium(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-def admin_grant_credits(*args, **kwargs):
-    return {"success": False, "error": "Database not configured"}
-
-# Import new admin system
-try:
-    import sys
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from app.lib.auth import is_admin, get_admin_ids
-    from app.lib.guards import admin_guard
-    ADMIN_SYSTEM_AVAILABLE = True
-    logger.info("✅ New admin authentication system loaded")
-except ImportError as e:
-    logger.error(f"❌ Failed to import new admin system: {e}")
-    ADMIN_SYSTEM_AVAILABLE = False
-
-    # Fallback to old system
-    def is_admin(user_id):
-        return False
-
-    def get_admin_ids():
-        return []
-
-# Get initial admin IDs for logging
-ADMIN_IDS = set(get_admin_ids()) if ADMIN_SYSTEM_AVAILABLE else set()
-
-if not ADMIN_IDS:
-    logger.warning("No ADMIN1, ADMIN2 or fallback admin environment variables found. Admin commands will be inaccessible.")
-
 class TelegramBot:
     def __init__(self):
-        # Initialize database router system
-        try:
-            from app.db_router import init_db, db_status
-            mode, ready, note = init_db()
-            print(f"🗄️ DB Mode: {mode} | Ready: {ready} | {note}")
-            logger.info(f"Database router initialized: {mode} ({note})")
-
-            # Keep original database for compatibility
-            self.db = Database()
-            logger.info("✅ Database connection established")
-        except Exception as e:
-            logger.error(f"❌ Database connection failed: {e}")
-            # Continue without database - some features will be limited
-            self.db = None
-
-        # Using local SQLite database only
-        self.supabase_enabled = False
-        logger.info("✅ Local SQLite database active")
-
-        # Initialize Admin Agent if available
-        self.admin_agent = None
-        try:
-            self.admin_agent = AdminAgent()
-            logger.info("✅ Admin Agent initialized (Database features pending)")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Admin Agent: {e}")
-            self.admin_agent = None
-
-
         # Get bot token from environment - try multiple possible keys including 'TOKEN'
         self.token = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
 
@@ -188,17 +94,49 @@ class TelegramBot:
         logger.debug(f"Bot token found: {'YES' if self.token else 'NO'}")
 
         # Get all admin IDs with better error handling
-        self.admin_ids = ADMIN_IDS if ADMIN_SYSTEM_AVAILABLE else set()
+        self.admin_ids = set()
+        
+        # Primary admin
+        admin_id_str = os.getenv('ADMIN_USER_ID', '0')
+        try:
+            admin_id = int(admin_id_str)
+            if admin_id > 0:
+                self.admin_ids.add(admin_id)
+                logger.info(f"✅ Primary Admin ID configured: {admin_id}")
+        except ValueError:
+            logger.warning(f"Invalid ADMIN_USER_ID: {admin_id_str}")
+        
+        # Secondary admin
+        admin2_id_str = os.getenv('ADMIN2_USER_ID', '0')
+        try:
+            admin2_id = int(admin2_id_str)
+            if admin2_id > 0:
+                self.admin_ids.add(admin2_id)
+                logger.info(f"✅ Secondary Admin ID configured: {admin2_id}")
+        except ValueError:
+            if admin2_id_str != '0':
+                logger.warning(f"Invalid ADMIN2_USER_ID: {admin2_id_str}")
+        
+        # Support for future admin IDs (ADMIN3_USER_ID, ADMIN4_USER_ID, etc.)
+        for i in range(3, 10):  # Support up to ADMIN9_USER_ID
+            admin_key = f'ADMIN{i}_USER_ID'
+            admin_id_str = os.getenv(admin_key, '0')
+            try:
+                admin_id = int(admin_id_str)
+                if admin_id > 0:
+                    self.admin_ids.add(admin_id)
+                    logger.info(f"✅ Admin{i} ID configured: {admin_id}")
+            except ValueError:
+                if admin_id_str != '0':
+                    logger.warning(f"Invalid {admin_key}: {admin_id_str}")
+        
+        # Backward compatibility
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
-
+        
         logger.info(f"✅ Total configured admins: {len(self.admin_ids)} - IDs: {sorted(list(self.admin_ids))}")
 
-        if ADMIN_SYSTEM_AVAILABLE:
-            logger.info("✅ Using new dynamic admin authentication system")
-        else:
-            logger.warning("⚠️ Using fallback admin system - admin commands disabled")
-
         # Initialize components with CoinAPI integration
+        self.db = Database()
         self.crypto_api = CryptoAPI()
         self.ai = AIAssistant()
 
@@ -226,15 +164,7 @@ class TelegramBot:
 
     def is_admin(self, user_id: int) -> bool:
         """Check if the user ID is one of the configured admins."""
-        if ADMIN_SYSTEM_AVAILABLE:
-            return is_admin(user_id)
-        else:
-            return str(user_id) in self.admin_ids
-
-    def register_user_supabase(self, user):
-        """Using local database only"""
-        print(f"✅ User registration handled by local database for user {user.id}")
-        return True
+        return user_id in self.admin_ids
 
     async def run_bot(self):
         """Main method to run the bot"""
@@ -247,13 +177,52 @@ class TelegramBot:
             except Exception as cleanup_error:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
 
-            self._register_handlers()
+            # Add command handlers with proper async functions
+            self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            self.application.add_handler(CommandHandler("price", self.price_command))
+            self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+            self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
+            self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
+            self.application.add_handler(CommandHandler("market", self.market_command))
+            self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
+            self.application.add_handler(CommandHandler("futures", self.futures_command))
+            self.application.add_handler(CommandHandler("credits", self.credits_command))
+            self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
+            self.application.add_handler(CommandHandler("referral", self.referral_command))
+            self.application.add_handler(CommandHandler("language", self.language_command))
+            self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
 
-            # Add global error handler
-            self.application.add_error_handler(self._on_error)
+            # Admin commands
+            self.application.add_handler(CommandHandler("admin", self.admin_command))
+            self.application.add_handler(CommandHandler("grant_premium", self.grant_premium_command))
+            self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+            self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
+            self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
+            self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
+            self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+            self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
+            self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+            self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
+            self.application.add_handler(CommandHandler("restart", self.restart_command))
+            self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
+            self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
+            self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            # Renamed for clarity and consistency with user request
+            self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
+            self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
+            self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
+
+
+            # Add callback query handler
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+
+            # Add message handler for regular text (should be last)
+            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
             print("🤖 Bot handlers registered successfully")
-            mode_text = "🌐 DEPLOYMENT (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT (Workspace)"
+            mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
             print(f"🌍 Environment: {mode_text}")
             print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
             print("🚀 Starting bot polling with Coinglass V4 integration...")
@@ -314,17 +283,6 @@ class TelegramBot:
             await self.application.start()
             print("✅ Application started")
 
-            # Store bot instance in context for admin agent access
-            self.application.bot_data['bot_instance'] = self
-
-            # Initialize AutoSignal scheduler
-            try:
-                from app.autosignal import start_background_scheduler
-                start_background_scheduler(self.application)
-                print("✅ AutoSignal scheduler initialized")
-            except ImportError as e:
-                print(f"⚠️ Could not initialize AutoSignal scheduler: {e}")
-
             # Start polling with proper error handling
             await self.application.updater.start_polling(
                 poll_interval=1.0,
@@ -334,7 +292,7 @@ class TelegramBot:
             )
             print("🚀 Bot polling started successfully!")
 
-            # Keep running until interrupted
+            # Keep running until interrupted - fix for telegram-bot v22.x
             try:
                 import signal
                 stop_event = asyncio.Event()
@@ -433,17 +391,11 @@ class TelegramBot:
                 logger.error(f"Error during bot shutdown: {e}")
                 print(f"⚠️ Cleanup error: {e}")
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with enhanced user persistence"""
-        from app.chat_store import remember_chat
-
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
-
-        # Remember chat consent
-        if user and update.effective_chat:
-            remember_chat(user.id, update.effective_chat.id)
 
         # Debug: Show that command handler is working
         print(f"📞 Start command handler called successfully")
@@ -589,12 +541,11 @@ class TelegramBot:
 
                 if final_attempt:
                     print(f"✅ Final attempt successful for user: {user.id}")
-                    self.db.log_user_activity(user.id, "user_created", f"New user: {user.first_name}")
+                    self.db.log_user_activity(user.id, "user_created_final_attempt", f"User created on final attempt: {user.first_name}")
+                else:
+                    print(f"❌ All attempts failed for user: {user.id}")
+                    # Still continue to show welcome message
 
-                    # Also register in Supabase
-                    self.register_user_supabase(user)
-
-            # Generate response message
         except Exception as e:
             print(f"❌ Error in start command: {e}")
             # Log the error but continue to show welcome message
@@ -751,16 +702,12 @@ class TelegramBot:
 - **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
-🚀 **Fitur Auto Signal:**
+✨ **Fitur Auto Signal:**
 • **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
 • **Confidence & Quality Filter**: Hanya sinyal 'good' dengan confidence >= 75%
 • **Automatic Delivery**: Pesan dikirim ke user Admin & Lifetime
 • **Scheduled Check**: Setiap 5 menit
 • **Optimized**: Anti-spam, cooldown, no duplicates
-
-🔧 **Admin Setup:**
-• `/setup_admin` - Petunjuk setup admin access
-• Perlu konfigurasi ADMIN_USER_ID di Replit Secrets
 
 """
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -876,17 +823,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-            is_premium = local_is_premium(user_id)
-            credits = local_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
-            credits = 0
-
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -896,7 +834,7 @@ class TelegramBot:
 
         symbol = context.args[0].upper()
 
-        # Show loading
+        # Show loading message
         loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
 
         try:
@@ -936,16 +874,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-            is_premium = local_is_premium(user_id)
-            credits = local_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
-            credits = 0
-
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -1010,16 +940,8 @@ class TelegramBot:
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         user_id = update.message.from_user.id
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-            is_premium = local_is_premium(user_id)
-            credits = local_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
-            credits = 0
-
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
@@ -1086,19 +1008,15 @@ class TelegramBot:
                         await update.message.reply_text(chunk, parse_mode='MarkdownV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    # Remove escape characters for plain text
-                    plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
-                    await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
-                    for chunk in plain_chunks[1:]:
+                    await loading_msg.edit_text(chunks[0], parse_mode=None)
+                    for chunk in chunks[1:]:
                         await update.message.reply_text(chunk, parse_mode=None)
             else:
                 try:
                     await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    # Remove escape characters for plain text
-                    plain_text = signals.replace('\\', '')
-                    await loading_msg.edit_text(plain_text, parse_mode=None)
+                    await loading_msg.edit_text(signals, parse_mode=None)
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
@@ -1114,16 +1032,8 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-            is_premium = local_is_premium(user_id)
-            credits = local_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
-            credits = 0
-
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users (20 credits for SnD futures analysis)
@@ -1189,17 +1099,9 @@ class TelegramBot:
                     timeframe = parts[3]
 
                     # Check credits
-                    # Use local database for premium checks
-                    try:
-                        from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-                        is_premium = local_is_premium(user_id)
-                        credits = local_get_credits(user_id)
-                    except Exception as e:
-                        print(f"⚠️ Local database check failed, using fallback: {e}")
-                        is_premium = False  # Default to free if database fails
-                        credits = 0
-
+                    is_premium = self.db.is_user_premium(user_id)
                     is_admin = self.is_admin(user_id)
+                    credits = self.db.get_user_credits(user_id)
 
                     if not is_premium and not is_admin and credits < 20:
                         await query.edit_message_text("❌ Credit tidak cukup untuk analisis futures!")
@@ -1357,17 +1259,8 @@ class TelegramBot:
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /credits command"""
         user_id = update.message.from_user.id
-
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
-            is_premium = local_is_premium(user_id)
-            credits = local_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
-            credits = 0
-
+        credits = self.db.get_user_credits(user_id)
+        is_premium = self.db.is_user_premium(user_id)
         is_admin = self.is_admin(user_id)
 
         if is_admin:
@@ -1414,9 +1307,8 @@ Terima kasih telah menjadi member premium!"""
 
 🎯 **Rekomendasi untuk Pemula:**
 • Mulai dengan `/price btc` (GRATIS - CoinAPI)
-• Coba `/market` (20 credit) - overview pasar global CoinAPI
-• Test `/analyze btc` (20 credit) - CoinAPI analysis!
-• Coba `/futures btc` (20 credit) - SnD signals untuk trading
+• Coba `/analyze btc` (20 credit) - CoinAPI analysis!
+• Test `/futures btc` (20 credit) - SnD signals untuk trading
 
 💡 **Cara Mendapat Credit:**
 • `/referral` - Ajak teman (10 credit/referral)
@@ -1587,14 +1479,10 @@ Harga akan diambil real-time dari CoinAPI."""
         """Handle /subscribe command"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "Tidak ada username"
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium
-            is_premium = local_is_premium(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
+        first_name = update.message.from_user.first_name or ""
 
+        # Check current status
+        is_premium = self.db.is_user_premium(user_id)
         user_data = self.db.get_user(user_id)
         is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
 
@@ -1604,10 +1492,11 @@ Harga akan diambil real-time dari CoinAPI."""
 
             message = f"""⭐ **Status {premium_type} Aktif**
 
-👤 **{update.effective_user.first_name}**, Anda sudah menjadi member {premium_type}!
+👤 **{first_name}**, Anda sudah menjadi member {premium_type}!
 
 🚀 **Keuntungan yang Anda nikmati:**
 • ♾️ Unlimited analisis CoinAPI + SnD
+• 🎯 Akses prioritas ke semua fitur
 • 📊 Data real-time CoinAPI tanpa batas
 • {auto_signals_status}
 • 🛡️ Support premium
@@ -1620,7 +1509,7 @@ Nikmati semua fitur tanpa batasan credit."""
 👤 **Informasi Anda:**
 • **User ID:** `{user_id}`
 • **Username:** @{username}
-• **Nama:** {update.effective_user.first_name}
+• **Nama:** {first_name}
 
 🚀 **Fitur Premium CoinAPI + SnD:**
 • ♾️ Unlimited analisis dengan CoinAPI real-time
@@ -1654,7 +1543,7 @@ Nikmati semua fitur tanpa batasan credit."""
 3. Sertakan informasi ini:
    • User ID: `{user_id}`
    • Username: @{username}
-   • Nama: {update.effective_user.first_name}
+   • Nama: {first_name}
    • Paket: (pilih paket)
 4. Tunggu konfirmasi aktivasi (maks 24 jam)
 
@@ -1673,13 +1562,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium
-            is_premium = local_is_premium(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
+        is_premium = self.db.is_user_premium(user_id)
 
         # Get bot username dynamically
         try:
@@ -1736,7 +1619,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 💵 **Keuntungan PREMIUM:**
 • Anda dapat **Rp 10.000** per user yang subscribe premium
 • Reward uang asli, bukan credit!
-• Withdraw earnings ke rekening/e-wallet
+• Withdraw ke rekening/e-wallet
 
 📊 **Status PREMIUM Referral:**
 • Total Premium Referrals: {premium_stats['total_referrals']}
@@ -1817,29 +1700,6 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             # Get AI response
             response = self.ai.get_ai_response(question, 'id')
-            # Premium access check using local database
-            try:
-                from app.premium_check import is_premium as local_is_premium_ask_ai
-                if not local_is_premium_ask_ai(user_id):
-                    await update.effective_message.reply_text(
-                        "⚠️ **Premium Required**\n\n"
-                        "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
-                        "💎 Contact admin to upgrade your account.",
-                        parse_mode='Markdown'
-                    )
-                    return
-            except Exception as e:
-                print(f"⚠️ Local database check failed for ask_ai, using fallback: {e}")
-                # Fallback to local db check if Supabase fails
-                if not self.db.is_user_premium(user_id):
-                    await update.effective_message.reply_text(
-                        "⚠️ **Premium Required**\n\n"
-                        "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
-                        "💎 Contact admin to upgrade your account.",
-                        parse_mode='Markdown'
-                    )
-                    return
-
 
             # Log activity
             self.db.log_user_activity(user_id, "ask_ai", f"Question: {question[:50]}...")
@@ -1911,16 +1771,6 @@ Gunakan `/subscribe` untuk upgrade!
         """Check if user needs to restart after admin restart"""
         user_id = update.message.from_user.id
 
-        # Check if user is banned
-        if self.db.is_user_banned(user_id):
-            await update.message.reply_text(
-                "🚫 **Akun Anda telah dibanned oleh admin**\n\n"
-                "Anda tidak dapat menggunakan bot ini lagi.\n"
-                "Hubungi admin jika ini adalah kesalahan.",
-                parse_mode='Markdown'
-            )
-            return True
-
         if self.db.user_needs_restart(user_id):
             await update.message.reply_text(
                 "🔄 **Bot telah direstart oleh admin**\n\n"
@@ -1948,7 +1798,7 @@ Gunakan `/subscribe` untuk upgrade!
         # Enhanced admin verification for multiple admins
         admin_env_vars = {}
         for i in range(1, 10):
-            key = f'ADMIN{i}' # Changed to ADMIN{i}
+            key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
             env_value = os.getenv(key)
             if env_value and env_value != '0':
                 admin_env_vars[key] = env_value
@@ -1976,7 +1826,6 @@ Gunakan `/subscribe` untuk upgrade!
 📊 **Bot Statistics:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
-• Banned Users: {stats.get('banned_users', 0)}
 • Active Today: {stats['active_today']}
 • Total Credits: {stats['total_credits']:,}
 
@@ -1984,18 +1833,17 @@ Gunakan `/subscribe` untuk upgrade!
 • Status: {auto_status}
 • Mode: Works in {deployment_mode} mode
 • Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
+• Target Coins: {len(self.auto_signals.target_symbols) if self.auto_signals else 0} top coins
 • Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
 
 🔧 **Admin Commands:**
-• `/setpremium <user_id> <type>` - Set premium (month/lifetime)
-• `/revoke_premium <user_id>` - Remove premium status
+• `/grant_premium <user_id> <days>` - Grant premium
+• `/revoke_premium <user_id>` - Revoke premium
 • `/grant_credits <user_id> <amount>` - Add credits
-• `/banned <user_id> <ban|unban|check>` - Ban/unban user management
-• `/auto_signal_ai_status` - SnD signals status
+• `/auto_signals_status` - SnD signals status
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner
 • `/broadcast <message>` - Send broadcast
-• `/setup_admin` - Show admin setup instructions
 
 🌐 **API Status:**
 • CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
@@ -2010,106 +1858,8 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
-
-
-
-
-    async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk set premium user dengan Database Router"""
-        from app.db_router import add_premium
-        from app.safe_send import safe_reply
-
-        user_id = update.effective_user.id
-        if not self.is_admin(user_id):
-            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
-            return
-
-        if len(context.args) != 2 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message,
-                "❌ Format salah!\n"
-                "Gunakan: /setpremium <user_id> <duration>\n\n"
-                "Duration format:\n"
-                "• `30` - 30 hari\n"
-                "• `lifetime` - Seumur hidup"
-            )
-            return
-
-        try:
-            target_user_id = int(context.args[0])
-            duration = context.args[1]
-
-            # Map common duration formats
-            if duration.lower() in ['month', 'bulan']:
-                duration = '30'
-            elif duration.endswith('d'):
-                duration = duration[:-1]
-            elif duration.startswith('days:'):
-                duration = duration[5:]
-
-            _, msg = add_premium(target_user_id, duration)
-            await safe_reply(update.effective_message, msg)
-
-            # Log admin action
-            self.db.log_user_activity(
-                user_id,
-                "admin_setpremium",
-                f"Set premium {duration} for user {target_user_id}"
-            )
-
-        except Exception as e:
-            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
-            print(f"❌ Error in setpremium command: {e}")
-
-    async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /grant_credits command with Database Router"""
-        from app.db_router import grant_credits
-        from app.safe_send import safe_reply, safe_dm
-
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await safe_reply(update.message, "❌ Access denied. Admin only command.")
-            return
-
-        if len(context.args) == 2 and context.args[0].isdigit() and context.args[1].isdigit():
-            target_user_id, amount = int(context.args[0]), int(context.args[1])
-        else:
-            await safe_reply(update.message, "Format: /grant_credits <user_id> <credits>")
-            return
-
-        try:
-            _, total = grant_credits(target_user_id, amount)
-            message = f"✅ **Credits Granted Successfully**\n\n"
-            message += f"👤 **User ID**: {target_user_id}\n"
-            message += f"💳 **Credits Added**: +{amount}\n"
-            message += f"🎯 **New Total**: {total}\n\n"
-            message += f"💡 Credits berhasil ditambahkan via database router"
-
-            # Log admin action
-            self.db.log_user_activity(
-                user_id,
-                "admin_grant_credits",
-                f"Added {amount} credits to user {target_user_id}"
-            )
-
-            await safe_reply(update.message, message)
-
-            # Optional DM to target user
-            try:
-                await safe_dm(context.bot, target_user_id, f"💳 Anda mendapat {amount} credit bonus dari admin!")
-                await safe_reply(update.message, "📱 User berhasil di-DM tentang credit bonus.")
-            except PermissionError:
-                await safe_reply(update.message, "ℹ️ User belum /start bot, DM dilewati.")
-            except Exception as e:
-                await safe_reply(update.message, f"⚠️ DM gagal: {e}")
-
-        except Exception as e:
-            await safe_reply(update.message, f"❌ Gagal: {e}")
-            print(f"❌ Error in grant_credits command: {e}")
-
-
-    async def check_user_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /check_user_status command - Admin only"""
+    async def grant_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /grant_premium command"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -2117,77 +1867,222 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) < 1:
-            await update.message.reply_text("❌ Gunakan format: `/check_user_status <user_id>`\nContoh: `/check_user_status 123456789`")
-            return
-
-        target_user_id = context.args[0]
-
-        # Execute via Admin Agent
-        bot_instance = context.bot_data.get('bot_instance')
-        if not bot_instance or not hasattr(bot_instance, 'admin_agent'):
-            await update.message.reply_text("❌ Admin Agent tidak tersedia")
-            return
-
-        result = bot_instance.admin_agent.execute_command("/check_user_status", target_user_id)
-
-        if result["status"] == "success":
-            data = result["data"]
-
-            # Format premium status
-            if data["premium_type"] == "lifetime":
-                premium_status = "🌟 LIFETIME PREMIUM"
-            elif data["premium_type"] == "timed":
-                premium_status = f"⭐ PREMIUM (until {data['premium_until'][:10]})"
-            else:
-                premium_status = "❌ FREE USER"
-
-            message = f"📊 **User Status Report**\n\n"
-            message += f"👤 **User ID**: {target_user_id}\n"
-            message += f"💎 **Premium Status**: {premium_status}\n"
-            message += f"💳 **Credits**: {data['credits']}\n"
-            message += f"📅 **Premium Until**: {data['premium_until'] if data['premium_until'] else 'N/A'}\n\n"
-
-            if data["is_premium"]:
-                message += "✅ User has active premium access"
-            else:
-                message += "⚠️ User is on free tier"
-        else:
-            message = f"❌ **Error**: {result['message']}\n"
-            message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-
-    async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk revoke premium user dengan Database Router"""
-        from app.db_router import remove_premium
-        from app.safe_send import safe_reply
-
-        user_id = update.effective_user.id
-        if not self.is_admin(user_id):
-            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
-            return
-
-        if len(context.args) != 1 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, "Format: /revoke_premium <user_id>")
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/grant_premium <user_id> [days]`\n\n"
+                "**Contoh:**\n"
+                "• `/grant_premium 123456789 30` - Premium 30 hari\n"
+                "• `/grant_premium 123456789 0` - Premium permanent (Lifetime)\n"
+                "• `/grant_premium 123456789` - Premium 30 hari (default)",
+                parse_mode='Markdown'
+            )
             return
 
         try:
             target_user_id = int(context.args[0])
-            remove_premium(target_user_id)
-            await safe_reply(update.effective_message, f"✅ Premium untuk {target_user_id} dicabut.")
+            days = int(context.args[1]) if len(context.args) > 1 else 30
+        except ValueError:
+            await update.message.reply_text("❌ User ID dan days harus berupa angka!\n\nContoh: `/grant_premium 123456789 30`")
+            return
+
+        # Check if user exists in database
+        existing_user = self.db.get_user(target_user_id)
+        if not existing_user:
+            await update.message.reply_text(
+                f"⚠️ **User {target_user_id} belum terdaftar!**\n\n"
+                "User harus menggunakan bot terlebih dahulu dengan command `/start` sebelum bisa diberi premium."
+            )
+            return
+
+        # Grant premium status
+        try:
+            if days == 0:
+                success = self.db.grant_permanent_premium(target_user_id)
+                premium_type = "LIFETIME (Auto Signals Access)"
+                package_amount = 5000000  # Rp 5 juta for lifetime
+            else:
+                success = self.db.grant_premium(target_user_id, days)
+                premium_type = f"{days} hari"
+                # Calculate package amount based on days
+                if days == 30:
+                    package_amount = 320000
+                elif days == 60:
+                    package_amount = 600000
+                elif days == 180:
+                    package_amount = 1800000
+                elif days == 365:
+                    package_amount = 3000000
+                else:
+                    package_amount = days * 10000  # Default calculation
+
+            if success:
+                user_info = self.db.get_user(target_user_id)
+                username = user_info.get('username', 'No username')
+                first_name = user_info.get('first_name', 'Unknown')
+
+                # Check if user was referred via premium referral
+                referrer_id = self.db.check_premium_referral(target_user_id)
+                referral_reward_msg = ""
+
+                if referrer_id and self.db.is_user_premium(referrer_id):
+                    # Give premium referral reward
+                    reward_success = self.db.record_premium_referral_reward(
+                        referrer_id, target_user_id, premium_type, package_amount
+                    )
+                    if reward_success:
+                        referrer_info = self.db.get_user(referrer_id)
+                        referrer_name = referrer_info.get('first_name', 'Unknown') if referrer_info else 'Unknown'
+                        referral_reward_msg = f"\n💰 **Premium Referral Reward**: Rp 10,000 diberikan ke {referrer_name} (ID: {referrer_id})"
+
+                message = f"""✅ **Premium berhasil diberikan!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+⭐ **Premium Status:**
+• **Type**: {premium_type}
+• **CoinAPI Access**: ✅ Unlimited
+• **SnD Analysis**: ✅ Unlimited
+• **Auto Signals**: {'✅ Enabled' if days == 0 else '❌ Lifetime Only'}
+
+🎉 User sekarang memiliki akses unlimited ke semua fitur CoinAPI + SnD!{referral_reward_msg}"""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_grant_premium",
+                    f"Granted {premium_type} premium to user {target_user_id}"
+                )
+
+            else:
+                message = f"❌ **Gagal memberikan premium!** Coba lagi atau hubungi developer."
+
+        except Exception as e:
+            message = f"❌ **Error sistem saat memberikan premium!**\n\n**Error**: {str(e)}"
+            print(f"Error in grant_premium_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def grant_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /grant_credits command"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Gunakan format: `/grant_credits <user_id> <amount>`\nContoh: `/grant_credits 123456789 100`")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            amount = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ User ID dan amount harus berupa angka!")
+            return
+
+        if amount <= 0:
+            await update.message.reply_text("❌ Amount harus lebih dari 0!")
+            return
+
+        # Add credits
+        success = self.db.add_credits(target_user_id, amount)
+
+        if success:
+            user_info = self.db.get_user(target_user_id)
+            username = user_info.get('username', 'No username')
+            first_name = user_info.get('first_name', 'Unknown')
+            current_credits = self.db.get_user_credits(target_user_id)
+
+            message = f"""✅ **Credit berhasil ditambahkan!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+💳 **Credit Update:**
+• **Added**: +{amount} credits
+• **Current Total**: {current_credits} credits
+
+💡 User dapat menggunakan credit untuk:
+- CoinAPI price analysis
+- SnD futures signals
+- Market overview data"""
 
             # Log admin action
             self.db.log_user_activity(
                 user_id,
-                "admin_revoke_premium",
-                f"Revoked premium for user {target_user_id}"
+                "admin_grant_credits",
+                f"Added {amount} credits to user {target_user_id}"
             )
+        else:
+            message = f"❌ **Gagal menambahkan credit!** User {target_user_id} tidak ditemukan."
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /revoke_premium command"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) < 1:
+            await update.message.reply_text("❌ Gunakan format: `/revoke_premium <user_id>`\nContoh: `/revoke_premium 123456789`")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        # Check if user exists
+        existing_user = self.db.get_user(target_user_id)
+        if not existing_user:
+            await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+            return
+
+        # Revoke premium status
+        try:
+            success = self.db.revoke_premium(target_user_id)
+
+            if success:
+                user_info = self.db.get_user(target_user_id)
+                username = user_info.get('username', 'No username')
+                first_name = user_info.get('first_name', 'Unknown')
+
+                message = f"""✅ **Premium berhasil dicabut!**
+
+👤 **User Info:**
+• **ID**: {target_user_id}
+• **Name**: {first_name}
+• **Username**: @{username}
+
+❌ **Status**: Premium access removed
+💳 **Credits**: User akan menggunakan sistem credit normal
+
+🔄 User sekarang kembali ke akun free dengan sistem credit."""
+
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_revoke_premium",
+                    f"Revoked premium from user {target_user_id}"
+                )
+            else:
+                message = f"❌ **Gagal mencabut premium!** User mungkin sudah tidak premium."
 
         except Exception as e:
-            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
-            print(f"❌ Error in revoke_premium command: {e}")
+            message = f"❌ **Error sistem saat mencabut premium!**\n\n**Error**: {str(e)}"
+            print(f"Error in revoke_premium_command: {e}")
 
+        await update.message.reply_text(message, parse_mode='Markdown')
 
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
@@ -2274,7 +2169,6 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 👥 **User Stats:**
 • Total Users: {stats['total_users']}
 • Premium Users: {stats['premium_users']}
-• Banned Users: {stats.get('banned_users', 0)}
 • Active Today: {stats['active_today']}
 
 💳 **Credit Stats:**
@@ -2379,13 +2273,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
         user_id = update.message.from_user.id
-        # Use local database for premium checks
-        try:
-            from app.premium_check import is_premium as local_is_premium
-            is_premium = local_is_premium(user_id)
-        except Exception as e:
-            print(f"⚠️ Local database check failed, using fallback: {e}")
-            is_premium = False  # Default to free if database fails
+        is_premium = self.db.is_user_premium(user_id)
 
         if not is_premium:
             await update.message.reply_text(
@@ -2565,8 +2453,8 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             parse_mode='Markdown'
         )
 
-    async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cancel_broadcast command"""
+    async def confirm_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /confirm_broadcast command"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -2577,357 +2465,67 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
             return
 
-        self.pending_broadcast = None
-        await update.message.reply_text("✅ Broadcast dibatalkan.")
-
-    async def setup_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /setup_admin command - Shows admin setup instructions"""
-
-    async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /db_status command"""
-        from app.db_router import db_status
-        from app.safe_send import safe_reply
-
-        status = db_status()
-        message = f"🗄️ **Database Status**\n\n"
-        message += f"• **Mode**: {status['mode']}\n"
-        message += f"• **Ready**: {status['ready']}\n"
-        message += f"• **Note**: {status['note']}\n\n"
-
-        if status['mode'] == 'supabase':
-            message += "📊 **Backend**: Supabase Cloud Database\n"
-        elif status['mode'] == 'local':
-            message += "📁 **Backend**: Local JSON Storage\n"
-        else:
-            message += "❌ **Backend**: No database available\n"
-
-        await safe_reply(update.effective_message, message)
-
-
-        user_id = update.message.from_user.id
-        first_name = update.message.from_user.first_name or "User"
-
-        # Get current admin configuration
-        admin_env_vars = {}
-        for i in range(1, 10):
-            key = f'ADMIN{i}'
-            env_value = os.getenv(key)
-            if env_value and env_value != '0':
-                admin_env_vars[key] = env_value
-
-        is_admin = self.is_admin(user_id)
-
-        message = f"""🔧 **Admin Setup Instructions**
-
-👤 **Your Information:**
-• **User ID**: `{user_id}`
-• **Name**: {first_name}
-• **Current Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
-
-📊 **Current Admin Configuration:**
-• **Configured Admins**: {len(self.admin_ids)}
-• **Admin IDs**: {sorted(list(self.admin_ids)) if self.admin_ids else 'NONE SET'}
-• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
-
-⚙️ **Setup Instructions:**
-
-**Step 1: Buka Replit Secrets**
-• Klik tab "Secrets" di sidebar kiri
-• Atau buka: Tools → Secrets
-
-**Step 2: Tambahkan Admin Configuration**
-• Key: `ADMIN1`
-• Value: `{user_id}` (your User ID)
-
-**Step 3 (Optional): Tambah Admin Kedua**
-• Key: `ADMIN2`
-• Value: `[USER_ID_ADMIN_KEDUA]`
-
-**Step 4: Restart Bot**
-• Klik Stop → Run untuk restart bot
-• Bot akan memuat konfigurasi admin baru
-
-💡 **Format Environment Variables:**
-```
-ADMIN1 = {user_id}
-ADMIN2 = [optional_second_admin_id]
-```
-
-🔍 **Verifikasi Setup:**
-• Gunakan `/admin` setelah restart
-• Gunakan `/sb_status` untuk test admin access
-
-⚠️ **Catatan Penting:**
-• Hanya user dengan ID yang sesuai yang bisa akses admin commands
-• Maksimal 9 admin (ADMIN1 sampai ADMIN9)
-• Restart diperlukan setelah mengubah environment variables"""
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def banned_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /banned command with Database Router"""
-        from app.db_router import ban_user, unban_user, get_user_info, check_user_banned
-        from app.safe_send import safe_reply
-
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await safe_reply(update.message, "❌ Access denied. Admin only command.")
+        if self.broadcast_in_progress:
+            await update.message.reply_text("❌ Broadcast sedang berlangsung. Harap tunggu.")
             return
 
-        if len(context.args) < 2:
-            await safe_reply(update.message,
-                "❌ **Format salah!**\n\n"
-                "Gunakan: `/banned <user_id> <action>`\n\n"
-                "**Available Actions:**\n"
-                "• `ban` - Ban user from using bot\n"
-                "• `unban` - Unban user\n"
-                "• `check` - Check ban status\n\n"
-                "**Contoh:**\n"
-                "• `/banned 123456789 ban`\n"
-                "• `/banned 123456789 unban`\n"
-                "• `/banned 123456789 check`"
-            )
-            return
+        # Start broadcast
+        self.broadcast_in_progress = True
+        all_users = self.db.get_all_users()
 
-        try:
-            target_user_id = int(context.args[0])
-            action = context.args[1].lower()
-        except ValueError:
-            await safe_reply(update.message, "❌ User ID harus berupa angka!")
-            return
+        await update.message.reply_text(f"📢 Memulai broadcast ke {len(all_users)} users...")
 
-        try:
-            # Get user info from router
-            user_info = get_user_info(target_user_id)
-            if not user_info:
-                await safe_reply(update.message, f"❌ User {target_user_id} tidak ditemukan.")
-                return
+        success_count = 0
+        for user_data in all_users:
+            user_id_target = user_data.get('user_id')
+            if not user_id_target:
+                continue
 
-            username = user_info.get('username', 'No username')
-            first_name = user_info.get('first_name', 'Unknown')
-            current_banned_status = check_user_banned(target_user_id)
-
-            if action == 'ban':
-                if current_banned_status:
-                    message = f"⚠️ **User sudah dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
-                else:
-                    ban_user(target_user_id)
-                    message = f"""🚫 **User berhasil dibanned!**
-
-👤 **User Info:**
-• **ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
-• **Status**: BANNED
-
-⚠️ User tidak dapat menggunakan bot lagi sampai di-unban."""
-
-                    # Log admin action
-                    self.db.log_user_activity(
-                        user_id,
-                        "admin_ban_user",
-                        f"Banned user {target_user_id} ({first_name})"
-                    )
-
-            elif action == 'unban':
-                if not current_banned_status:
-                    message = f"⚠️ **User tidak dalam status banned**\n\n👤 **User**: {first_name} (@{username})\n🆔 **ID**: {target_user_id}"
-                else:
-                    unban_user(target_user_id)
-                    message = f"""✅ **User berhasil di-unban!**
-
-👤 **User Info:**
-• **ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
-• **Status**: ACTIVE
-
-✅ User sekarang dapat menggunakan bot kembali."""
-
-                    # Log admin action
-                    self.db.log_user_activity(
-                        user_id,
-                        "admin_unban_user",
-                        f"Unbanned user {target_user_id} ({first_name})"
-                    )
-
-            elif action == 'check':
-                ban_status = "🚫 BANNED" if current_banned_status else "✅ ACTIVE"
-                message = f"""📊 **Ban Status Check**
-
-👤 **User Info:**
-• **ID**: {target_user_id}
-• **Name**: {first_name}
-• **Username**: @{username}
-• **Ban Status**: {ban_status}
-
-💡 User {'tidak dapat menggunakan bot' if current_banned_status else 'dapat menggunakan bot normal'}."""
-
-            else:
-                await safe_reply(update.message, f"❌ Action '{action}' tidak dikenali! Gunakan: ban, unban, atau check.")
-                return
-
-            await safe_reply(update.message, message)
-
-        except Exception as e:
-            await safe_reply(update.message, f"❌ Error sistem: {str(e)}")
-            print(f"Error in banned_command: {e}")
-
-    async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cancel_broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.pending_broadcast:
-            await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
-            return
-
-        self.pending_broadcast = None
-        await update.message.reply_text("✅ Broadcast dibatalkan.")
-
-    async def whoami_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /whoami command - shows user ID"""
-        user_id = update.effective_user.id if update.effective_user else None
-        username = update.effective_user.username if update.effective_user else "No username"
-        first_name = update.effective_user.first_name if update.effective_user else "Unknown"
-
-        message = f"👤 **Your Information:**\n\n"
-        message += f"• **User ID**: `{user_id}`\n"
-        message += f"• **Username**: @{username}\n"
-        message += f"• **Name**: {first_name}\n"
-        message += f"• **Admin Status**: {'✅ ADMIN' if self.is_admin(user_id) else '❌ NOT ADMIN'}"
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def admin_debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin_debug command - shows admin configuration debug info"""
-        user_id = update.effective_user.id if update.effective_user else None
-
-        message = f"🔧 **Admin Debug Information**\n\n"
-        message += f"👤 **Caller ID**: `{user_id}`\n"
-        message += f"✅ **Is Admin**: {self.is_admin(user_id)}\n"
-
-        if ADMIN_SYSTEM_AVAILABLE:
-            admin_ids = get_admin_ids()
-            message += f"👑 **Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
-            message += f"🆕 **System**: New Dynamic Admin Auth\n\n"
-
-            # Show environment variables
-            admin1 = os.getenv("ADMIN1", "").strip()
-            admin2 = os.getenv("ADMIN2", "").strip()
-            admin_user_id = os.getenv("ADMIN_USER_ID", "").strip()
-            admin2_user_id = os.getenv("ADMIN2_USER_ID", "").strip()
-
-            env_vars = []
-            if admin1: env_vars.append("ADMIN1=SET")
-            if admin2: env_vars.append("ADMIN2=SET")
-            if admin_user_id: env_vars.append("ADMIN_USER_ID=SET")
-            if admin2_user_id: env_vars.append("ADMIN2_USER_ID=SET")
-
-            message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
-        else:
-            message += f"⚠️ **System**: Fallback (New system failed to load)\n\n"
-
-        message += f"💡 **Setup Instructions:**\n"
-        message += f"• Set `ADMIN1` = `{user_id}` in Replit Secrets\n"
-        message += f"• Optional: Set `ADMIN2` for second admin\n"
-        message += f"• Restart bot after changes\n\n"
-        message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def _on_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Global error handler to log unhandled exceptions"""
-        user_id = getattr(getattr(update, "effective_user", None), "id", None)
-        command = getattr(getattr(update, "message", None), "text", "unknown")
-        print(f"⚠️ Bot Error: {repr(context.error)} | User: {user_id} | Command: {command[:50]}")
-
-    def _register_handlers(self):
-        """Register all bot handlers"""
-        # Add command handlers with proper async functions
-        self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("price", self.price_command))
-        self.application.add_handler(CommandHandler("analyze", self.analyze_command))
-        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
-        self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
-        self.application.add_handler(CommandHandler("market", self.market_command))
-        self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
-        self.application.add_handler(CommandHandler("futures", self.futures_command))
-        self.application.add_handler(CommandHandler("credits", self.credits_command))
-        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
-        self.application.add_handler(CommandHandler("referral", self.referral_command))
-        self.application.add_handler(CommandHandler("language", self.language_command))
-        self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
-        self.application.add_handler(CommandHandler("whoami", self.whoami_command))
-        self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
-
-        # Admin commands
-        self.application.add_handler(CommandHandler("admin", self.admin_command))
-        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
-        self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
-        self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
-        self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
-        self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
-        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-        self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
-        self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
-        self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
-        self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
-        self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
-        self.application.add_handler(CommandHandler("restart", self.restart_command))
-        self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
-        self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
-        self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
-        self.application.add_handler(CommandHandler("banned", self.banned_command))
-
-        # Local database status only
-        print("✅ Local database status available")
-        # Renamed for clarity and consistency with user request
-        self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
-        self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
-        self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
-
-
-        # Add callback query handler
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-
-        # Add database status command
-        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
-
-        # Local database commands only
-        print("✅ Local database commands active")
-
-        # Add debug commands
-        if ADMIN_SYSTEM_AVAILABLE:
             try:
-                from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
-                self.application.add_handler(CommandHandler("whoami", cmd_whoami))
-                self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
-                print("✅ Admin debug commands registered")
-            except ImportError as e:
-                print(f"⚠️ Could not register debug commands: {e}")
+                # Send message with exact formatting - try markdown first, fallback to plain text
+                try:
+                    await self.application.bot.send_message(
+                        chat_id=user_id_target,
+                        text=self.pending_broadcast,
+                        parse_mode='Markdown'
+                    )
+                except Exception as markdown_error:
+                    # If markdown fails, send as plain text to preserve exact formatting
+                    print(f"Markdown failed for user {user_id_target}, sending as plain text: {markdown_error}")
+                    await self.application.bot.send_message(
+                        chat_id=user_id_target,
+                        text=self.pending_broadcast,
+                        parse_mode=None
+                    )
 
-        # Add AutoSignal admin commands
-        try:
-            from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
-            self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
-            self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
-            self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
-            self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
-            print("✅ AutoSignal admin commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register AutoSignal commands: {e}")
+                success_count += 1
+                await asyncio.sleep(0.1)  # Rate limiting
 
-        # Add message handler for regular text (should be last)
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+            except Exception as e:
+                print(f"Failed to send broadcast to user {user_id_target}: {e}")
+                continue
 
-    # End of TelegramBot class definition
+        # Cleanup
+        self.pending_broadcast = None
+        self.broadcast_in_progress = False
+
+        await update.message.reply_text(f"✅ Broadcast selesai! Berhasil dikirim ke {success_count}/{len(all_users)} users.")
+
+    async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /cancel_broadcast command"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.pending_broadcast:
+            await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
+            return
+
+        self.pending_broadcast = None
+        await update.message.reply_text("✅ Broadcast dibatalkan.")
+
 if __name__ == "__main__":
     bot = TelegramBot()
     asyncio.run(bot.run_bot())

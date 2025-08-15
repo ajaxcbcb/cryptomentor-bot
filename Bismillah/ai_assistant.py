@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-# TODO: Add database client import after setup
+from supabase_client import supabase
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -25,9 +25,19 @@ class AIAssistant:
             "Accept": "application/json"
         } if self.cmc_api_key else {}
 
-        # Local SQLite database only
-        self.local_db_connected = True
+        # Initialize Supabase connection with validation
+        self.supabase = self._init_supabase()
+        self.supabase_connected = self._validate_supabase_connection()
+
+        # Admin logging system - ensure this is always initialized
         self.admin_log = []
+        
+        # Connection monitoring
+        self.connection_status = {
+            'last_check': datetime.now(),
+            'consecutive_failures': 0,
+            'total_reconnections': 0
+        }
 
         # Enhanced configuration
         self.auto_signal_enabled = True
@@ -39,15 +49,50 @@ class AIAssistant:
         # Target symbols for futures analysis
 
     def check_connection_health(self):
-        """Local database health check"""
-        return self.local_db_connected
+        """Periodic health check for Supabase connection"""
+        try:
+            current_time = datetime.now()
+            
+            # Check if we need to perform health check (every 5 minutes)
+            if (current_time - self.connection_status['last_check']).total_seconds() < 300:
+                return self.supabase_connected
+            
+            print("🏥 Performing Supabase connection health check...")
+            
+            if self._test_supabase_connection():
+                self.connection_status['consecutive_failures'] = 0
+                self.supabase_connected = True
+                print("✅ Connection health check passed")
+            else:
+                self.connection_status['consecutive_failures'] += 1
+                print(f"❌ Connection health check failed (failures: {self.connection_status['consecutive_failures']})")
+                
+                # Auto-reconnect after 2 consecutive failures
+                if self.connection_status['consecutive_failures'] >= 2:
+                    print("🔄 Triggering auto-reconnection due to health check failures")
+                    if self._reconnect_supabase():
+                        self.connection_status['total_reconnections'] += 1
+                        self.supabase_connected = True
+                    else:
+                        self.supabase_connected = False
+            
+            self.connection_status['last_check'] = current_time
+            return self.supabase_connected
+            
+        except Exception as e:
+            print(f"❌ Health check error: {e}")
+            self.supabase_connected = False
+            return False
 
     def get_connection_stats(self):
-        """Get local database connection stats"""
+        """Get connection statistics for monitoring"""
         return {
-            'connected': self.local_db_connected,
-            'database_type': 'SQLite Local',
-            'status': 'healthy'
+            'connected': self.supabase_connected,
+            'last_user_count': AIAssistant._last_user_count,
+            'consecutive_failures': self.connection_status['consecutive_failures'],
+            'total_reconnections': self.connection_status['total_reconnections'],
+            'last_check': self.connection_status['last_check'].isoformat(),
+            'retry_count': AIAssistant._connection_retry_count
         }
 
 
@@ -55,17 +100,42 @@ class AIAssistant:
 
     @classmethod
     def reset_connection_after_deploy(cls):
-        """Local database reset (no action needed)"""
-        print("✅ Local SQLite database ready")
+        """Reset connection state after bot redeploy"""
+        print("🔄 Resetting Supabase connection state after deployment...")
+        cls._supabase_instance = None
+        cls._connection_retry_count = 0
+        cls._last_user_count = None
+        print("✅ Connection state reset complete")
 
     def post_deploy_validation(self):
-        """Validate local database after deployment"""
+        """Validate data consistency after deployment"""
         try:
-            print("🔍 Validating local SQLite database...")
-            print("✅ Local database validation complete")
-            return True
+            print("🔍 Running post-deployment validation...")
+            
+            # Reset connection state
+            self.reset_connection_after_deploy()
+            
+            # Reinitialize connection
+            self.supabase = self._init_supabase()
+            self.supabase_connected = self._validate_supabase_connection()
+            
+            if self.supabase_connected:
+                # Validate data integrity
+                user_count = self.get_user_count()
+                premium_count = self.get_premium_users_count()
+                
+                print(f"✅ Post-deploy validation complete:")
+                print(f"   📊 Total users: {user_count}")
+                print(f"   👑 Premium users: {premium_count}")
+                print(f"   🔗 Connection: {'✅ Stable' if self.supabase_connected else '❌ Failed'}")
+                
+                return True
+            else:
+                print("❌ Post-deployment validation failed - connection not established")
+                return False
+                
         except Exception as e:
-            print(f"❌ Local database validation error: {e}")
+            print(f"❌ Post-deployment validation error: {e}")
             return False
 
 
@@ -83,11 +153,144 @@ class AIAssistant:
 
         print(f"✅ CryptoMentor AI initialized - Professional Trading Assistant")
 
-    # Local SQLite database only
+    _supabase_instance = None
+    _last_user_count = None
+    _connection_retry_count = 0
+    _max_retries = 3
 
-    def _check_local_db_connection(self):
-        """Check local database connection"""
-        return self.local_db_connected
+    def _init_supabase(self):
+        """Initialize Supabase client using centralized client"""
+        try:
+            # Use the centralized supabase client
+            AIAssistant._supabase_instance = supabase
+            print("✅ Using centralized Supabase client")
+            
+            # Test connection immediately
+            if self._test_supabase_connection():
+                return AIAssistant._supabase_instance
+            else:
+                print("❌ Supabase connection test failed")
+                return None._supabase_instance = None
+                return None
+
+        except Exception as e:
+            print(f"❌ Supabase initialization failed: {e}")
+            AIAssistant._supabase_instance = None
+            return None
+
+    def _test_supabase_connection(self):
+        """Test Supabase connection with ping"""
+        try:
+            if not AIAssistant._supabase_instance:
+                return False
+
+            # Simple ping test
+            result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').limit(1).execute()
+            
+            # Store user count for validation
+            current_count = result.count if hasattr(result, 'count') else 0
+            
+            # Validate data consistency
+            if AIAssistant._last_user_count is not None:
+                if abs(current_count - AIAssistant._last_user_count) > 5:
+                    print(f"⚠️ Data inconsistency detected: {AIAssistant._last_user_count} → {current_count}")
+                    # Re-fetch all data to ensure consistency
+                    self._validate_data_integrity()
+            
+            AIAssistant._last_user_count = current_count
+            print(f"✅ Supabase connection active - Users: {current_count}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Supabase connection test failed: {e}")
+            return False
+
+    def _reconnect_supabase(self):
+        """Reconnect to Supabase with retry logic"""
+        if AIAssistant._connection_retry_count >= AIAssistant._max_retries:
+            print(f"❌ Max retries ({AIAssistant._max_retries}) reached for Supabase reconnection")
+            return False
+
+        try:
+            AIAssistant._connection_retry_count += 1
+            print(f"🔄 Attempting Supabase reconnection (attempt {AIAssistant._connection_retry_count}/{AIAssistant._max_retries})")
+            
+            # Reset instance to force new connection
+            AIAssistant._supabase_instance = None
+            
+            # Wait before retry
+            import time
+            time.sleep(2)
+            
+            # Reinitialize
+            self.supabase = self._init_supabase()
+            
+            if self.supabase and self._test_supabase_connection():
+                print("✅ Supabase reconnection successful")
+                AIAssistant._connection_retry_count = 0  # Reset counter on success
+                return True
+            else:
+                return False
+
+        except Exception as e:
+            print(f"❌ Supabase reconnection failed: {e}")
+            return False
+
+    def _validate_data_integrity(self):
+        """Validate data integrity after inconsistency detection"""
+        try:
+            if not AIAssistant._supabase_instance:
+                return False
+
+            print("🔍 Validating data integrity...")
+            
+            # Get complete user count
+            result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').execute()
+            total_users = result.count if hasattr(result, 'count') else 0
+            
+            # Get premium users count
+            premium_result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').eq('is_premium', True).execute()
+            premium_users = premium_result.count if hasattr(premium_result, 'count') else 0
+            
+            print(f"📊 Data integrity check: Total={total_users}, Premium={premium_users}")
+            
+            # Update cached values
+            AIAssistant._last_user_count = total_users
+            
+            return True
+
+        except Exception as e:
+            print(f"❌ Data integrity validation failed: {e}")
+            return False
+
+    def _ensure_supabase_connection(self):
+        """Ensure Supabase connection before query execution"""
+        # Test existing connection
+        if self._test_supabase_connection():
+            return True
+        
+        # Try to reconnect if connection failed
+        print("🔄 Connection lost, attempting reconnection...")
+        return self._reconnect_supabase()
+
+    def _validate_supabase_connection(self):
+        """Enhanced validation with auto-reconnect"""
+        try:
+            if not AIAssistant._supabase_instance:
+                print("⚠️ No Supabase instance - attempting initialization")
+                self.supabase = self._init_supabase()
+                return bool(self.supabase)
+
+            # Test connection
+            if self._test_supabase_connection():
+                return True
+            else:
+                # Try reconnection
+                return self._reconnect_supabase()
+
+        except Exception as e:
+            print(f"❌ Supabase validation failed: {e}")
+            return False
 
     def _log_admin_error(self, command, error_detail):
         """Log errors for admin only"""
@@ -131,13 +334,27 @@ class AIAssistant:
         return self._escape_markdown_v2(formatted)
 
     def _check_database_required(self, command_name):
-        """Check if local database is available for command"""
-        # Local SQLite database is always available
+        """Check if database is required and available for command"""
+        # Perform periodic health check
+        self.check_connection_health()
+        
+        # Most commands don't actually require database for core functionality
+        # Only user-specific features like premium status, credits need database
+        if command_name in ['ANALYZE', 'FUTURES', 'FUTURES_SIGNALS', 'MARKET_SENTIMENT']:
+            # These commands work fine without database
+            return True, None
+
+        if not self.supabase_connected:
+            print(f"⚠️ Database not available for {command_name} - continuing with limited functionality")
+            # Try one more reconnection attempt for critical operations
+            if command_name in ['USER_MANAGEMENT', 'PREMIUM_CHECK']:
+                self._reconnect_supabase()
+            return True, None  # Don't block execution
         return True, None
 
     def _get_database_error_message(self):
         """Get user-friendly database error message"""
-        return """⚠️ Database tidak tersedia saat ini\. 
+        return """⚠️ Database tidak tersedia saat ini\\. 
 
 ✅ Analisis tetap berfungsi normal\\!
 💡 Fitur premium dan riwayat mungkin terbatas\\."""
@@ -441,36 +658,94 @@ class AIAssistant:
         except Exception as e:
             return {'error': f'Request failed: {str(e)}', 'success': False}
 
+    def _supabase_query(self, query_func, operation_name="query"):
+        """Execute Supabase query with auto-reconnection"""
+        max_attempts = 3
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Ensure connection is active
+                if not self._ensure_supabase_connection():
+                    if attempt == max_attempts:
+                        print(f"❌ {operation_name} failed: No stable connection after {max_attempts} attempts")
+                        return None
+                    continue
+
+                # Execute query
+                result = query_func()
+                
+                # Log successful operation
+                if attempt > 1:
+                    print(f"✅ {operation_name} successful on attempt {attempt}")
+                
+                return result
+
+            except Exception as e:
+                print(f"❌ {operation_name} attempt {attempt} failed: {e}")
+                
+                if attempt < max_attempts:
+                    print(f"🔄 Retrying {operation_name} in 2 seconds...")
+                    import time
+                    time.sleep(2)
+                    
+                    # Force reconnection for next attempt
+                    AIAssistant._supabase_instance = None
+                    self.supabase = self._init_supabase()
+                else:
+                    print(f"❌ {operation_name} failed after {max_attempts} attempts")
+                    return None
+
+        return None
+
     def save_user(self, user_id, username=""):
-        """Save user to local database"""
-        try:
-            from app.db.local_db import upsert_user
-            import asyncio
-            asyncio.run(upsert_user(str(user_id), username=username))
-            return True
-        except Exception as e:
-            print(f"Error saving user: {e}")
-            return False
+        """Save user to database with auto-reconnection"""
+        def query_operation():
+            # Check if user exists
+            existing_user = self.supabase.table('users').select('*').eq('id', str(user_id)).execute()
+            if existing_user.data:
+                return True
+
+            # Create new user
+            user_data = {
+                'id': str(user_id),
+                'username': username,
+                'joined_at': datetime.now().isoformat(),
+                'status': 'free'
+            }
+
+            result = self.supabase.table('users').insert(user_data).execute()
+            return bool(result.data)
+
+        return self._supabase_query(query_operation, "save_user") or False
 
     def get_user_count(self):
-        """Get user count from local database"""
-        try:
-            from app.db.local_db import count_users
-            import asyncio
-            return asyncio.run(count_users())
-        except Exception as e:
-            print(f"Error getting user count: {e}")
-            return 0
+        """Get total user count with data validation"""
+        def query_operation():
+            result = self.supabase.from_('users').select('count', count='exact').execute()
+            return result.count if hasattr(result, 'count') else 0
+
+        count = self._supabase_query(query_operation, "get_user_count")
+        
+        if count is not None:
+            # Validate against last known count
+            if AIAssistant._last_user_count is not None:
+                diff = abs(count - AIAssistant._last_user_count)
+                if diff > 5:
+                    print(f"⚠️ Significant user count change detected: {AIAssistant._last_user_count} → {count}")
+                    # Trigger data integrity check
+                    self._validate_data_integrity()
+            
+            AIAssistant._last_user_count = count
+            
+        return count or 0
 
     def get_premium_users_count(self):
-        """Get premium user count from local database"""
-        try:
-            from app.db.local_db import count_premium_users
-            import asyncio
-            return asyncio.run(count_premium_users())
-        except Exception as e:
-            print(f"Error getting premium user count: {e}")
-            return 0
+        """Get premium user count with validation"""
+        def query_operation():
+            result = self.supabase.from_('users').select('count', count='exact').eq('is_premium', True).execute()
+            return result.count if hasattr(result, 'count') else 0
+
+        return self._supabase_query(query_operation, "get_premium_users_count") or 0
 
     def greet(self):
         return f"Halo! Saya {self.name}, asisten trading crypto profesional dengan analisis multi-timeframe dan supply/demand zones."
@@ -596,22 +871,13 @@ class AIAssistant:
             analysis = f"""🔍 **PROFESSIONAL COMPREHENSIVE ANALYSIS - {symbol}**
 
 🕐 **Analysis Time**: {current_time}
-💰 **Current Price**: ${current_price:,.2f}
+💰 **Current Price**: ${current_price:,.6f}
 📊 **24h Change**: {change_24h:+.2f}%
 
 {direction_emoji} **TRADING SIGNAL**: {signal_data['direction']}
 {confidence_emoji} **Confidence**: {confidence:.1f}% ({confidence_desc})
 🎯 **Strategy**: {signal_data.get('strategy', 'Technical Analysis')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
-
-💰 **DETAILED TRADING SETUP:**
-• Entry: ${trading_levels['entry']:,.6f}
-• Stop Loss: ${trading_levels['stop_loss']:,.6f}
-• TP1 (50%): ${trading_levels['tp1']:,.6f}
-• TP2 (30%): ${trading_levels['tp2']:,.6f} 
-• TP3 (20%): ${trading_levels['tp3']:,.6f}
-• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
-• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
 """
 
@@ -691,7 +957,7 @@ class AIAssistant:
             return self._error_fallback(symbol, f"comprehensive analysis: {str(e)[:50]}")
 
     async def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
-        """Enhanced futures analysis with comprehensive breakdown - Fixed async function"""
+        """Enhanced futures analysis with comprehensive breakdown"""
         try:
             # Check database connection for user-related operations
             db_available, db_error = self._check_database_required("FUTURES")
@@ -784,14 +1050,17 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-💰 **DETAILED TRADING SETUP:**
-• Entry: ${trading_levels['entry']:.2f}
-• Stop Loss: ${trading_levels['stop_loss']:.2f}
-• TP1 (50%): ${trading_levels['tp1']:.2f}
-• TP2 (30%): ${trading_levels['tp2']:.2f} 
-• TP3 (20%): ${trading_levels['tp3']:.2f}
+```
+💰 DETAILED TRADING SETUP:
+• Entry Zone: ${trading_levels['entry_min']:.6f} - ${trading_levels['entry_max']:.6f}
+• Optimal Entry: ${trading_levels['entry']:.6f}
+• Stop Loss: ${trading_levels['stop_loss']:.6f}
+• TP1 (50%): ${trading_levels['tp1']:.6f}
+• TP2 (30%): ${trading_levels['tp2']:.6f} 
+• TP3 (20%): ${trading_levels['tp3']:.6f}
 • Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
 • Max Risk: {trading_levels['risk_percentage']:.1f}% per position
+```
 
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe}):
@@ -884,203 +1153,6 @@ class AIAssistant:
         except Exception as e:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
-    def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
-        """Generate enhanced trading signal with multiple timeframe confirmation - Helper function"""
-        try:
-            # Basic signal logic with enhanced features
-            confidence = 0
-            direction = 'NEUTRAL'
-            
-            # Primary timeframe indicators
-            ema_50 = primary_indicators.get('ema_50', 0)
-            ema_200 = primary_indicators.get('ema_200', 0)
-            rsi = primary_indicators.get('rsi', 50)
-            macd = primary_indicators.get('macd_histogram', 0)
-            
-            # Trend determination
-            if ema_50 > ema_200:
-                confidence += 30
-                if rsi < 70:
-                    confidence += 15
-                if macd > 0:
-                    confidence += 15
-                direction = 'LONG'
-            elif ema_50 < ema_200:
-                confidence += 30
-                if rsi > 30:
-                    confidence += 15
-                if macd < 0:
-                    confidence += 15
-                direction = 'SHORT'
-            else:
-                confidence += 10
-                
-            # Higher timeframe confirmation
-            if higher_tf_indicators:
-                htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
-                htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
-                if htf_ema_50 > htf_ema_200 and direction == 'LONG':
-                    confidence += 20
-                elif htf_ema_50 < htf_ema_200 and direction == 'SHORT':
-                    confidence += 20
-                    
-            # Futures data confirmation
-            if futures_data and futures_data.get('success'):
-                funding_rate = futures_data.get('funding_rate', 0)
-                if abs(funding_rate) < 0.01:  # Normal funding
-                    confidence += 10
-                    
-            return {
-                'direction': direction,
-                'confidence': min(confidence, 100),
-                'strategy': 'Multi-Timeframe Analysis',
-                'time_horizon': '4-24 hours',
-                'mtf_confirmation': 'Strong' if confidence > 80 else 'Partial',
-                'volume_trend': 'Normal'
-            }
-            
-        except Exception as e:
-            return {
-                'direction': 'NEUTRAL',
-                'confidence': 50,
-                'strategy': 'Basic Analysis',
-                'time_horizon': '4-24 hours',
-                'error': str(e)
-            }
-
-    def _calculate_advanced_trading_levels(self, current_price, signal_data, indicators, snd_data):
-        """Calculate advanced trading levels with proper risk management - Helper function"""
-        try:
-            atr = indicators.get('atr', current_price * 0.02)
-            direction = signal_data['direction']
-            
-            if direction == 'LONG':
-                entry = current_price * 0.999
-                stop_loss = current_price - (atr * 2.5)
-                tp1 = current_price + (atr * 1.5)
-                tp2 = current_price + (atr * 3)
-                tp3 = current_price + (atr * 4.5)
-            elif direction == 'SHORT':
-                entry = current_price * 1.001
-                stop_loss = current_price + (atr * 2.5)
-                tp1 = current_price - (atr * 1.5)
-                tp2 = current_price - (atr * 3)
-                tp3 = current_price - (atr * 4.5)
-            else:
-                return {
-                    'entry': current_price,
-                    'stop_loss': current_price,
-                    'tp1': current_price,
-                    'tp2': current_price,
-                    'tp3': current_price,
-                    'rr_ratio': 0,
-                    'risk_percentage': 2.5
-                }
-                
-            # Calculate risk/reward ratio
-            risk = abs(entry - stop_loss)
-            reward = abs(tp2 - entry)
-            rr_ratio = reward / risk if risk > 0 else 0
-            
-            return {
-                'entry': entry,
-                'stop_loss': stop_loss,
-                'tp1': tp1,
-                'tp2': tp2,
-                'tp3': tp3,
-                'rr_ratio': rr_ratio,
-                'risk_percentage': 2.5
-            }
-            
-        except Exception as e:
-            return {
-                'entry': current_price,
-                'stop_loss': current_price,
-                'tp1': current_price,
-                'tp2': current_price,
-                'tp3': current_price,
-                'rr_ratio': 0,
-                'risk_percentage': 2.5
-            }
-
-    def _get_futures_bias(self, long_ratio, funding_rate):
-        """Get futures bias based on long/short ratio and funding rate - Helper function"""
-        try:
-            if long_ratio > 60 and funding_rate > 0.01:
-                return "Bullish Overheated"
-            elif long_ratio > 55:
-                return "Bullish"
-            elif long_ratio < 40 and funding_rate < -0.01:
-                return "Bearish Oversold"
-            elif long_ratio < 45:
-                return "Bearish"
-            else:
-                return "Neutral"
-        except:
-            return "Neutral"
-
-    def _get_zone_position(self, current_price, supply_zone, demand_zone):
-        """Determine current position relative to supply/demand zones - Helper function"""
-        try:
-            if current_price > supply_zone:
-                return "Above Supply Zone"
-            elif current_price < demand_zone:
-                return "Below Demand Zone"
-            else:
-                return "Between Zones"
-        except:
-            return "Unknown Position"
-
-    def _get_advanced_trading_insights(self, signal_data, trading_levels, confidence):
-        """Generate advanced trading insights - Helper function"""
-        try:
-            insights = []
-            
-            if confidence >= 80:
-                insights.append("• High probability setup dengan multiple confirmations")
-            elif confidence >= 70:
-                insights.append("• Setup trading solid dengan konfirmasi cukup")
-            else:
-                insights.append("• Setup berisiko, gunakan position size kecil")
-                
-            rr_ratio = trading_levels.get('rr_ratio', 0)
-            if rr_ratio > 2:
-                insights.append("• Risk/Reward ratio menguntungkan untuk swing trading")
-            elif rr_ratio > 1:
-                insights.append("• Risk/Reward ratio acceptable untuk day trading")
-            else:
-                insights.append("• Risk/Reward ratio kurang ideal, pertimbangkan skip")
-                
-            direction = signal_data.get('direction', 'NEUTRAL')
-            if direction != 'NEUTRAL':
-                insights.append(f"• Bias market mendukung posisi {direction}")
-            else:
-                insights.append("• Market dalam kondisi sideways, tunggu breakout")
-                
-            return "\n".join(insights)
-            
-        except Exception as e:
-            return "• Analisis insight temporarily unavailable"
-
-    def _filter_and_format_signals(self, all_signals):
-        """Filter and format signals for display - Helper function"""
-        try:
-            # Filter signals with confidence >= 75%
-            filtered = [s for s in all_signals if s.get('confidence', 0) >= 75]
-            
-            # Sort by confidence (highest first)
-            filtered.sort(key=lambda x: x.get('confidence', 0), reverse=True)
-            
-            # Take top 10 signals to avoid spam
-            return filtered[:10]
-            
-        except Exception as e:
-            return []
-
-    def _error_fallback(self, symbol, error_context):
-        """Generate error fallback message - Helper function"""
-        return f"❌ Error in {error_context} for {symbol}\n\n💡 Alternatif:\n• `/price {symbol.lower()}` untuk harga basic\n• Contact admin jika masalah berlanjut"
-
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
         """Generate futures signals with proper formatting and filtering"""
         try:
@@ -1150,37 +1222,13 @@ class AIAssistant:
 
 📡 Next scan akan mengacak koin berbeda"""
 
-            # Get global market metrics for header
-            global_metrics = self.get_cmc_global_metrics()
+            # Format signals message
+            message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-            # Format header with global metrics
-            if global_metrics.get('success'):
-                total_market_cap = global_metrics.get('total_market_cap', 0)
-                market_cap_change = global_metrics.get('market_cap_change_24h', 0)
-                total_volume = global_metrics.get('total_volume_24h', 0)
-                active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
-                btc_dominance = global_metrics.get('btc_dominance', 0)
-                eth_dominance = global_metrics.get('eth_dominance', 0)
-
-                header_metrics = f"""💰 **GLOBAL METRICS:**
-• Total Market Cap: ${total_market_cap/1e12:.2f}T
-• 24h Market Change: {market_cap_change:+.2f}%
-• Total Volume 24h: ${total_volume/1e9:.1f}B
-• Active Cryptocurrencies: {active_cryptos:,}
-• BTC Dominance: {btc_dominance:.1f}%
-• ETH Dominance: {eth_dominance:.1f}%
+🕐 Scan Time: {current_time}
+📊 Signals Found: {len(filtered_signals)} (Confidence ≥ 75.00%)
 
 """
-            else:
-                header_metrics = ""
-
-            # Format signals message
-            message = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
-
-🕐 **Scan Time**: {current_time}
-📊 **Signals Found**: {len(filtered_signals)} (Confidence ≥ 75.00%)
-
-{header_metrics}"""
 
             for i, signal in enumerate(filtered_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
@@ -1190,7 +1238,7 @@ class AIAssistant:
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
+                message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
 ⭐️ Confidence: {signal['confidence']:.2f}%
 💰 Entry: ${signal['entry']:.2f}
 🛑 Stop Loss: ${signal['sl']:.2f}
@@ -1217,117 +1265,6 @@ class AIAssistant:
 
         except Exception as e:
             return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
-
-    def get_market_sentiment(self, language='id', crypto_api=None):
-        """Get comprehensive market sentiment analysis - Non-async function"""
-        try:
-            current_time = self._get_wib_time()
-            
-            # Get global market metrics
-            global_metrics = self.get_cmc_global_metrics()
-            
-            if not global_metrics.get('success'):
-                return self._get_basic_market_fallback()
-                
-            # Extract key metrics
-            total_market_cap = global_metrics.get('total_market_cap', 0)
-            market_cap_change = global_metrics.get('market_cap_change_24h', 0)
-            total_volume = global_metrics.get('total_volume_24h', 0)
-            active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
-            btc_dominance = global_metrics.get('btc_dominance', 0)
-            eth_dominance = global_metrics.get('eth_dominance', 0)
-
-            # Market sentiment analysis
-            if market_cap_change > 3:
-                sentiment = "🚀 Very Bullish"
-                sentiment_desc = "Market sangat bullish dengan pertumbuhan kuat"
-            elif market_cap_change > 1:
-                sentiment = "📈 Bullish"
-                sentiment_desc = "Market bullish dengan tren positif"
-            elif market_cap_change > -1:
-                sentiment = "😐 Neutral"
-                sentiment_desc = "Market dalam kondisi sideways"
-            elif market_cap_change > -3:
-                sentiment = "📉 Bearish"
-                sentiment_desc = "Market bearish dengan tekanan jual"
-            else:
-                sentiment = "💥 Very Bearish"
-                sentiment_desc = "Market sangat bearish dengan penurunan tajam"
-
-            # Format market analysis
-            analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL**
-
-🕐 **Analysis Time**: {current_time}
-🎯 **Market Sentiment**: {sentiment}
-
-💰 **GLOBAL METRICS:**
-• Total Market Cap: ${total_market_cap/1e12:.2f}T
-• 24h Market Change: {market_cap_change:+.2f}%
-• Total Volume 24h: ${total_volume/1e9:.1f}B
-• Active Cryptocurrencies: {active_cryptos:,}
-• BTC Dominance: {btc_dominance:.1f}%
-• ETH Dominance: {eth_dominance:.1f}%
-
-📊 **MARKET ANALYSIS:**
-• 🎭 **Sentiment**: {sentiment_desc}
-• 📈 **Dominance**: {"BTC masih mendominasi" if btc_dominance > 50 else "Altseason potential"}
-• 💹 **Volume**: {"Tinggi" if total_volume > 50e9 else "Normal" if total_volume > 30e9 else "Rendah"}
-• 🌊 **Trend**: {"Uptrend" if market_cap_change > 1 else "Downtrend" if market_cap_change < -1 else "Sideways"}
-
-💡 **TRADING RECOMMENDATIONS:**
-{self._get_market_trading_recommendations(market_cap_change, btc_dominance)}
-
-📡 **Data Sources**: CoinMarketCap Global Metrics
-🔄 **Update Frequency**: Real-time market data refresh"""
-
-            return analysis
-            
-        except Exception as e:
-            return self._get_basic_market_fallback()
-
-    def _get_market_trading_recommendations(self, market_change, btc_dominance):
-        """Get trading recommendations based on market conditions - Helper function"""
-        try:
-            recommendations = []
-            
-            if market_change > 2:
-                recommendations.append("• 🚀 Consider long positions pada major coins")
-                recommendations.append("• 📈 Altcoins berpotensi follow BTC momentum")
-            elif market_change > 0:
-                recommendations.append("• 🎯 Selective long pada coins dengan strong fundamentals")
-                recommendations.append("• ⚖️ Risk management tetap prioritas")
-            elif market_change < -2:
-                recommendations.append("• 🛡️ Defensive strategy, consider short positions")
-                recommendations.append("• 💰 DCA opportunities pada major dips")
-            else:
-                recommendations.append("• 🕐 Wait and see approach")
-                recommendations.append("• 📊 Focus on technical analysis untuk entry points")
-                
-            if btc_dominance > 55:
-                recommendations.append("• 👑 BTC dominance tinggi, focus pada BTC trades")
-            elif btc_dominance < 45:
-                recommendations.append("• 🌈 Altseason potential, consider altcoin positions")
-                
-            return "\n".join(recommendations)
-            
-        except:
-            return "• Analisis rekomendasi temporarily unavailable"
-
-    def _get_basic_market_fallback(self):
-        """Get basic market fallback when APIs fail - Helper function"""
-        return """🌍 **OVERVIEW PASAR CRYPTO**
-
-⚠️ **Data global sementara tidak tersedia**
-
-💡 **Alternatif analisis:**
-• `/price btc` - Cek harga Bitcoin real-time
-• `/price eth` - Cek harga Ethereum real-time  
-• `/analyze btc` - Analisis fundamental Bitcoin
-• `/futures_signals` - Scan sinyal trading
-
-🔄 **Coba command `/market` lagi dalam beberapa menit**
-
-📡 **Info**: Menggunakan analisis teknikal sebagai backup"""
 
     # ============ HELPER METHODS ============
 
@@ -1749,7 +1686,7 @@ class AIAssistant:
             return None
 
     async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
-        """Enhanced scan for trading signal with more detailed logic - Fixed async function"""
+        """Enhanced scan for trading signal with more detailed logic"""
         try:
             if not crypto_api:
                 return None
@@ -2142,11 +2079,11 @@ class AIAssistant:
         filtered = []
         for signal in signals:
             confidence = signal.get('confidence', 0)
-
+            
             # Fix confidence if > 100 (divide by 10)
             if confidence > 100:
                 confidence = confidence / 10
-
+                
             # Only keep signals with >= 75% confidence
             if confidence >= 75.0:
                 # Format the signal properly
@@ -2178,7 +2115,7 @@ class AIAssistant:
         """Format individual signal according to rules"""
         # Format R/R Ratio properly (X.X:1) - ensure one decimal place
         rr_value = signal.get('risk_reward', 2.0)
-
+        
         # Handle different input formats
         if isinstance(rr_value, str):
             # Extract number from string like "2.5:1"
@@ -2190,14 +2127,14 @@ class AIAssistant:
             rr_value = float(rr_value)
         else:
             rr_value = 2.0
-
+        
         # Ensure proper formatting with exactly 1 decimal place
         rr_formatted = f"{rr_value:.1f}:1"
 
         # Determine trend based on direction
         direction = signal.get('direction', 'LONG')
         trend = signal.get('primary_trend', 'Bullish' if direction in ['LONG', 'BUY'] else 'Bearish')
-
+        
         return {
             'symbol': signal.get('symbol', 'UNKNOWN'),
             'direction': direction,
@@ -2323,13 +2260,15 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
 📊 **Global Sentiment**: {sentiment}
 ⭐ **Confidence**: {confidence}%
 
-💰 **GLOBAL METRICS:**
+```
+💰 GLOBAL METRICS:
 • Total Market Cap: ${total_market_cap/1e12:.2f}T
 • 24h Market Change: {self._format_percentage(market_cap_change)}
 • Total Volume 24h: ${total_volume/1e9:.1f}B
 • Active Cryptocurrencies: {active_cryptos:,}
 • BTC Dominance: {btc_dominance:.1f}%
 • ETH Dominance: {eth_dominance:.1f}%
+```
 
 🔬 **MARKET STRUCTURE ANALYSIS**:
 🔄 **Trend**: {trend}

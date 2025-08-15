@@ -14,7 +14,7 @@ from datetime import datetime
 # Enhanced deployment detection
 deployment_indicators = {
     'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
-    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1',
+    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
     'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
     'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
     'replit_slug': bool(os.getenv('REPL_SLUG')),
@@ -55,78 +55,75 @@ except ImportError as e:
     print(f"❌ Failed to import bot module: {e}")
     sys.exit(1)
 
-# Using local SQLite database only
-print("✅ Local SQLite database initialized") will continue with local database only")
-
-# Import handlers and statistics functions
-try:
-    from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.constants import ParseMode
-    from app.lib.guards import admin_guard
-    from app.handlers_admin_panel import register_admin_panel_handlers
-    from app.handlers_admin_premium import register_admin_premium_handlers
-    from app.handlers_admin_debug import register_admin_debug_handlers
-    from app.handlers_admin_stats import register_admin_stats
-    from app.bot_stats import log_stats_on_startup
-except ImportError as e:
-    print(f"❌ Failed to import necessary modules: {e}")
-    sys.exit(1)
-
-def validate_environment():
-    """Validate required environment variables"""
-    token = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
-    if not token:
-        print("❌ TELEGRAM_BOT_TOKEN not found!")
-        print("💡 Please set TOKEN in Replit Secrets")
-        return False
-    return True
-
-TELEGRAM_BOT_TOKEN = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
-
 async def main():
-    """Main function to start the bot"""
-    print("🤖 Starting CryptoMentor AI Bot...")
+    """Main bot execution with error handling and auto-restart"""
+    max_retries = 3 if is_deployment else 2
+    retry_count = 0
 
-    # Validate required environment variables
-    if not validate_environment():
-        return
+    while retry_count < max_retries:
+        try:
+            print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
 
-    # Initialize the Application
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+            # Initialize bot
+            bot = TelegramBot()
 
-    # Register admin handlers
-    register_admin_panel_handlers(application)
-    register_admin_premium_handlers(application)
-    register_admin_debug_handlers(application)
-    register_admin_stats(application)
-    
-    # Register access tools
-    from handlers_access_tools import register_access_tools
-    register_access_tools(application)
+            print("🎯 Bot initialized successfully")
+            print("📡 Starting bot run sequence...")
 
-    print("✅ Bot initialized and handlers registered.")
+            # Run bot with enhanced logging
+            print("🚀 Calling bot.run_bot()...")
+            await bot.run_bot()
 
-    # Log bot statistics on startup
-    log_stats_on_startup()
+            # If we reach here, bot stopped normally
+            print("🛑 Bot stopped by user")
+            break
 
-    print("🚀 Bot is running...")
+        except Exception as e:
+            retry_count += 1
+            error_msg = str(e)
 
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling()
+            print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
+            logger.error(f"Bot crashed: {e}")
 
-if __name__ == '__main__':
-    # Setup logging untuk console panel
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+            # Log specific error types for debugging
+            if "HTTPXRequest" in error_msg:
+                print("🔧 HTTPXRequest initialization error - telegram-bot version issue")
+            elif "idle" in error_msg:
+                print("🔧 Updater.idle() method missing - using alternative approach")
+            elif "max() arg is an empty sequence" in error_msg:
+                print("🔧 SnD analysis data validation error - applying fixes")
 
-    # Import dan panggil console panel
+            if retry_count < max_retries:
+                print(f"🔄 Retrying in 15 seconds... ({retry_count}/{max_retries})")
+                await asyncio.sleep(15)  # Longer wait for stability
+            else:
+                print("❌ Max retries reached. Bot shutting down.")
+                if is_deployment:
+                    print("🔄 Deployment will restart automatically...")
+                    sys.exit(1)
+                else:
+                    print("💡 Manual restart required")
+                    sys.exit(1)
+
+if __name__ == "__main__":
     try:
-        from app.db_admin import log_console_panel
-        log_console_panel()
-    except Exception as e:
-        logging.error("❌ Console panel error: %s", e)
+        print("🚀 Starting CryptoMentor AI Bot...")
 
-    asyncio.run(main())
+        # Check Python version
+        if sys.version_info < (3, 8):
+            print("❌ Python 3.8+ required")
+            sys.exit(1)
+
+        print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+
+        # Run main async function
+        asyncio.run(main())
+
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user (Ctrl+C)")
+    except Exception as e:
+        print(f"💥 Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
+    finally:
+        print("👋 CryptoMentor AI Bot shutdown complete")
