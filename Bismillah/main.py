@@ -80,56 +80,46 @@ except ImportError as e:
     print(f"⚠️ Supabase integration failed: {e}")
     print("✅ Bot will continue with local database only")
 
+# Import handlers and statistics functions
+try:
+    from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+    from utils import admin_guard, validate_environment, TELEGRAM_BOT_TOKEN
+    from app.handlers_admin_panel import register_admin_panel_handlers
+    from app.handlers_admin_premium import register_admin_premium_handlers
+    from app.handlers_admin_debug import register_admin_debug_handlers
+    from app.handlers_admin_stats import register_admin_stats
+    from app.bot_stats import log_stats_on_startup
+except ImportError as e:
+    print(f"❌ Failed to import necessary modules: {e}")
+    sys.exit(1)
 
 async def main():
-    """Main bot execution with error handling and auto-restart"""
-    max_retries = 3 if is_deployment else 2
-    retry_count = 0
+    """Main function to start the bot"""
+    print("🤖 Starting CryptoMentor AI Bot...")
 
-    while retry_count < max_retries:
-        try:
-            print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
+    # Validate required environment variables
+    if not validate_environment():
+        return
 
-            # Initialize bot
-            bot = TelegramBot()
+    # Initialize the Application
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-            print("🎯 Bot initialized successfully")
-            print("📡 Starting bot run sequence...")
+    # Register admin handlers
+    register_admin_panel_handlers(application)
+    register_admin_premium_handlers(application)
+    register_admin_debug_handlers(application)
+    register_admin_stats(application)
 
-            # Run bot with enhanced logging
-            print("🚀 Calling bot.run_bot()...")
-            await bot.run_bot()
+    print("✅ Bot initialized and handlers registered.")
 
-            # If we reach here, bot stopped normally
-            print("🛑 Bot stopped by user")
-            break
+    # Log bot statistics on startup
+    log_stats_on_startup()
 
-        except Exception as e:
-            retry_count += 1
-            error_msg = str(e)
+    print("🚀 Bot is running...")
 
-            print(f"❌ Bot crashed (attempt {retry_count}/{max_retries}): {e}")
-            logger.error(f"Bot crashed: {e}")
-
-            # Log specific error types for debugging
-            if "HTTPXRequest" in error_msg:
-                print("🔧 HTTPXRequest initialization error - telegram-bot version issue")
-            elif "idle" in error_msg:
-                print("🔧 Updater.idle() method missing - using alternative approach")
-            elif "max() arg is an empty sequence" in error_msg:
-                print("🔧 SnD analysis data validation error - applying fixes")
-
-            if retry_count < max_retries:
-                print(f"🔄 Retrying in 15 seconds... ({retry_count}/{max_retries})")
-                await asyncio.sleep(15)  # Longer wait for stability
-            else:
-                print("❌ Max retries reached. Bot shutting down.")
-                if is_deployment:
-                    print("🔄 Deployment will restart automatically...")
-                    sys.exit(1)
-                else:
-                    print("💡 Manual restart required")
-                    sys.exit(1)
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling()
 
 if __name__ == '__main__':
     # Setup logging untuk console panel
