@@ -1207,7 +1207,7 @@ class AIAssistant:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
-        """Generate comprehensive futures signals with SnD analysis using new async service"""
+        """Generate comprehensive futures signals with Top 30 volume scanning and confidence ≥ 75%"""
         try:
             print(f"🔄 Starting futures signals generation...")
 
@@ -1220,144 +1220,106 @@ class AIAssistant:
             except ImportError:
                 return self._error_fallback("FUTURES_SIGNALS", "analysis service not available")
 
-            # Target symbols for analysis
-            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
-                          'BNB', 'TRX', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT', 'ATOM', 'FIL', 'ETC',
-                          'ALGO', 'VET', 'MANA', 'SAND', 'SHIB']
-
-            # If specific symbol requested, use that
+            # Determine scan target
+            target_symbols = None
             if query_args and len(query_args) > 0:
-                first_arg = query_args[0].upper()
-                if len(first_arg) <= 5 and first_arg in target_symbols:
-                    target_symbols = [first_arg]
-                else:
-                    # Randomize symbol selection for variety each time
-                    import random
-                    target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
-            else:
-                # Randomize symbol selection for variety each time
-                import random
-                target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
+                # If specific symbols requested
+                target_symbols = [arg.upper() for arg in query_args if len(arg) <= 6]
+                if not target_symbols:
+                    target_symbols = None  # Fall back to Top 30
 
-            # Use new analysis service - limit to 3 coins for performance
-            analysis_results = await futures_signals(target_symbols[:3], crypto_api)
+            # Use new analysis service with Top 30 auto-scan if no symbols specified
+            analysis_results = await futures_signals(target_symbols, crypto_api, threshold=75.0)
 
-            # Filter only successful signals
-            successful_signals = []
-            for result in analysis_results:
-                if 'error' not in result and result.get('ok', False):
-                    # Convert to expected format
-                    signal = {
-                        'symbol': result['coin'],
-                        'direction': 'LONG' if result.get('trend') == 'up' else 'SHORT',
-                        'confidence': min(95, max(75, 75 + (result.get('rsi', 50) - 50) / 2)),  # Mock confidence
-                        'entry': result.get('entry', result.get('price', 0)),
-                        'sl': result.get('price', 0) * (0.98 if result.get('trend') == 'up' else 1.02),
-                        'tp1': result.get('price', 0) * (1.02 if result.get('trend') == 'up' else 0.98),
-                        'tp2': result.get('price', 0) * (1.04 if result.get('trend') == 'up' else 0.96),
-                        'rr_ratio': '2.0:1',
-                        'trend': result.get('trend', 'sideways').title(),
-                        'structure': result.get('trend', 'sideways').title(),
-                        'reason': f"RSI {result.get('rsi', 50):.1f}, MACD {result.get('macd_hist', 0):.4f}"
-                    }
-                    successful_signals.append(signal)
+            def _fmt_percent(x: float) -> str:
+                return f"{x:.2f}".rstrip("0").rstrip(".")
 
-            # Format response
-            if not successful_signals:
+            # Format response header
+            now = self._get_wib_time()
+            scan_type = f"Top 30 by Volume" if not target_symbols else f"Specific: {', '.join(target_symbols[:5])}"
+            
+            if not analysis_results:
                 return f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-🕐 Scan Time: {self._get_wib_time()}
+🕐 Scan Time: {now}
 📊 Signals Found: 0 (Confidence ≥ 75.00%)
+🎯 Scan Type: {scan_type}
 
 ❌ Tidak ada sinyal memenuhi syarat
-
-📊 Symbols Scanned: {', '.join(target_symbols[:3])}
-⚠️ Status: Tidak ada setup trading yang jelas saat ini
 
 💡 Kemungkinan Penyebab:
 • Market dalam kondisi consolidation
 • Volatilitas rendah saat ini
-• Menunggu momentum yang lebih jelas
+• Confidence threshold terlalu tinggi
 
 🔄 Alternatif:
 • Coba /futures btc untuk analisis spesifik
 • Gunakan /analyze eth untuk analisis fundamental
 • Monitor kondisi market dengan /market
 
-📡 Next scan akan mengacak koin berbeda"""
+📡 Next scan akan menggunakan Top 30 by volume berbeda"""
 
-            # Format signals message
+            # Format successful signals
             message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-🕐 Scan Time: {self._get_wib_time()}
-📊 Signals Found: {len(successful_signals)} (Confidence ≥ 75.00%)
+🕐 Scan Time: {now}
+📊 Signals Found: {len(analysis_results)} (Confidence ≥ 75.00%)
+🎯 Scan Type: {scan_type}
+
+📌 **TOP SIGNALS:**
 
 """
 
-            for i, signal in enumerate(successful_signals, 1):
-                direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
+            for i, result in enumerate(analysis_results, 1):
+                direction = 'LONG' if result.get('trend') == 'up' else 'SHORT'
+                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
+                
+                # Calculate stop loss and take profits based on ATR
+                entry = result.get('entry', result.get('price', 0))
+                atr_val = result.get('atr', entry * 0.02)
+                
+                if direction == 'LONG':
+                    sl = entry - (atr_val * 2)
+                    tp1 = entry + (atr_val * 1.5)
+                    tp2 = entry + (atr_val * 3)
+                else:
+                    sl = entry + (atr_val * 2)
+                    tp1 = entry - (atr_val * 1.5)
+                    tp2 = entry - (atr_val * 3)
 
-                # Get 24h change data
-                symbol = signal['symbol']
-                price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
-                change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
-
-                # Format dengan formatter baru
+                # Get 24h change if available
+                symbol = result['coin']
                 try:
-                    import sys
-                    import os
-                    sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                    from trade_setup import format_detailed_setup
-                    
-                    # Prepare setup data
-                    setup_data = {
-                        "entry": signal.get('entry'),
-                        "stop": signal.get('sl'),
-                        "tp1": signal.get('tp1'), "tp1_pct": 50,
-                        "tp2": signal.get('tp2'), "tp2_pct": 30,
-                        "rr": float(signal.get('rr_ratio', '2.0').split(':')[0]) if isinstance(signal.get('rr_ratio'), str) else signal.get('rr_ratio', 2.0),
-                        "max_risk_pct": 2.0
-                    }
-                    
-                    mini_setup = format_detailed_setup(setup_data, title=f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}")
-                    
-                    message += f"""{mini_setup}
-⭐️ Confidence: {signal['confidence']:.2f}%
-🔄 Trend: {signal['trend']}
-⚡️ Structure: {signal['structure']} Bias
-🧠 Reason: {signal['reason']}
-📈 24h Change: {change_24h:+.2f}%
+                    price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
+                    change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
+                except:
+                    change_24h = 0
 
-"""
-                except ImportError:
-                    # Fallback format
-                    message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
-⭐️ Confidence: {signal['confidence']:.2f}%
-• 🎯 Entry: ${signal['entry']:.2f}
-• 🛑 Stop Loss: ${signal['sl']:.2f}
-• 1️⃣ TP1: ${signal['tp1']:.2f}
-• 2️⃣ TP2: ${signal['tp2']:.2f}
-• ⚖️ R/R Ratio: {signal['rr_ratio']}
-🔄 Trend: {signal['trend']}
-⚡️ Structure: {signal['structure']} Bias
-🧠 Reason: {signal['reason']}
-📈 24h Change: {change_24h:+.2f}%
+                message += f"""{i}. **{symbol}** {direction_emoji} **{direction}**
+⭐️ **Confidence**: {_fmt_percent(result['confidence'])}%
+• 🎯 **Entry**: ${entry:.4f}
+• 🛑 **Stop Loss**: ${sl:.4f}  
+• 1️⃣ **TP1**: ${tp1:.4f} (50%)
+• 2️⃣ **TP2**: ${tp2:.4f} (50%)
+• 📊 **RSI**: {result['rsi']:.1f} | **MACD**: {result['macd_hist']:.4f}
+• 📈 **24h Change**: {change_24h:+.2f}%
 
 """
 
-            message += """⚠️ TRADING DISCLAIMER:
-• Signals berbasis Supply & Demand analysis
-• Gunakan proper risk management
-• Position sizing sesuai risk level
+            message += """⚠️ **TRADING DISCLAIMER:**
+• Signals berbasis Top 30 volume + confidence ≥75%
+• Gunakan proper position sizing (1-3% per trade)  
+• Set stop loss sebelum entry
+• Take profit secara bertahap
 • DYOR sebelum trading
 
-📡 Next scan akan mengacak koin berbeda
-🔄 Jalankan ulang untuk variasi sinyal"""
+📡 **Data Sources**: Binance Top 30 USDT Volume + Technical Analysis
+🔄 **Update Frequency**: Real-time scan dengan Top 30 otomatis"""
 
             return message
 
         except Exception as e:
-            return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
+            return self._error_fallback("FUTURES_SIGNALS", f"Top 30 scan process: {str(e)[:50]}")
 
     # ============ HELPER METHODS ============
 
