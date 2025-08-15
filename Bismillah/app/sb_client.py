@@ -1,135 +1,64 @@
 
-import os
-import requests
-import time
-from typing import Dict, Any, Optional, Tuple
-import logging
+import os, time, requests
 
-logger = logging.getLogger(__name__)
+REQ_TIMEOUT = 15
 
-class SupabaseClient:
-    def __init__(self):
-        self.url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
-        self.service_key = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
-        self.rest_url = f"{self.url}/rest/v1" if self.url else ""
-        self.timeout = 15
-        self.max_retries = 3
-        
-    def _get_headers(self, prefer: Optional[str] = None) -> Dict[str, str]:
-        headers = {
-            "apikey": self.service_key,
-            "Authorization": f"Bearer {self.service_key}",
-            "Content-Type": "application/json",
-        }
-        if prefer:
-            headers["Prefer"] = prefer
-        return headers
-    
-    def _validate_env(self) -> Tuple[bool, str]:
-        if not self.url:
-            return False, "SUPABASE_URL not set in environment"
-        if not self.service_key:
-            return False, "SUPABASE_SERVICE_KEY not set in environment"
-        if "supabase.co" not in self.url:
-            return False, f"Invalid SUPABASE_URL: {self.url}"
-        return True, "Environment variables valid"
-    
-    def _retry_request(self, request_func, *args, **kwargs):
-        """Retry request up to max_retries times with exponential backoff"""
-        last_exception = None
-        
-        for attempt in range(self.max_retries):
-            try:
-                return request_func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.max_retries - 1:
-                    wait_time = 0.5 * (2 ** attempt)
-                    logger.warning(f"Request failed (attempt {attempt + 1}), retrying in {wait_time}s: {e}")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"All {self.max_retries} attempts failed: {e}")
-        
-        raise last_exception
-    
-    def test_connection(self) -> Tuple[bool, str]:
-        """Test connection to Supabase"""
-        is_valid, msg = self._validate_env()
-        if not is_valid:
-            return False, msg
-        
-        def _test():
-            response = requests.get(
-                self.rest_url,
-                headers=self._get_headers(),
-                timeout=self.timeout
-            )
-            if response.status_code in [200, 401, 404]:
-                return True, f"Connection successful (HTTP {response.status_code})"
-            else:
-                return False, f"Connection failed (HTTP {response.status_code})"
-        
-        try:
-            return self._retry_request(_test)
-        except Exception as e:
-            return False, f"Connection error: {str(e)}"
-    
-    def query_view(self, view_name: str, select: str = "*", params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """Query a Supabase view"""
-        is_valid, msg = self._validate_env()
-        if not is_valid:
-            logger.error(f"Environment validation failed: {msg}")
-            return None
-        
-        def _query():
-            query_params = {"select": select}
-            if params:
-                query_params.update(params)
-            
-            response = requests.get(
-                f"{self.rest_url}/{view_name}",
-                headers=self._get_headers(),
-                params=query_params,
-                timeout=self.timeout
-            )
-            
-            if response.status_code not in [200, 206]:
-                raise Exception(f"Query failed: HTTP {response.status_code} - {response.text}")
-            
-            data = response.json()
-            return data[0] if isinstance(data, list) and data else None
-        
-        try:
-            return self._retry_request(_query)
-        except Exception as e:
-            logger.error(f"Failed to query view {view_name}: {e}")
-            return None
-    
-    def execute_rpc(self, function_name: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
-        """Execute a Supabase RPC function"""
-        is_valid, msg = self._validate_env()
-        if not is_valid:
-            logger.error(f"Environment validation failed: {msg}")
-            return None
-        
-        def _execute():
-            response = requests.post(
-                f"{self.rest_url}/rpc/{function_name}",
-                headers=self._get_headers(),
-                json=params or {},
-                timeout=self.timeout
-            )
-            
-            if response.status_code not in [200, 201]:
-                raise Exception(f"RPC failed: HTTP {response.status_code} - {response.text}")
-            
-            return response.json()
-        
-        try:
-            return self._retry_request(_execute)
-        except Exception as e:
-            logger.error(f"Failed to execute RPC {function_name}: {e}")
-            return None
+def _env():
+    url = (os.getenv("SUPABASE_URL") or os.getenv("SUPABASEURL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASESERVICEKEY") or "").strip()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing (SUPABASE_URL / SUPABASE_SERVICE_KEY)")
+    return url, key, f"{url}/rest/v1"
 
-# Global instance
-supabase_client = SupabaseClient()
+def _headers(key: str, prefer: str | None = None):
+    h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if prefer: h["Prefer"] = prefer
+    return h
+
+def _retry(fn, n=3, base=0.6):
+    last = None
+    for i in range(n):
+        try: return fn()
+        except Exception as e:
+            last = e; time.sleep(base*(2**i))
+    raise last
+
+def health_users():
+    url, key, rest = _env()
+    def _once():
+        r = requests.get(f"{rest}/users", headers=_headers(key, "count=exact"),
+                         params={"select":"id","limit":"1"}, timeout=REQ_TIMEOUT)
+        ok = r.status_code in (200,206)
+        total = 0
+        cr = r.headers.get("Content-Range","")
+        if "/" in cr:
+            try: total = int(cr.split("/")[-1])
+            except: pass
+        return ok, total, f"users_status={r.status_code}"
+    return _retry(_once, n=2)
+
+def get_view(view: str):
+    url, key, rest = _env()
+    def _once():
+        r = requests.get(f"{rest}/{view}", headers=_headers(key),
+                         params={"select":"*"}, timeout=REQ_TIMEOUT)
+        if r.status_code not in (200,206):
+            raise RuntimeError(f"GET {view} {r.status_code} {r.text}")
+        return r.json()
+    return _retry(_once)
+
+def upsert_users(rows):
+    url, key, rest = _env()
+    def _once():
+        r = requests.post(f"{rest}/users",
+            headers=_headers(key, "resolution=merge-duplicates,return=representation"),
+            params={"on_conflict":"telegram_id"},
+            json=rows, timeout=REQ_TIMEOUT)
+        if r.status_code not in (200,201):
+            raise RuntimeError(f"UPSERT users {r.status_code} {r.text}")
+        return r.json() if r.text else []
+    return _retry(_once)
+
+def project_url():
+    url, key, rest = _env()
+    return url
