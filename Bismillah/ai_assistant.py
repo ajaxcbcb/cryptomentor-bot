@@ -878,44 +878,8 @@ class AIAssistant:
 
 """
 
-            # Add trading setup dengan formatter baru
-            try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                from trade_setup import format_detailed_setup
-                
-                # Prepare setup data
-                setup_data = {
-                    "entry": trading_levels.get('entry'),
-                    "entry_zone": (trading_levels.get('entry_min'), trading_levels.get('entry_max')),
-                    "stop": trading_levels.get('stop_loss'),
-                    "tp1": trading_levels.get('tp1'), "tp1_pct": 50,
-                    "tp2": trading_levels.get('tp2'), "tp2_pct": 30,
-                    "tp3": trading_levels.get('tp3'), "tp3_pct": 20,
-                    "rr": trading_levels.get('rr_ratio'),
-                    "max_risk_pct": trading_levels.get('risk_percentage', 2.0)
-                }
-                
-                trading_setup_section = format_detailed_setup(setup_data, title="💰 TRADING SETUP")
-                analysis += f"\n\n{trading_setup_section}"
-                
-            except ImportError:
-                # Fallback format
-                analysis += f"""
-
-💰 **TRADING SETUP**:
-• 🎯 Entry: ${trading_levels.get('entry', current_price):,.6f}
-• 🛑 Stop Loss: ${trading_levels.get('stop_loss', current_price):,.6f}
-• 1️⃣ TP1: ${trading_levels.get('tp1', current_price):,.6f} (50%)
-• 2️⃣ TP2: ${trading_levels.get('tp2', current_price):,.6f} (30%)
-• 3️⃣ TP3: ${trading_levels.get('tp3', current_price):,.6f} (20%)
-• ⚖️ Risk/Reward: {trading_levels.get('rr_ratio', 2.0):.1f}:1
-• 📉 Max Risk: {trading_levels.get('risk_percentage', 2.0):.1f}% per position"""
-
             # Add enhanced S&D zones
             analysis += f"""
-
 🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
 • 🔴 Supply Zone 1: ${enhanced_snd_zones.get('supply_1', current_price * 1.02):,.6f} ({((enhanced_snd_zones.get('supply_1', current_price * 1.02)/current_price-1)*100):+.1f}%)
 • 🔴 Supply Zone 2: ${enhanced_snd_zones.get('supply_2', current_price * 1.04):,.6f} ({((enhanced_snd_zones.get('supply_2', current_price * 1.04)/current_price-1)*100):+.1f}%)
@@ -1065,38 +1029,6 @@ class AIAssistant:
             macd_value = primary_indicators.get('macd_histogram', 0)
             macd_condition = "Bullish" if macd_value > 0 else "Bearish"
 
-            # Import formatter
-            try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                from trade_setup import format_detailed_setup
-                
-                # Prepare setup data untuk formatter
-                setup_data = {
-                    "entry": trading_levels.get('entry'),
-                    "entry_zone": (trading_levels.get('entry_min'), trading_levels.get('entry_max')),
-                    "stop": trading_levels.get('stop_loss'),
-                    "tp1": trading_levels.get('tp1'), "tp1_pct": 50,
-                    "tp2": trading_levels.get('tp2'), "tp2_pct": 30,
-                    "tp3": trading_levels.get('tp3'), "tp3_pct": 20,
-                    "rr": trading_levels.get('rr_ratio'),
-                    "max_risk_pct": trading_levels.get('risk_percentage', 2.0)
-                }
-                
-                trading_setup_text = format_detailed_setup(setup_data, title="💰 DETAILED TRADING SETUP")
-                
-            except ImportError:
-                # Fallback jika formatter belum tersedia
-                trading_setup_text = f"""💰 DETAILED TRADING SETUP:
-• 🎯 Entry: ${trading_levels['entry']:.6f}
-• 🛑 Stop Loss: ${trading_levels['stop_loss']:.6f}
-• 1️⃣ TP1: ${trading_levels['tp1']:.6f} (50%)
-• 2️⃣ TP2: ${trading_levels['tp2']:.6f} (30%)
-• 3️⃣ TP3: ${trading_levels['tp3']:.6f} (20%)
-• ⚖️ Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
-• 📉 Max Risk: {trading_levels['risk_percentage']:.1f}% per position"""
-
             # Create comprehensive analysis
             analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe})**
 
@@ -1109,7 +1041,17 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-{trading_setup_text}
+```
+💰 DETAILED TRADING SETUP:
+• Entry Zone: ${trading_levels['entry_min']:.6f} - ${trading_levels['entry_max']:.6f}
+• Optimal Entry: ${trading_levels['entry']:.6f}
+• Stop Loss: ${trading_levels['stop_loss']:.6f}
+• TP1 (50%): ${trading_levels['tp1']:.6f}
+• TP2 (30%): ${trading_levels['tp2']:.6f} 
+• TP3 (20%): ${trading_levels['tp3']:.6f} 
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
+```
 
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe}):
@@ -1343,42 +1285,13 @@ class AIAssistant:
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                # Format dengan formatter baru
-                try:
-                    import sys
-                    import os
-                    sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                    from trade_setup import format_detailed_setup
-                    
-                    # Prepare setup data
-                    setup_data = {
-                        "entry": signal.get('entry'),
-                        "stop": signal.get('sl'),
-                        "tp1": signal.get('tp1'), "tp1_pct": 50,
-                        "tp2": signal.get('tp2'), "tp2_pct": 30,
-                        "rr": float(signal.get('rr_ratio', '2.0').split(':')[0]) if isinstance(signal.get('rr_ratio'), str) else signal.get('rr_ratio', 2.0),
-                        "max_risk_pct": 2.0
-                    }
-                    
-                    mini_setup = format_detailed_setup(setup_data, title=f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}")
-                    
-                    message += f"""{mini_setup}
+                message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
 ⭐️ Confidence: {signal['confidence']:.2f}%
-🔄 Trend: {signal['trend']}
-⚡️ Structure: {signal['structure']} Bias
-🧠 Reason: {signal['reason']}
-📈 24h Change: {change_24h:+.2f}%
-
-"""
-                except ImportError:
-                    # Fallback format
-                    message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
-⭐️ Confidence: {signal['confidence']:.2f}%
-• 🎯 Entry: ${signal['entry']:.2f}
-• 🛑 Stop Loss: ${signal['sl']:.2f}
-• 1️⃣ TP1: ${signal['tp1']:.2f}
-• 2️⃣ TP2: ${signal['tp2']:.2f}
-• ⚖️ R/R Ratio: {signal['rr_ratio']}
+💰 Entry: ${signal['entry']:.2f}
+🛑 Stop Loss: ${signal['sl']:.2f}
+🎯 TP1: ${signal['tp1']:.2f}
+🎯 TP2: ${signal['tp2']:.2f}
+📊 R/R Ratio: {signal['rr_ratio']}
 🔄 Trend: {signal['trend']}
 ⚡️ Structure: {signal['structure']} Bias
 🧠 Reason: {signal['reason']}
