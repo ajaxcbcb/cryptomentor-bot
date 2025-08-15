@@ -1,10 +1,9 @@
-
 from __future__ import annotations
 from typing import Dict, Any, List
 from datetime import datetime
 from app.providers import cmc as cmc_p
 from app.providers import coingecko as cg_p
-from app.providers import binance as bn_p
+from app.providers.binance import get_24h
 
 SYMBOLS_DEFAULT = ["BTC", "ETH", "BNB", "SOL", "XRP"]
 
@@ -14,10 +13,10 @@ def _now_wib():
 def _sentiment_from_change(ch: float) -> tuple[str, int]:
     # Heuristik confidence sederhana dari % perubahan market cap 24h
     conf = max(0, min(100, 60 + ch * 8))  # sekitar 60% di netral, geser ±
-    if ch > 0.2: 
-        return "😐 NEUTRAL" if ch < 0.5 else "📈 BULLISH", int(conf)
-    if ch < -0.2: 
-        return "😐 NEUTRAL" if ch > -0.5 else "📉 BEARISH", int(conf)
+    if ch > 0.5: 
+        return "📈 BULLISH", int(conf)
+    if ch < -0.5: 
+        return "📉 BEARISH", int(conf)
     return "😐 NEUTRAL", int(conf)
 
 async def _global_primary() -> Dict[str, Any]:
@@ -69,7 +68,7 @@ async def _top_block(symbols: List[str]) -> List[Dict[str, Any]]:
     except Exception:
         for s in symbols:
             try:
-                t = await bn_p.get_24h(f"{s.upper()}USDT")
+                t = await get_24h(f"{s.upper()}USDT")
                 ch = float(t.get("priceChangePercent", 0.0))
                 price = float(t.get("lastPrice", 0.0))
             except Exception:
@@ -107,32 +106,6 @@ def _structure_block(btc_dom: float, mc_ch: float) -> Dict[str, str]:
         "reason": "Liquidity contraction; majors outperform",
         "fear_greed": "🥶 Fear (35/100)"
     }
-
-def _fmt_money_short(n: float) -> str:
-    try:
-        x = float(n)
-        unit = ["", "K", "M", "B", "T"]
-        i = 0
-        while abs(x) >= 1000 and i < len(unit) - 1:
-            x /= 1000
-            i += 1
-        return f"${x:,.2f}{unit[i]}"
-    except Exception:
-        return str(n)
-
-def _pct(x: float) -> str:
-    try:
-        v = float(x)
-        sign = "+" if v > 0 else ""
-        return f"{sign}{v:.2f}%"
-    except Exception:
-        return str(x)
-
-def _money(x: float) -> str:
-    try:
-        return f"${float(x):,.2f}"
-    except Exception:
-        return str(x)
 
 async def build_market_report(symbols: List[str] | None = None) -> Dict[str, Any]:
     # 1) Global

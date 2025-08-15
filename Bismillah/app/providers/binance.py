@@ -1,28 +1,15 @@
 from typing import List, Dict, Any
 from app.providers.http import fetch_json
 
-BINANCE_URL = "https://api.binance.com"
+BASE = "https://api.binance.com"
 
-async def get_top_usdt_coins(limit: int = 30) -> List[str]:
-    """Get top USDT pairs by volume"""
-    url = f"{BINANCE_URL}/api/v3/ticker/24hr"
-    data = await fetch_json(url, cache_key="binance:24hr", cache_ttl=300)
-    
-    # Filter USDT pairs and sort by volume
-    usdt_pairs = [item for item in data if item['symbol'].endswith('USDT')]
-    usdt_pairs.sort(key=lambda x: float(x['quoteVolume']), reverse=True)
-    
-    # Extract coin symbols (remove USDT suffix)
-    coins = []
-    for pair in usdt_pairs[:limit]:
-        symbol = pair['symbol'].replace('USDT', '')
-        if symbol not in ['USDC', 'USDT', 'BUSD', 'TUSD', 'DAI']:  # Skip stablecoins
-            coins.append(symbol)
-    
-    return coins[:limit]
+async def klines(symbol="BTCUSDT", interval="5m", limit=300):
+    data = await fetch_json(f"{BASE}/api/v3/klines", params={"symbol": symbol, "interval": interval, "limit": limit},
+                            cache_key=f"bn:kl:{symbol}:{interval}:{limit}", cache_ttl=20)
+    rows = [{"time": k[6], "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
+             "close": float(k[4]), "volume": float(k[5])} for k in data]
+    return rows
 
-async def get_24h(symbol: str) -> Dict[str, Any]:
-    """Get 24h ticker for a symbol"""
-    url = f"{BINANCE_URL}/api/v3/ticker/24hr"
-    params = {"symbol": f"{symbol.upper()}USDT"}
-    return await fetch_json(url, params=params, cache_key=f"binance:ticker:{symbol}", cache_ttl=60)
+async def get_24h(symbol):
+    return await fetch_json(f"{BASE}/api/v3/ticker/24hr", params={"symbol": symbol},
+                            cache_key=f"bn:24:{symbol}", cache_ttl=30)

@@ -6,6 +6,7 @@ from app.utils.text_formatter import format_futures_signals_response
 from app.utils.telegram_safe import safe_reply, safe_edit
 from app.services.analysis import (
     AnalysisService, 
+    analyze_coin, 
     analyze_coin_crypto, 
     analyze_coin_futures,
     futures_signals as futures_signals_modern
@@ -61,54 +62,41 @@ async def cmd_futures_signals(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /analyze command"""
+    """Handle /analyze command - SPOT analysis without Entry"""
     user_id = update.effective_user.id
     symbol = (context.args[0] if context.args else "BTC").upper()
 
     print(f"🔍 /analyze {symbol} from user {user_id}")
 
     try:
-        # Enhanced analysis with CoinAPI integration
-        analysis_result = await analyze_coin(symbol)
-
-        # Mapping untuk card formatter (tanpa Entry)
-        item = {
-            "coin": analysis_result.get("symbol", symbol),
-            "trend": analysis_result.get("trend"),
-            "confidence": analysis_result.get("confidence"),
-            "stop": analysis_result.get("stop_loss"),
-            "tp1": analysis_result.get("tp1"),
-            "tp2": analysis_result.get("tp2"),
-            "rr": analysis_result.get("risk_reward_ratio"),
-            "structure": analysis_result.get("structure", f"{analysis_result.get('trend', 'Neutral').title()} Bias"),
-            "reason": analysis_result.get("reason", "Comprehensive market analysis"),
-            "change_24h": analysis_result.get("change_24h"),
-            # Entry TIDAK disertakan agar tidak ditampilkan
-        }
-
-        formatted_text = format_signal_card(item, include_entry=False)
-
-        await safe_reply(update, formatted_text)
+        # SPOT analysis (tanpa Entry)
+        from app.services.analysis import analyze_coin
+        res = await analyze_coin(symbol)
+        
+        # Map untuk formatter (tanpa Entry)
+        item = {k: res.get(k) for k in ["coin", "trend", "structure", "reason", "rsi", "macd_hist", "change_24h", "rr", "stop", "tp1", "tp2", "confidence"] if k in res}
+        
+        formatted_text = format_signal_card(item, include_entry=False)  # NO Entry line
+        await safe_reply(update, formatted_text, prefer_html=False)   # Markdown OK
 
     except Exception as e:
         print(f"❌ Error in analyze command: {e}")
-        await safe_reply(update, "❌ Terjadi kesalahan dalam analisis komprehensif.")
+        await safe_reply(update, "❌ Gagal menganalisis koin.")
 
 async def cmd_futures(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /futures command"""
+    """Handle /futures command - PERP analysis with Entry"""
     user_id = update.effective_user.id
     symbol = (context.args[0] if context.args else "BTC").upper()
 
     print(f"📊 /futures {symbol} from user {user_id}")
 
     try:
-        # Get futures analysis
-        futures_result = await analyze_coin_futures(symbol)
-
-        # Format dengan kartu (termasuk Entry)
-        formatted_text = format_signal_card(futures_result, include_entry=True)
-
-        await safe_reply(update, formatted_text)
+        # PERP analysis (dengan Entry)
+        from app.services.analysis import analyze_coin_futures
+        res = await analyze_coin_futures(symbol)  # entry tunggal + SL/TP/TP2/RR
+        
+        formatted_text = format_signal_card(res, include_entry=True)
+        await safe_reply(update, formatted_text, prefer_html=False)
 
     except Exception as e:
         print(f"❌ Error in futures command: {e}")
