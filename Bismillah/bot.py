@@ -1858,6 +1858,9 @@ Gunakan `/subscribe` untuk upgrade!
             cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
             cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
 
+            coinapi_key = os.getenv('COINAPI_API_KEY')
+            coinapi_status = "🟢 **ACTIVE**" if coinapi_key else "🔴 **NO KEY**"
+
             openai_key = os.getenv('OPENAI_API_KEY')
             openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
 
@@ -1865,6 +1868,7 @@ Gunakan `/subscribe` untuk upgrade!
             cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
         except:
             cmc_status = "🔴 **ERROR**"
+            coinapi_status = "🔴 **ERROR**"
             openai_status = "🔴 **ERROR**"
             cryptonews_status = "🔴 **ERROR**"
 
