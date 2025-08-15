@@ -1872,8 +1872,8 @@ Gunakan `/subscribe` untuk upgrade!
             openai_status = "🔴 **ERROR**"
             cryptonews_status = "🔴 **ERROR**"
 
-        # Check API health with enhanced status
-        coinapi_status = "🟢 **ACTIVE**" if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else "🔴 **OFFLINE**"
+        # Check API health with enhanced status - keep coinapi_status from above check
+        database_status = "🟢 **CONNECTED**" if self.db else "🔴 **DISCONNECTED**"
         database_status = "🟢 **CONNECTED**" if self.db else "🔴 **DISCONNECTED**" # Using Supabase status check
 
         # Calculate performance metrics
@@ -1920,6 +1920,7 @@ Gunakan `/subscribe` untuk upgrade!
 ⚡ **BINANCE:** 🟢 **ACTIVE**
 💰 **CMC API:** {cmc_status}
 🤖 **OPENAI:** {openai_status}
+📰 **CRYPTONEWS:** {cryptonews_status}
 
 ═══════════════════════════════════
 
