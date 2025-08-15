@@ -2291,6 +2291,124 @@ class AIAssistant:
 
     # ============ LEGACY COMPATIBILITY METHODS ============
 
+    async def get_market_sentiment(self, language='id', crypto_api=None, top_n=20):
+        """
+        SHIM kompatibilitas untuk kode lama:
+        delegasikan ke service market sentiment baru.
+        """
+        try:
+            # Import service market sentiment
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'services'))
+            from market import get_market_sentiment as svc_market_sentiment
+            
+            # Get market data
+            market_data = await svc_market_sentiment(top_n=top_n)
+            
+            if not market_data.get('success', True):
+                return self._format_market_error_fallback(market_data.get('error', 'Unknown error'))
+            
+            # Format for Telegram
+            return self._format_market_sentiment_response(market_data, language)
+            
+        except ImportError:
+            # Fallback jika service belum tersedia
+            return self._format_market_fallback_response(language)
+        except Exception as e:
+            return self._format_market_error_fallback(str(e))
+
+    def _format_market_sentiment_response(self, market_data, language='id'):
+        """Format market sentiment response for Telegram"""
+        try:
+            header = f"""🌐 **Market Overview Global**
+
+🕐 **Update**: {market_data['time']}
+📊 **Universe**: {market_data['universe']}
+🎯 **Market Breadth**: {market_data['breadth_pct']:.1f}%
+🧠 **Sentiment**: **{market_data['sentiment']}**
+🔢 **Stats**: {market_data['counts']['green']}🟢 | {market_data['counts']['red']}🔴 | {market_data['counts']['total']} total
+
+"""
+
+            # Top movers section
+            header += "🔥 **Top Movers (by |Change|)**:\n"
+            
+            for i, coin_data in enumerate(market_data['coins'][:10], 1):
+                change = coin_data['change_24h']
+                sign = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
+                price = coin_data['price']
+                
+                # Format price
+                if price < 1:
+                    price_fmt = f"${price:.6f}"
+                elif price < 100:
+                    price_fmt = f"${price:.4f}"
+                else:
+                    price_fmt = f"${price:,.2f}"
+                
+                header += f"{i}. {sign} **{coin_data['coin']}**: {price_fmt} ({change:+.2f}%)\n"
+
+            # Market analysis
+            breadth = market_data['breadth_pct']
+            if breadth >= 70:
+                analysis = "🚀 **Strong Bullish** - Market momentum sangat positif"
+            elif breadth >= 60:
+                analysis = "📈 **Bullish** - Mayoritas koin dalam tren positif"
+            elif breadth >= 40:
+                analysis = "😐 **Neutral** - Market dalam kondisi mixed signals"
+            elif breadth >= 30:
+                analysis = "📉 **Bearish** - Mayoritas koin dalam tekanan jual"
+            else:
+                analysis = "💥 **Strong Bearish** - Market dalam koreksi signifikan"
+
+            footer = f"""
+
+💡 **Market Analysis**:
+{analysis}
+
+📊 **Trading Insight**:
+• **Breadth > 60%**: Consider long bias
+• **Breadth < 40%**: Consider defensive strategy
+• **Current**: {breadth:.1f}% → {market_data['sentiment']} market
+
+🔄 **Data Source**: Binance 24h ticker (Top volume USDT pairs)
+⚠️ **Disclaimer**: Bukan saran investasi, gunakan untuk analisis teknikal"""
+
+            return header + footer
+
+        except Exception as e:
+            return self._format_market_error_fallback(f"Format error: {str(e)}")
+
+    def _format_market_fallback_response(self, language='id'):
+        """Fallback response when service unavailable"""
+        return """🌍 **Market Overview** 
+
+⚠️ **Service sedang dalam maintenance**
+
+💡 **Alternatif yang tersedia**:
+• `/price btc` - Cek harga Bitcoin real-time
+• `/analyze btc` - Analisis komprehensif Bitcoin
+• `/futures_signals` - Scan sinyal trading
+
+🔄 **Coba lagi dalam beberapa menit**"""
+
+    def _format_market_error_fallback(self, error_msg):
+        """Format error fallback for market command"""
+        return f"""❌ **Error Market Analysis**
+
+💡 **Kemungkinan penyebab**:
+• API rate limiting
+• Network connectivity issue
+• Service temporarily unavailable
+
+🔄 **Solusi**:
+• Tunggu 1-2 menit dan coba lagi
+• Gunakan `/price btc` untuk data basic
+• Hubungi admin jika masalah berlanjut
+
+🛠️ **Error detail**: {error_msg[:100]}..."""
+
     def get_ai_response(self, text, language='id', user_id=None):
         """AI response for general queries"""
         if user_id:
