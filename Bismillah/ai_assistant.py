@@ -100,7 +100,7 @@ class AIAssistant:
 
     @classmethod
     def reset_connection_after_deploy(cls):
-        """Reset connection state after bot redeploy"""
+        """Reset connection state after deployment"""
         print("🔄 Resetting Supabase connection state after deployment...")
         cls._supabase_instance = None
         cls._connection_retry_count = 0
@@ -878,40 +878,7 @@ class AIAssistant:
 
 """
 
-            # Add trading setup dengan formatter baru
-            try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                from trade_setup import format_detailed_setup
-
-                # Prepare setup data
-                setup_data = {
-                    "entry": trading_levels.get('entry'),
-                    "entry_zone": (trading_levels.get('entry_min'), trading_levels.get('entry_max')),
-                    "stop": trading_levels.get('stop_loss'),
-                    "tp1": trading_levels.get('tp1'), "tp1_pct": 50,
-                    "tp2": trading_levels.get('tp2'), "tp2_pct": 30,
-                    "tp3": trading_levels.get('tp3'), "tp3_pct": 20,
-                    "rr": trading_levels.get('rr_ratio'),
-                    "max_risk_pct": trading_levels.get('risk_percentage', 2.0)
-                }
-
-                trading_setup_section = format_detailed_setup(setup_data, title="💰 TRADING SETUP")
-                analysis += f"\n\n{trading_setup_section}"
-
-            except ImportError:
-                # Fallback format
-                analysis += f"""
-
-💰 **TRADING SETUP**:
-• 🎯 Entry: ${trading_levels.get('entry', current_price):,.6f}
-• 🛑 Stop Loss: ${trading_levels.get('stop_loss', current_price):,.6f}
-• 1️⃣ TP1: ${trading_levels.get('tp1', current_price):,.6f} (50%)
-• 2️⃣ TP2: ${trading_levels.get('tp2', current_price):,.6f} (30%)
-• 3️⃣ TP3: ${trading_levels.get('tp3', current_price):,.6f} (20%)
-• ⚖️ Risk/Reward: {trading_levels.get('rr_ratio', 2.0):.1f}:1
-• 📉 Max Risk: {trading_levels.get('risk_percentage', 2.0):.1f}% per position"""
+            # Skip trading setup for /analyze command - only technical analysis
 
             # Add enhanced S&D zones
             analysis += f"""
@@ -981,7 +948,7 @@ class AIAssistant:
 • ✅ Prepare for partial profit taking
 • ✅ Watch for news/events impact
 
-📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis + Fundamentals
+📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis
 🔄 **Update Frequency**: Real-time price + Multi-timeframe technical refresh"""
 
             return analysis
@@ -1065,38 +1032,6 @@ class AIAssistant:
             macd_value = primary_indicators.get('macd_histogram', 0)
             macd_condition = "Bullish" if macd_value > 0 else "Bearish"
 
-            # Import formatter
-            try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                from trade_setup import format_detailed_setup
-
-                # Prepare setup data untuk formatter
-                setup_data = {
-                    "entry": trading_levels.get('entry'),
-                    "entry_zone": (trading_levels.get('entry_min'), trading_levels.get('entry_max')),
-                    "stop": trading_levels.get('stop_loss'),
-                    "tp1": trading_levels.get('tp1'), "tp1_pct": 50,
-                    "tp2": trading_levels.get('tp2'), "tp2_pct": 30,
-                    "tp3": trading_levels.get('tp3'), "tp3_pct": 20,
-                    "rr": trading_levels.get('rr_ratio'),
-                    "max_risk_pct": trading_levels.get('risk_percentage', 2.0)
-                }
-
-                trading_setup_text = format_detailed_setup(setup_data, title="💰 DETAILED TRADING SETUP")
-
-            except ImportError:
-                # Fallback jika formatter belum tersedia
-                trading_setup_text = f"""💰 DETAILED TRADING SETUP:
-• 🎯 Entry: ${trading_levels['entry']:.6f}
-• 🛑 Stop Loss: ${trading_levels['stop_loss']:.6f}
-• 1️⃣ TP1: ${trading_levels['tp1']:.6f} (50%)
-• 2️⃣ TP2: ${trading_levels['tp2']:.6f} (30%)
-• 3️⃣ TP3: ${trading_levels['tp3']:.6f} (20%)
-• ⚖️ Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
-• 📉 Max Risk: {trading_levels['risk_percentage']:.1f}% per position"""
-
             # Create comprehensive analysis
             analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe})**
 
@@ -1109,8 +1044,10 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-{trading_setup_text}
+"""
 
+            # Skip trading setup for /analyze command - only technical analysis
+            analysis += f"""
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe}):
 • EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
@@ -1337,7 +1274,7 @@ class AIAssistant:
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                # Format dengan formatter baru
+                # Format with formatter new
                 try:
                     import sys
                     import os
@@ -2302,16 +2239,16 @@ class AIAssistant:
             import os
             sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'services'))
             from market import get_market_sentiment as svc_market_sentiment
-            
+
             # Get market data
             market_data = await svc_market_sentiment(top_n=top_n)
-            
+
             if not market_data.get('success', True):
                 return self._format_market_error_fallback(market_data.get('error', 'Unknown error'))
-            
+
             # Format for Telegram
             return self._format_market_sentiment_response(market_data, language)
-            
+
         except ImportError:
             # Fallback jika service belum tersedia
             return self._format_market_fallback_response(language)
@@ -2333,12 +2270,12 @@ class AIAssistant:
 
             # Top movers section
             header += "🔥 **Top Movers (by |Change|)**:\n"
-            
+
             for i, coin_data in enumerate(market_data['coins'][:10], 1):
                 change = coin_data['change_24h']
                 sign = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
                 price = coin_data['price']
-                
+
                 # Format price
                 if price < 1:
                     price_fmt = f"${price:.6f}"
@@ -2346,7 +2283,7 @@ class AIAssistant:
                     price_fmt = f"${price:.4f}"
                 else:
                     price_fmt = f"${price:,.2f}"
-                
+
                 header += f"{i}. {sign} **{coin_data['coin']}**: {price_fmt} ({change:+.2f}%)\n"
 
             # Market analysis
