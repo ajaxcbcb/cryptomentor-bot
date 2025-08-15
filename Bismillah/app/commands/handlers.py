@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.utils.rate_limiter import rate_limiter
-from app.utils.text_formatter import format_futures_signals_response
+from app.utils.text_formatter import format_futures_signals_response, format_percentage, format_price
 from app.utils.telegram_safe import safe_reply, safe_edit
 from app.services.analysis import (
     AnalysisService,
