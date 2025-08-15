@@ -1852,6 +1852,22 @@ Gunakan `/subscribe` untuk upgrade!
         current_time = datetime.now().strftime('%H:%M WIB')
         current_date = datetime.now().strftime('%d %B %Y')
 
+        # Check all API keys status FIRST
+        try:
+            import os
+            cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
+            cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
+
+            openai_key = os.getenv('OPENAI_API_KEY')
+            openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
+
+            cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
+            cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
+        except:
+            cmc_status = "🔴 **ERROR**"
+            openai_status = "🔴 **ERROR**"
+            cryptonews_status = "🔴 **ERROR**"
+
         # Check API health with enhanced status
         coinapi_status = "🟢 **ACTIVE**" if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else "🔴 **OFFLINE**"
         database_status = "🟢 **CONNECTED**" if self.db else "🔴 **DISCONNECTED**" # Using Supabase status check
