@@ -1854,7 +1854,7 @@ Gunakan `/subscribe` untuk upgrade!
 
         # Check API health with enhanced status
         coinapi_status = "🟢 **ACTIVE**" if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else "🔴 **OFFLINE**"
-        database_status = "🟢 **ONLINE**" if self.db else "🔴 **OFFLINE**"
+        database_status = "🟢 **CONNECTED**" if self.db else "🔴 **DISCONNECTED**" # Using Supabase status check
 
         # Calculate performance metrics
         premium_percentage = (stats['premium_users']/max(stats['total_users'],1)*100) if stats['total_users'] > 0 else 0
@@ -1895,10 +1895,11 @@ Gunakan `/subscribe` untuk upgrade!
 
 🌐 **SYSTEM HEALTH**
 
-🗄️ **Database:** {database_status}
-🔗 **CoinAPI:** {coinapi_status}
-⚡ **Binance:** 🟢 **ACTIVE**
-🤖 **Auto Signals:** {auto_status}
+🗄️ **SUPABASE:** {database_status}
+🔗 **COINAPI:** {coinapi_status}
+⚡ **BINANCE:** 🟢 **ACTIVE**
+💰 **CMC API:** {cmc_status}
+🤖 **OPENAI:** {openai_status}
 
 ═══════════════════════════════════
 
@@ -2284,7 +2285,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 • CoinAPI: ✅ Active
 • Auto Signals: {'🟢 Running' if self.auto_signals and self.auto_signals.is_running else '🔴 Stopped'}
 
-⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+"""
 
         except Exception as e:
             message = f"❌ **Error getting recovery stats!**\n\n**Error**: {str(e)}"
