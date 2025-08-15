@@ -1958,7 +1958,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 ═══════════════════════════════════
 
-**CryptoMentor AI V3.0** • Powered by **CoinAPI + Binance + CMC**"""
+**CryptoMentor AI V3.0**"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
