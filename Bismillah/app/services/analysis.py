@@ -1,4 +1,3 @@
-
 from typing import Dict, Any, List
 import asyncio
 import pandas as pd
@@ -24,7 +23,7 @@ def _single_entry_point(df: pd.DataFrame) -> float:
     e50 = ema(df["close"], 50).iloc[-1]
     a14 = atr(df, 14).iloc[-1]
     trend = _trend_label(df)
-    
+
     if trend == "up":
         return float(min(e50, last_close - 0.5 * a14))
     elif trend == "down":
@@ -41,7 +40,7 @@ def _confidence(trend: str, rsi_last: float, macd_hist_last: float, atr_last: fl
       +0..10 bonus for healthy volatility (ATR/price in 0.5%..3%)
     """
     score = 0.0
-    
+
     # Trend scoring
     if trend == "up":   
         score += 30
@@ -71,10 +70,10 @@ async def analyze_coin_futures(coin: str) -> Dict[str, Any]:
     try:
         ohlcv = await get_ohlcv(coin, period="5MIN", limit=300, market="perp")
         df = to_df(ohlcv).dropna()
-        
+
         if len(df) < 200:
             return {"coin": coin.upper(), "error": "Insufficient data"}
-        
+
         trend = _trend_label(df)
         r = rsi(df["close"])
         m, s, h = macd(df["close"])
@@ -90,15 +89,15 @@ async def analyze_coin_futures(coin: str) -> Dict[str, Any]:
             "atr": float(a.iloc[-1]),
             "entry": _single_entry_point(df),
         }
-        
+
         res["confidence"] = _confidence(res["trend"], res["rsi"], res["macd_hist"], res["atr"], price)
         res["ok"] = res["confidence"] >= 75.0
         return res
-        
+
     except Exception as e:
         return {"coin": coin.upper(), "error": str(e)}
 
-async def futures_signals(coins: List[str] = None, crypto_api=None, threshold: float = 75.0) -> List[Dict[str, Any]]:
+async def futures_signals(coins: List[str] = None, threshold: float = 75.0) -> List[Dict[str, Any]]:
     """
     Scan coins for futures signals with confidence >= threshold
     If no coins specified, get Top 30 by volume
@@ -107,7 +106,7 @@ async def futures_signals(coins: List[str] = None, crypto_api=None, threshold: f
         # If no coins specified → get Top 30 by volume
         if not coins:
             coins = await get_top_usdt_coins(limit=30)
-        
+
         coins_up = [c.upper() for c in coins]
 
         tasks = [analyze_coin_futures(c) for c in coins_up]
@@ -120,13 +119,73 @@ async def futures_signals(coins: List[str] = None, crypto_api=None, threshold: f
             else:
                 if r.get("confidence", 0.0) >= threshold:
                     out.append(r)
-        
+
         # Sort by confidence (highest first)
         valid_signals = [x for x in out if 'error' not in x]
         valid_signals.sort(key=lambda x: x.get("confidence", 0.0), reverse=True)
-        
+
         return valid_signals[:10]  # Return top 10 signals max
-        
+
     except Exception as e:
         print(f"Error in futures_signals: {e}")
         return []
+
+async def market_overview() -> List[Dict]:
+    """
+    Overview pasar global dengan Top 30 coins
+    """
+    try:
+        from app.providers.binance import get_top_usdt_coins
+        from app.providers.coinapi import get_price_spot
+
+        # Ambil top 30
+        top_coins = await get_top_usdt_coins(30)
+        if not top_coins:
+            return []
+
+        # Analisis singkat per coin
+        results = []
+        for coin in top_coins[:10]:  # Batasi 10 untuk performa
+            try:
+                price_data = await get_price_spot(f"{coin}USDT")
+                if price_data:
+                    results.append({
+                        'coin': coin,
+                        'price': price_data.get('close', 0),
+                        'volume': price_data.get('volume', 0),
+                        'change': 0  # Placeholder
+                    })
+            except Exception as e:
+                print(f"Error processing {coin}: {e}")
+                continue
+
+        return results
+
+    except Exception as e:
+        print(f"Market overview error: {e}")
+        return []
+
+async def services_healthcheck() -> dict:
+    """
+    Cek minimum dependency & import:
+    - Bisa import numpy/pandas/indicator OK  
+    - Bisa panggil get_ohlcv untuk BTC spot (fallback ke Binance jika CoinAPI bermasalah)
+    """
+    try:
+        from app.providers.coinapi import get_ohlcv as _probe_ohlcv
+
+        # 1) uji import ringan
+        _ = ema  # noqa: F401
+        _ = rsi  # noqa: F401
+        _ = macd # noqa: F401
+        _ = atr  # noqa: F401
+
+        # 2) uji provider data (1–2 candle cukup)
+        data = await _probe_ohlcv("BTC", period="5MIN", limit=2, market="spot")
+        if not data or len(data) < 1:
+            raise RuntimeError("No OHLCV data from providers")
+
+        return {"ok": True, "sample_close": float(data[-1]["close"])}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

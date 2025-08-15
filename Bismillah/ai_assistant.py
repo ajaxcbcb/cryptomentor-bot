@@ -1211,13 +1211,11 @@ class AIAssistant:
         try:
             print(f"🔄 Starting futures signals generation...")
 
-            # Import the new analysis service
+            # Import the new analysis service using proper package import
             try:
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'services'))
-                from analysis import futures_signals
-            except ImportError:
+                from app.services import futures_signals
+            except ImportError as e:
+                print(f"❌ Failed to import futures_signals: {e}")
                 return self._error_fallback("FUTURES_SIGNALS", "analysis service not available")
 
             # Determine scan target
@@ -1229,7 +1227,7 @@ class AIAssistant:
                     target_symbols = None  # Fall back to Top 30
 
             # Use new analysis service with Top 30 auto-scan if no symbols specified
-            analysis_results = await futures_signals(target_symbols, crypto_api, threshold=75.0)
+            analysis_results = await futures_signals(target_symbols, threshold=75.0)
 
             def _fmt_percent(x: float) -> str:
                 return f"{x:.2f}".rstrip("0").rstrip(".")

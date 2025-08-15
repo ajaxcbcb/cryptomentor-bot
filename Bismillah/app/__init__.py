@@ -1,0 +1,4 @@
+
+"""
+CryptoMentor AI Application Package
+"""
