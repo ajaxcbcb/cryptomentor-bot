@@ -110,6 +110,10 @@ async def main():
     register_admin_premium_handlers(application)
     register_admin_debug_handlers(application)
     register_admin_stats(application)
+    
+    # Register access tools
+    from handlers_access_tools import register_access_tools
+    register_access_tools(application)
 
     print("✅ Bot initialized and handlers registered.")
 
