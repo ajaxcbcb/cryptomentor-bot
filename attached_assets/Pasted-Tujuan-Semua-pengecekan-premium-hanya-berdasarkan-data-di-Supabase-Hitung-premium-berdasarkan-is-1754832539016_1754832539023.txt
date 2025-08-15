@@ -1,0 +1,115 @@
+Tujuan:
+
+Semua pengecekan premium hanya berdasarkan data di Supabase.
+
+Hitung premium berdasarkan is_premium = true dan banned = false.
+
+Lifetime = premium_until IS NULL.
+
+Premium berjangka = premium_until >= NOW().
+
+Tidak pakai data dari local JSON/backup sama sekali.
+
+1️⃣ Buat fungsi helper cek premium di Supabase
+File: app/supabase_conn.py (tambahkan)
+
+python
+Copy
+from datetime import datetime, timezone
+
+def sb_is_premium_user(telegram_id: int) -> bool:
+    """
+    Cek apakah user premium (lifetime atau berjangka) di Supabase.
+    """
+    rows = sb_list_users({
+        "telegram_id": f"eq.{telegram_id}",
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "limit": "1"
+    })
+    if not rows:
+        return False
+    
+    user = rows[0]
+    # Lifetime
+    if user.get("premium_until") is None:
+        return True
+    # Berjangka
+    try:
+        until = datetime.fromisoformat(user["premium_until"].replace("Z", "+00:00"))
+        return until >= datetime.now(timezone.utc)
+    except Exception:
+        return False
+2️⃣ Ubah semua pengecekan premium di bot
+Cari semua:
+
+python
+Copy
+if user_id in premium_users:
+atau
+
+python
+Copy
+if is_premium(user_id):
+dan ganti dengan:
+
+python
+Copy
+from app.supabase_conn import sb_is_premium_user
+if sb_is_premium_user(user_id):
+3️⃣ Perbarui /premium_count untuk hitung dari Supabase
+File: handlers_admin.py
+
+python
+Copy
+@admin_guard
+async def cmd_premium_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lifetime_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null"
+    })
+    timed_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "gte.now()"
+    })
+    total = len(lifetime_rows) + len(timed_rows)
+    await update.effective_message.reply_text(
+        f"👑 Premium Count\n"
+        f"• Lifetime: {len(lifetime_rows)}\n"
+        f"• Timed: {len(timed_rows)}\n"
+        f"• Total: {total}"
+    )
+4️⃣ Ubah AutoSignal agar premium hanya dari Supabase
+File: app/autosignal.py
+
+python
+Copy
+def list_recipients() -> List[int]:
+    admin_ids = set()
+    for key in ("ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        val = os.getenv(key)
+        if val and val.isdigit():
+            admin_ids.add(int(val))
+
+    lifetime_rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null"
+    })
+
+    tids = set(admin_ids)
+    for r in lifetime_rows:
+        tid = r.get("telegram_id")
+        if tid and get_private_chat_id(int(tid)):
+            tids.add(int(tid))
+
+    return list(tids)
+Dengan ini:
+
+Premium check hanya dari Supabase.
+
+AutoSignal cuma kirim ke admin + user lifetime dari Supabase.
+
+Tidak ada data premium yang diambil dari local JSON.

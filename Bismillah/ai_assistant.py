@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-from supabase_client import supabase
+# TODO: Add database client import after setup
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -25,9 +25,9 @@ class AIAssistant:
             "Accept": "application/json"
         } if self.cmc_api_key else {}
 
-        # Initialize Supabase connection with validation
-        self.supabase = self._init_supabase()
-        self.supabase_connected = self._validate_supabase_connection()
+        # TODO: Initialize database connection after setup
+        self.supabase = None
+        self.supabase_connected = False
 
         # Admin logging system - ensure this is always initialized
         self.admin_log = []
@@ -96,11 +96,11 @@ class AIAssistant:
         }
 
 
-        self.target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'MATIC', 'DOT', 'LINK']
+        self.target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
 
     @classmethod
     def reset_connection_after_deploy(cls):
-        """Reset connection state after deployment"""
+        """Reset connection state after bot redeploy"""
         print("🔄 Resetting Supabase connection state after deployment...")
         cls._supabase_instance = None
         cls._connection_retry_count = 0
@@ -159,138 +159,28 @@ class AIAssistant:
     _max_retries = 3
 
     def _init_supabase(self):
-        """Initialize Supabase client using centralized client"""
-        try:
-            # Use the centralized supabase client
-            AIAssistant._supabase_instance = supabase
-            print("✅ Using centralized Supabase client")
-
-            # Test connection immediately
-            if self._test_supabase_connection():
-                return AIAssistant._supabase_instance
-            else:
-                print("❌ Supabase connection test failed")
-                AIAssistant._supabase_instance = None
-                return None
-
-        except Exception as e:
-            print(f"❌ Supabase initialization failed: {e}")
-            AIAssistant._supabase_instance = None
-            return None
+        """TODO: Initialize database client after setup"""
+        return None
 
     def _test_supabase_connection(self):
-        """Test Supabase connection with ping"""
-        try:
-            if not AIAssistant._supabase_instance:
-                return False
-
-            # Simple ping test
-            result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').limit(1).execute()
-
-            # Store user count for validation
-            current_count = result.count if hasattr(result, 'count') else 0
-
-            # Validate data consistency
-            if AIAssistant._last_user_count is not None:
-                if abs(current_count - AIAssistant._last_user_count) > 5:
-                    print(f"⚠️ Data inconsistency detected: {AIAssistant._last_user_count} → {current_count}")
-                    # Re-fetch all data to ensure consistency
-                    self._validate_data_integrity()
-
-            AIAssistant._last_user_count = current_count
-            print(f"✅ Supabase connection active - Users: {current_count}")
-            return True
-
-        except Exception as e:
-            print(f"❌ Supabase connection test failed: {e}")
-            return False
+        """TODO: Implement database connection test"""
+        return False
 
     def _reconnect_supabase(self):
-        """Reconnect to Supabase with retry logic"""
-        if AIAssistant._connection_retry_count >= AIAssistant._max_retries:
-            print(f"❌ Max retries ({AIAssistant._max_retries}) reached for Supabase reconnection")
-            return False
-
-        try:
-            AIAssistant._connection_retry_count += 1
-            print(f"🔄 Attempting Supabase reconnection (attempt {AIAssistant._connection_retry_count}/{AIAssistant._max_retries})")
-
-            # Reset instance to force new connection
-            AIAssistant._supabase_instance = None
-
-            # Wait before retry
-            import time
-            time.sleep(2)
-
-            # Reinitialize
-            self.supabase = self._init_supabase()
-
-            if self.supabase and self._test_supabase_connection():
-                print("✅ Supabase reconnection successful")
-                AIAssistant._connection_retry_count = 0  # Reset counter on success
-                return True
-            else:
-                return False
-
-        except Exception as e:
-            print(f"❌ Supabase reconnection failed: {e}")
-            return False
+        """TODO: Implement database reconnection"""
+        return False
 
     def _validate_data_integrity(self):
-        """Validate data integrity after inconsistency detection"""
-        try:
-            if not AIAssistant._supabase_instance:
-                return False
-
-            print("🔍 Validating data integrity...")
-
-            # Get complete user count
-            result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').execute()
-            total_users = result.count if hasattr(result, 'count') else 0
-
-            # Get premium users count
-            premium_result = AIAssistant._supabase_instance.from_('users').select('count', count='exact').eq('is_premium', True).execute()
-            premium_users = premium_result.count if hasattr(premium_result, 'count') else 0
-
-            print(f"📊 Data integrity check: Total={total_users}, Premium={premium_users}")
-
-            # Update cached values
-            AIAssistant._last_user_count = total_users
-
-            return True
-
-        except Exception as e:
-            print(f"❌ Data integrity validation failed: {e}")
-            return False
+        """TODO: Implement data integrity validation"""
+        return False
 
     def _ensure_supabase_connection(self):
-        """Ensure Supabase connection before query execution"""
-        # Test existing connection
-        if self._test_supabase_connection():
-            return True
-
-        # Try to reconnect if connection failed
-        print("🔄 Connection lost, attempting reconnection...")
-        return self._reconnect_supabase()
+        """TODO: Implement connection verification"""
+        return False
 
     def _validate_supabase_connection(self):
-        """Enhanced validation with auto-reconnect"""
-        try:
-            if not AIAssistant._supabase_instance:
-                print("⚠️ No Supabase instance - attempting initialization")
-                self.supabase = self._init_supabase()
-                return bool(self.supabase)
-
-            # Test connection
-            if self._test_supabase_connection():
-                return True
-            else:
-                # Try reconnection
-                return self._reconnect_supabase()
-
-        except Exception as e:
-            print(f"❌ Supabase validation failed: {e}")
-            return False
+        """TODO: Implement connection validation"""
+        return False
 
     def _log_admin_error(self, command, error_detail):
         """Log errors for admin only"""
@@ -356,8 +246,8 @@ class AIAssistant:
         """Get user-friendly database error message"""
         return """⚠️ Database tidak tersedia saat ini\. 
 
-✅ Analisis tetap berfungsi normal\!
-💡 Fitur premium dan riwayat mungkin terbatas\."""
+✅ Analisis tetap berfungsi normal\\!
+💡 Fitur premium dan riwayat mungkin terbatas\\."""
 
     def _validate_markdown_output(self, text):
         """Validate if text is safe for Markdown parsing"""
@@ -403,9 +293,9 @@ class AIAssistant:
         """Get current time in WIB (Asia/Jakarta)"""
         try:
             wib_tz = timezone(timedelta(hours=7))
-            return datetime.now(wib_tz).strftime('%d-%m-%Y %H:%M:%S WIB')
+            return datetime.now(wib_tz).strftime('%H:%M:%S WIB')
         except:
-            return datetime.now().strftime('%d-%m-%Y %H:%M:%S WIB')
+            return datetime.now().strftime('%H:%M:%S WIB')
 
     def _normalize_data(self, data, field_aliases):
         """Normalize data fields using aliases"""
@@ -659,93 +549,20 @@ class AIAssistant:
             return {'error': f'Request failed: {str(e)}', 'success': False}
 
     def _supabase_query(self, query_func, operation_name="query"):
-        """Execute Supabase query with auto-reconnection"""
-        max_attempts = 3
-
-        for attempt in range(1, max_attempts + 1):
-            try:
-                # Ensure connection is active
-                if not self._ensure_supabase_connection():
-                    if attempt == max_attempts:
-                        print(f"❌ {operation_name} failed: No stable connection after {max_attempts} attempts")
-                        return None
-                    continue
-
-                # Execute query
-                result = query_func()
-
-                # Log successful operation
-                if attempt > 1:
-                    print(f"✅ {operation_name} successful on attempt {attempt}")
-
-                return result
-
-            except Exception as e:
-                print(f"❌ {operation_name} attempt {attempt} failed: {e}")
-
-                if attempt < max_attempts:
-                    print(f"🔄 Retrying {operation_name} in 2 seconds...")
-                    import time
-                    time.sleep(2)
-
-                    # Force reconnection for next attempt
-                    AIAssistant._supabase_instance = None
-                    self.supabase = self._init_supabase()
-                else:
-                    print(f"❌ {operation_name} failed after {max_attempts} attempts")
-                    return None
-
+        """TODO: Implement database query method"""
         return None
 
     def save_user(self, user_id, username=""):
-        """Save user to database with auto-reconnection"""
-        def query_operation():
-            # Check if user exists
-            existing_user = self.supabase.table('users').select('*').eq('id', str(user_id)).execute()
-            if existing_user.data:
-                return True
-
-            # Create new user
-            user_data = {
-                'id': str(user_id),
-                'username': username,
-                'joined_at': datetime.now().isoformat(),
-                'status': 'free'
-            }
-
-            result = self.supabase.table('users').insert(user_data).execute()
-            return bool(result.data)
-
-        return self._supabase_query(query_operation, "save_user") or False
+        """TODO: Implement user save method"""
+        return False
 
     def get_user_count(self):
-        """Get total user count with data validation"""
-        def query_operation():
-            result = self.supabase.from_('users').select('count', count='exact').execute()
-            return result.count if hasattr(result, 'count') else 0
-
-        count = self._supabase_query(query_operation, "get_user_count")
-
-        if count is not None:
-            # Validate against last known count
-            if AIAssistant._last_user_count is not None:
-                diff = abs(count - AIAssistant._last_user_count)
-                if diff > 5:
-                    print(f"⚠️ Significant user count change detected: {AIAssistant._last_user_count} → {count}")
-                    # Trigger data integrity check
-                    self._validate_data_integrity()
-
-            AIAssistant._last_user_count = count
-
-        return count or 0
+        """TODO: Implement user count method"""
+        return 0
 
     def get_premium_users_count(self):
-        """Get premium user count with validation"""
-        def query_operation():
-            result = self.supabase.from_('users').select('count', count='exact').eq('is_premium', True).execute()
-            return result.count if hasattr(result, 'count') else 0
-
-        return self._supabase_query(query_operation, "get_premium_users_count") or 0
+        """TODO: Implement premium user count method"""
+        return 0
 
     def greet(self):
         return f"Halo! Saya {self.name}, asisten trading crypto profesional dengan analisis multi-timeframe dan supply/demand zones."
@@ -775,31 +592,34 @@ class AIAssistant:
 
     # ============ MAIN COMMAND HANDLERS ============
 
-    def get_comprehensive_analysis(self, symbol, price_data, futures_data, language='id', crypto_api=None):
-        """Generate comprehensive crypto analysis with CoinAPI data"""
+    def get_comprehensive_analysis(self, symbol, snd_data={}, price_data={}, language='id', crypto_api=None):
+        """Enhanced comprehensive analysis matching professional futures format"""
         try:
-            # Get fresh price data from CoinAPI if not provided
-            if not price_data or 'error' in price_data:
-                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("ANALYZE")
+            if not db_available:
+                return db_error
 
-            # Get OHLCV data for technical analysis (spot market for general analysis)
-            try:
-                import asyncio
-                ohlcv_data = asyncio.run(crypto_api.get_ohlcv_data(symbol, period="5MIN", limit=100, market="spot"))
-                if not ohlcv_data.get('success'):
-                    print(f"⚠️ OHLCV data failed: {ohlcv_data.get('error', 'Unknown error')}")
-                    ohlcv_data = {'success': False}
-            except Exception as e:
-                print(f"⚠️ OHLCV data unavailable: {e}")
-                ohlcv_data = {'success': False}
+            current_time = self._get_wib_time()
+            symbol = symbol.upper()
 
-            if 'error' in price_data or not price_data.get('success'):
+            # Get current price data with extended info
+            if crypto_api:
+                price_info = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                futures_data = crypto_api.get_futures_data(symbol)
+                coin_info = crypto_api.get_coin_info(symbol) if hasattr(crypto_api, 'get_coin_info') else {}
+            else:
+                price_info = {'error': 'API unavailable'}
+                futures_data = {}
+                coin_info = {}
+
+            if 'error' in price_info or not price_info.get('success'):
                 return self._error_fallback(symbol, "price data")
 
-            current_price = self._normalize_data(price_data, ['price', 'current_price', 'last', 'close'])
-            change_24h = self._normalize_data(price_data, ['change_24h', 'price_change_24h', 'percent_change_24h'])
-            volume_24h = self._normalize_data(price_data, ['volume_24h', 'volume', 'total_volume'])
-            market_cap = self._normalize_data(price_data, ['market_cap', 'marketCap'])
+            current_price = self._normalize_data(price_info, ['price', 'current_price', 'last', 'close'])
+            change_24h = self._normalize_data(price_info, ['change_24h', 'price_change_24h', 'percent_change_24h'])
+            volume_24h = self._normalize_data(price_info, ['volume_24h', 'volume', 'total_volume'])
+            market_cap = self._normalize_data(price_info, ['market_cap', 'marketCap'])
 
             if not current_price:
                 return self._error_fallback(symbol, "price normalization")
@@ -837,7 +657,7 @@ class AIAssistant:
             market_data = self.get_cmc_global_metrics()
 
             # Get coin fundamentals if available
-            coin_fundamentals = self._get_coin_fundamentals(symbol, price_data, crypto_api.get_coin_info(symbol) if hasattr(crypto_api, 'get_coin_info') else {})
+            coin_fundamentals = self._get_coin_fundamentals(symbol, price_info, coin_info)
 
             # Determine confidence level description
             confidence = signal_data['confidence']
@@ -867,8 +687,8 @@ class AIAssistant:
             # Format comprehensive analysis matching futures style
             analysis = f"""🔍 **PROFESSIONAL COMPREHENSIVE ANALYSIS - {symbol}**
 
-🕐 **Analysis Time**: {self._get_wib_time()}
-💰 **Current Price**: ${current_price:,.6f}
+🕐 **Analysis Time**: {current_time}
+💰 **Current Price**: ${current_price:,.2f}
 📊 **24h Change**: {change_24h:+.2f}%
 
 {direction_emoji} **TRADING SIGNAL**: {signal_data['direction']}
@@ -876,13 +696,19 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Technical Analysis')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-"""
+💰 **DETAILED TRADING SETUP:**
+• Entry: ${trading_levels['entry']:,.6f}
+• Stop Loss: ${trading_levels['stop_loss']:,.6f}
+• TP1 (50%): ${trading_levels['tp1']:,.6f}
+• TP2 (30%): ${trading_levels['tp2']:,.6f} 
+• TP3 (20%): ${trading_levels['tp3']:,.6f}
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
-            # Skip trading setup for /analyze command - only technical analysis
+"""
 
             # Add enhanced S&D zones
             analysis += f"""
-
 🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
 • 🔴 Supply Zone 1: ${enhanced_snd_zones.get('supply_1', current_price * 1.02):,.6f} ({((enhanced_snd_zones.get('supply_1', current_price * 1.02)/current_price-1)*100):+.1f}%)
 • 🔴 Supply Zone 2: ${enhanced_snd_zones.get('supply_2', current_price * 1.04):,.6f} ({((enhanced_snd_zones.get('supply_2', current_price * 1.04)/current_price-1)*100):+.1f}%)
@@ -948,7 +774,7 @@ class AIAssistant:
 • ✅ Prepare for partial profit taking
 • ✅ Watch for news/events impact
 
-📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis
+📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis + Fundamentals
 🔄 **Update Frequency**: Real-time price + Multi-timeframe technical refresh"""
 
             return analysis
@@ -956,18 +782,24 @@ class AIAssistant:
         except Exception as e:
             return self._error_fallback(symbol, f"comprehensive analysis: {str(e)[:50]}")
 
-    async def get_futures_analysis(self, symbol, timeframe, language='id', crypto_api=None):
-        """Generate futures analysis with SnD for specific timeframe"""
+    async def get_futures_analysis(self, symbol, timeframe='15m', language='id', crypto_api=None):
+        """Enhanced futures analysis with comprehensive breakdown - Fixed async function"""
         try:
-            print(f"🎯 Starting futures analysis: {symbol} {timeframe}")
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("FUTURES")
+            if not db_available:
+                return db_error
 
-            # Get real-time data
-            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-            futures_data = crypto_api.get_futures_data(symbol)
+            current_time = self._get_wib_time()
+            symbol = symbol.upper()
 
-            # Get OHLCV data with perp market for futures analysis
-            ohlcv_data = await crypto_api.get_ohlcv_data(symbol, period="5MIN", limit=300, market="perp")
-
+            # Get comprehensive data
+            if crypto_api:
+                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                futures_data = crypto_api.get_futures_data(symbol)
+                snd_data = crypto_api.analyze_supply_demand(symbol, timeframe)
+            else:
+                return self._error_fallback(symbol, "API connection")
 
             if 'error' in price_data or not price_data.get('success'):
                 return self._error_fallback(symbol, "price data")
@@ -999,12 +831,12 @@ class AIAssistant:
 
             # Enhanced signal generation with multiple timeframe confirmation
             signal_data = self._generate_enhanced_trading_signal(
-                primary_indicators, higher_tf_indicators, futures_data, current_price, {}
+                primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data
             )
 
             # Advanced trading levels calculation
             trading_levels = self._calculate_advanced_trading_levels(
-                current_price, signal_data, primary_indicators, {}
+                current_price, signal_data, primary_indicators, snd_data
             )
 
             # Determine confidence level description
@@ -1035,7 +867,7 @@ class AIAssistant:
             # Create comprehensive analysis
             analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe})**
 
-🕐 **Analysis Time**: {self._get_wib_time()}
+🕐 **Analysis Time**: {current_time}
 💰 **Current Price**: ${current_price:,.6f}
 📊 **24h Change**: {change_24h:+.2f}%
 
@@ -1044,10 +876,15 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Swing Trading')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-"""
+💰 **DETAILED TRADING SETUP:**
+• Entry: ${trading_levels['entry']:.2f}
+• Stop Loss: ${trading_levels['stop_loss']:.2f}
+• TP1 (50%): ${trading_levels['tp1']:.2f}
+• TP2 (30%): ${trading_levels['tp2']:.2f} 
+• TP3 (20%): ${trading_levels['tp3']:.2f}
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
+• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
-            # Skip trading setup for /analyze command - only technical analysis
-            analysis += f"""
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe}):
 • EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
@@ -1061,23 +898,17 @@ class AIAssistant:
 🎯 **SUPPLY & DEMAND ZONES**:"""
 
             # Add Supply & Demand analysis if available
-            if ohlcv_data and isinstance(ohlcv_data, dict) and ohlcv_data.get('success'):
-                snd_data = crypto_api.analyze_supply_demand(symbol, timeframe) # Re-analyzing for consistency
-                if snd_data.get('success'):
-                    supply_1 = snd_data.get('Supply 1', current_price * 1.02)
-                    demand_1 = snd_data.get('Demand 1', current_price * 0.98)
-                    analysis += f"""
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+                analysis += f"""
 • 🔴 Supply Zone 1: ${supply_1:,.6f} ({((supply_1/current_price-1)*100):+.1f}%)
 • 🟢 Demand Zone 1: ${demand_1:,.6f} ({((demand_1/current_price-1)*100):+.1f}%)
 • 📍 Current Position: {self._get_zone_position(current_price, supply_1, demand_1)}
 • 💪 Zone Strength: {snd_data.get('zone_strength', 'Medium')}"""
-                else:
-                    analysis += """
-• Supply/Demand analysis temporarily unavailable
-• Using technical levels for zone identification"""
             else:
                 analysis += """
-• Supply/Demand analysis unavailable
+• Supply/Demand analysis temporarily unavailable
 • Using technical levels for zone identification"""
 
             # Add futures metrics
@@ -1138,92 +969,245 @@ class AIAssistant:
 • ✅ Watch for news/events impact
 
 📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis
-🔄 **Update Frequency**: Real-time price + {timeframe} technical refresh"""
+🔄 **Update Frequency**: Real-time price + 15min technical refresh"""
 
             return analysis
 
         except Exception as e:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
-    async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
-        """Generate comprehensive futures signals with SnD analysis"""
+    def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
+        """Generate enhanced trading signal with multiple timeframe confirmation - Helper function"""
         try:
-            print(f"🔄 Starting futures signals generation...")
+            # Basic signal logic with enhanced features
+            confidence = 0
+            direction = 'NEUTRAL'
+            
+            # Primary timeframe indicators
+            ema_50 = primary_indicators.get('ema_50', 0)
+            ema_200 = primary_indicators.get('ema_200', 0)
+            rsi = primary_indicators.get('rsi', 50)
+            macd = primary_indicators.get('macd_histogram', 0)
+            
+            # Trend determination
+            if ema_50 > ema_200:
+                confidence += 30
+                if rsi < 70:
+                    confidence += 15
+                if macd > 0:
+                    confidence += 15
+                direction = 'LONG'
+            elif ema_50 < ema_200:
+                confidence += 30
+                if rsi > 30:
+                    confidence += 15
+                if macd < 0:
+                    confidence += 15
+                direction = 'SHORT'
+            else:
+                confidence += 10
+                
+            # Higher timeframe confirmation
+            if higher_tf_indicators:
+                htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
+                htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
+                if htf_ema_50 > htf_ema_200 and direction == 'LONG':
+                    confidence += 20
+                elif htf_ema_50 < htf_ema_200 and direction == 'SHORT':
+                    confidence += 20
+                    
+            # Futures data confirmation
+            if futures_data and futures_data.get('success'):
+                funding_rate = futures_data.get('funding_rate', 0)
+                if abs(funding_rate) < 0.01:  # Normal funding
+                    confidence += 10
+                    
+            return {
+                'direction': direction,
+                'confidence': min(confidence, 100),
+                'strategy': 'Multi-Timeframe Analysis',
+                'time_horizon': '4-24 hours',
+                'mtf_confirmation': 'Strong' if confidence > 80 else 'Partial',
+                'volume_trend': 'Normal'
+            }
+            
+        except Exception as e:
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'strategy': 'Basic Analysis',
+                'time_horizon': '4-24 hours',
+                'error': str(e)
+            }
 
-            # Target symbols for analysis
-            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
+    def _calculate_advanced_trading_levels(self, current_price, signal_data, indicators, snd_data):
+        """Calculate advanced trading levels with proper risk management - Helper function"""
+        try:
+            atr = indicators.get('atr', current_price * 0.02)
+            direction = signal_data['direction']
+            
+            if direction == 'LONG':
+                entry = current_price * 0.999
+                stop_loss = current_price - (atr * 2.5)
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 3)
+                tp3 = current_price + (atr * 4.5)
+            elif direction == 'SHORT':
+                entry = current_price * 1.001
+                stop_loss = current_price + (atr * 2.5)
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 3)
+                tp3 = current_price - (atr * 4.5)
+            else:
+                return {
+                    'entry': current_price,
+                    'stop_loss': current_price,
+                    'tp1': current_price,
+                    'tp2': current_price,
+                    'tp3': current_price,
+                    'rr_ratio': 0,
+                    'risk_percentage': 2.5
+                }
+                
+            # Calculate risk/reward ratio
+            risk = abs(entry - stop_loss)
+            reward = abs(tp2 - entry)
+            rr_ratio = reward / risk if risk > 0 else 0
+            
+            return {
+                'entry': entry,
+                'stop_loss': stop_loss,
+                'tp1': tp1,
+                'tp2': tp2,
+                'tp3': tp3,
+                'rr_ratio': rr_ratio,
+                'risk_percentage': 2.5
+            }
+            
+        except Exception as e:
+            return {
+                'entry': current_price,
+                'stop_loss': current_price,
+                'tp1': current_price,
+                'tp2': current_price,
+                'tp3': current_price,
+                'rr_ratio': 0,
+                'risk_percentage': 2.5
+            }
+
+    def _get_futures_bias(self, long_ratio, funding_rate):
+        """Get futures bias based on long/short ratio and funding rate - Helper function"""
+        try:
+            if long_ratio > 60 and funding_rate > 0.01:
+                return "Bullish Overheated"
+            elif long_ratio > 55:
+                return "Bullish"
+            elif long_ratio < 40 and funding_rate < -0.01:
+                return "Bearish Oversold"
+            elif long_ratio < 45:
+                return "Bearish"
+            else:
+                return "Neutral"
+        except:
+            return "Neutral"
+
+    def _get_zone_position(self, current_price, supply_zone, demand_zone):
+        """Determine current position relative to supply/demand zones - Helper function"""
+        try:
+            if current_price > supply_zone:
+                return "Above Supply Zone"
+            elif current_price < demand_zone:
+                return "Below Demand Zone"
+            else:
+                return "Between Zones"
+        except:
+            return "Unknown Position"
+
+    def _get_advanced_trading_insights(self, signal_data, trading_levels, confidence):
+        """Generate advanced trading insights - Helper function"""
+        try:
+            insights = []
+            
+            if confidence >= 80:
+                insights.append("• High probability setup dengan multiple confirmations")
+            elif confidence >= 70:
+                insights.append("• Setup trading solid dengan konfirmasi cukup")
+            else:
+                insights.append("• Setup berisiko, gunakan position size kecil")
+                
+            rr_ratio = trading_levels.get('rr_ratio', 0)
+            if rr_ratio > 2:
+                insights.append("• Risk/Reward ratio menguntungkan untuk swing trading")
+            elif rr_ratio > 1:
+                insights.append("• Risk/Reward ratio acceptable untuk day trading")
+            else:
+                insights.append("• Risk/Reward ratio kurang ideal, pertimbangkan skip")
+                
+            direction = signal_data.get('direction', 'NEUTRAL')
+            if direction != 'NEUTRAL':
+                insights.append(f"• Bias market mendukung posisi {direction}")
+            else:
+                insights.append("• Market dalam kondisi sideways, tunggu breakout")
+                
+            return "\n".join(insights)
+            
+        except Exception as e:
+            return "• Analisis insight temporarily unavailable"
+
+    def _filter_and_format_signals(self, all_signals):
+        """Filter and format signals for display - Helper function"""
+        try:
+            # Filter signals with confidence >= 75%
+            filtered = [s for s in all_signals if s.get('confidence', 0) >= 75]
+            
+            # Sort by confidence (highest first)
+            filtered.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+            
+            # Take top 10 signals to avoid spam
+            return filtered[:10]
+            
+        except Exception as e:
+            return []
+
+    def _error_fallback(self, symbol, error_context):
+        """Generate error fallback message - Helper function"""
+        return f"❌ Error in {error_context} for {symbol}\n\n💡 Alternatif:\n• `/price {symbol.lower()}` untuk harga basic\n• Contact admin jika masalah berlanjut"
+
+    async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
+        """Generate futures signals with proper formatting and filtering"""
+        try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("FUTURES_SIGNALS")
+            if not db_available:
+                return db_error
+
+            current_time = self._get_wib_time()
+
+            # Target symbols for scanning - expanded list for variety
+            all_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
                           'BNB', 'TRX', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT', 'ATOM', 'FIL', 'ETC',
                           'ALGO', 'VET', 'MANA', 'SAND', 'SHIB']
 
             # If specific symbol requested, use that
             if query_args and len(query_args) > 0:
                 first_arg = query_args[0].upper()
-                if len(first_arg) <= 5 and first_arg in target_symbols: # Check if it's a valid symbol and short enough
+                if len(first_arg) <= 5:
                     target_symbols = [first_arg]
                 else:
                     # Randomize symbol selection for variety each time
                     import random
-                    target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
+                    target_symbols = random.sample(all_symbols, min(15, len(all_symbols)))
             else:
                 # Randomize symbol selection for variety each time
                 import random
-                target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
+                target_symbols = random.sample(all_symbols, min(15, len(all_symbols)))
 
             all_signals = []
 
             # Scan symbols for signals
-            for symbol in target_symbols[:3]:  # Limit to 3 for performance
+            for symbol in target_symbols:
                 try:
-                    # Get OHLCV data with perp market for futures
-                    ohlcv_data = await crypto_api.get_ohlcv_data(symbol, period="5MIN", limit=300, market="perp")
-
-                    if not ohlcv_data or not ohlcv_data.get('success'):
-                        print(f"⚠️ OHLCV data failed for {symbol}: {ohlcv_data.get('error', 'Unknown error') if ohlcv_data else 'No data'}")
-                        continue
-
-                    # Process OHLCV data - convert list to DataFrame
-                    try:
-                        import pandas as pd
-                        ohlcv_df = pd.DataFrame(ohlcv_data.get('data', []))
-
-                        # Rename columns to match expected format
-                        column_mapping = {
-                            'close': 'price_close',
-                            'high': 'price_high', 
-                            'low': 'price_low',
-                            'open': 'price_open',
-                            'volume': 'volume_traded'
-                        }
-                        ohlcv_df = ohlcv_df.rename(columns=column_mapping)
-
-                        if ohlcv_df.empty or len(ohlcv_df) < 20:
-                            print(f"⚠️ Insufficient OHLCV data for {symbol}: {len(ohlcv_df)} rows")
-                            continue
-
-                    except Exception as df_error:
-                        print(f"⚠️ DataFrame conversion error for {symbol}: {df_error}")
-                        continue
-
-                    # Calculate technical indicators
-                    indicators = self.calculate_technical_indicators(ohlcv_df)
-                    if 'error' in indicators:
-                        print(f"⚠️ Error calculating indicators for {symbol}: {indicators['error']}")
-                        continue
-
-                    # Get futures and price data
-                    futures_data = crypto_api.get_futures_data(symbol)
-                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-
-                    if 'error' in price_data or not price_data.get('success'):
-                        continue
-
-                    current_price = self._normalize_data(price_data, ['price', 'current_price'])
-                    if not current_price:
-                        continue
-
-                    # Generate signal
                     signal = await self._enhanced_scan_symbol_for_signal(symbol, crypto_api)
-
                     if signal:
                         all_signals.append(signal)
                         print(f"✅ Found signal: {symbol} - {signal['confidence']:.2f}% ({signal['direction']})")
@@ -1238,7 +1222,7 @@ class AIAssistant:
             if not filtered_signals:
                 return f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-🕐 Scan Time: {self._get_wib_time()}
+🕐 Scan Time: {current_time}
 📊 Signals Found: 0 (Confidence ≥ 75.00%)
 
 ❌ Tidak ada sinyal memenuhi syarat
@@ -1258,13 +1242,37 @@ class AIAssistant:
 
 📡 Next scan akan mengacak koin berbeda"""
 
-            # Format signals message
-            message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
+            # Get global market metrics for header
+            global_metrics = self.get_cmc_global_metrics()
 
-🕐 Scan Time: {self._get_wib_time()}
-📊 Signals Found: {len(filtered_signals)} (Confidence ≥ 75.00%)
+            # Format header with global metrics
+            if global_metrics.get('success'):
+                total_market_cap = global_metrics.get('total_market_cap', 0)
+                market_cap_change = global_metrics.get('market_cap_change_24h', 0)
+                total_volume = global_metrics.get('total_volume_24h', 0)
+                active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
+                btc_dominance = global_metrics.get('btc_dominance', 0)
+                eth_dominance = global_metrics.get('eth_dominance', 0)
+
+                header_metrics = f"""💰 **GLOBAL METRICS:**
+• Total Market Cap: ${total_market_cap/1e12:.2f}T
+• 24h Market Change: {market_cap_change:+.2f}%
+• Total Volume 24h: ${total_volume/1e9:.1f}B
+• Active Cryptocurrencies: {active_cryptos:,}
+• BTC Dominance: {btc_dominance:.1f}%
+• ETH Dominance: {eth_dominance:.1f}%
 
 """
+            else:
+                header_metrics = ""
+
+            # Format signals message
+            message = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
+
+🕐 **Scan Time**: {current_time}
+📊 **Signals Found**: {len(filtered_signals)} (Confidence ≥ 75.00%)
+
+{header_metrics}"""
 
             for i, signal in enumerate(filtered_signals, 1):
                 direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
@@ -1274,42 +1282,13 @@ class AIAssistant:
                 price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
                 change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
 
-                # Format with formatter new
-                try:
-                    import sys
-                    import os
-                    sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
-                    from trade_setup import format_detailed_setup
-
-                    # Prepare setup data
-                    setup_data = {
-                        "entry": signal.get('entry'),
-                        "stop": signal.get('sl'),
-                        "tp1": signal.get('tp1'), "tp1_pct": 50,
-                        "tp2": signal.get('tp2'), "tp2_pct": 30,
-                        "rr": float(signal.get('rr_ratio', '2.0').split(':')[0]) if isinstance(signal.get('rr_ratio'), str) else signal.get('rr_ratio', 2.0),
-                        "max_risk_pct": 2.0
-                    }
-
-                    mini_setup = format_detailed_setup(setup_data, title=f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}")
-
-                    message += f"""{mini_setup}
+                message += f"""**{i}. {signal['symbol']} {direction_emoji} {signal['direction']}**
 ⭐️ Confidence: {signal['confidence']:.2f}%
-🔄 Trend: {signal['trend']}
-⚡️ Structure: {signal['structure']} Bias
-🧠 Reason: {signal['reason']}
-📈 24h Change: {change_24h:+.2f}%
-
-"""
-                except ImportError:
-                    # Fallback format
-                    message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
-⭐️ Confidence: {signal['confidence']:.2f}%
-• 🎯 Entry: ${signal['entry']:.2f}
-• 🛑 Stop Loss: ${signal['sl']:.2f}
-• 1️⃣ TP1: ${signal['tp1']:.2f}
-• 2️⃣ TP2: ${signal['tp2']:.2f}
-• ⚖️ R/R Ratio: {signal['rr_ratio']}
+💰 Entry: ${signal['entry']:.2f}
+🛑 Stop Loss: ${signal['sl']:.2f}
+🎯 TP1: ${signal['tp1']:.2f}
+🎯 TP2: ${signal['tp2']:.2f}
+📊 R/R Ratio: {signal['rr_ratio']}
 🔄 Trend: {signal['trend']}
 ⚡️ Structure: {signal['structure']} Bias
 🧠 Reason: {signal['reason']}
@@ -1330,6 +1309,117 @@ class AIAssistant:
 
         except Exception as e:
             return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
+
+    def get_market_sentiment(self, language='id', crypto_api=None):
+        """Get comprehensive market sentiment analysis - Non-async function"""
+        try:
+            current_time = self._get_wib_time()
+            
+            # Get global market metrics
+            global_metrics = self.get_cmc_global_metrics()
+            
+            if not global_metrics.get('success'):
+                return self._get_basic_market_fallback()
+                
+            # Extract key metrics
+            total_market_cap = global_metrics.get('total_market_cap', 0)
+            market_cap_change = global_metrics.get('market_cap_change_24h', 0)
+            total_volume = global_metrics.get('total_volume_24h', 0)
+            active_cryptos = global_metrics.get('active_cryptocurrencies', 0)
+            btc_dominance = global_metrics.get('btc_dominance', 0)
+            eth_dominance = global_metrics.get('eth_dominance', 0)
+
+            # Market sentiment analysis
+            if market_cap_change > 3:
+                sentiment = "🚀 Very Bullish"
+                sentiment_desc = "Market sangat bullish dengan pertumbuhan kuat"
+            elif market_cap_change > 1:
+                sentiment = "📈 Bullish"
+                sentiment_desc = "Market bullish dengan tren positif"
+            elif market_cap_change > -1:
+                sentiment = "😐 Neutral"
+                sentiment_desc = "Market dalam kondisi sideways"
+            elif market_cap_change > -3:
+                sentiment = "📉 Bearish"
+                sentiment_desc = "Market bearish dengan tekanan jual"
+            else:
+                sentiment = "💥 Very Bearish"
+                sentiment_desc = "Market sangat bearish dengan penurunan tajam"
+
+            # Format market analysis
+            analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL**
+
+🕐 **Analysis Time**: {current_time}
+🎯 **Market Sentiment**: {sentiment}
+
+💰 **GLOBAL METRICS:**
+• Total Market Cap: ${total_market_cap/1e12:.2f}T
+• 24h Market Change: {market_cap_change:+.2f}%
+• Total Volume 24h: ${total_volume/1e9:.1f}B
+• Active Cryptocurrencies: {active_cryptos:,}
+• BTC Dominance: {btc_dominance:.1f}%
+• ETH Dominance: {eth_dominance:.1f}%
+
+📊 **MARKET ANALYSIS:**
+• 🎭 **Sentiment**: {sentiment_desc}
+• 📈 **Dominance**: {"BTC masih mendominasi" if btc_dominance > 50 else "Altseason potential"}
+• 💹 **Volume**: {"Tinggi" if total_volume > 50e9 else "Normal" if total_volume > 30e9 else "Rendah"}
+• 🌊 **Trend**: {"Uptrend" if market_cap_change > 1 else "Downtrend" if market_cap_change < -1 else "Sideways"}
+
+💡 **TRADING RECOMMENDATIONS:**
+{self._get_market_trading_recommendations(market_cap_change, btc_dominance)}
+
+📡 **Data Sources**: CoinMarketCap Global Metrics
+🔄 **Update Frequency**: Real-time market data refresh"""
+
+            return analysis
+            
+        except Exception as e:
+            return self._get_basic_market_fallback()
+
+    def _get_market_trading_recommendations(self, market_change, btc_dominance):
+        """Get trading recommendations based on market conditions - Helper function"""
+        try:
+            recommendations = []
+            
+            if market_change > 2:
+                recommendations.append("• 🚀 Consider long positions pada major coins")
+                recommendations.append("• 📈 Altcoins berpotensi follow BTC momentum")
+            elif market_change > 0:
+                recommendations.append("• 🎯 Selective long pada coins dengan strong fundamentals")
+                recommendations.append("• ⚖️ Risk management tetap prioritas")
+            elif market_change < -2:
+                recommendations.append("• 🛡️ Defensive strategy, consider short positions")
+                recommendations.append("• 💰 DCA opportunities pada major dips")
+            else:
+                recommendations.append("• 🕐 Wait and see approach")
+                recommendations.append("• 📊 Focus on technical analysis untuk entry points")
+                
+            if btc_dominance > 55:
+                recommendations.append("• 👑 BTC dominance tinggi, focus pada BTC trades")
+            elif btc_dominance < 45:
+                recommendations.append("• 🌈 Altseason potential, consider altcoin positions")
+                
+            return "\n".join(recommendations)
+            
+        except:
+            return "• Analisis rekomendasi temporarily unavailable"
+
+    def _get_basic_market_fallback(self):
+        """Get basic market fallback when APIs fail - Helper function"""
+        return """🌍 **OVERVIEW PASAR CRYPTO**
+
+⚠️ **Data global sementara tidak tersedia**
+
+💡 **Alternatif analisis:**
+• `/price btc` - Cek harga Bitcoin real-time
+• `/price eth` - Cek harga Ethereum real-time  
+• `/analyze btc` - Analisis fundamental Bitcoin
+• `/futures_signals` - Scan sinyal trading
+
+🔄 **Coba command `/market` lagi dalam beberapa menit**
+
+📡 **Info**: Menggunakan analisis teknikal sebagai backup"""
 
     # ============ HELPER METHODS ============
 
@@ -1751,7 +1841,7 @@ class AIAssistant:
             return None
 
     async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
-        """Generate enhanced trading signal for a symbol"""
+        """Enhanced scan for trading signal with more detailed logic - Fixed async function"""
         try:
             if not crypto_api:
                 return None
@@ -2228,124 +2318,6 @@ class AIAssistant:
 
     # ============ LEGACY COMPATIBILITY METHODS ============
 
-    async def get_market_sentiment(self, language='id', crypto_api=None, top_n=20):
-        """
-        SHIM kompatibilitas untuk kode lama:
-        delegasikan ke service market sentiment baru.
-        """
-        try:
-            # Import service market sentiment
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'services'))
-            from market import get_market_sentiment as svc_market_sentiment
-
-            # Get market data
-            market_data = await svc_market_sentiment(top_n=top_n)
-
-            if not market_data.get('success', True):
-                return self._format_market_error_fallback(market_data.get('error', 'Unknown error'))
-
-            # Format for Telegram
-            return self._format_market_sentiment_response(market_data, language)
-
-        except ImportError:
-            # Fallback jika service belum tersedia
-            return self._format_market_fallback_response(language)
-        except Exception as e:
-            return self._format_market_error_fallback(str(e))
-
-    def _format_market_sentiment_response(self, market_data, language='id'):
-        """Format market sentiment response for Telegram"""
-        try:
-            header = f"""🌐 **Market Overview Global**
-
-🕐 **Update**: {market_data['time']}
-📊 **Universe**: {market_data['universe']}
-🎯 **Market Breadth**: {market_data['breadth_pct']:.1f}%
-🧠 **Sentiment**: **{market_data['sentiment']}**
-🔢 **Stats**: {market_data['counts']['green']}🟢 | {market_data['counts']['red']}🔴 | {market_data['counts']['total']} total
-
-"""
-
-            # Top movers section
-            header += "🔥 **Top Movers (by |Change|)**:\n"
-
-            for i, coin_data in enumerate(market_data['coins'][:10], 1):
-                change = coin_data['change_24h']
-                sign = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
-                price = coin_data['price']
-
-                # Format price
-                if price < 1:
-                    price_fmt = f"${price:.6f}"
-                elif price < 100:
-                    price_fmt = f"${price:.4f}"
-                else:
-                    price_fmt = f"${price:,.2f}"
-
-                header += f"{i}. {sign} **{coin_data['coin']}**: {price_fmt} ({change:+.2f}%)\n"
-
-            # Market analysis
-            breadth = market_data['breadth_pct']
-            if breadth >= 70:
-                analysis = "🚀 **Strong Bullish** - Market momentum sangat positif"
-            elif breadth >= 60:
-                analysis = "📈 **Bullish** - Mayoritas koin dalam tren positif"
-            elif breadth >= 40:
-                analysis = "😐 **Neutral** - Market dalam kondisi mixed signals"
-            elif breadth >= 30:
-                analysis = "📉 **Bearish** - Mayoritas koin dalam tekanan jual"
-            else:
-                analysis = "💥 **Strong Bearish** - Market dalam koreksi signifikan"
-
-            footer = f"""
-
-💡 **Market Analysis**:
-{analysis}
-
-📊 **Trading Insight**:
-• **Breadth > 60%**: Consider long bias
-• **Breadth < 40%**: Consider defensive strategy
-• **Current**: {breadth:.1f}% → {market_data['sentiment']} market
-
-🔄 **Data Source**: Binance 24h ticker (Top volume USDT pairs)
-⚠️ **Disclaimer**: Bukan saran investasi, gunakan untuk analisis teknikal"""
-
-            return header + footer
-
-        except Exception as e:
-            return self._format_market_error_fallback(f"Format error: {str(e)}")
-
-    def _format_market_fallback_response(self, language='id'):
-        """Fallback response when service unavailable"""
-        return """🌍 **Market Overview** 
-
-⚠️ **Service sedang dalam maintenance**
-
-💡 **Alternatif yang tersedia**:
-• `/price btc` - Cek harga Bitcoin real-time
-• `/analyze btc` - Analisis komprehensif Bitcoin
-• `/futures_signals` - Scan sinyal trading
-
-🔄 **Coba lagi dalam beberapa menit**"""
-
-    def _format_market_error_fallback(self, error_msg):
-        """Format error fallback for market command"""
-        return f"""❌ **Error Market Analysis**
-
-💡 **Kemungkinan penyebab**:
-• API rate limiting
-• Network connectivity issue
-• Service temporarily unavailable
-
-🔄 **Solusi**:
-• Tunggu 1-2 menit dan coba lagi
-• Gunakan `/price btc` untuk data basic
-• Hubungi admin jika masalah berlanjut
-
-🛠️ **Error detail**: {error_msg[:100]}..."""
-
     def get_ai_response(self, text, language='id', user_id=None):
         """AI response for general queries"""
         if user_id:
@@ -2382,6 +2354,346 @@ Saya menggunakan:
 • ⏰ **Multi-TF Confirmation**: 1h, 4h, Daily alignment
 
 Coba `/analyze btc` untuk analisis komprehensif!"""
+
+    def get_market_sentiment(self, language='id', crypto_api=None):
+        """Get comprehensive market analysis with detailed breakdown"""
+        try:
+            # Check database connection for user-related operations
+            db_available, db_error = self._check_database_required("MARKET_SENTIMENT")
+            if not db_available:
+                return db_error
+
+            current_time = self._get_wib_time()
+            market_data = self.get_cmc_global_metrics()
+
+            if not market_data.get('success'):
+                return self._error_fallback("MARKET", "global data")
+
+            market_cap_change = market_data.get('market_cap_change_24h', 0)
+            btc_dominance = market_data.get('btc_dominance', 0)
+            eth_dominance = market_data.get('eth_dominance', 0)
+            total_market_cap = market_data.get('total_market_cap', 0)
+            total_volume = market_data.get('total_volume_24h', 0)
+            active_cryptos = market_data.get('active_cryptocurrencies', 0)
+
+            # Determine sentiment with confidence
+            confidence = 75
+            if market_cap_change > 3:
+                sentiment = "🚀 VERY BULLISH"
+                confidence = 90
+                trend = "Strong Uptrend"
+            elif market_cap_change > 1:
+                sentiment = "📈 BULLISH"
+                confidence = 80
+                trend = "Bullish Momentum"
+            elif market_cap_change > -1:
+                sentiment = "😐 NEUTRAL"
+                confidence = 60
+                trend = "Sideways Consolidation"
+            elif market_cap_change > -3:
+                sentiment = "📉 BEARISH"
+                confidence = 80
+                trend = "Bearish Pressure"
+            else:
+                sentiment = "💥 VERY BEARISH"
+                confidence = 90
+                trend = "Strong Downtrend"
+
+            # Get top crypto analysis
+            top_cryptos_analysis = self._get_top_cryptos_analysis(crypto_api)
+
+            # Fear & Greed equivalent based on metrics
+            fear_greed_score = self._calculate_fear_greed_score(market_cap_change, btc_dominance, total_volume)
+
+            # Market structure analysis
+            market_structure = self._analyze_market_structure(btc_dominance, eth_dominance, market_cap_change)
+
+            # Create comprehensive analysis
+            analysis = f"""🌍 **COMPREHENSIVE MARKET ANALYSIS**
+
+🕐 **Analysis Time**: {current_time}
+📊 **Global Sentiment**: {sentiment}
+⭐ **Confidence**: {confidence}%
+
+💰 **GLOBAL METRICS:**
+• Total Market Cap: ${total_market_cap/1e12:.2f}T
+• 24h Market Change: {self._format_percentage(market_cap_change)}
+• Total Volume 24h: ${total_volume/1e9:.1f}B
+• Active Cryptocurrencies: {active_cryptos:,}
+• BTC Dominance: {btc_dominance:.1f}%
+• ETH Dominance: {eth_dominance:.1f}%
+
+🔬 **MARKET STRUCTURE ANALYSIS**:
+🔄 **Trend**: {trend}
+⚡ **Structure**: {market_structure['structure']}
+🧠 **Reasoning**: {market_structure['reasoning']}
+📊 **Fear & Greed**: {fear_greed_score['level']} ({fear_greed_score['score']}/100)
+
+📈 **TOP CRYPTOCURRENCIES PERFORMANCE**:
+
+{top_cryptos_analysis}
+
+💡 **TRADING IMPLICATIONS**:
+{self._get_enhanced_trading_implications(market_cap_change, btc_dominance, eth_dominance, confidence)}
+
+🎯 **MARKET OPPORTUNITIES**:
+{self._get_market_opportunities(market_cap_change, btc_dominance)}
+
+⚠️ **RISK ASSESSMENT**:
+{self._get_risk_assessment(market_cap_change, confidence)}
+
+🚨 **KEY LEVELS TO WATCH**:
+• BTC Dominance Support: {btc_dominance-2:.1f}%
+• BTC Dominance Resistance: {btc_dominance+2:.1f}%
+• Market Cap Key Level: ${(total_market_cap*0.95)/1e12:.2f}T - ${(total_market_cap*1.05)/1e12:.2f}T
+
+📡 **Data Sources**: CoinMarketCap Global Metrics + Multi-API Analysis
+⏰ **Next Update**: Setiap 15 menit untuk data real-time"""
+
+            return analysis
+
+        except Exception as e:
+            return self._error_fallback("MARKET", f"comprehensive analysis: {str(e)[:50]}")
+
+    def _get_trading_implications(self, market_cap_change, btc_dominance):
+        """Get trading implications from market data"""
+        implications = []
+
+        if market_cap_change > 1:
+            implications.append("• 🟢 Strong momentum - Consider LONG positions")
+        elif market_cap_change < -1:
+            implications.append("• 🔴 Bearish pressure - Be cautious with LONG")
+        else:
+            implications.append("• 🟡 Sideways market - Wait for clear direction")
+
+        if btc_dominance > 45:
+            implications.append(f"• 🪙 BTC dominance high - Money flowing to BTC")
+        else:
+            implications.append(f"• 🏛️ Alt season potential - BTC dominance low")
+
+        return "\n".join(implications)
+
+    def _get_enhanced_trading_implications(self, market_cap_change, btc_dominance, eth_dominance, confidence):
+        """Get enhanced trading implications with detailed analysis"""
+        implications = []
+
+        # Market momentum analysis
+        if market_cap_change > 3:
+            implications.append("• 🚀 Extremely bullish conditions - High probability LONG setups")
+            implications.append("• 💰 Consider increasing position sizes (within risk limits)")
+        elif market_cap_change > 1:
+            implications.append("• 📈 Bullish momentum confirmed - Look for LONG opportunities")
+            implications.append("• ⚡ Scalping and swing trades favorable")
+        elif market_cap_change > -1:
+            implications.append("• 😐 Neutral market - Range trading strategies optimal")
+            implications.append("• 🎯 Focus on support/resistance levels")
+        elif market_cap_change > -3:
+            implications.append("• 📉 Bearish pressure building - SHORT bias recommended")
+            implications.append("• 🛡️ Reduce LONG exposure, tighten stop losses")
+        else:
+            implications.append("• 💥 Severe bearish conditions - Avoid LONG positions")
+            implications.append("• 🔴 Focus on SHORT opportunities with tight risk management")
+
+        # Dominance analysis
+        if btc_dominance > 50:
+            implications.append("• 🟠 BTC leading market - Trade major pairs (BTC, ETH)")
+            implications.append("• ⚠️ Altcoins may underperform - Be selective")
+        elif btc_dominance < 40:
+            implications.append("• 🌟 Altcoin season active - Diversify into quality alts")
+            implications.append("• 💎 DeFi and Layer-1 tokens may outperform")
+        else:
+            implications.append("• ⚖️ Balanced market - Both BTC and alts showing strength")
+
+        # ETH dominance insights
+        if eth_dominance > 18:
+            implications.append("• 🔷 Ethereum ecosystem strong - Consider ETH and ERC-20 tokens")
+        elif eth_dominance < 12:
+            implications.append("• 🔻 ETH weakness - Monitor for reversal opportunities")
+
+        # Confidence-based recommendations
+        if confidence > 85:
+            implications.append("• ✅ High confidence signals - Increase position sizing")
+        elif confidence < 60:
+            implications.append("• ⚠️ Low confidence period - Reduce risk exposure")
+
+        return "\n".join(implications)
+
+    def _get_market_opportunities(self, market_cap_change, btc_dominance):
+        """Identify specific market opportunities"""
+        opportunities = []
+
+        if market_cap_change > 2:
+            opportunities.append("• 🎯 Momentum breakout trades in major cryptos")
+            opportunities.append("• 📊 Long positions in DeFi and Layer-1 tokens")
+        elif market_cap_change < -2:
+            opportunities.append("• 🔻 Short selling opportunities in overbought assets")
+            opportunities.append("• 💰 Value accumulation for long-term positions")
+        else:
+            opportunities.append("• 🏃 Range trading between key support/resistance")
+            opportunities.append("• ⚡ Scalping opportunities in high-volume pairs")
+
+        if btc_dominance > 55:
+            opportunities.append("• 🟠 Bitcoin maximalist strategy - Focus on BTC/ETH")
+        elif btc_dominance < 35:
+            opportunities.append("• 🌈 Altcoin diversification strategy optimal")
+
+        opportunities.append("• 🔄 Cross-exchange arbitrage opportunities")
+        opportunities.append("• 📈 Futures vs spot price discrepancies")
+
+        return "\n".join(opportunities)
+
+    def _get_risk_assessment(self, market_cap_change, confidence):
+        """Provide risk assessment based on market conditions"""
+        risks = []
+
+        if abs(market_cap_change) > 3:
+            risks.append("• ⚠️ HIGH VOLATILITY - Use smaller position sizes")
+            risks.append("• 🛑 Set tight stop losses (2-3% maximum)")
+        elif abs(market_cap_change) > 1:
+            risks.append("• ⚡ MODERATE VOLATILITY - Standard risk management")
+            risks.append("• 🎯 Stop losses at 3-5% from entry")
+        else:
+            risks.append("• 😴 LOW VOLATILITY - May increase position sizes slightly")
+            risks.append("• 📊 Wider stops acceptable (5-7%)")
+
+        if confidence < 70:
+            risks.append("• 🔍 Uncertain market conditions - Wait for clarity")
+            risks.append("• 💡 Paper trade strategies before live execution")
+
+        risks.append("• 📱 Monitor news and regulatory developments")
+        risks.append("• ⏰ Set alerts for key support/resistance breaks")
+
+        return "\n".join(risks)
+
+    def _calculate_fear_greed_score(self, market_cap_change, btc_dominance, volume):
+        """Calculate a fear & greed equivalent score"""
+        score = 50  # Neutral starting point
+
+        # Market cap change influence (40% weight)
+        if market_cap_change > 5:
+            score += 25
+        elif market_cap_change > 2:
+            score += 15
+        elif market_cap_change > 0:
+            score += 5
+        elif market_cap_change > -2:
+            score -= 5
+        elif market_cap_change > -5:
+            score -= 15
+        else:
+            score -= 25
+
+        # BTC dominance influence (30% weight)
+        if btc_dominance > 55:
+            score -= 10  # High dominance can indicate fear in alts
+        elif btc_dominance < 40:
+            score += 15  # Low dominance indicates greed in alts
+
+        # Volume influence (30% weight)
+        if volume > 100e9:  # High volume
+            score += 10
+        elif volume < 50e9:  # Low volume
+            score -= 10
+
+        score = max(0, min(100, score))
+
+        if score >= 80:
+            level = "🔥 Extreme Greed"
+        elif score >= 65:
+            level = "😤 Greed"
+        elif score >= 45:
+            level = "😐 Neutral"
+        elif score >= 25:
+            level = "😨 Fear"
+        else:
+            level = "💀 Extreme Fear"
+
+        return {"score": score, "level": level}
+
+    def _analyze_market_structure(self, btc_dominance, eth_dominance, market_cap_change):
+        """Analyze overall market structure"""
+        if market_cap_change > 2 and btc_dominance < 45:
+            structure = "Altcoin Bull Market"
+            reasoning = "Strong market growth with declining BTC dominance indicates altcoin season"
+        elif market_cap_change > 2 and btc_dominance > 50:
+            structure = "Bitcoin-Led Bull Market" 
+            reasoning = "Market growth driven primarily by Bitcoin strength"
+        elif market_cap_change < -2 and btc_dominance > 50:
+            structure = "Flight to BTC Safety"
+            reasoning = "Market decline with BTC dominance increase shows risk-off behavior"
+        elif market_cap_change < -2:
+            structure = "Bear Market Conditions"
+            reasoning = "Broad market decline affecting all cryptocurrencies"
+        elif btc_dominance > 55:
+            structure = "BTC Dominance Phase"
+            reasoning = "Bitcoin consolidating market share, alts underperforming"
+        elif btc_dominance < 40:
+            structure = "Altcoin Rotation Phase" 
+            reasoning = "Capital flowing from BTC to alternative cryptocurrencies"
+        else:
+            structure = "Balanced Market"
+            reasoning = "Healthy distribution of capital across crypto ecosystem"
+
+        return {"structure": structure, "reasoning": reasoning}
+
+    def _get_top_cryptos_analysis(self, crypto_api):
+        """Get analysis of top cryptocurrencies performance"""
+        if not crypto_api:
+            return "• Top crypto data temporarily unavailable"
+
+        top_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP']
+        analysis_lines = []
+
+        try:
+            for i, symbol in enumerate(top_symbols[:5], 1):
+                price_data = crypto_api.get_crypto_price(symbol)
+                if price_data.get('success'):
+                    price = price_data.get('price', 0)
+                    change_24h = price_data.get('change_24h', 0)
+
+                    if change_24h > 5:
+                        emoji = "🚀"
+                        trend = "Strong Bull"
+                    elif change_24h > 2:
+                        emoji = "📈" 
+                        trend = "Bullish"
+                    elif change_24h > -2:
+                        emoji = "😐"
+                        trend = "Neutral"
+                    elif change_24h > -5:
+                        emoji = "📉"
+                        trend = "Bearish"
+                    else:
+                        emoji = "💥"
+                        trend = "Strong Bear"
+
+                    analysis_lines.append(f"{i}. {symbol} {emoji} ${price:,.2f} ({change_24h:+.1f}%) - {trend}")
+                else:
+                    analysis_lines.append(f"{i}. {symbol} - Data unavailable")
+
+        except Exception as e:
+            return f"• Top crypto analysis error: {str(e)[:50]}"
+
+        return "\n".join(analysis_lines) if analysis_lines else "• Top crypto data processing..."
+
+    def get_admin_logs(self, last_n=10):
+        """Get recent admin logs for debugging"""
+        return self.admin_log[-last_n:] if self.admin_log else []
+
+    def get_system_status(self):
+        """Get system status for admin"""
+        return {
+            'supabase_connected': self.supabase_connected,
+            'coinapi_key_available': bool(self.coinapi_key),
+            'cmc_key_available': bool(self.cmc_api_key),
+            'recent_errors': len(self.admin_log),
+            'last_error': self.admin_log[-1] if self.admin_log else None
+        }
+
+    # Compatibility aliases for bot.py
+    def analyze_text(self, text):
+        """Simple text analysis"""
+        return self.get_ai_response(text)
 
     async def analyze_futures_enhanced(self, symbol, user_id=None):
         """Enhanced futures analysis wrapper"""

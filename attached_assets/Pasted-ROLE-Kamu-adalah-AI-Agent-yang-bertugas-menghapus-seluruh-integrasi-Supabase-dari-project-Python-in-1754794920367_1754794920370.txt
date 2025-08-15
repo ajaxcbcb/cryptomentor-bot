@@ -1,0 +1,64 @@
+ROLE
+Kamu adalah AI Agent yang bertugas menghapus seluruh integrasi Supabase dari project Python ini agar siap untuk setup ulang.
+
+SCOPE
+- Project root: /home/runner/workspace/Bismillah
+- Target: Semua file .py dan file konfigurasi terkait.
+- Hapus semua kode, import, variabel environment, dan konfigurasi yang berhubungan dengan Supabase.
+
+TASK DETAIL
+1) CARI DAN HAPUS:
+   a) Semua import terkait Supabase:
+      - from supabase import create_client
+      - import supabase
+      - from supabase_py... (atau varian lain)
+   b) Inisialisasi Supabase client:
+      - Variabel seperti `supabase = create_client(...)`
+      - Fungsi pembungkus Supabase
+   c) Pemanggilan API Supabase:
+      - supabase.from(...).select(...)
+      - supabase.table(...).insert(...)
+      - supabase.rpc(...)
+   d) Semua konstanta/config ENV yang khusus untuk Supabase:
+      - SUPABASE_URL
+      - SUPABASE_ANON_KEY
+      - SUPABASE_SERVICE_ROLE_KEY
+   e) Fungsi utilitas khusus untuk query Supabase.
+   f) Komentar/docstring yang hanya menjelaskan integrasi Supabase.
+
+2) PERIKSA FILE KONFIGURASI:
+   - .env, secrets Replit, config.py → hapus entry terkait Supabase.
+   - Jika ENV Supabase hanya dipakai di integrasi ini, hapus.
+
+3) REFATOR KODE:
+   - Pastikan tidak ada variabel/fungsi undefined setelah Supabase dihapus.
+   - Jika fungsi sebelumnya bergantung Supabase, ganti dengan placeholder pass:
+     ```python
+     def some_function(...):
+         # TODO: implement after Supabase setup
+         pass
+     ```
+   - Hapus handler/command yang hanya untuk Supabase.
+
+4) VALIDASI:
+   - Setelah dihapus, project tetap bisa di-run tanpa error import/module.
+   - Tidak ada string 'supabase' tersisa di kode.
+   - Tidak ada ENV key Supabase di project.
+
+OUTPUT
+- Laporkan dalam format JSON ASCII-only:
+  {
+    "status": "success",
+    "files_scanned": <int>,
+    "files_modified": <int>,
+    "supabase_references_removed": <int>
+  }
+- Tambahkan daftar file yang dimodifikasi dan deskripsi singkat per file.
+
+SAFETY
+- Backup semua file yang dimodifikasi (file.py.bak) sebelum menulis perubahan.
+- Jangan hapus fungsi/class yang memiliki logika non-Supabase.
+
+POST CONDITION
+- Project bebas dari integrasi Supabase.
+- Siap untuk menerima integrasi Supabase baru dari awal.

@@ -1,5 +1,12 @@
 
 #!/usr/bin/env python3
+import os
+import sys
+import signal
+import psutil
+import time
+
+#!/usr/bin/env python3
 """Kill conflicting bot instances"""
 
 import os
@@ -8,72 +15,54 @@ import time
 
 try:
     import psutil
-    PSUTIL_AVAILABLE = True
 except ImportError:
-    PSUTIL_AVAILABLE = False
-    print("⚠️ psutil not available - limited functionality")
+    print("❌ psutil not installed. Installing...")
+    os.system("pip install psutil")
+    import psutil
 
 def kill_bot_instances():
-    """Kill existing bot instances"""
-    print("🛑 CryptoMentor AI - Kill Bot Instances")
-    print("=" * 40)
+    """Kill all conflicting bot instances"""
+    print("🔍 Mencari instance bot yang berjalan...")
     
-    if not PSUTIL_AVAILABLE:
-        print("❌ psutil not installed. Installing...")
-        try:
-            os.system("pip install psutil")
-            import psutil
-            print("✅ psutil installed successfully")
-        except Exception as e:
-            print(f"❌ Failed to install psutil: {e}")
-            return False
-    
-    killed_count = 0
     current_pid = os.getpid()
+    killed_count = 0
     
     try:
-        print(f"🔍 Scanning for bot processes (excluding PID {current_pid})...")
-        
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                if proc.info['pid'] == current_pid:
-                    continue
+                if proc.info['name'] in ['python3', 'python']:
+                    cmdline = ' '.join(proc.info['cmdline'] or [])
                     
-                cmdline = ' '.join(proc.info['cmdline'] or [])
-                
-                # Look for bot-related processes
-                if any(keyword in cmdline.lower() for keyword in ['main.py', 'bot.py', 'cryptomentor']):
-                    print(f"🎯 Found bot process: PID {proc.info['pid']} - {cmdline[:50]}...")
-                    
-                    try:
+                    # Kill if running main.py and not current process
+                    if ('main.py' in cmdline or 'bot.py' in cmdline) and proc.pid != current_pid:
+                        print(f"🛑 Menghentikan proses: {proc.pid} - {cmdline}")
                         proc.terminate()
-                        proc.wait(timeout=3)
-                        print(f"✅ Terminated PID {proc.info['pid']}")
-                        killed_count += 1
-                    except psutil.TimeoutExpired:
-                        proc.kill()
-                        print(f"🔪 Force killed PID {proc.info['pid']}")
-                        killed_count += 1
-                    except Exception as e:
-                        print(f"❌ Failed to kill PID {proc.info['pid']}: {e}")
                         
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+                        # Wait for graceful termination
+                        try:
+                            proc.wait(timeout=3)
+                        except psutil.TimeoutExpired:
+                            # Force kill if needed
+                            proc.kill()
+                            
+                        killed_count += 1
+                        
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
                 
     except Exception as e:
-        print(f"❌ Error scanning processes: {e}")
-        return False
-    
-    print(f"\n📊 Summary: {killed_count} bot instances terminated")
+        print(f"Error saat mencari proses: {e}")
     
     if killed_count > 0:
-        print("⏳ Waiting 5 seconds for cleanup...")
-        time.sleep(5)
-        print("✅ Cleanup completed")
-    else:
-        print("✅ No conflicting bot instances found")
+        print(f"✅ Berhasil menghentikan {killed_count} instance bot")
+        print("⏳ Menunggu 3 detik untuk cleanup...")
+        time.sleep(3)
+    elseprint("✅ Tidak ada instance bot lain yang berjalan")
     
-    return True
+    print("🚀 Siap untuk menjalankan bot!")
+
+if __name__ == "__main__":
+    kill_bot_instances()kan bot baru!")
 
 if __name__ == "__main__":
     kill_bot_instances()

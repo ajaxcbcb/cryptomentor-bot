@@ -1,0 +1,344 @@
+Goals
+
+Refactor supaya AutoSignal memanggil engine yang sama dengan /futures_signals.
+
+Scan Top 25 CMC setiap >= 30 menit (clamp minimal 1800 detik).
+
+Hanya broadcast sinyal confidence ≥ 75%.
+
+Gunakan list_recipients() yang sudah ada untuk menentukan audience.
+
+0) Prasyarat
+Sudah ada modul engine yang dipakai /futures_signals, misalnya app/futures/engine.py dengan fungsi:
+
+python
+Copy
+def analyze_symbol(symbol: str, timeframe: str="15m", market: str="USDT", limit: int=200) -> Dict[str, Any]
+dan res["signals"] berisi array sinyal dengan field side, confidence, reasons, dll — sama yang dipakai /futures_signals.
+
+Secrets:
+
+CMC_API_KEY (CoinMarketCap)
+
+(yang lain biarkan, tidak diubah)
+
+1) Buat/Update app/autosignal.py
+Timpa file ini (atau update bagian-bagiannya):
+
+python
+Copy
+# app/autosignal.py
+import os, json, time, threading, requests
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
+
+from app.futures.engine import analyze_symbol  # SAME ENGINE as /futures_signals
+from app.chat_store import get_private_chat_id
+from app.safe_send import safe_dm
+from app.autosignal_format import format_signal_text  # (akan kita buat di langkah 2)
+from app.autosignal_recipients import list_recipients  # (pakai implementasi kamu sekarang)
+
+# ========== Config ==========
+MIN_INTERVAL_SEC = 1800          # clamp minimum 30 menit
+DEFAULT_INTERVAL_SEC = 1800      # default 30 menit
+TOP_N = 25                       # top coins from CMC
+MIN_CONFIDENCE = 75              # threshold kirim
+TARGET_MARKET = os.getenv("FUTURES_QUOTE", "USDT").upper()
+TIMEFRAME = os.getenv("FUTURES_TF", "15m")
+COOLDOWN_MIN = int(os.getenv("AUTOSIGNAL_COOLDOWN_MIN", "60"))  # anti-dupe per (symbol, side)
+
+CMC_API_KEY = (os.getenv("CMC_API_KEY") or "").strip()
+CMC_BASE = "https://pro-api.coinmarketcap.com/v1"
+
+DATA_DIR = os.getenv("DATA_DIR", "data")
+STATE_PATH = os.path.join(DATA_DIR, "autosignal_state.json")
+
+def _ensure_dir():
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+def _now():
+    return datetime.now(timezone.utc)
+
+def _get_scan_interval() -> int:
+    raw = os.getenv("AUTOSIGNAL_INTERVAL_SEC", str(DEFAULT_INTERVAL_SEC))
+    try:
+        val = int(raw)
+    except Exception:
+        val = DEFAULT_INTERVAL_SEC
+    return max(val, MIN_INTERVAL_SEC)  # clamp
+SCAN_INTERVAL_SEC = _get_scan_interval()
+
+# ========== State ==========
+def _load_state() -> Dict[str, Any]:
+    _ensure_dir()
+    if not os.path.exists(STATE_PATH):
+        return {"last_sent": {}, "enabled": True}
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"last_sent": {}, "enabled": True}
+
+def _save_state(d: Dict[str, Any]):
+    tmp = STATE_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, STATE_PATH)
+
+def autosignal_enabled() -> bool:
+    return bool(_load_state().get("enabled", True))
+
+def set_autosignal_enabled(flag: bool) -> None:
+    s = _load_state()
+    s["enabled"] = bool(flag)
+    _save_state(s)
+
+# ========== CMC ==========
+def cmc_top_symbols(limit: int = TOP_N) -> List[str]:
+    if not CMC_API_KEY:
+        raise RuntimeError("CMC_API_KEY belum diset")
+    url = f"{CMC_BASE}/cryptocurrency/listings/latest"
+    params = {"start": 1, "limit": max(1, limit), "convert": "USD", "sort": "market_cap", "sort_dir": "desc"}
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY, "Accept": "application/json"}
+    r = requests.get(url, params=params, headers=headers, timeout=15)
+    r.raise_for_status()
+    data = r.json().get("data", [])
+    return [item["symbol"].upper() for item in data if "symbol" in item]
+
+# ========== Cooldown ==========
+def _key(symbol: str, side: str) -> str:
+    return f"{symbol}:{side}"
+
+def _can_send(state: Dict[str, Any], symbol: str, side: str) -> bool:
+    last_map = state.get("last_sent", {})
+    k = _key(symbol, side)
+    ts = last_map.get(k)
+    if not ts:
+        return True
+    ago = _now() - datetime.fromisoformat(ts)
+    return ago >= timedelta(minutes=COOLDOWN_MIN)
+
+def _mark_sent(state: Dict[str, Any], symbol: str, side: str):
+    state.setdefault("last_sent", {})
+    state["last_sent"][_key(symbol, side)] = _now().isoformat()
+
+# ========== Core ==========
+def _pick_best_signal(analyzed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    sigs = analyzed.get("signals") or []
+    if not sigs:
+        return None
+    return max(sigs, key=lambda s: int(s.get("confidence", 0)))
+
+async def _broadcast(bot, sig: Dict[str, Any]) -> int:
+    receivers = list_recipients()  # gunakan rules audience yang sudah kamu pakai sekarang
+    sent = 0
+    text = format_signal_text(sig)  # sama formatnya dengan /futures_signals
+    for uid in receivers:
+        # Pastikan sudah consent DM (/start privat) — kalau list_recipients kamu sudah ngecek, oke; kalau belum, tambahkan check:
+        if get_private_chat_id(uid) is None:
+            continue
+        try:
+            await safe_dm(bot, uid, text)
+            sent += 1
+        except Exception:
+            continue
+    return sent
+
+async def run_scan_once(bot) -> Dict[str, Any]:
+    if not autosignal_enabled():
+        return {"ok": True, "sent": 0, "notes": "disabled"}
+
+    try:
+        symbols = cmc_top_symbols(TOP_N)
+    except Exception as e:
+        return {"ok": False, "error": f"CMC error: {e}", "sent": 0}
+
+    state = _load_state()
+    total_sent = 0
+    notes = []
+
+    for base in symbols:
+        pair = f"{base}{TARGET_MARKET}"
+        try:
+            analyzed = analyze_symbol(base, timeframe=TIMEFRAME, market=TARGET_MARKET)
+        except Exception as e:
+            notes.append(f"{pair}: analyze_err:{e}")
+            continue
+
+        best = _pick_best_signal(analyzed)
+        if not best:
+            continue
+
+        conf = int(best.get("confidence", 0))
+        side = best.get("side")
+        if conf < MIN_CONFIDENCE:
+            continue
+
+        symbol_for_cd = analyzed.get("symbol") or pair  # gunakan symbol dari engine jika ada
+        if not _can_send(state, symbol_for_cd, side):
+            continue
+
+        # Susun payload yang akan diformat
+        payload = {
+            "symbol": analyzed.get("symbol", pair),
+            "price": analyzed.get("price"),
+            "timeframe": analyzed.get("timeframe", TIMEFRAME),
+            "side": side,
+            "confidence": conf,
+            "reasons": best.get("reasons", []),
+            "meta": analyzed.get("meta", {}),
+        }
+
+        try:
+            count = await _broadcast(bot, payload)
+            if count > 0:
+                _mark_sent(state, symbol_for_cd, side)
+                _save_state(state)
+                total_sent += count
+        except Exception as e:
+            notes.append(f"{pair}: send_err:{e}")
+
+    return {"ok": True, "sent": total_sent, "notes": ", ".join(notes)}
+
+def start_background_scheduler(application):
+    jq = getattr(application, "job_queue", None)
+    if jq is None:
+        print("[AutoSignal] No job_queue available")
+        return
+
+    async def _tick(ctx):
+        try:
+            await run_scan_once(ctx.application.bot)
+        except Exception as e:
+            print("[AutoSignal] tick err:", e)
+
+    for j in jq.jobs():
+        if j.name == "autosignal":
+            j.schedule_removal()
+
+    jq.run_repeating(_tick, interval=SCAN_INTERVAL_SEC, first=10, name="autosignal")
+    print(f"[AutoSignal] ✅ started (interval={SCAN_INTERVAL_SEC}s ≈ {SCAN_INTERVAL_SEC//60}m, top_n={TOP_N}, min_conf={MIN_CONFIDENCE}%, tf={TIMEFRAME})")
+2) Formatter pesan (biar sama dengan /futures_signals)
+Baru: app/autosignal_format.py — ambil gaya yang sama dengan yang kamu pakai di /futures_signals. Jika kamu sudah punya formatter-nya, silakan import langsung. Contoh generik:
+
+python
+Copy
+# app/autosignal_format.py
+from telegram.helpers import escape_markdown
+
+def _md2(s: str) -> str:
+    return escape_markdown(str(s), version=2)
+
+def format_signal_text(sig: dict) -> str:
+    pair = sig.get("symbol", "?")
+    side = sig.get("side", "?")
+    conf = sig.get("confidence", 0)
+    price = sig.get("price")
+    tf = sig.get("timeframe", "?")
+    reasons = sig.get("reasons", [])
+    price_line = f"\nPrice: *{_md2(price)}*" if price is not None else ""
+    reason_line = ""
+    if reasons:
+        joined = ", ".join(reasons)[:300]
+        reason_line = f"\nReason: {_md2(joined)}"
+    return (
+        f"📈 *Futures Signal*\n"
+        f"Pair: *{_md2(pair)}*\n"
+        f"TF: *{_md2(tf)}*\n"
+        f"Side: *{_md2(side)}*\n"
+        f"Confidence: *{_md2(conf)}%*"
+        f"{price_line}"
+        f"{reason_line}"
+    )
+Kalau /futures_signals kamu sudah punya formatter sendiri, pakai itu agar identik.
+
+3) Audience (biarkan sesuai implementasi kamu sekarang)
+Baru (opsional jika belum ada): app/autosignal_recipients.py — kalau kamu sudah punya list_recipients() khusus (mis. hanya lifetime & admin), biarkan. Kalau belum, ini contoh “hanya Supabase lifetime + admin + consent”:
+
+python
+Copy
+# app/autosignal_recipients.py
+import os
+from typing import List
+from app.supabase_conn import sb_list_users
+from app.chat_store import get_private_chat_id
+
+def list_recipients() -> List[int]:
+    admins = set()
+    for k in ("ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        v = os.getenv(k)
+        if v and v.isdigit():
+            admins.add(int(v))
+    # lifetime dari Supabase
+    rows = sb_list_users({
+        "is_premium": "eq.true",
+        "banned": "eq.false",
+        "premium_until": "is.null",
+        "limit": "1000",
+        "offset": "0",
+    })
+    tids = set(admins)
+    for r in rows:
+        tid = r.get("telegram_id")
+        if tid and get_private_chat_id(int(tid)) is not None:
+            tids.add(int(tid))
+    return sorted(tids)
+4) Admin controls (ON/OFF/STATUS/manual tick)
+Baru/Update: app/handlers_autosignal_admin.py
+
+python
+Copy
+# app/handlers_autosignal_admin.py
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.lib.guards import admin_guard
+from app.autosignal import set_autosignal_enabled, autosignal_enabled, run_scan_once, SCAN_INTERVAL_SEC, TOP_N, MIN_CONFIDENCE, TIMEFRAME
+from app.safe_send import safe_reply
+
+@admin_guard
+async def cmd_signal_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_autosignal_enabled(True)
+    await safe_reply(update.effective_message, "✅ AutoSignal ON")
+
+@admin_guard
+async def cmd_signal_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_autosignal_enabled(False)
+    await safe_reply(update.effective_message, "⏸️ AutoSignal OFF")
+
+@admin_guard
+async def cmd_signal_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await safe_reply(
+        update.effective_message,
+        f"🛰️ AutoSignal: {'ON' if autosignal_enabled() else 'OFF'}\n"
+        f"Interval: {SCAN_INTERVAL_SEC//60}m (min 30m)\n"
+        f"Top: {TOP_N} | TF: {TIMEFRAME} | MinConf: {MIN_CONFIDENCE}%"
+    )
+
+@admin_guard
+async def cmd_signal_tick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    res = await run_scan_once(context.bot)
+    await safe_reply(update.effective_message, f"⏱️ Tick: {res}")
+Daftarkan handler-nya saat bootstrap:
+
+python
+Copy
+from telegram.ext import CommandHandler
+from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
+application.add_handler(CommandHandler("signal_on", cmd_signal_on))
+application.add_handler(CommandHandler("signal_off", cmd_signal_off))
+application.add_handler(CommandHandler("signal_status", cmd_signal_status))
+application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
+Dan jangan lupa panggil scheduler saat init:
+
+python
+Copy
+from app.autosignal import start_background_scheduler
+start_background_scheduler(application)
+5) Acceptance test
+Jalankan /signal_status → pastikan interval 30m, top=25, minConf=75.
+
+Jalankan /signal_tick → lihat output { ok, sent, notes }.
+
+Pastikan /futures_signals BTC dan pipeline AutoSignal menghasilkan arah/confidence yang konsisten, karena keduanya dari engine yang sama.
+
+Tunggu scheduler 30 menit dan cek broadcast terkirim hanya ketika confidence ≥ 75%.

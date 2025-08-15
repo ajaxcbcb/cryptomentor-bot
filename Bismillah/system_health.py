@@ -32,11 +32,8 @@ class SystemHealth:
         """Check all API keys"""
         keys = {
             'telegram': bool(os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')),
-            'coinapi': bool(os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY')),
-            'cmc': bool(os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')),
-            'supabase_url': bool(os.getenv('SUPABASE_URL')),
-            'supabase_key': bool(os.getenv('SUPABASE_KEY') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')),
-            'openai': bool(os.getenv('OPENAI_API_KEY')),
+            'coinapi': bool(os.getenv('COINAPI_KEY')),
+            'coingecko': bool(os.getenv('COINGECKO_API_KEY')),
             'cryptonews': bool(os.getenv('CRYPTONEWS_API_KEY'))
         }
         return keys
@@ -73,70 +70,12 @@ class SystemHealth:
         except:
             apis['binance'] = False
         
-        # CoinAPI (if key exists)
-        coinapi_key = os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY')
-        if coinapi_key:
-            try:
-                response = requests.get(
-                    "https://rest.coinapi.io/v1/exchangerate/BTC/USD",
-                    headers={'X-CoinAPI-Key': coinapi_key},
-                    timeout=10
-                )
-                apis['coinapi'] = response.status_code == 200
-            except:
-                apis['coinapi'] = False
-        else:
-            apis['coinapi'] = None
-        
-        # CoinMarketCap (if key exists)
-        cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
-        if cmc_key:
-            try:
-                response = requests.get(
-                    "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest",
-                    params={'symbol': 'BTC'},
-                    headers={'X-CMC_PRO_API_KEY': cmc_key},
-                    timeout=10
-                )
-                apis['coinmarketcap'] = response.status_code == 200
-            except:
-                apis['coinmarketcap'] = False
-        else:
-            apis['coinmarketcap'] = None
-        
-        # Supabase (if configured)
-        supabase_url = os.getenv('SUPABASE_URL')
-        supabase_key = <REDACTED_SUPABASE_KEY>
-        if supabase_url and supabase_key:
-            try:
-                response = requests.get(
-                    f"{supabase_url}/rest/v1/",
-                    headers={
-                        'apikey': supabase_key,
-                        'Authorization': f'Bearer {supabase_key}'
-                    },
-                    timeout=10
-                )
-                apis['supabase'] = response.status_code in [200, 404]  # 404 is also valid for base endpoint
-            except:
-                apis['supabase'] = False
-        else:
-            apis['supabase'] = None
-        
-        # OpenAI (if key exists)
-        openai_key = os.getenv('OPENAI_API_KEY')
-        if openai_key:
-            try:
-                response = requests.get(
-                    "https://api.openai.com/v1/models",
-                    headers={'Authorization': f'Bearer {openai_key}'},
-                    timeout=10
-                )
-                apis['openai'] = response.status_code == 200
-            except:
-                apis['openai'] = False
-        else:
-            apis['openai'] = None
+        # CoinGecko
+        try:
+            response = requests.get("https://api.coingecko.com/api/v3/ping", timeout=10)
+            apis['coingecko'] = response.status_code == 200
+        except:
+            apis['coingecko'] = False
         
         # CryptoNews (if key exists)
         cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
@@ -167,14 +106,9 @@ class SystemHealth:
         
         # API Keys
         keys = self.check_api_keys()
-        print(f"\n🔐 API Keys Configuration:")
-        print(f"  • TELEGRAM: {'✅ SET' if keys['telegram'] else '❌ MISSING'}")
-        print(f"  • COINAPI_API_KEY: {'✅ SET' if keys['coinapi'] else '❌ MISSING'}")
-        print(f"  • CMC_API_KEY: {'✅ SET' if keys['cmc'] else '❌ MISSING'}")
-        print(f"  • SUPABASE_URL: {'✅ SET' if keys['supabase_url'] else '❌ MISSING'}")
-        print(f"  • SUPABASE_KEY: {'✅ SET' if keys['supabase_key'] else '❌ MISSING'}")
-        print(f"  • OPENAI_API_KEY: {'✅ SET' if keys['openai'] else '❌ MISSING'}")
-        print(f"  • CRYPTONEWS_API_KEY: {'✅ SET' if keys['cryptonews'] else '❌ MISSING'}")
+        print(f"\n🔐 API Keys:")
+        for key, status in keys.items():
+            print(f"  • {key.upper()}: {'✅ SET' if status else '❌ MISSING'}")
         
         # Database
         db_health = self.check_database_health()
@@ -189,38 +123,12 @@ class SystemHealth:
         
         # API Connectivity
         apis = self.check_api_connectivity()
-        print(f"\n🌐 API Connectivity Status:")
-        print(f"  • BINANCE: {'✅ ONLINE' if apis.get('binance') else '❌ OFFLINE'}")
-        
-        coinapi_status = apis.get('coinapi')
-        if coinapi_status is None:
-            print(f"  • COINAPI: ⚠️ NOT CONFIGURED")
-        else:
-            print(f"  • COINAPI: {'✅ ONLINE' if coinapi_status else '❌ OFFLINE'}")
-        
-        cmc_status = apis.get('coinmarketcap')
-        if cmc_status is None:
-            print(f"  • COINMARKETCAP: ⚠️ NOT CONFIGURED")
-        else:
-            print(f"  • COINMARKETCAP: {'✅ ONLINE' if cmc_status else '❌ OFFLINE'}")
-        
-        supabase_status = apis.get('supabase')
-        if supabase_status is None:
-            print(f"  • SUPABASE: ⚠️ NOT CONFIGURED")
-        else:
-            print(f"  • SUPABASE: {'✅ ONLINE' if supabase_status else '❌ OFFLINE'}")
-        
-        openai_status = apis.get('openai')
-        if openai_status is None:
-            print(f"  • OPENAI: ⚠️ NOT CONFIGURED")
-        else:
-            print(f"  • OPENAI: {'✅ ONLINE' if openai_status else '❌ OFFLINE'}")
-        
-        cryptonews_status = apis.get('cryptonews')
-        if cryptonews_status is None:
-            print(f"  • CRYPTONEWS: ⚠️ NOT CONFIGURED")
-        else:
-            print(f"  • CRYPTONEWS: {'✅ ONLINE' if cryptonews_status else '❌ OFFLINE'}")
+        print(f"\n🌐 API Connectivity:")
+        for api, status in apis.items():
+            if status is None:
+                print(f"  • {api.upper()}: ⚠️ NOT CONFIGURED")
+            else:
+                print(f"  • {api.upper()}: {'✅ ONLINE' if status else '❌ OFFLINE'}")
         
         # Overall Status
         working_keys = sum(keys.values())

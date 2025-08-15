@@ -1,0 +1,118 @@
+Masalah:
+handlers_sb.py:92 memanggil:
+
+py
+Copy
+await update.effective_message.reply_text(status_msg, parse_mode='Markdown')
+Sehingga gagal ketika status_msg berisi karakter spesial Markdown (underscore, asterisk, bracket, kurung, titik, dll).
+
+Tujuan:
+
+Ganti pengiriman jadi MarkdownV2 dengan escaping atau HTML escaped, plus fallback tanpa parse mode jika masih error.
+
+Minimal patch pada handlers_sb.py.
+
+Langkah perbaikan
+Import util & ParseMode
+
+python
+Copy
+# handlers_sb.py (atau modul yang sama)
+from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown
+import html
+Bungkus pengiriman status dengan helper aman
+Ganti bagian yang sekarang (sekitar line 92) dengan fungsi aman berikut dan panggil fungsinya.
+
+python
+Copy
+def _format_md_v2(text: str) -> str:
+    # Escape semua karakter spesial MarkdownV2:
+    # _ * [ ] ( ) ~ ` > # + - = | { } . !
+    return escape_markdown(text, version=2)
+
+async def _safe_reply_status(message, raw_text: str):
+    """
+    Coba kirim sebagai MarkdownV2 (escaped).
+    Jika gagal, fallback ke HTML <pre> (escaped).
+    Jika masih gagal, kirim plain text tanpa parse mode.
+    """
+    # 1) MarkdownV2 (escaped)
+    try:
+        md2 = _format_md_v2(raw_text)
+        await message.reply_text(md2, parse_mode=ParseMode.MARKDOWN_V2)
+        return
+    except Exception as e_md2:
+        pass
+
+    # 2) HTML <pre> (escaped)
+    try:
+        html_text = f"<pre>{html.escape(raw_text)}</pre>"
+        await message.reply_text(html_text, parse_mode=ParseMode.HTML)
+        return
+    except Exception as e_html:
+        pass
+
+    # 3) Plain text
+    await message.reply_text(raw_text)
+Pakai helper saat kirim status
+Ubah handler cmd_sb_status jadi:
+
+python
+Copy
+async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id if update and update.effective_user else None
+    if not is_admin(uid):
+        return await update.effective_message.reply_text("❌ Kamu tidak punya izin.")
+
+    ok, info = health()
+    # Rangkai status_msg TANPA backtick tak berpasangan/emoji aneh di tengah angka
+    status_lines = [
+        f"👑 Supabase Status Check (Admin: {uid})",
+        "",
+        "🔐 Environment Variables:",
+        f"• SUPABASE_URL: {'✅ SET' if os.getenv('SUPABASE_URL') else '❌ MISSING'}",
+        f"• SUPABASE_SERVICE_KEY: {'✅ SET' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ MISSING'}",
+        "",
+        "🔗 Connection Test:",
+        ("✅ CONNECTED" if ok else f"❌ {info}"),
+    ]
+    status_msg = "\n".join(status_lines)
+
+    await _safe_reply_status(update.effective_message, status_msg)
+Catatan:
+
+Hapus parse_mode='Markdown' langsung dari pemanggilan; semua pengiriman status harus lewat _safe_reply_status.
+
+Hindari ```code blocks``` di Markdown biasa; kalau butuh blok code, biarkan helper yang mengubah ke <pre> HTML.
+
+(Opsional tapi dianjurkan) Tambah error handler global agar error lain tidak bikin log “No error handlers are registered”:
+
+python
+Copy
+from telegram.ext import ContextTypes
+
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    who = getattr(getattr(update, "effective_user", None), "id", None)
+    print("⚠️ Error:", repr(context.error), "| from:", who)
+
+application.add_error_handler(on_error)
+Kenapa ini bekerja
+escape_markdown(..., version=2) memastikan setiap karakter spesial MarkdownV2 di-escape, jadi teks seperti public.users, root_ok, SUPABASE_SERVICE_KEY aman.
+
+Fallback HTML <pre> + html.escape() menjaga JSON/trace panjang tetap rapi.
+
+Jika Telegram API masih rewel, kita kirim plain text tanpa parse mode sebagai jaring pengaman terakhir.
+
+Acceptance test
+Kirim /sb_status saat koneksi OK → harus terkirim ✔️.
+
+Kirim /sb_status saat koneksi gagal (biarkan body error JSON panjang) → tetap terkirim (MarkdownV2 atau HTML).
+
+Coba variabel dengan underscore (SUPABASE_SERVICE_KEY) → tidak error lagi.
+
+Commit message:
+
+pgsql
+Copy
+fix(telegram): escape Markdown entities in /sb_status; add safe reply with MDV2→HTML→plain fallback; add global error handler

@@ -14,7 +14,7 @@ from datetime import datetime
 # Enhanced deployment detection
 deployment_indicators = {
     'REPLIT_DEPLOYMENT': os.getenv('REPLIT_DEPLOYMENT') == '1',
-    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1', 
+    'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT') == '1',
     'REPLIT_ENVIRONMENT': os.getenv('REPLIT_ENVIRONMENT') == 'deployment',
     'deployment_flag': os.path.exists('/tmp/repl_deployment_flag'),
     'replit_slug': bool(os.getenv('REPL_SLUG')),
@@ -33,7 +33,7 @@ if is_deployment:
 
 print("🚀 CryptoMentor AI Bot Starting...")
 print("=" * 50)
-print(f"📅 Start Time: {datetime.now().strftime('%d-%m-%Y %H:%M:%S WIB')}")
+print(f"📅 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 print("🔍 Bot Deployment Detection:")
 for check, result in deployment_indicators.items():
@@ -54,6 +54,32 @@ try:
 except ImportError as e:
     print(f"❌ Failed to import bot module: {e}")
     sys.exit(1)
+
+# Import Supabase client and related functions
+try:
+    print("✅ Using centralized Supabase client")
+
+    # Verify Supabase integration
+    from supabase_client import supabase, validate_supabase_connection
+
+    try:
+        from supabase_client import get_live_user_count
+        if supabase and validate_supabase_connection():
+            user_count = get_live_user_count()
+            print(f"✅ Supabase connection active - Users: {user_count}")
+        else:
+            print("❌ Supabase connection failed")
+    except Exception as count_error:
+        print(f"⚠️ Could not get user count: {count_error}")
+        if supabase and validate_supabase_connection():
+            print("✅ Supabase connection active")
+        else:
+            print("❌ Supabase connection failed")
+
+except ImportError as e:
+    print(f"⚠️ Supabase integration failed: {e}")
+    print("✅ Bot will continue with local database only")
+
 
 async def main():
     """Main bot execution with error handling and auto-restart"""

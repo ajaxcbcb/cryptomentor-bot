@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Utility functions for CryptoMentor AI
@@ -45,7 +46,7 @@ def format_timestamp(timestamp=None):
     """Format timestamp for display"""
     if timestamp is None:
         timestamp = time.time()
-    return datetime.fromtimestamp(timestamp).strftime('%d-%m-%Y %H:%M:%S WIB')
+    return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
 def load_json_file(file_path, default=None):
     """Safely load JSON file"""
@@ -100,11 +101,11 @@ def cleanup_old_files(directory, max_age_days=7):
     try:
         if not os.path.exists(directory):
             return 0
-
+        
         current_time = time.time()
         max_age_seconds = max_age_days * 24 * 60 * 60
         cleaned = 0
-
+        
         for file in os.listdir(directory):
             file_path = os.path.join(directory, file)
             if os.path.isfile(file_path):
@@ -112,7 +113,7 @@ def cleanup_old_files(directory, max_age_days=7):
                 if file_age > max_age_seconds:
                     os.remove(file_path)
                     cleaned += 1
-
+        
         return cleaned
     except Exception as e:
         print(f"❌ Error cleaning up files: {e}")

@@ -22,7 +22,7 @@ PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
 [workflows]
-runButton = "Start Bot"
+runButton = "Start Bot Clean"
 
 [[workflows.workflow]]
 name = "Start Bot"
@@ -34,3 +34,20 @@ task = "shell.exec"
 args = "cd Bismillah && python main.py"
 run = "python3 main.py"
 language = "python3"
+
+[[workflows.workflow]]
+name = "Start Bot Clean"
+author = 43938181
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pkill -f \"python.*main.py\" || true"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "sleep 2"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd Bismillah && python main.py"

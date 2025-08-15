@@ -152,7 +152,7 @@ class CryptoAPI:
 
             if futures_data.get('success'):
                 data = futures_data.get('data', {})
-
+                
                 # Extract key metrics for compatibility
                 result = {
                     'symbol': symbol,
@@ -246,64 +246,6 @@ class CryptoAPI:
                 'overall_status': 'error',
                 'working_apis': 0,
                 'total_apis': 2
-            }
-
-    async def get_ohlcv_data(self, symbol: str, period: str = "5MIN", limit: int = 300, market: str = "spot") -> Dict[str, Any]:
-        """
-        Get OHLCV data with robust fallback: CoinAPI first, then Binance if fails
-        """
-        try:
-            # Try CoinAPI first for professional data
-            import asyncio
-            from binance_fallback import get_klines as binance_klines
-            
-            # Normalize symbol for different markets
-            normalized_symbol = symbol.upper().replace('USDT', '')
-            
-            # Try CoinAPI first (if we had it implemented)
-            # For now, we'll go straight to robust Binance fallback
-            
-            # Robust Binance fallback
-            binance_symbol = f"{normalized_symbol}USDT"
-            
-            # Map period to Binance interval
-            period_mapping = {
-                "1MIN": "1m", "5MIN": "5m", "15MIN": "15m", "30MIN": "30m",
-                "1HRS": "1h", "4HRS": "4h", "1DAY": "1d", "1WEK": "1w"
-            }
-            interval = period_mapping.get(period, "5m")
-            
-            try:
-                ohlcv_data = await binance_klines(symbol=binance_symbol, interval=interval, limit=limit)
-                
-                if ohlcv_data and len(ohlcv_data) > 0:
-                    return {
-                        'success': True,
-                        'data': ohlcv_data,
-                        'source': 'binance_fallback',
-                        'symbol': symbol,
-                        'market': market,
-                        'count': len(ohlcv_data)
-                    }
-            except Exception as binance_error:
-                print(f"[BINANCE FALLBACK ERROR] {symbol}: {binance_error}")
-            
-            # Final fallback with mock data structure
-            return {
-                'success': False,
-                'error': f'All data sources failed for {symbol}',
-                'attempted_sources': ['binance'],
-                'symbol': symbol,
-                'market': market
-            }
-            
-        except Exception as e:
-            print(f"[OHLCV ERROR] {symbol} market={market}: {e}")
-            return {
-                'success': False,
-                'error': f'OHLCV data error: {str(e)}',
-                'symbol': symbol,
-                'market': market
             }
 
     # Legacy compatibility methods

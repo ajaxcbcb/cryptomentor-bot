@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Migration helper script to update from old API structure to new modular structure
@@ -11,90 +12,111 @@ from datetime import datetime
 def backup_old_files():
     """Backup old API files"""
     backup_dir = f"backup_old_apis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
+    
     files_to_backup = [
         'setup_coinapi.py',
         'setup_coinglass_v4.py'
     ]
-
+    
     if not os.path.exists(backup_dir):
         os.makedirs(backup_dir)
-        print(f"📁 Created backup directory: {backup_dir}")
-
+    
     for file in files_to_backup:
         if os.path.exists(file):
             shutil.copy2(file, backup_dir)
             print(f"✅ Backed up {file}")
-        else:
-            print(f"⚠️ File not found: {file}")
-
+    
     print(f"📦 Old files backed up to: {backup_dir}")
-    return backup_dir
 
-def check_new_structure():
-    """Check if new API structure is in place"""
-    required_files = [
-        'crypto_api.py',
-        'data_provider.py',
-        'binance_provider.py',
-        'coinmarketcap_provider.py'
+def check_environment_variables():
+    """Check if required environment variables are set"""
+    required_vars = [
+        'COINGLASS_API_KEY',
+        'CMC_API_KEY',
+        'COINMARKETCAP_API_KEY'  # Alternative name
     ]
-
-    missing_files = []
-    for file in required_files:
-        if not os.path.exists(file):
-            missing_files.append(file)
-
-    if missing_files:
-        print(f"❌ Missing required files: {missing_files}")
-        return False
+    
+    print("\n🔍 Checking environment variables...")
+    
+    coinglass_key = os.getenv('COINGLASS_API_KEY')
+    cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
+    
+    if coinglass_key:
+        print(f"✅ COINGLASS_API_KEY: Configured ({coinglass_key[:8]}...)")
     else:
-        print("✅ All required new API files are present")
-        return True
-
-def migrate_api_structure():
-    """Main migration function"""
-    print("🔄 CryptoMentor AI - API Migration")
-    print("=" * 50)
-
-    try:
-        # Step 1: Backup old files
-        print("\n📦 Step 1: Backing up old files...")
-        backup_dir = backup_old_files()
-
-        # Step 2: Check new structure
-        print("\n🔍 Step 2: Checking new API structure...")
-        if not check_new_structure():
-            print("❌ Migration cannot proceed - missing new API files")
-            return False
-
-        # Step 3: Test new APIs
-        print("\n🧪 Step 3: Testing new API integrations...")
-        try:
-            from crypto_api import CryptoAPI
-            crypto_api = CryptoAPI()
-
-            # Test basic functionality
-            btc_price = crypto_api.get_crypto_price('BTC')
-            if btc_price and btc_price.get('success'):
-                print(f"✅ New API working - BTC: ${btc_price.get('price', 0):,.2f}")
-            else:
-                print("⚠️ New API test failed but structure is correct")
-
-        except Exception as e:
-            print(f"⚠️ New API test error: {e}")
-
-        print("\n✅ Migration completed successfully!")
-        print(f"📁 Old files backed up to: {backup_dir}")
-        print("🚀 New modular API structure is ready!")
-
-        return True
-
-    except Exception as e:
-        print(f"❌ Migration failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print("❌ COINGLASS_API_KEY: Not found")
+    
+    if cmc_key:
+        print(f"✅ CMC_API_KEY: Configured ({cmc_key[:8]}...)")
+    else:
+        print("❌ CMC_API_KEY: Not found")
+    
+    if not coinglass_key or not cmc_key:
+        print("\n⚠️ Missing API keys! Please add them to Replit Secrets:")
+        if not coinglass_key:
+            print("  - Add COINGLASS_API_KEY")
+        if not cmc_key:
+            print("  - Add CMC_API_KEY (or COINMARKETCAP_API_KEY)")
         return False
+    
+    return True
+
+def test_new_apis():
+    """Test the new API structure"""
+    print("\n🧪 Testing new API structure...")
+    
+    try:
+        from data_provider import data_provider
+        from crypto_api import crypto_api
+        
+        # Quick API test
+        test_result = data_provider.test_all_apis()
+        
+        print(f"📊 API Test Results:")
+        print(f"  Overall Status: {test_result.get('overall_status', 'unknown').upper()}")
+        print(f"  Working APIs: {test_result.get('working_apis', 0)}/{test_result.get('total_apis', 0)}")
+        
+        for api_name, api_result in test_result.get('apis', {}).items():
+            status = api_result.get('status', 'unknown')
+            status_emoji = "✅" if status == "success" else "❌" if status == "failed" else "⚠️"
+            print(f"  {status_emoji} {api_name.title()}: {status}")
+        
+        return test_result.get('overall_status') not in ['poor', 'error']
+        
+    except Exception as e:
+        print(f"❌ API test failed: {e}")
+        return False
+
+def main():
+    """Main migration function"""
+    print("🚀 CryptoMentor API Migration Script")
+    print("="*50)
+    
+    # Step 1: Backup old files
+    backup_old_files()
+    
+    # Step 2: Check environment variables
+    if not check_environment_variables():
+        print("\n❌ Migration aborted due to missing API keys")
+        return False
+    
+    # Step 3: Test new APIs
+    if not test_new_apis():
+        print("\n❌ Migration completed but API tests failed")
+        print("Please check your API keys and network connection")
+        return False
+    
+    # Step 4: Success
+    print("\n✅ Migration completed successfully!")
+    print("\n📋 Next steps:")
+    print("  1. Run 'python test_new_apis.py' for comprehensive testing")
+    print("  2. Update your bot code to use the new crypto_api module")
+    print("  3. Remove old API files if everything works correctly")
+    print("\n🎉 Your CryptoMentor bot is now using the new modular API structure!")
+    
+    return True
 
 if __name__ == "__main__":
-    migrate_api_structure()
+    success = main()
+    if not success:
+        exit(1)
