@@ -1111,15 +1111,13 @@ class AIAssistant:
 
 {trading_setup_text}
 
-```
-🔬 TECHNICAL ANALYSIS ({timeframe}):
+🔬 **TECHNICAL ANALYSIS ({timeframe})**:
 • EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
 • EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
 • RSI(14): {rsi_value:.1f} ({rsi_condition})
 • MACD: {macd_value:.4f} ({macd_condition})
 • ATR: ${primary_indicators.get('atr', 0):,.4f}
 • Volume Trend: {signal_data.get('volume_trend', 'Normal')}
-```
 
 🎯 **SUPPLY & DEMAND ZONES**:"""
 
@@ -1730,14 +1728,14 @@ class AIAssistant:
         try:
             if direction == 'BUY':
                 entry = current_price * 0.999
-                stop_loss = current_price - (atr * 2)
-                tp1 = current_price + (atr * 1.5)
-                tp2 = current_price + (atr * 3)
+                stop_loss = entry - (atr * 2)  # Stop loss below entry for BUY
+                tp1 = entry + (atr * 1.5)
+                tp2 = entry + (atr * 3)
             elif direction == 'SELL':
                 entry = current_price * 1.001
-                stop_loss = current_price + (atr * 2)
-                tp1 = current_price - (atr * 1.5)
-                tp2 = current_price - (atr * 3)
+                stop_loss = entry + (atr * 2)  # Stop loss above entry for SELL
+                tp1 = entry - (atr * 1.5)
+                tp2 = entry - (atr * 3)
             else:  # NEUTRAL
                 return {
                     'entry': current_price,
@@ -2059,23 +2057,23 @@ class AIAssistant:
                 entry = current_price * 0.998
                 entry_min = current_price * 0.995
                 entry_max = current_price * 1.001
-                stop_loss = current_price - (atr * 2.5)
+                stop_loss = entry - (atr * 2.5)  # Stop loss below entry for LONG
 
                 # Multiple TP levels
-                tp1 = current_price + (atr * 1.5)
-                tp2 = current_price + (atr * 2.5)
-                tp3 = current_price + (atr * 4.0)
+                tp1 = entry + (atr * 1.5)
+                tp2 = entry + (atr * 2.5)
+                tp3 = entry + (atr * 4.0)
 
             elif direction == 'SHORT':
                 entry = current_price * 1.002
                 entry_min = current_price * 0.999
                 entry_max = current_price * 1.005
-                stop_loss = current_price + (atr * 2.5)
+                stop_loss = entry + (atr * 2.5)  # Stop loss above entry for SHORT
 
                 # Multiple TP levels
-                tp1 = current_price - (atr * 1.5)
-                tp2 = current_price - (atr * 2.5)
-                tp3 = current_price - (atr * 4.0)
+                tp1 = entry - (atr * 1.5)
+                tp2 = entry - (atr * 2.5)
+                tp3 = entry - (atr * 4.0)
 
             else:  # NEUTRAL
                 return {
