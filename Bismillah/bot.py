@@ -911,7 +911,7 @@ class TelegramBot:
             traceback.print_exc()
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /market command with CoinAPI integration"""
+        """Handle /market command with new market service"""
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -926,26 +926,37 @@ class TelegramBot:
             await update.message.reply_text("❌ Credit tidak cukup! Overview pasar membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
 
+        # Parse optional top_n parameter
+        try:
+            top_n = int(context.args[0]) if context.args else 20
+            top_n = max(5, min(50, top_n))  # Batasi antara 5-50
+        except Exception:
+            top_n = 20
+
         # Show enhanced loading message
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinAPI...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis overview pasar crypto real-time (Top {top_n} USDT pairs)...")
 
         try:
             print(f"🔄 Market command initiated by user {user_id}")
 
-            # Get comprehensive market overview with CoinAPI real-time data
-            print("📊 Calling AI market sentiment analysis with CoinAPI...")
-            market_data = self.ai.get_market_sentiment('id', self.crypto_api)
+            # Import safe reply helper
+            from app.utils.telegram_safe import safe_edit
+
+            # Get market sentiment using new service
+            print("📊 Calling new market sentiment service...")
+            market_data = await self.ai.get_market_sentiment('id', self.crypto_api, top_n)
 
             if not market_data or len(market_data.strip()) < 50:
                 # Fallback if data is too short
-                market_data = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
+                market_data = """🌍 **OVERVIEW PASAR CRYPTO**
 
 ⚠️ **Data sementara tidak lengkap**
 
 💡 **Alternatif yang bisa dicoba:**
-• `/price btc` - Cek harga Bitcoin dari CoinAPI
-• `/price eth` - Cek harga Ethereum dari CoinAPI
-• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinAPI data
+• `/price btc` - Cek harga Bitcoin real-time
+• `/price eth` - Cek harga Ethereum real-time
+• `/analyze btc` - Analisis mendalam Bitcoin
+• `/futures_signals` - Scan sinyal trading
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
@@ -953,7 +964,7 @@ class TelegramBot:
             if not is_premium and not is_admin:
                 self.db.deduct_credit(user_id, 20)
                 remaining_credits = self.db.get_user_credits(user_id)
-                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinAPI: -20 credit)"
+                market_data += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar: -20 credit)"
             elif is_premium:
                 market_data += f"\n\n⭐ **Status Premium** - Unlimited Access"
             elif is_admin:
@@ -961,21 +972,47 @@ class TelegramBot:
 
             print(f"✅ Market analysis completed, sending response ({len(market_data)} chars)")
 
-            # Handle long messages
+            # Handle long messages with safe editing
             if len(market_data) > 4000:
-                # Split into chunks
                 chunks = [market_data[i:i+4000] for i in range(0, len(market_data), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
-
-                for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                try:
+                    await safe_edit(
+                        self.application.bot,
+                        loading_msg.chat_id,
+                        loading_msg.message_id,
+                        chunks[0]
+                    )
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode=None)
+                except Exception as e:
+                    print(f"⚠️ Error editing message: {e}")
+                    await loading_msg.edit_text(chunks[0], parse_mode=None)
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode=None)
             else:
-                # Edit loading message with the comprehensive overview
-                await loading_msg.edit_text(market_data, parse_mode='Markdown')
+                try:
+                    await safe_edit(
+                        self.application.bot,
+                        loading_msg.chat_id,
+                        loading_msg.message_id,
+                        market_data
+                    )
+                except Exception as e:
+                    print(f"⚠️ Error editing message: {e}")
+                    await loading_msg.edit_text(market_data, parse_mode=None)
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (CoinAPI)\n• `/analyze ethereum` (CoinAPI)\n• `/futures_signals` (SnD)"
-            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            error_msg = f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price btc` (Real-time)\n• `/analyze ethereum` (Comprehensive)\n• `/futures_signals` (SnD)\n\n🔧 **Debug**: Market service error"
+            try:
+                from app.utils.telegram_safe import safe_edit
+                await safe_edit(
+                    self.application.bot,
+                    loading_msg.chat_id,
+                    loading_msg.message_id,
+                    error_msg
+                )
+            except:
+                await loading_msg.edit_text(error_msg, parse_mode=None)
             print(f"❌ Error in market command: {e}")
             import traceback
             traceback.print_exc()
