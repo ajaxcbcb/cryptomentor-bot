@@ -83,8 +83,9 @@ except ImportError as e:
 # Import handlers and statistics functions
 try:
     from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-    from utils import admin_guard, validate_environment, TELEGRAM_BOT_TOKEN
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.constants import ParseMode
+    from app.lib.guards import admin_guard
     from app.handlers_admin_panel import register_admin_panel_handlers
     from app.handlers_admin_premium import register_admin_premium_handlers
     from app.handlers_admin_debug import register_admin_debug_handlers
@@ -93,6 +94,17 @@ try:
 except ImportError as e:
     print(f"❌ Failed to import necessary modules: {e}")
     sys.exit(1)
+
+def validate_environment():
+    """Validate required environment variables"""
+    token = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN not found!")
+        print("💡 Please set TOKEN in Replit Secrets")
+        return False
+    return True
+
+TELEGRAM_BOT_TOKEN = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
 
 async def main():
     """Main function to start the bot"""

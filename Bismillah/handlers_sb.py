@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 import html
-from supabase_conn import health, env_ok
+from app.supabase_conn import health, env_ok
 
 def _format_md_v2(text: str) -> str:
     """Escape all special characters for MarkdownV2"""
