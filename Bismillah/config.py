@@ -74,8 +74,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Auto signals feature flag - default OFF untuk keamanan
-AUTO_SIGNALS_ENABLED = os.getenv("AUTO_SIGNALS_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Feature flags for enabling/disabling specific features
+AUTO_SIGNALS_ENABLED = os.getenv("AUTO_SIGNALS_ENABLED", "false").lower() in ("1", "true", "yes")
+USE_LEGACY_FUTURES_SIGNALS = os.getenv("USE_LEGACY_FUTURES_SIGNALS", "true").lower() in ("1","true","yes")
 
 # Bot configuration
 BOT_TOKEN = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
