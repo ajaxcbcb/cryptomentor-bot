@@ -1,0 +1,266 @@
+PROMPT — FIX /futures_signals: Await All + Safe Markdown + Stable Results
+1) Utility: gather_safe (concurrency + no crash)
+
+Buat / update app/utils/async_tools.py:
+
+import asyncio
+from typing import Iterable, Awaitable, List, Any
+
+async def gather_safe(tasks: Iterable[Awaitable[Any]]) -> List[Any]:
+    """
+    Jalankan semua task async secara concurrent.
+    Hasil = urutan yang sama dengan input.
+    Exception tidak dilempar ke atas; ditaruh sebagai item Exception di hasil.
+    """
+    return await asyncio.gather(*tasks, return_exceptions=True)
+
+2) Helper kirim pesan yang aman untuk Telegram (hindari Markdown V2 error)
+
+Buat app/utils/telegram_safe.py:
+
+import re
+from telegram.constants import ParseMode
+
+# Escape semua karakter khusus MarkdownV2 (termasuk '-')
+_MD_V2_SPECIALS = r'_*[]()~`>#+-=|{}.!'
+
+def escape_md_v2(text: str) -> str:
+    return re.sub(r'([\\_*\[\]\(\)~`>#+\-=\|{}\.\!])', r'\\\1', text.replace('-', r'\-'))
+
+async def safe_reply(update, text: str, prefer_html: bool = True):
+    """
+    Coba kirim dengan HTML (paling toleran), fallback ke Markdown, lalu plain text.
+    """
+    msg = update.effective_message
+    # 1) HTML
+    if prefer_html:
+        try:
+            return await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            pass
+    # 2) MarkdownV2 (escape dulu)
+    try:
+        esc = escape_md_v2(text)
+        return await msg.reply_text(esc, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
+    except Exception:
+        pass
+    # 3) Plain text
+    return await msg.reply_text(text, disable_web_page_preview=True)
+
+async def safe_edit(bot, chat_id: int, message_id: int, text: str, prefer_html: bool = True):
+    # 1) HTML
+    if prefer_html:
+        try:
+            return await bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True
+            )
+        except Exception:
+            pass
+    # 2) MarkdownV2
+    try:
+        esc = escape_md_v2(text)
+        return await bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=esc, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True
+        )
+    except Exception:
+        pass
+    # 3) Plain
+    return await bot.edit_message_text(
+        chat_id=chat_id, message_id=message_id,
+        text=text, disable_web_page_preview=True
+    )
+
+
+Setelah ini, ganti semua reply_text(..., parse_mode="MarkdownV2") dengan await safe_reply(update, text) atau pakai HTML langsung. Ini menghentikan error:
+Can't parse entities: character '-' is reserved....
+
+3) PERBAIKI Akar Masalah: /futures_signals tidak me-await task internal
+3.1. Patch AIAssistant: pastikan semua coroutine di-await
+
+Edit / buat app/ai/assistant.py (atau modul tempat AIAssistant berada). Tambahkan/ubah metode berikut:
+
+import asyncio
+from typing import List, Dict, Any
+from app.utils.async_tools import gather_safe
+from app.services.analysis import analyze_coin_futures  # analyzer mengembalikan dict
+# ^ pastikan fungsi ini async & return dict siap pakai (entry tunggal sudah ditetapkan sebelumnya)
+
+class AIAssistant:
+    # ... method lain ...
+
+    async def _enhanced_scan_symbol_for_signal(self, locale: str, crypto_api, symbol: str) -> Dict[str, Any]:
+        """
+        Satu koin → satu hasil dict siap format.
+        PENTING: method INI async dan WAJIB di-await oleh pemanggil.
+        """
+        # panggil analyzer kamu (sudah handle provider + fallback)
+        res = await analyze_coin_futures(symbol)
+        # Tambah metadata jika perlu
+        res["locale"] = locale
+        return res
+
+    async def generate_futures_signals(self, locale: str, crypto_api, args) -> List[Dict[str, Any]]:
+        """
+        Versi yang benar (tidak mengembalikan coroutine).
+        - args: list simbol dari command. Jika kosong, pakai default kamu.
+        - RETURN: list[dict] untuk tiap simbol (atau {'coin':..., 'error':...}).
+        """
+        symbols = [s.upper() for s in (args or ["BTC","ETH","BNB","SOL","XRP"])]
+        tasks = [self._enhanced_scan_symbol_for_signal(locale, crypto_api, sym) for sym in symbols]
+        results = await gather_safe(tasks)  # <— WAJIB await di sini
+
+        output: List[Dict[str, Any]] = []
+        for sym, r in zip(symbols, results):
+            if isinstance(r, Exception):
+                output.append({"coin": sym, "error": str(r)})
+            else:
+                # r sudah dict (bukan coroutine)
+                output.append(r)
+        return output
+
+
+Wajib: Pastikan semua tempat lain yang memanggil _enhanced_scan_symbol_for_signal(...) menggunakan await.
+Cari & ganti:
+
+self._enhanced_scan_symbol_for_signal( → await self._enhanced_scan_symbol_for_signal(
+
+map(self._enhanced_scan_symbol_for_signal, ...) → gunakan tasks + await gather_safe(...).
+
+Gunakan pencarian proyek dan perbaiki pola umum:
+
+"was never awaited" → tambahkan await.
+
+"object is not subscriptable" saat r dicoba di-index: pastikan r = await ... sebelum r['key'].
+
+"has no attribute 'get'" → sama: await dulu sebelum .get.
+
+3.2. Perbaiki handler yang memanggil generate_futures_signals
+
+Contoh (di bot.py sekitar baris 1017 sesuai log):
+
+# DULU (rawan bug kalau generate_futures_signals mengembalikan coroutine di dalam list)
+# signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
+
+# TETAP, tapi yakinkan generate_futures_signals (di atas) sudah membungkus semua await.
+signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
+
+# ⛔️ Jangan lakukan: for s in signals: s.get('...') bila s mungkin coroutine.
+# ✅ Sekarang aman: signals adalah list[dict] atau dict error.
+
+4) Formatter aman: jangan asumsi item selalu dict
+
+Jika kamu punya formatter seperti format_futures_signals(data), tambahkan guard:
+
+Edit app/formatters/texts.py (atau modul formatter kamu):
+
+from typing import List, Dict, Any
+
+def format_futures_signals(items: List[Dict[str, Any]]) -> str:
+    lines = ["🚨 FUTURES SIGNALS"]
+    if not items:
+        lines.append("❌ Tidak ada sinyal")
+        return "\n".join(lines)
+
+    for it in items:
+        # Guard kalau ada residu yang bukan dict
+        if not isinstance(it, dict):
+            try:
+                it = dict(it)  # attempt coerce
+            except Exception:
+                lines.append("• item tidak valid")
+                continue
+        if "error" in it:
+            lines.append(f"• {it.get('coin','?')}: ❌ error")
+            continue
+        lines.append(
+            f"• {it.get('coin','?')}: Entry {it.get('entry',0):.4f} | "
+            f"RSI {it.get('rsi',0):.1f} | MACD {it.get('macd_hist',0):.4f} | {it.get('trend','-')}"
+        )
+    return "\n".join(lines)
+
+
+Ini mencegah error .get pada tipe selain dict.
+
+5) Gunakan helper kirim pesan aman di handler
+
+Edit handler /futures_signals (di app/commands/handlers.py atau bot.py):
+
+from app.utils.telegram_safe import safe_reply
+
+async def cmd_futures_signals(update, context):
+    try:
+        # Asumsi kamu punya self.ai di konteks berbeda; kalau tidak, sesuaikan pemanggilnya.
+        # Contoh direct:
+        ai = context.application.bot_data.get("ai")  # atau di mana pun instance AIAssistant kamu
+        # Kalau tidak ada, panggil service langsung:
+        # from app.services.analysis import futures_signals as svc
+        # signals = await svc([c.upper() for c in (context.args or ["BTC","ETH","BNB"])])
+
+        signals = await ai.generate_futures_signals('id', None, context.args)
+        from app.formatters.texts import format_futures_signals  # pakai formatter lama
+        text = format_futures_signals(signals)
+        await safe_reply(update, text)
+    except Exception as e:
+        # Pesan error konsisten + bebas dari MarkdownV2 error
+        err = (
+            "❌ Terjadi kesalahan mengambil data untuk FUTURES_SIGNALS\n\n"
+            "🔄 Error context: scan process\n"
+            "💡 Coba: /price btc — Cek harga basic"
+        )
+        await safe_reply(update, err)
+
+
+Dengan safe_reply, kamu tidak akan lagi melihat:
+
+HTTP 400 Bad Request karena parsing MarkdownV2
+
+“character '-' is reserved …”
+
+6) (Opsional tapi penting) Sapu bersih semua pemanggilan tanpa await
+
+Jalankan pencarian di proyek dan perbaiki pola ini:
+
+was never awaited → tambahkan await di pemanggil.
+
+coroutine' object has no attribute 'get' → item = await item sebelum .get.
+
+coroutine' object is not subscriptable → item = await item sebelum item['x'].
+
+Contoh anti-bug di fungsi apa pun yang mengonsumsi hasil scan:
+
+result = await self._enhanced_scan_symbol_for_signal('id', api, 'LTC')  # <— WAJIB await
+# jangan: result = self._enhanced_scan_symbol_for_signal(...)
+
+# Kalau bikin list:
+tasks = [self._enhanced_scan_symbol_for_signal('id', api, s) for s in symbols]
+results = await gather_safe(tasks)
+
+7) Quick self-test (opsional)
+
+Buat scripts/quick_check_futures_signals.py:
+
+import asyncio
+from app.ai.assistant import AIAssistant
+
+async def main():
+    ai = AIAssistant()
+    out = await ai.generate_futures_signals('id', None, ['BTC','ETH','LTC'])
+    assert isinstance(out, list), "hasil harus list"
+    assert all(isinstance(x, dict) for x in out), "tiap item harus dict"
+    print("OK. items:", len(out))
+    print(out[:2])
+
+asyncio.run(main())
+
+
+Jalankan:
+
+python scripts/quick_check_futures_signals.py
+
+8) Catatan singkat
+
+Inti masalah: ada coroutine yang “bocor” (tidak di-await) lalu diperlakukan seperti dict. Patch di atas menjamin semua task di-await sebelum diformat.
+
+Markdown V2 sering bikin error pada karakter -, _, . dll. safe_reply menyelesaikan ini tanpa harus mengubah semua template.
