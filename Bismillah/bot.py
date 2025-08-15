@@ -204,6 +204,21 @@ class TelegramBot:
             except Exception as cleanup_error:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
 
+            # Import new CoinAPI handlers
+            try:
+                from app.commands.handlers import cmd_analyze, cmd_futures, cmd_futures_signals, cmd_market
+                print("✅ New CoinAPI handlers imported successfully")
+                
+                # Add new optimized command handlers
+                self.application.add_handler(CommandHandler("analyze_new", cmd_analyze))
+                self.application.add_handler(CommandHandler("futures_new", cmd_futures))
+                self.application.add_handler(CommandHandler("futures_signals_new", cmd_futures_signals))
+                self.application.add_handler(CommandHandler("market_new", cmd_market))
+                print("✅ New CoinAPI commands registered")
+            except Exception as e:
+                print(f"⚠️ Could not import new CoinAPI handlers: {e}")
+                print("🔄 Continuing with legacy handlers...")
+
             # Add command handlers with proper async functions
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
@@ -679,6 +694,12 @@ class TelegramBot:
 • `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
 • `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
+
+🚀 **NEW OPTIMIZED COMMANDS (CoinAPI v2)**:
+• `/analyze_new <symbol>` - **Enhanced CoinAPI analysis** ⭐ **NEW!**
+• `/futures_new <symbol>` - **Single entry point strategy** ⭐ **NEW!**
+• `/futures_signals_new` - **Multi-coin signals** ⭐ **NEW!**
+• `/market_new` - **Real-time market overview** ⭐ **NEW!**
 
 📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
