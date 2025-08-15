@@ -1,0 +1,197 @@
+PROMPT — FIX COINAPI SYMBOL (BNB & OTHERS) + ROBUST FALLBACK
+1) Tambah util Binance fallback
+
+Buat app/providers/binance.py:
+
+import time
+import httpx
+
+BINANCE_URL = "https://api.binance.com"
+
+async def get_klines(symbol="BNBUSDT", interval="5m", limit=300, timeout=10):
+    url = f"{BINANCE_URL}/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.get(url, params=params)
+        r.raise_for_status()
+        data = r.json()
+    # map to unified rows
+    rows = []
+    for k in data:
+        rows.append({
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(k[6]//1000)),  # close time
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low":  float(k[3]),
+            "close":float(k[4]),
+            "volume": float(k[5]),
+        })
+    return rows
+
+2) Perbaiki provider CoinAPI: resolve symbol_id
+
+Edit app/providers/coinapi.py (ganti seluruh isi dengan ini):
+
+from typing import List, Dict, Optional, Tuple
+import re
+from app.env import COINAPI_API_KEY
+from app.providers.http import fetch_json
+from app.providers.binance import get_klines as binance_klines
+
+BASE = "https://rest.coinapi.io/v1"
+
+# Exchange & market priority
+EX_PRIO_PERP  = ["BINANCE", "BYBIT", "OKX"]
+EX_PRIO_SPOT  = ["BINANCE", "BYBIT", "OKX"]
+USDT_RE = re.compile(r"USDT$", re.I)
+
+# Simple cache in-memory
+_SYMBOL_CACHE: dict[Tuple[str,str], str] = {}  # (coin_upper, market) -> symbol_id
+
+def _headers():
+    if not COINAPI_API_KEY:
+        raise RuntimeError("COINAPI_API_KEY belum di-set")
+    return {"X-CoinAPI-Key": COINAPI_API_KEY}
+
+def _normalize_coin(c: str) -> str:
+    """
+    Beberapa aset punya alias; tambahkan jika perlu.
+    """
+    m = c.upper()
+    aliases = {
+        "IOTA": "MIOTA",  # contoh alias CoinAPI
+    }
+    return aliases.get(m, m)
+
+def _prefer_symbol_id(symbols: list[dict], market: str) -> Optional[str]:
+    """
+    Pilih symbol_id berdasarkan prioritas exchange dan jenis market.
+    - market='perp'  -> cari PERP (futures perpetual)
+    - market='spot'  -> cari SPOT
+    Selalu USDT quote.
+    """
+    # Filter USDT dan tipe market
+    if market == "perp":
+        cand = [s for s in symbols
+                if "PERP" in s.get("symbol_id","")
+                and USDT_RE.search(s.get("asset_id_quote","") or s.get("symbol_id",""))]
+        prio = EX_PRIO_PERP
+    else:
+        cand = [s for s in symbols
+                if "SPOT" in s.get("symbol_id","")
+                and USDT_RE.search(s.get("asset_id_quote","") or s.get("symbol_id",""))]
+        prio = EX_PRIO_SPOT
+
+    # Urutkan sesuai prioritas exchange
+    def score(sym):
+        sid = sym.get("symbol_id","")
+        for i, ex in enumerate(prio):
+            if sid.startswith(ex):
+                return i
+        return 99
+    cand.sort(key=score)
+
+    return cand[0]["symbol_id"] if cand else None
+
+async def _resolve_symbol_id(coin: str, market: str) -> Optional[str]:
+    key = (_normalize_coin(coin), market)
+    if key in _SYMBOL_CACHE:
+        return _SYMBOL_CACHE[key]
+
+    # /symbols?filter_asset_id=BNB  (ambil semua, nanti pilih)
+    url = f"{BASE}/symbols"
+    params = {"filter_asset_id": _normalize_coin(coin)}
+    data = await fetch_json(url, headers=_headers(), params=params, cache_key=f"symbols:{key}", cache_ttl=600)
+    # Pilih yang cocok
+    sid = _prefer_symbol_id(data, market)
+    if sid:
+        _SYMBOL_CACHE[key] = sid
+    return sid
+
+async def get_price_spot(coin: str) -> float:
+    url = f"{BASE}/exchangerate/{_normalize_coin(coin)}/USDT"
+    data = await fetch_json(url, headers=_headers(), cache_key=f"caprice:{coin}", cache_ttl=10)
+    return float(data["rate"])
+
+async def get_ohlcv(coin: str, period="5MIN", limit=300, market="spot") -> List[Dict]:
+    """
+    CoinAPI butuh symbol_id (contoh: BINANCE_SPOT_BNB_USDT).
+    Jika resolusi gagal, fallback ke Binance klines agar command tidak error.
+    """
+    # 1) Resolve symbol_id sesuai market
+    sid = await _resolve_symbol_id(coin, "perp" if market.lower()=="perp" else "spot")
+    if sid:
+        url = f"{BASE}/ohlcv/{sid}/history"
+        params = {"period_id": period, "limit": limit}
+        data = await fetch_json(url, headers=_headers(), params=params,
+                                cache_key=f"caohlcv:{sid}:{period}:{limit}", cache_ttl=20)
+        rows = []
+        for d in data:
+            rows.append({
+                "time": d.get("time_period_end"),
+                "open": float(d["price_open"]),
+                "high": float(d["price_high"]),
+                "low":  float(d["price_low"]),
+                "close":float(d["price_close"]),
+                "volume": float(d.get("volume_traded", 0.0)),
+            })
+        if rows:
+            return rows
+
+    # 2) Fallback kuat → Binance public klines (USDT pair)
+    #    Tetap memenuhi format rows agar analyzer tidak berubah.
+    symbol = f"{_normalize_coin(coin)}USDT"
+    return await binance_klines(symbol=symbol, interval="5m", limit=limit)
+
+
+Perubahan inti:
+
+BNB, SOL, dll. sekarang di-resolve ke symbol_id yang benar (contoh BINANCE_SPOT_BNB_USDT).
+
+Jika CoinAPI rate-limit/blank, fallback ke Binance otomatis—user tetap dapat hasil.
+
+3) Pakai market yang tepat di command
+
+Edit app/services/analysis.py (bagian pemanggilan get_ohlcv):
+
+Untuk /analyze dan /market: gunakan market="spot".
+
+Untuk /futures dan /futures_signals: gunakan market="perp" (kalau tidak ada, resolver akan fallback ke spot, lalu ke Binance).
+
+Contoh perubahan minimal:
+
+# di analyze_coin()
+ohlcv = await get_ohlcv(coin, period="5MIN", limit=300, market="spot")
+
+# di futures_entry() (SATU ENTRY):
+ohlcv = await get_ohlcv(coin, period="5MIN", limit=300, market="perp")
+# lalu df = to_df(ohlcv) ... (logika sama seperti sebelumnya)
+
+# di futures_signals()
+ohlcv = await get_ohlcv(c, period="5MIN", limit=300, market="perp")
+# (atau panggil analyze_coin khusus futures jika kamu split)
+
+
+Jika kamu sebelumnya memanggil analyze_coin() yang sudah membuat get_ohlcv, cukup tambahkan argumen market di sana (atau buat analyze_coin(..., market="spot") dan dipanggil analyze_coin(c, market="perp") untuk futures).
+
+4) Pastikan pesan error tetap ramah
+
+Tidak perlu ubah formatter. Karena ada fallback, kemungkinan besar pesan error seperti di screenshot tidak muncul lagi untuk BNB/coin lain. Jika semua fallback juga gagal, handler sudah mengirim pesan alternatif sesuai template kamu.
+
+5) Quick tests
+
+/analyze bnb → harus menampilkan analisis (tidak error).
+
+/futures bnb → harus menampilkan 1 entry point.
+
+/futures_signals btc eth bnb sol → setiap koin mengembalikan hasil (bukan error).
+
+/market btc eth bnb → harga muncul.
+
+6) Catatan
+
+Resolver memakai cache 10 menit; mengurangi call /symbols.
+
+Prioritas exchange bisa kamu ubah lewat EX_PRIO_PERP/SPOT.
+
+Jika kamu khusus ingin perpetual BINANCE saja untuk futures, ubah filter: cari yang mengandung BINANCE_FUTURES_PERP (nama persis tergantung katalog CoinAPI kamu).
