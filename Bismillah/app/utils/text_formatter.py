@@ -47,7 +47,7 @@ def escape_html(text: str) -> str:
 # --- Sentiment emoji helper ---
 def sentiment_emoji(score: float) -> str:
     """
-    Return emoji based on sentiment score (0–100 scale or -1..1 normalized).
+    Return emoji based on sentiment score (0-100 scale or -1..1 normalized).
     """
     if score is None:
         return "😐"
@@ -92,6 +92,123 @@ def format_percentage(pct: float, show_sign: bool = True) -> str:
         return f"{sign}{v:.2f}%"
     except (ValueError, TypeError):
         return str(pct)
+
+# --- Money formatter with short notation ---
+def format_money(amount: float, short: bool = False, symbol: str = "$") -> str:
+    """Format money with optional short notation (1.2T, 45.6B, etc)."""
+    try:
+        v = float(amount)
+        if not short:
+            return f"{symbol}{v:,.2f}"
+        
+        # Short notation
+        if v >= 1_000_000_000_000:  # Trillion
+            return f"{symbol}{v/1_000_000_000_000:.1f}T"
+        elif v >= 1_000_000_000:  # Billion
+            return f"{symbol}{v/1_000_000_000:.1f}B"
+        elif v >= 1_000_000:  # Million
+            return f"{symbol}{v/1_000_000:.1f}M"
+        elif v >= 1_000:  # Thousand
+            return f"{symbol}{v/1_000:.1f}K"
+        else:
+            return f"{symbol}{v:.2f}"
+    except (ValueError, TypeError):
+        return str(amount)
+
+# --- Risk/Reward ratio formatter ---
+def format_rr_ratio(ratio: float) -> str:
+    """Format risk/reward ratio."""
+    try:
+        return f"{float(ratio):.1f}:1"
+    except (ValueError, TypeError):
+        return str(ratio)
+
+# --- Futures signals response formatter ---
+def format_futures_signals_response(signals: List[Dict[str, Any]], scan_time: str = "", threshold: float = 75.0) -> str:
+    """
+    Format futures signals response for Telegram.
+    Compatible with both legacy and modern signal formats.
+    """
+    if not signals:
+        return f"""🚨 {bold("FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS")}
+
+🕐 {bold("Scan Time")}: {escape_md(scan_time)}
+📊 {bold("Signals Found")}: 0 (Confidence ≥ {threshold:.2f}%)
+
+❌ Tidak ada sinyal memenuhi syarat
+
+💡 Kemungkinan Penyebab:
+• Market dalam kondisi consolidation  
+• Volatilitas rendah saat ini
+• Menunggu momentum yang lebih jelas
+
+🔄 Alternatif:
+• Coba /futures btc untuk analisis spesifik
+• Gunakan /analyze eth untuk analisis fundamental  
+• Monitor kondisi market dengan /market"""
+
+    lines = [
+        f"🚨 {bold('FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS')}",
+        "",
+        f"🕐 {bold('Scan Time')}: {escape_md(scan_time)}",
+        f"📊 {bold('Signals Found')}: {len(signals)} (Confidence ≥ {threshold:.2f}%)",
+        ""
+    ]
+
+    for i, signal in enumerate(signals, 1):
+        coin = signal.get('coin', signal.get('symbol', 'Unknown'))
+        trend = signal.get('trend', '').lower()
+        direction = signal.get('direction', 'NEUTRAL')
+        
+        # Determine emoji and direction
+        if trend == 'up' or direction in ['LONG', 'BUY']:
+            emoji = "🟢"
+            dir_text = "LONG"
+        elif trend == 'down' or direction in ['SHORT', 'SELL']:
+            emoji = "🔴"
+            dir_text = "SHORT"
+        else:
+            emoji = "🟡"
+            dir_text = "NEUTRAL"
+
+        lines.append(f"{bold(f'{i}. {coin} {emoji} {dir_text}')}")
+        
+        if 'confidence' in signal:
+            lines.append(f"⭐️ Confidence: {float(signal['confidence']):.2f}%")
+        
+        if signal.get('entry'):
+            lines.append(f"💰 Entry: {format_price(signal['entry'])}")
+        
+        if signal.get('stop') or signal.get('sl'):
+            stop_price = signal.get('stop') or signal.get('sl')
+            lines.append(f"🛑 Stop Loss: {format_price(stop_price)}")
+        
+        if signal.get('tp1'):
+            lines.append(f"🎯 TP1: {format_price(signal['tp1'])}")
+        
+        if signal.get('tp2'):
+            lines.append(f"🎯 TP2: {format_price(signal['tp2'])}")
+        
+        if signal.get('rr') or signal.get('rr_ratio'):
+            rr = signal.get('rr') or signal.get('rr_ratio')
+            if isinstance(rr, str) and ':' in rr:
+                lines.append(f"📊 R/R Ratio: {escape_md(rr)}")
+            else:
+                lines.append(f"📊 R/R Ratio: {float(rr):.1f}:1")
+        
+        if signal.get('structure'):
+            lines.append(f"⚡️ Structure: {escape_md(signal['structure'])}")
+        
+        if signal.get('reason'):
+            lines.append(f"🧠 Reason: {escape_md(signal['reason'])}")
+        
+        if signal.get('change_24h') is not None:
+            change = float(signal['change_24h'])
+            lines.append(f"📈 24h Change: {format_percentage(change)}")
+        
+        lines.append("")  # Space between signals
+
+    return "\n".join(lines)
 
 # --- Example usage ---
 if __name__ == "__main__":
