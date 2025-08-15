@@ -1,0 +1,348 @@
+PROMPT — /start langsung inisialisasi data user (Supabase + Referral + Premium)
+0) Dependensi & ENV
+
+Update requirements.txt (jika belum):
+
+supabase==2.6.0
+httpx==0.27.2
+anyio==4.4.0
+
+
+Tambahkan Secrets di Replit:
+
+SUPABASE_URL = https://<project>.supabase.co
+
+SUPABASE_SERVICE_KEY = <service_role_key>
+
+(opsional) USE_DB = true
+
+1) SQL Schema (buat baru atau upgrade yang ada)
+
+Buat file supabase/user_schema.sql lalu jalankan di Supabase SQL editor:
+
+-- USERS: menyimpan profil + premium + referral + credits
+create table if not exists users (
+  id text primary key,                    -- telegram user id (string)
+  username text default '' not null,
+  is_admin boolean default false not null,
+
+  -- Premium flags
+  is_lifetime boolean default false not null,
+  premium_until timestamptz,              -- null jika lifetime; boleh null jika non-premium
+  -- Derived premium status dihitung di aplikasi: is_lifetime OR (premium_until >= now())
+
+  -- Ekonomi
+  credits integer default 0 not null,
+
+  -- Referral
+  referral_code text unique,              -- kode milik user (unik)
+  referred_by text references users(id) on delete set null, -- siapa yang mereferensikan user ini (opsional)
+
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- LOG: menyimpan event referral (opsional, buat audit)
+create table if not exists referral_events (
+  id uuid primary key default gen_random_uuid(),
+  referred_user_id text not null references users(id) on delete cascade,
+  referrer_user_id text not null references users(id) on delete cascade,
+  source text default 'start' not null,       -- mis: 'start', 'link', dsb
+  created_at timestamptz default now()
+);
+
+-- Index berguna
+create index if not exists idx_users_referral_code on users(referral_code);
+create index if not exists idx_users_referred_by on users(referred_by);
+create index if not exists idx_ref_events_referrer on referral_events(referrer_user_id);
+
+-- Trigger untuk updated_at
+create or replace function set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'users_set_updated_at') then
+    create trigger users_set_updated_at
+    before update on users
+    for each row execute function set_updated_at();
+  end if;
+end;
+$$;
+
+-- RLS (opsional - karena server pakai SERVICE KEY, aman)
+alter table users enable row level security;
+alter table referral_events enable row level security;
+
+-- Policies minimal (server w/ service key override policies)
+create policy "service select users" on users for select using (true);
+create policy "service ins/upd/del users" on users for all using (true) with check (true);
+
+create policy "service all referral_events" on referral_events for all using (true) with check (true);
+
+
+Jika kamu sudah punya tabel users dari skema lama, gunakan ALTER ini untuk upgrade kolom yang dibutuhkan:
+
+alter table users add column if not exists is_lifetime boolean default false not null;
+alter table users add column if not exists premium_until timestamptz;
+alter table users add column if not exists credits integer default 0 not null;
+alter table users add column if not exists referral_code text;
+alter table users add column if not exists referred_by text references users(id) on delete set null;
+create unique index if not exists idx_users_refcode_unique on users(referral_code);
+
+2) Client Supabase + Helpers
+
+Buat app/db/supabase.py:
+
+import os
+from typing import Optional, Any, Dict, Tuple, List
+from supabase import create_client, Client
+import anyio
+import hashlib, base64, re
+from datetime import datetime, timezone
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+USE_DB = os.getenv("USE_DB", "true").lower() in ("1","true","yes")
+
+_client: Optional[Client] = None
+
+def get_client() -> Client:
+    if not USE_DB:
+        raise RuntimeError("USE_DB=false — DB dimatikan")
+    global _client
+    if _client is None:
+        if not SUPABASE_URL or not SERVICE_KEY:
+            raise RuntimeError("SUPABASE_URL/SUPABASE_SERVICE_KEY belum diset")
+        _client = create_client(SUPABASE_URL, SERVICE_KEY)
+    return _client
+
+async def run_db(fn, *args, **kwargs):
+    return await anyio.to_thread.run_sync(lambda: fn(*args, **kwargs))
+
+# ---------- Referral Code ----------
+def _make_referral_code(user_id: str) -> str:
+    """
+    Generate kode unik 8 chars uppercase [A-Z0-9] dari user_id deterministik.
+    """
+    h = hashlib.sha256(user_id.encode("utf-8")).digest()
+    # Base32 lebih ringkas & uppercase
+    code = base64.b32encode(h)[:8].decode("ascii")
+    return re.sub(r"[^A-Z0-9]", "X", code)
+
+# ---------- Upsert & Fetch ----------
+async def upsert_user_on_start(user_id: str, username: str, referred_param: Optional[str]) -> Dict[str, Any]:
+    """
+    - Buat/update user.
+    - Set referral_code jika belum ada.
+    - Jika ada referred_param (kode referral) & valid → set referred_by jika belum di-set dan bukan diri sendiri.
+    - Kembalikan snapshot termasuk derived premium status & referred_count.
+    """
+    sb = get_client()
+
+    # 1) Ambil user jika ada
+    res = await run_db(sb.table("users").select("*").eq("id", user_id).limit(1).single().execute)
+    user = getattr(res, "data", None)
+
+    # 2) Siapkan referral_code user (persisten)
+    my_code = user.get("referral_code") if user else None
+    if not my_code:
+        my_code = _make_referral_code(user_id)
+
+    payload = {
+        "id": user_id,
+        "username": (username or ""),
+        "referral_code": my_code,
+    }
+
+    # 3) Jika ada referred_param (kode) → resolve ke referrer
+    referrer_id: Optional[str] = None
+    if referred_param:
+        # cari user dengan referral_code itu
+        r = await run_db(sb.table("users").select("id").eq("referral_code", referred_param.upper()).limit(1).single().execute)
+        ref_row = getattr(r, "data", None)
+        if ref_row and ref_row.get("id") and ref_row["id"] != user_id:
+            referrer_id = ref_row["id"]
+            # set referred_by hanya jika belum ada
+            if not user or not user.get("referred_by"):
+                payload["referred_by"] = referrer_id
+
+    # 4) Upsert user
+    _ = await run_db(sb.table("users").upsert(payload, {"on_conflict": "id"}).execute)
+
+    # 5) Log referral event (opsional)
+    if referrer_id:
+        try:
+            _ = await run_db(sb.table("referral_events").insert({
+                "referred_user_id": user_id,
+                "referrer_user_id": referrer_id,
+                "source": "start",
+            }).execute)
+        except Exception:
+            pass
+
+    # 6) Ambil snapshot final
+    res2 = await run_db(sb.table("users").select("*").eq("id", user_id).limit(1).single().execute)
+    u = getattr(res2, "data", {}) or {}
+
+    # 7) Hitung derived premium
+    now = datetime.now(timezone.utc)
+    is_premium = bool(u.get("is_lifetime")) or (bool(u.get("premium_until")) and datetime.fromisoformat(u["premium_until"].replace("Z","+00:00")) >= now)
+
+    # 8) Hitung referred_count
+    res3 = await run_db(sb.table("users").select("id", count="exact").eq("referred_by", user_id).execute)
+    referred_count = getattr(res3, "count", 0) or 0
+
+    return {
+        "id": u.get("id", user_id),
+        "username": u.get("username", ""),
+        "is_admin": bool(u.get("is_admin")),
+        "is_lifetime": bool(u.get("is_lifetime")),
+        "premium_until": u.get("premium_until"),  # ISO string atau None
+        "is_premium": is_premium,
+        "credits": int(u.get("credits", 0)),
+        "referral_code": u.get("referral_code", my_code),
+        "referred_by": u.get("referred_by"),
+        "referred_count": referred_count,
+        "created_at": u.get("created_at"),
+        "updated_at": u.get("updated_at"),
+    }
+
+3) Helper kirim HTML aman
+
+Buat app/utils/telegram_safe.py (jika belum):
+
+from telegram.constants import ParseMode
+
+async def safe_reply(update, text: str, prefer_html: bool = True):
+    msg = update.effective_message
+    if prefer_html:
+        try:
+            return await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            pass
+    return await msg.reply_text(text, disable_web_page_preview=True)
+
+4) Handler /start (inisialisasi data setelah /restart)
+
+Edit/Buat app/commands/handlers.py — tambahkan:
+
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.utils.telegram_safe import safe_reply
+
+# Utility format
+def _yn(b: bool) -> str:
+    return "True" if b else "Not"
+
+def _fmt_date(iso: str | None) -> str:
+    if not iso: return "Null"
+    # Tampilkan YYYY-MM-DD HH:MM WIB (tanpa konversi timezone kompleks)
+    return iso.replace("T"," ").split(".")[0].replace("Z"," UTC")
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /start [referralCode]
+    - Membuat/Update user.
+    - Menyimpan referral kalau ada.
+    - Mengirim ringkasan data:
+      User, Premium (True/Not), Premium Until (Lifetime -> Null), Credits, Referral (kode saya), Referred (jumlah referal).
+    """
+    try:
+        from app.db.supabase import upsert_user_on_start
+        user = update.effective_user
+        user_id = str(user.id)
+        username = user.username or ""
+
+        # Ambil referral code dari argumen /start <refCode> (deep-link)
+        ref_code = None
+        if context.args:
+            # hanya ambil token pertama, uppercase
+            ref_code = str(context.args[0]).upper()
+
+        snapshot = await upsert_user_on_start(user_id, username, ref_code)
+
+        # Hitung Premium Until display:
+        # - Jika lifetime True => tampilkan "Null"
+        # - Jika tidak lifetime dan premium_until None => "Null"
+        # - Jika ada premium_until => tampilkan tanggalnya
+        if snapshot["is_lifetime"]:
+            premium_until_display = "Null"
+        else:
+            premium_until_display = _fmt_date(snapshot["premium_until"])
+
+        # Bangun teks ringkasan (HTML)
+        lines = []
+        lines.append("✅ <b>Data kamu sudah tersimpan!</b>")
+        lines.append("")
+        lines.append(f"👤 <b>User</b>: @{snapshot['username'] or 'unknown'} (ID: {snapshot['id']})")
+        lines.append(f"⭐️ <b>Premium</b>: {_yn(snapshot['is_premium'])}")
+        lines.append(f"📅 <b>Premium Until</b>: {premium_until_display}")
+        lines.append(f"🪙 <b>Credits</b>: {snapshot['credits']}")
+        lines.append(f"🏷️ <b>Referral</b>: {snapshot['referral_code']}")
+        lines.append(f"👥 <b>Referred</b>: {snapshot['referred_count']}")
+        if snapshot.get("referred_by"):
+            lines.append(f"🔗 <i>Referred by</i>: {snapshot['referred_by']}")
+        text = "\n".join(lines)
+
+        await safe_reply(update, text, prefer_html=True)
+    except Exception as e:
+        await safe_reply(update, f"❌ Gagal menyimpan data user.\n\nError: {e}", prefer_html=True)
+
+
+Registrasi command di app/bot.py:
+
+from telegram.ext import CommandHandler
+from app.commands.handlers import cmd_start
+
+application.add_handler(CommandHandler("start", cmd_start))
+
+5) (Opsional) Helper promosi admin/premium cepat (SQL)
+
+Set lifetime:
+
+update users set is_lifetime = true, premium_until = null where id = '<TELEGRAM_USER_ID>';
+
+
+Set premium sampai tanggal:
+
+update users set is_lifetime = false, premium_until = '2026-12-31T23:59:59Z' where id = '<TELEGRAM_USER_ID>';
+
+
+Tambah credits:
+
+update users set credits = credits + 50 where id = '<TELEGRAM_USER_ID>';
+
+
+Set referred_by manual (kalau perlu benerin):
+
+update users set referred_by = '<REFERRER_USER_ID>' where id = '<USER_ID>';
+
+6) Perilaku yang dihasilkan
+
+Setelah /restart, user mengetik /start (opsional /start ABCDEFGH):
+
+Bot upsert user di users.
+
+Generate referral_code unik kalau belum ada.
+
+Jika ada parameter referral valid & bukan self → set referred_by + log ke referral_events.
+
+Bot balas ringkasan:
+
+User
+
+Premium: True jika is_lifetime = true atau premium_until >= now(), selain itu Not.
+
+Premium Until: jika lifetime → Null; jika tidak lifetime dan belum premium → Null; jika premium period → ISO time (disingkat).
+
+Credits: integer
+
+Referral: kode milik user
+
+Referred: jumlah user lain yang referred_by = this.id
