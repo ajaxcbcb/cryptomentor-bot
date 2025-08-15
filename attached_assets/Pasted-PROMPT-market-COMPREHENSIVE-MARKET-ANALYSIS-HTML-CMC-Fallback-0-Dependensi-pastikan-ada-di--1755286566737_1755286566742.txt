@@ -1,0 +1,382 @@
+PROMPT — /market: COMPREHENSIVE MARKET ANALYSIS (HTML, CMC+Fallback)
+0) Dependensi (pastikan ada di requirements.txt)
+httpx==0.27.2
+
+1) Secrets
+
+CMC_API_KEY (disarankan; jika kosong → fallback CoinGecko + Binance)
+
+(opsional) BRAND_NAME
+
+2) Providers (pakai yang ada; kalau belum, buat cepat)
+
+app/providers/http.py (cache & retry singkat)
+
+import time, asyncio, httpx
+
+class HTTPCache:
+    def __init__(self, ttl=30): self.ttl, self._d = ttl, {}
+    def get(self, k): 
+        v = self._d.get(k); 
+        if not v: return None
+        exp, data = v
+        if time.time()>exp: self._d.pop(k, None); return None
+        return data
+    def set(self, k, data, ttl=None): self._d[k]=(time.time()+(ttl or self.ttl), data)
+
+_cache = HTTPCache()
+
+async def fetch_json(url, method="GET", headers=None, params=None, timeout=12, cache_key=None, cache_ttl=None):
+    if cache_key:
+        c=_cache.get(cache_key)
+        if c is not None: return c
+    for i in range(1,4):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as cli:
+                r = await cli.request(method, url, headers=headers, params=params)
+                if r.status_code in (429,502,503): await asyncio.sleep(0.6*i); continue
+                r.raise_for_status(); data = r.json()
+                if cache_key: _cache.set(cache_key, data, cache_ttl)
+                return data
+        except Exception:
+            if i==3: raise
+            await asyncio.sleep(0.5*i)
+
+
+app/providers/cmc.py
+
+import os
+from app.providers.http import fetch_json
+
+CMC_KEY = os.getenv("CMC_API_KEY")
+BASE = "https://pro-api.coinmarketcap.com/v1"
+
+def _hdr():
+    if not CMC_KEY: raise RuntimeError("CMC_API_KEY empty")
+    return {"X-CMC_PRO_API_KEY": CMC_KEY}
+
+async def get_global_metrics():
+    return await fetch_json(f"{BASE}/global-metrics/quotes/latest",
+                            headers=_hdr(), cache_key="cmc:global", cache_ttl=60)
+
+async def get_quotes(symbols):
+    sym=",".join(symbols)
+    return await fetch_json(f"{BASE}/cryptocurrency/quotes/latest",
+                            headers=_hdr(), params={"symbol": sym},
+                            cache_key=f"cmc:quotes:{sym}", cache_ttl=60)
+
+
+app/providers/coingecko.py
+
+from app.providers.http import fetch_json
+BASE="https://api.coingecko.com/api/v3"
+
+async def get_global():
+    return await fetch_json(f"{BASE}/global", cache_key="cg:global", cache_ttl=60)
+
+async def get_simple_prices(ids):
+    return await fetch_json(f"{BASE}/simple/price",
+        params={"ids":",".join(ids),"vs_currencies":"usd","include_24hr_change":"true"},
+        cache_key=f"cg:prices:{','.join(ids)}", cache_ttl=60)
+
+
+app/providers/binance.py
+
+from app.providers.http import fetch_json
+BASE="https://api.binance.com"
+
+async def get_24h(symbol):  # e.g. 'BTCUSDT'
+    return await fetch_json(f"{BASE}/api/v3/ticker/24hr",
+                            params={"symbol":symbol},
+                            cache_key=f"bn:24hr:{symbol}", cache_ttl=30)
+
+3) Service: builder laporan /market
+
+Buat/ubah app/services/market_report.py
+
+from __future__ import annotations
+from typing import Dict, Any, List
+from datetime import datetime
+from app.providers import cmc as cmc_p
+from app.providers import coingecko as cg_p
+from app.providers import binance as bn_p
+
+SYMBOLS_DEFAULT = ["BTC","ETH","BNB","SOL","XRP"]
+
+def _now_wib(): return datetime.now().strftime("%H:%M:%S WIB")
+def _sentiment_from_change(ch: float) -> tuple[str, int]:
+    # Heuristik confidence sederhana dari % perubahan market cap 24h
+    conf = max(0, min(100, 60 + ch*8))  # sekitar 60% di netral, geser ±
+    if ch > 0.2: return "😐 NEUTRAL" if ch<0.5 else "📈 BULLISH", int(conf)
+    if ch < -0.2: return "😐 NEUTRAL" if ch>-0.5 else "📉 BEARISH", int(conf)
+    return "😐 NEUTRAL", int(conf)
+
+async def _global_primary() -> Dict[str, Any]:
+    d = await cmc_p.get_global_metrics()
+    g, q = d["data"], d["data"]["quote"]["USD"]
+    return {
+        "market_cap": float(q["total_market_cap"]),
+        "market_cap_change_pct_24h": float(g.get("quote",{}).get("USD",{}).get("total_market_cap_yesterday_percentage_change", 0.0) or 0.0),
+        "total_volume_24h": float(q["total_volume_24h"]),
+        "active_cryptocurrencies": int(g.get("active_cryptocurrencies",0) or 0),
+        "btc_dominance": float(g.get("btc_dominance",0.0) or 0.0),
+        "eth_dominance": float(g.get("eth_dominance",0.0) or 0.0),
+    }
+
+async def _global_fallback() -> Dict[str, Any]:
+    d = await cg_p.get_global()
+    g = d.get("data",{})
+    return {
+        "market_cap": float(g.get("total_market_cap",{}).get("usd",0.0)),
+        "market_cap_change_pct_24h": float(g.get("market_cap_change_percentage_24h_usd",0.0)),
+        "total_volume_24h": float(g.get("total_volume",{}).get("usd",0.0)),
+        "active_cryptocurrencies": int(g.get("active_cryptocurrencies",0) or 0),
+        "btc_dominance": float(g.get("market_cap_percentage",{}).get("btc",0.0)),
+        "eth_dominance": float(g.get("market_cap_percentage",{}).get("eth",0.0)),
+    }
+
+async def _top_block(symbols: List[str]) -> List[Dict[str,Any]]:
+    # Coba CMC; fallback Binance per simbol
+    out=[]
+    try:
+        q = await cmc_p.get_quotes(symbols)
+        data=q["data"]
+        for s in symbols:
+            row=data.get(s.upper()); row=row[0] if isinstance(row,list) else row
+            usd=row["quote"]["USD"]
+            ch=float(usd["percent_change_24h"]); price=float(usd["price"])
+            trend_word="Bullish" if ch>0 else ("Bearish" if ch<0 else "Neutral")
+            trend_emoji="📈" if ch>0 else ("📉" if ch<0 else "😐")
+            out.append({"symbol":s.upper(),"price":price,"change_pct_24h":ch,"trend_word":trend_word,"trend_emoji":trend_emoji})
+        return out
+    except Exception:
+        for s in symbols:
+            try:
+                t=await bn_p.get_24h(f"{s.upper()}USDT")
+                ch=float(t.get("priceChangePercent",0.0)); price=float(t.get("lastPrice",0.0))
+            except Exception:
+                ch,price=0.0,0.0
+            trend_word="Bullish" if ch>0 else ("Bearish" if ch<0 else "Neutral")
+            trend_emoji="📈" if ch>0 else ("📉" if ch<0 else "😐")
+            out.append({"symbol":s.upper(),"price":price,"change_pct_24h":ch,"trend_word":trend_word,"trend_emoji":trend_emoji})
+        return out
+
+def _structure_block(btc_dom: float, mc_ch: float) -> Dict[str,str]:
+    # Turunan struktur sederhana dari dominasi & perubahan MC
+    if abs(mc_ch) < 0.5:
+        return {
+            "trend": "Sideways Consolidation",
+            "structure": "BTC Dominance Phase",
+            "reason": "Bitcoin consolidating market share, alts underperforming",
+            "fear_greed": "😐 Neutral (45/100)"
+        }
+    if mc_ch >= 0.5:
+        return {
+            "trend": "Bullish Momentum",
+            "structure": "Bitcoin-Led Bull Market" if btc_dom>=50 else "Rotation to Alts",
+            "reason": "Market growth driven primarily by Bitcoin strength" if btc_dom>=50 else "Capital rotation toward alt sectors",
+            "fear_greed": "😤 Greed (65/100)"
+        }
+    return {
+        "trend": "Bearish Pressure",
+        "structure": "Risk-off / Flight to Quality",
+        "reason": "Liquidity contraction; majors outperform",
+        "fear_greed": "🥶 Fear (35/100)"
+    }
+
+def _fmt_money_short(n: float) -> str:
+    try:
+        x=float(n); unit=["","K","M","B","T"]; i=0
+        while abs(x)>=1000 and i<len(unit)-1: x/=1000; i+=1
+        return f"${x:,.2f}{unit[i]}"
+    except Exception: return str(n)
+
+def _pct(x: float) -> str:
+    try:
+        v=float(x); sign="+" if v>0 else ""
+        return f"{sign}{v:.2f}%"
+    except Exception: return str(x)
+
+def _money(x: float) -> str:
+    try: return f"${float(x):,.2f}"
+    except Exception: return str(x)
+
+async def build_market_report(symbols: List[str] | None = None) -> Dict[str,Any]:
+    # 1) Global
+    try: g = await _global_primary()
+    except Exception: g = await _global_fallback()
+
+    # 2) Sentiment + confidence
+    ch = float(g.get("market_cap_change_pct_24h", 0.0))
+    sentiment, confidence = _sentiment_from_change(ch)
+
+    # 3) Structure
+    s = _structure_block(float(g.get("btc_dominance",0.0)), ch)
+
+    # 4) Top performance (urutkan sesuai input)
+    syms = [s.upper() for s in (symbols or ["BTC","ETH","BNB","SOL","XRP"])]
+    top = await _top_block(syms)
+
+    return {
+        "time": _now_wib(),
+        "sentiment": sentiment,
+        "confidence": confidence,
+        "global": g,
+        "structure": s,
+        "top": top
+    }
+
+4) Formatter HTML sesuai persis contoh
+
+Buat/ubah app/formatters/market_card.py
+
+from __future__ import annotations
+from typing import Dict, Any, List
+
+def _money(x: float) -> str:
+    try: return f"${float(x):,.2f}"
+    except Exception: return str(x)
+
+def _money_short(x: float) -> str:
+    try:
+        n=float(x); units=["","K","M","B","T"]; i=0
+        while abs(n)>=1000 and i<len(units)-1: n/=1000; i+=1
+        return f"${n:,.2f}{units[i]}"
+    except Exception: return str(x)
+
+def _pct(x: float) -> str:
+    try:
+        v=float(x); sign="+" if v>0 else ""
+        return f"{sign}{v:.2f}%"
+    except Exception: return str(x)
+
+def format_market_report(rep: Dict[str,Any]) -> str:
+    g, s, top = rep["global"], rep["structure"], rep["top"]
+    lines=[]
+    lines.append("🌍 <b>COMPREHENSIVE MARKET ANALYSIS</b>")
+    lines.append("")
+    lines.append(f"🕐 <b>Analysis Time:</b> {rep['time']}")
+    lines.append(f"📊 <b>Global Sentiment:</b> {rep['sentiment']}")
+    lines.append(f"⭐️ <b>Confidence:</b> {rep['confidence']:.0f}%")
+    lines.append("")
+    lines.append("💰 <b>GLOBAL METRICS:</b>")
+    lines.append(f"• Total Market Cap: {_money_short(g['market_cap'])}")
+    lines.append(f"• 24h Market Change: {_pct(g.get('market_cap_change_pct_24h',0.0))}")
+    lines.append(f"• Total Volume 24h: {_money_short(g['total_volume_24h'])}")
+    lines.append(f"• Active Cryptocurrencies: {int(g.get('active_cryptocurrencies',0)):,}")
+    lines.append(f"• BTC Dominance: {float(g.get('btc_dominance',0.0)):.1f}%")
+    lines.append(f"• ETH Dominance: {float(g.get('eth_dominance',0.0)):.1f}%")
+    lines.append("")
+    lines.append("🔬 <b>MARKET STRUCTURE ANALYSIS:</b>")
+    lines.append(f"🔄 Trend: {s['trend']}")
+    lines.append(f"⚡️ Structure: {s['structure']}")
+    lines.append(f"🧠 Reasoning: {s['reason']}")
+    if s.get("fear_greed"): lines.append(f"📊 Fear &amp; Greed: {s['fear_greed']}")
+    lines.append("")
+    lines.append("📈 <b>TOP CRYPTOCURRENCIES PERFORMANCE:</b>")
+    for idx, c in enumerate(top, 1):
+        lines.append(f"{idx}. {c['symbol']} {c['trend_emoji']} {_money(c['price'])} ({_pct(c['change_pct_24h'])}) - {c['trend_word']}")
+    lines.append("")
+    lines.append("💡 <b>TRADING IMPLICATIONS:</b>")
+    if "BULLISH" in rep["sentiment"]:
+        lines += [
+            "• 📈 Bullish momentum confirmed - Look for LONG opportunities",
+            "• ⚡️ Scalping and swing trades favorable",
+            "• 🟠 BTC leading market - Trade major pairs (BTC, ETH)",
+            "• ⚠️ Altcoins may underperform - Be selective",
+        ]
+    elif "NEUTRAL" in rep["sentiment"]:
+        lines += [
+            "• 😐 Neutral market - Range trading strategies optimal",
+            "• 🎯 Focus on support/resistance levels",
+            "• 🟠 BTC leading market - Trade major pairs (BTC, ETH)",
+            "• ⚠️ Altcoins may underperform - Be selective",
+        ]
+    else:
+        lines += [
+            "• 📉 Bearish momentum - Prefer defensive or hedge",
+            "• 🛡️ Reduce leverage & protect capital",
+            "• 🟠 Focus on high-liquidity majors",
+            "• ⚠️ Avoid weak alts during drawdowns",
+        ]
+    lines.append("")
+    lines.append("🎯 <b>MARKET OPPORTUNITIES:</b>")
+    lines += [
+        "• 🏃 Range trading between key support/resistance",
+        "• ⚡️ Scalping opportunities in high-volume pairs",
+        "• 🟠 Bitcoin maximalist strategy - Focus on BTC/ETH",
+        "• 🔄 Cross-exchange arbitrage opportunities",
+        "• 📈 Futures vs spot price discrepancies",
+    ]
+    lines.append("")
+    lines.append("⚠️ <b>RISK ASSESSMENT:</b>")
+    lines += [
+        "• 😴 LOW VOLATILITY - May increase position sizes slightly",
+        "• 📊 Wider stops acceptable (5-7%)",
+        "• 🔍 Uncertain market conditions - Wait for clarity",
+        "• 💡 Paper trade strategies before live execution",
+        "• 📱 Monitor news and regulatory developments",
+        "• ⏰ Set alerts for key support/resistance breaks",
+    ]
+    lines.append("")
+    # Key levels heuristik: ±2% dom & ±5% MC
+    btc_dom=float(g.get("btc_dominance",0.0))
+    mc=float(g.get("market_cap",0.0))
+    sup=max(0.0, btc_dom-2.0); res=min(100.0, btc_dom+2.0)
+    lines.append("🚨 <b>KEY LEVELS TO WATCH:</b>")
+    lines.append(f"• BTC Dominance Support: {sup:.1f}%")
+    lines.append(f"• BTC Dominance Resistance: {res:.1f}%")
+    lines.append(f"• Market Cap Key Level: {_money_short(mc*0.95)} - {_money_short(mc*1.05)}")
+    lines.append("")
+    lines.append("📡 Data Sources: CoinMarketCap Global Metrics + Multi-API Analysis")
+    lines.append("⏰ Next Update: Setiap 15 menit untuk data real-time")
+    lines.append("")
+    lines.append("👑 Admin Access - Unlimited")
+    return "\n".join(lines)
+
+5) Helper kirim HTML aman
+
+app/utils/telegram_safe.py (kalau belum)
+
+from telegram.constants import ParseMode
+async def safe_reply(update, text: str, prefer_html: bool = True):
+    try:
+        if prefer_html:
+            return await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    except Exception: pass
+    return await update.effective_message.reply_text(text, disable_web_page_preview=True)
+
+6) Handler /market
+
+Edit/buat app/commands/handlers.py:
+
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.services.market_report import build_market_report
+from app.formatters.market_card import format_market_report
+from app.utils.telegram_safe import safe_reply
+
+async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # argumen opsional: simbol2 (mis. /market btc eth bnb) → urutan tampil mengikuti input
+    syms = [s.upper() for s in (context.args or [])]
+    try:
+        rep = await build_market_report(symbols=syms or None)
+        text = format_market_report(rep)
+        await safe_reply(update, text, prefer_html=True)
+    except Exception as e:
+        await safe_reply(update, f"❌ Terjadi kesalahan saat menganalisis pasar.\n\nError: {e}", prefer_html=True)
+
+
+Di router (app/bot.py)
+
+from telegram.ext import CommandHandler
+from app.commands.handlers import cmd_market
+application.add_handler(CommandHandler("market", cmd_market))
+
+7) Uji cepat
+
+/market → harus keluar persis gaya contoh (HTML), dengan angka dari API.
+
+/market btc eth bnb sol xrp → “Top Performance” mengikuti urutan argumen.
+
+Tanpa CMC_API_KEY → data tetap muncul dari CoinGecko/Binance.
