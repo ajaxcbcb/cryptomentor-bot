@@ -1903,10 +1903,10 @@ Gunakan `/subscribe` untuk upgrade!
 
 🌐 **SYSTEM HEALTH**
 
-🗄️ **Database:** {database_status}
 🔗 **CoinAPI:** {coinapi_status}
 💰 **CMC API:** {cmc_status}
 ⚡ **Binance:** 🟢 **ACTIVE**
+🗄️ **SUPABASE:** {database_status}
 
 ═══════════════════════════════════
 
