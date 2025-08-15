@@ -1,0 +1,140 @@
+PROMPT AI AGENT — Fix import register_admin_premium_handlers + admin premium commands
+
+Buat/Timpa file: Bismillah/app/handlers_admin_premium.py dengan isi berikut:
+
+# Bismillah/app/handlers_admin_premium.py
+# Admin premium commands (Supabase-only) + registrar function:
+#   /setpremium <user_id> <days|lifetime>
+#   /remove_premium <user_id>
+#   /grant_credits <user_id> <amount>
+#   /ban <user_id>
+#   /unban <user_id>
+
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+import asyncio
+from datetime import datetime, timedelta, timezone
+
+# gunakan guard & safe send milik proyekmu
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+
+# gunakan facade Supabase yang sudah kamu buat sebelumnya
+from supabase_client import supabase_service
+
+# ---- utils ----
+_locks: dict[int, asyncio.Lock] = {}
+def _lock_for(uid: int) -> asyncio.Lock:
+    if uid not in _locks:
+        _locks[uid] = asyncio.Lock()
+    return _locks[uid]
+
+def _iso_days_from_now(days: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=int(days))).isoformat()
+
+# ---- commands ----
+@admin_guard
+async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    args = context.args
+    if len(args) != 2 or not args[0].isdigit():
+        return await safe_reply(msg, "Format: /setpremium <user_id> <days|lifetime>")
+
+    tid = int(args[0])
+    dur = args[1].strip().lower()
+
+    async with _lock_for(tid):
+        # write (UPSERT)
+        if dur == "lifetime":
+            supabase_service.upsert_user(tid, is_premium=True, premium_until=None, banned=False)
+        else:
+            if not dur.isdigit() or int(dur) < 0:
+                return await safe_reply(msg, "days harus angka ≥ 0 atau 'lifetime'")
+            until = _iso_days_from_now(int(dur))
+            supabase_service.upsert_user(tid, is_premium=True, premium_until=until, banned=False)
+
+        # verify (read-after-write)
+        rec = supabase_service.get_user(tid) or {}
+        ok = bool(rec.get("is_premium")) and not rec.get("banned")
+        if dur == "lifetime":
+            dur_ok = (rec.get("premium_until") is None)
+        else:
+            want_date = _iso_days_from_now(int(dur))[:10]
+            got = rec.get("premium_until")
+            dur_ok = (got is None and int(dur) == 0) or (isinstance(got, str) and got[:10] >= want_date)
+
+        if ok and dur_ok:
+            return await safe_reply(msg, f"✅ Premium set untuk {tid}\n{rec}")
+        return await safe_reply(msg, f"❌ Verify gagal. Data terbaca:\n{rec}")
+
+@admin_guard
+async def cmd_remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        return await safe_reply(msg, "Format: /remove_premium <user_id>")
+    tid = int(context.args[0])
+    async with _lock_for(tid):
+        supabase_service.upsert_user(tid, is_premium=False, premium_until=None)
+        rec = supabase_service.get_user(tid) or {}
+        return await safe_reply(msg, f"✅ Premium dihapus untuk {tid}\n{rec}")
+
+@admin_guard
+async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if len(context.args) != 2 or not context.args[0].isdigit() or not context.args[1].isdigit():
+        return await safe_reply(msg, "Format: /grant_credits <user_id> <amount>")
+    tid, amt = int(context.args[0]), int(context.args[1])
+    async with _lock_for(tid):
+        cur = supabase_service.get_user(tid) or {}
+        total = int(cur.get("credits", 0)) + amt
+        supabase_service.upsert_user(tid, credits=total)
+        rec = supabase_service.get_user(tid) or {}
+        return await safe_reply(msg, f"✅ Credits {tid}: {rec.get('credits')} (was {cur.get('credits',0)})")
+
+@admin_guard
+async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        return await safe_reply(msg, "Format: /ban <user_id>")
+    tid = int(context.args[0])
+    async with _lock_for(tid):
+        supabase_service.upsert_user(tid, banned=True)
+        rec = supabase_service.get_user(tid) or {}
+        return await safe_reply(msg, f"🚫 Banned {tid}\n{rec}")
+
+@admin_guard
+async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        return await safe_reply(msg, "Format: /unban <user_id>")
+    tid = int(context.args[0])
+    async with _lock_for(tid):
+        supabase_service.upsert_user(tid, banned=False)
+        rec = supabase_service.get_user(tid) or {}
+        return await safe_reply(msg, f"✅ Unbanned {tid}\n{rec}")
+
+# ---- registrar ----
+def register_admin_premium_handlers(application):
+    application.add_handler(CommandHandler("setpremium", cmd_setpremium))
+    application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+    application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+    application.add_handler(CommandHandler("ban", cmd_ban))
+    application.add_handler(CommandHandler("unban", cmd_unban))
+
+Setelah ditempel
+
+Pastikan di bootstrap kamu memang memanggil:
+
+from app.handlers_admin_premium import register_admin_premium_handlers
+register_admin_premium_handlers(application)
+
+
+Restart. Import error harus hilang.
+
+Kalau Users: 0, jalankan:
+
+/sb_whereami → pastikan project URL benar
+
+/sb_restore premium_users_backup_20250802_130229.json → rehydrate user lama ke tabel public.users
+
+/admin atau /admin_stats → cek statistik (harus naik)
