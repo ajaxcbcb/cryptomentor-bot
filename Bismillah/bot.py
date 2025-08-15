@@ -1393,8 +1393,8 @@ Gunakan credit dengan bijak!"""
         • Scan Interval: {self.auto_signals.scan_interval // 60} minutes
 
         🔧 **Admin Commands:**
-        • `/grant_premium <user_id> <days>` - Grant premium
-        • `/revoke_premium <user_id>` - Revoke premium
+        • `/setpremium <user_id> <days>` - Grant premium
+        • `/remove_premium <user_id>` - Remove premium
         • `/grant_credits <user_id> <amount>` - Add credits
         • `/autosignal_status` - Enhanced auto signals status
         • `/autosignal_force_off` - Force stop all auto signals
@@ -1921,9 +1921,9 @@ Gunakan `/subscribe` untuk upgrade!
 
 👑 **PREMIUM MANAGEMENT**
 
-• `/grant_premium <id> <days>` - Grant premium
-• `/grant_premium <id> 0` - **Lifetime premium**
-• `/revoke_premium <id>` - Remove premium
+• `/setpremium <id> <days>` - Grant premium
+• `/setpremium <id> 0` - **Lifetime premium**
+• `/remove_premium <id>` - Remove premium
 • `/grant_package <id> <package>` - Quick packages
 
 **Packages:** `lifetime` `1month` `2month` `6month` `1year`
