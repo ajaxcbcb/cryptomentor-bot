@@ -633,6 +633,16 @@ class Database:
         try:
             # Get all admin IDs
             admin_ids = set()
+            
+            # Support for ADMIN variable
+            admin_str = os.getenv('ADMIN', '0')
+            try:
+                admin_id = int(admin_str)
+                if admin_id > 0:
+                    admin_ids.add(admin_id)
+            except ValueError:
+                pass
+            
             for i in range(1, 10):
                 key = f'ADMIN_USER_ID' if i == 1 else f'ADMIN{i}_USER_ID'
                 admin_id_str = os.getenv(key, '0')

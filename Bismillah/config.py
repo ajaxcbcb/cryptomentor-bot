@@ -81,6 +81,7 @@ AUTO_SIGNALS_ENABLED = os.getenv("AUTO_SIGNALS_ENABLED", "false").lower() in ("1
 BOT_TOKEN = os.getenv('TOKEN') or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
 ADMIN_USER_ID = os.getenv('ADMIN_USER_ID')
 ADMIN2_USER_ID = os.getenv('ADMIN2_USER_ID')
+ADMIN = os.getenv('ADMIN')
 
 # API Keys
 COINMARKETCAP_API_KEY = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')

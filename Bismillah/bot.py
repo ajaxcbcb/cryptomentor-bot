@@ -133,6 +133,17 @@ class TelegramBot:
             if admin2_id_str != '0':
                 logger.warning(f"Invalid ADMIN2_USER_ID: {admin2_id_str}")
 
+        # Support for ADMIN environment variable
+        admin_str = os.getenv('ADMIN', '0')
+        try:
+            admin_id = int(admin_str)
+            if admin_id > 0:
+                self.admin_ids.add(admin_id)
+                logger.info(f"✅ ADMIN ID configured: {admin_id}")
+        except ValueError:
+            if admin_str != '0':
+                logger.warning(f"Invalid ADMIN: {admin_str}")
+
         # Support for future admin IDs (ADMIN3_USER_ID, ADMIN4_USER_ID, etc.)
         for i in range(3, 10):  # Support up to ADMIN9_USER_ID
             admin_key = f'ADMIN{i}_USER_ID'
