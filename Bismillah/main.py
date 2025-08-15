@@ -131,18 +131,25 @@ async def main():
                     print("💡 Manual restart required")
                     sys.exit(1)
 
-if __name__ == '__main__':
-    # Setup logging untuk console panel
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-
-    # Import dan panggil console panel
+if __name__ == "__main__":
     try:
-        from app.db_admin import log_console_panel
-        log_console_panel()
-    except Exception as e:
-        logging.error("❌ Console panel error: %s", e)
+        print("🚀 Starting CryptoMentor AI Bot...")
 
-    asyncio.run(main())
+        # Check Python version
+        if sys.version_info < (3, 8):
+            print("❌ Python 3.8+ required")
+            sys.exit(1)
+
+        print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+
+        # Run main async function
+        asyncio.run(main())
+
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user (Ctrl+C)")
+    except Exception as e:
+        print(f"💥 Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
+    finally:
+        print("👋 CryptoMentor AI Bot shutdown complete")

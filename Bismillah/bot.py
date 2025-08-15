@@ -1996,7 +1996,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/revoke_premium <user_id>` - Remove premium status
 • `/grant_credits <user_id> <amount>` - Add credits
 • `/banned <user_id> <ban|unban|check>` - Ban/unban user management
-• `/auto_signal_ai_status` - SnD signals status
+• `/auto_signals_status` - SnD signals status
 • `/enable_auto_signal_ai` - Start momentum signals scanner
 • `/disable_auto_signal_ai` - Stop momentum signals scanner
 • `/broadcast <message>` - Send broadcast
