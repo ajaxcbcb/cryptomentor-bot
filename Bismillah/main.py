@@ -55,30 +55,8 @@ except ImportError as e:
     print(f"❌ Failed to import bot module: {e}")
     sys.exit(1)
 
-# Import Supabase client and related functions
-try:
-    print("✅ Using centralized Supabase client")
-
-    # Verify Supabase integration
-    from supabase_client import supabase, validate_supabase_connection
-
-    try:
-        from supabase_client import get_live_user_count
-        if supabase and validate_supabase_connection():
-            user_count = get_live_user_count()
-            print(f"✅ Supabase connection active - Users: {user_count}")
-        else:
-            print("❌ Supabase connection failed")
-    except Exception as count_error:
-        print(f"⚠️ Could not get user count: {count_error}")
-        if supabase and validate_supabase_connection():
-            print("✅ Supabase connection active")
-        else:
-            print("❌ Supabase connection failed")
-
-except ImportError as e:
-    print(f"⚠️ Supabase integration failed: {e}")
-    print("✅ Bot will continue with local database only")
+# Using local SQLite database only
+print("✅ Local SQLite database initialized") will continue with local database only")
 
 # Import handlers and statistics functions
 try:

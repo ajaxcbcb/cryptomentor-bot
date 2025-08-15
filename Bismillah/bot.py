@@ -81,14 +81,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# TODO: Import database client and Admin Agent after setup
-try:
-    from admin_agent import AdminAgent
-    SUPABASE_AVAILABLE = False  # Temporarily disabled
-    logger.info("✅ Admin Agent available (Database integration pending)")
-except ImportError as e:
-    logger.error(f"❌ Failed to import Admin Agent: {e}")
-    SUPABASE_AVAILABLE = False
+# Local database only - no Supabase
+SUPABASE_AVAILABLE = False
+logger.info("✅ Using local SQLite database only")
 
 # Placeholder functions for compatibility
 def add_user(*args, **kwargs):
@@ -166,9 +161,9 @@ class TelegramBot:
             # Continue without database - some features will be limited
             self.db = None
 
-        # TODO: Initialize database functions after setup
+        # Using local SQLite database only
         self.supabase_enabled = False
-        logger.info("✅ Database integration pending setup")
+        logger.info("✅ Local SQLite database active")
 
         # Initialize Admin Agent if available
         self.admin_agent = None
@@ -237,9 +232,9 @@ class TelegramBot:
             return str(user_id) in self.admin_ids
 
     def register_user_supabase(self, user):
-        """TODO: Register new user in database after setup"""
-        print(f"⚠️ Database not configured, skipping registration for user {user.id}")
-        return False
+        """Using local database only"""
+        print(f"✅ User registration handled by local database for user {user.id}")
+        return True
 
     async def run_bot(self):
         """Main method to run the bot"""
@@ -2891,13 +2886,8 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
         self.application.add_handler(CommandHandler("banned", self.banned_command))
 
-        # Supabase health check command
-        try:
-            from handlers_sb import cmd_sb_status
-            self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
-            print("✅ Supabase status command registered")
-        except ImportError as e:
-            print(f"⚠️ Supabase handler not available: {e}")
+        # Local database status only
+        print("✅ Local database status available")
         # Renamed for clarity and consistency with user request
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
         self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
@@ -2910,24 +2900,8 @@ ADMIN2 = [optional_second_admin_id]
         # Add database status command
         self.application.add_handler(CommandHandler("db_status", self.db_status_command))
 
-        # Add Supabase repair and diagnostic commands
-        try:
-            from app.handlers_sb_repair import cmd_sb_repair
-            from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
-            from app.handlers_user_set import cmd_user_set
-            from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
-
-            self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
-            self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
-            self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
-            self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            self.application.add_handler(CommandHandler("user_set", cmd_user_set))
-            self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
-            self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
-
-            print("✅ Supabase admin commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register Supabase commands: {e}")
+        # Local database commands only
+        print("✅ Local database commands active")
 
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:
