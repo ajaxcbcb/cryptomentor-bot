@@ -204,21 +204,6 @@ class TelegramBot:
             except Exception as cleanup_error:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
 
-            # Import new CoinAPI handlers
-            try:
-                from app.commands.handlers import cmd_analyze, cmd_futures, cmd_futures_signals, cmd_market
-                print("✅ New CoinAPI handlers imported successfully")
-                
-                # Add new optimized command handlers
-                self.application.add_handler(CommandHandler("analyze_new", cmd_analyze))
-                self.application.add_handler(CommandHandler("futures_new", cmd_futures))
-                self.application.add_handler(CommandHandler("futures_signals_new", cmd_futures_signals))
-                self.application.add_handler(CommandHandler("market_new", cmd_market))
-                print("✅ New CoinAPI commands registered")
-            except Exception as e:
-                print(f"⚠️ Could not import new CoinAPI handlers: {e}")
-                print("🔄 Continuing with legacy handlers...")
-
             # Add command handlers with proper async functions
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
@@ -272,7 +257,7 @@ class TelegramBot:
             print("🤖 Bot handlers registered successfully")
             mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
             print(f"🌍 Environment: {mode_text}")
-            print(f"🔑 API Status: CMC=✅, BIN=✅, NEWS=✅ (CoinMarketCap + Binance + CryptoNews)")
+            print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
             print("🚀 Starting bot polling with Coinglass V4 integration...")
 
             # Test bot connection before starting with shorter timeout
@@ -688,18 +673,12 @@ class TelegramBot:
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + CoinMarketCap Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
 • `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
 • `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
-
-🚀 **NEW OPTIMIZED COMMANDS (CoinAPI v2)**:
-• `/analyze_new <symbol>` - **Enhanced CoinAPI analysis** ⭐ **NEW!**
-• `/futures_new <symbol>` - **Single entry point strategy** ⭐ **NEW!**
-• `/futures_signals_new` - **Multi-coin signals** ⭐ **NEW!**
-• `/market_new` - **Real-time market overview** ⭐ **NEW!**
 
 📊 **Harga & Data Pasar:**
 • `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
@@ -755,7 +734,7 @@ class TelegramBot:
 
 🚀 **Data Sources:**
 - **Fundamental & Prices**: CoinAPI Real-time
-- **Market Data**: CoinMarketCap Pro + Binance API
+- **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
 ✨ **Fitur Auto Signal:**
@@ -1029,7 +1008,7 @@ class TelegramBot:
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + CoinMarketCap{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
@@ -1173,7 +1152,7 @@ class TelegramBot:
 
                     # Show loading
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + CoinMarketCap...\n\n"
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass V4...\n\n"
                         "🔍 Memproses data real-time...",
                         parse_mode='Markdown'
                     )
@@ -1886,27 +1865,6 @@ Gunakan `/subscribe` untuk upgrade!
         else:
             access_level = "⭐ **SENIOR ADMIN**"
 
-        # Check all API keys status
-        try:
-            import os
-            # Check CoinAPI key (multiple possible environment variable names)
-            coinapi_key = os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
-            coinapi_status = "🟢 **ACTIVE**" if coinapi_key else "🔴 **NO KEY**"
-            
-            cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
-            cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
-            
-            openai_key = os.getenv('OPENAI_API_KEY')
-            openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
-            
-            cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
-            cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
-        except:
-            coinapi_status = "🔴 **ERROR**"
-            cmc_status = "🔴 **ERROR**"
-            openai_status = "🔴 **ERROR**"
-            cryptonews_status = "🔴 **ERROR**"
-
         message = f"""🚀 **CryptoMentor AI - Admin Dashboard**
 ═══════════════════════════════════
 
@@ -1937,20 +1895,18 @@ Gunakan `/subscribe` untuk upgrade!
 
 🌐 **SYSTEM HEALTH**
 
+🗄️ **Database:** {database_status}
 🔗 **CoinAPI:** {coinapi_status}
-💰 **CMC API:** {cmc_status}
-🤖 **OpenAI API:** {openai_status}
-📰 **CryptoNews API:** {cryptonews_status}
 ⚡ **Binance:** 🟢 **ACTIVE**
-🗄️ **SUPABASE:** {database_status}
+🤖 **Auto Signals:** {auto_status}
 
 ═══════════════════════════════════
 
 👑 **PREMIUM MANAGEMENT**
 
-• `/setpremium <id> <days>` - Grant premium
-• `/setpremium <id> 0` - **Lifetime premium**
-• `/remove_premium <id>` - Remove premium
+• `/grant_premium <id> <days>` - Grant premium
+• `/grant_premium <id> 0` - **Lifetime premium**
+• `/revoke_premium <id>` - Remove premium
 • `/grant_package <id> <package>` - Quick packages
 
 **Packages:** `lifetime` `1month` `2month` `6month` `1year`
@@ -1993,7 +1949,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 ═══════════════════════════════════
 
-**CryptoMentor AI V3.0**"""
+**CryptoMentor AI V4.0** • Powered by **CoinAPI + Binance**"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 

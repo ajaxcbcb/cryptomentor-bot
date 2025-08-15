@@ -1,2 +1,0 @@
-
-# CryptoMentor AI App Package
