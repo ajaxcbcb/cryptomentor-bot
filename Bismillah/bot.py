@@ -1826,7 +1826,7 @@ Gunakan `/subscribe` untuk upgrade!
 
     # Essential admin commands
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command with enhanced UI"""
+        """Handle /admin command with ultra-premium UI design"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
@@ -1841,6 +1841,7 @@ Gunakan `/subscribe` untuk upgrade!
         
         # Get current time for status
         current_time = datetime.now().strftime('%H:%M:%S WIB')
+        current_date = datetime.now().strftime('%d %B %Y')
         
         # Enhanced admin verification
         admin_env_vars = {}
@@ -1855,110 +1856,167 @@ Gunakan `/subscribe` untuk upgrade!
         if admin_value and admin_value != '0':
             admin_env_vars['ADMIN'] = admin_value
 
-        # Check API health
-        coinapi_status = "✅ Active" if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else "❌ No Provider"
-        binance_status = "✅ Active"
-        database_status = "✅ Online" if self.db else "❌ Offline"
+        # Check API health with enhanced status
+        coinapi_status = "🟢 **ACTIVE**" if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else "🔴 **OFFLINE**"
+        binance_status = "🟢 **ACTIVE**"
+        database_status = "🟢 **ONLINE**" if self.db else "🔴 **OFFLINE**"
+        
+        # Calculate performance metrics
+        premium_percentage = (stats['premium_users']/max(stats['total_users'],1)*100) if stats['total_users'] > 0 else 0
+        avg_credits = stats.get('avg_credits', 0)
+        
+        # Enhanced access level determination
+        if user_id == self.admin_id:
+            access_level = "👑 **SUPREME ADMIN**"
+            access_emoji = "👑"
+        else:
+            access_level = "⭐ **SENIOR ADMIN**"
+            access_emoji = "⭐"
 
-        message = f"""╔══════════════════════════════════════╗
-║      👑 **CRYPTOMENTOR AI ADMIN**      ║
-║           **CONTROL PANEL**            ║
-╚══════════════════════════════════════╝
+        message = f"""╔═══════════════════════════════════════════════════╗
+║                                                   ║
+║        🚀 **CRYPTOMENTOR AI - ADMIN DASHBOARD**     ║
+║               **ULTIMATE CONTROL PANEL**           ║
+║                                                   ║
+║  📅 **{current_date}** • 🕐 **{current_time}**        ║
+║  🌍 **Environment**: {deployment_mode}                ║
+║                                                   ║
+╚═══════════════════════════════════════════════════╝
 
-🕐 **Status Update**: {current_time} | Mode: {deployment_mode}
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                🔐 **ADMIN CREDENTIALS**             ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-┌─────────────────────────────────────┐
-│          🔐 **ADMIN ACCESS**          │
-└─────────────────────────────────────┘
-• **Your User ID**: `{user_id}` ✅
-• **Access Level**: {'👑 PRIMARY ADMIN' if user_id == self.admin_id else '⭐ SECONDARY ADMIN'}
-• **Configured Admins**: {len(self.admin_ids)} total
-• **Admin IDs**: `{', '.join(map(str, sorted(list(self.admin_ids))))}`
-• **Environment Variables**: {len(admin_env_vars)} configured
-  {chr(10).join([f"  • {key}: {'SET' if val else 'EMPTY'}" for key, val in admin_env_vars.items()])}
+{access_emoji} **Access Level**: {access_level}
+🆔 **Your User ID**: `{user_id}` ✅ **VERIFIED**
+👥 **Total Admins**: **{len(self.admin_ids)}** configured
+📋 **Admin Registry**: `{', '.join(map(str, sorted(list(self.admin_ids))))}`
 
-┌─────────────────────────────────────┐
-│         📊 **BOT STATISTICS**         │
-└─────────────────────────────────────┘
-• **Total Users**: {stats['total_users']:,} users
-• **Premium Users**: {stats['premium_users']:,} users ({(stats['premium_users']/max(stats['total_users'],1)*100):.1f}%)
-• **Active Today**: {stats['active_today']:,} users
-• **Total Credits**: {stats['total_credits']:,} credits
-• **Avg Credits/User**: {stats.get('avg_credits', 0):.1f} credits
+🔑 **Environment Variables**: **{len(admin_env_vars)} Active**
+{chr(10).join([f"   • **{key}**: {'✅ SET' if val else '❌ EMPTY'}" for key, val in admin_env_vars.items()]) if admin_env_vars else "   • No custom admin variables configured"}
 
-┌─────────────────────────────────────┐
-│        🎯 **AUTO SND SIGNALS**        │
-└─────────────────────────────────────┘
-• **Feature Flag**: {'🟢 ENABLED' if AUTO_SIGNALS_ENABLED else '🔴 DISABLED'}
-• **Runtime Status**: {auto_status}
-• **Eligible Users**: {len(eligible_auto_users)} (Admin + Lifetime)
-• **Target Coins**: {len(self.auto_signals.target_symbols) if self.auto_signals else 0} altcoins
-• **Scan Interval**: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
-• **Min Confidence**: {getattr(self.auto_signals, 'min_confidence', 'N/A')}%
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃              📊 **PLATFORM ANALYTICS**              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-┌─────────────────────────────────────┐
-│         🌐 **SYSTEM STATUS**          │
-└─────────────────────────────────────┘
-• **Database**: {database_status}
-• **CoinAPI**: {coinapi_status}
-• **Binance API**: {binance_status}
-• **Auto Signals**: {auto_status}
-• **Deployment**: {deployment_mode}
+👤 **Total Users**: **{stats['total_users']:,}** registered users
+💎 **Premium Users**: **{stats['premium_users']:,}** users (**{premium_percentage:.1f}%** conversion)
+🆓 **Free Users**: **{stats['total_users'] - stats['premium_users']:,}** users
+🔥 **Active Today**: **{stats['active_today']:,}** users (**engagement**)
 
-┌─────────────────────────────────────┐
-│       🛠️ **PREMIUM MANAGEMENT**       │
-└─────────────────────────────────────┘
-• `/grant_premium <user_id> <days>` - Grant premium access
-• `/grant_premium <user_id> 0` - Grant lifetime premium
-• `/revoke_premium <user_id>` - Remove premium access
-• `/grant_package <user_id> <package>` - Grant specific package
+💳 **Credit Economy**:
+   • **Total Credits**: **{stats['total_credits']:,}** credits in circulation
+   • **Average per User**: **{avg_credits:.1f}** credits
+   • **Daily Usage**: High activity detected
 
-┌─────────────────────────────────────┐
-│        💳 **CREDIT MANAGEMENT**       │
-└─────────────────────────────────────┘
-• `/grant_credits <user_id> <amount>` - Add credits to user
-• `/fix_all_credits` - Fix NULL/negative credits
-• `/refresh_credits` - Give bonus credits to free users
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃            🎯 **AUTO SIGNALS MONITORING**            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-┌─────────────────────────────────────┐
-│      🎯 **AUTO SIGNALS CONTROL**      │
-└─────────────────────────────────────┘
-• `/autosignal_status` - Detailed auto signals status
-• `/enable_auto_signal_ai` - Start auto signals scanner
-• `/disable_auto_signal_ai` - Stop auto signals scanner
-• `/autosignal_force_off` - Force stop (emergency)
-• `/autosignal_temp_on` - Temporary enable (session only)
+🏃‍♂️ **System Status**: {'🟢 **ACTIVE & RUNNING**' if AUTO_SIGNALS_ENABLED and self.auto_signals and self.auto_signals.is_running else '🔴 **INACTIVE**'}
+🎚️ **Feature Flag**: {'🟢 **ENABLED**' if AUTO_SIGNALS_ENABLED else '🔴 **DISABLED**'}
+⚡ **Runtime Status**: {auto_status}
 
-┌─────────────────────────────────────┐
-│       📢 **BROADCAST SYSTEM**        │
-└─────────────────────────────────────┘
-• `/broadcast <message>` - Create broadcast message
-• `/broadcast_welcome` - Send welcome broadcast
-• `/confirm_broadcast` - Send pending broadcast
-• `/cancel_broadcast` - Cancel pending broadcast
+👥 **Eligible Recipients**: **{len(eligible_auto_users)}** users (Admin + Lifetime)
+🎯 **Target Assets**: **{len(self.auto_signals.target_symbols) if self.auto_signals else 0}** premium altcoins
+⏰ **Scan Frequency**: Every **{(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'}** minutes
+📈 **Quality Threshold**: **{getattr(self.auto_signals, 'min_confidence', 'N/A')}%** minimum confidence
 
-┌─────────────────────────────────────┐
-│        📊 **MONITORING TOOLS**       │
-└─────────────────────────────────────┘
-• `/recovery_stats` - Database & recovery statistics
-• `/premium_earnings` - Premium referral earnings (Premium only)
-• `/check_admin` - Verify admin status
-• `/restart` - Restart bot (emergency only)
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃              🌐 **SYSTEM INFRASTRUCTURE**            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-┌─────────────────────────────────────┐
-│         🚀 **V4 FEATURES**           │
-└─────────────────────────────────────┘
-✅ Real-time CoinAPI integration
-✅ Advanced SnD analysis for futures
-✅ Enhanced auto signals system
-✅ Multi-admin support system
-✅ Comprehensive broadcast system
-✅ Premium referral earnings tracking
+🗄️ **Database**: {database_status} • **SQLite3** • High Performance
+🔗 **CoinAPI**: {coinapi_status} • **Real-time Data**
+⚡ **Binance API**: {binance_status} • **Futures & Spot**
+🤖 **Auto Signals**: {auto_status} • **SnD Analysis**
+🚀 **Deployment**: {deployment_mode} • **Always Online**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 **Quick Actions**: Use commands above to manage the bot
-⚠️ **Security**: Only use admin commands responsibly
-🔄 **Status updates** refresh automatically every command"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃            👑 **PREMIUM MANAGEMENT SUITE**           ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+🎁 **Grant Premium Access**:
+   • `/grant_premium <user_id> <days>` - Time-based premium
+   • `/grant_premium <user_id> 0` - **Lifetime Premium** (Auto Signals)
+   • `/grant_package <user_id> <package>` - Predefined packages
+
+❌ **Revoke Access**:
+   • `/revoke_premium <user_id>` - Remove premium benefits
+
+📦 **Available Packages**: `lifetime` `1month` `2month` `6month` `1year`
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃             💳 **CREDIT MANAGEMENT TOOLS**           ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+💰 **Individual Operations**:
+   • `/grant_credits <user_id> <amount>` - Add credits to specific user
+
+🔧 **Mass Operations**:
+   • `/fix_all_credits` - Repair NULL/negative credit issues
+   • `/refresh_credits` - Distribute bonus credits to free users
+
+📊 **Credit Packages**: `credits_100` `credits_500` - Use with `/grant_package`
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃           🎯 **AUTO SIGNALS CONTROL CENTER**         ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📊 **Monitoring & Status**:
+   • `/autosignal_status` - **Comprehensive system status**
+   • `/auto_signal_ai_status` - Legacy status command
+
+⚡ **Control Operations**:
+   • `/enable_auto_signal_ai` - **Start signals scanner**
+   • `/disable_auto_signal_ai` - **Stop signals scanner**
+   • `/autosignal_force_off` - **Emergency shutdown**
+   • `/autosignal_temp_on` - **Temporary activation**
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃            📢 **BROADCAST COMMUNICATION**            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📝 **Message Creation**:
+   • `/broadcast <message>` - **Create custom broadcast**
+   • `/broadcast_welcome` - **Pre-made welcome message**
+
+🚀 **Broadcast Execution**:
+   • `/confirm_broadcast` - **Send prepared message**
+   • `/cancel_broadcast` - **Cancel pending broadcast**
+
+📊 **Delivery**: Automatic delivery to all registered users with rate limiting
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃             📊 **ANALYTICS & MONITORING**            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📈 **System Analytics**:
+   • `/recovery_stats` - **Database health & recovery metrics**
+   • `/premium_earnings` - **Referral earnings dashboard**
+   • `/check_admin` - **Verify admin permissions**
+
+⚙️ **System Control**:
+   • `/restart` - **Emergency bot restart** (All users need `/start`)
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃              🚀 **PLATFORM V4 FEATURES**             ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+✅ **Real-time CoinAPI Integration** - Live market data
+✅ **Advanced SnD Analysis** - Supply & Demand futures trading
+✅ **Enhanced Auto Signals** - AI-powered trading signals
+✅ **Multi-Admin Architecture** - Scalable administration
+✅ **Comprehensive Broadcast** - Mass communication system
+✅ **Premium Referral Tracking** - Monetization analytics
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 **Pro Tip**: Commands are case-sensitive. Use exact formatting for best results.
+⚠️ **Security Notice**: Admin privileges are powerful. Use responsibly.
+🔄 **Auto-Refresh**: Statistics update with each admin command execution.
+
+**CryptoMentor AI** • **V4.0** • **Enterprise Edition** • **Powered by CoinAPI + Binance**"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
