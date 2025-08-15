@@ -1384,54 +1384,24 @@ Gunakan credit dengan bijak!"""
         deployment_mode = "🚀 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
 
 
-        message = f"""🎯 𝗔𝗨𝗧𝗢 𝗦𝗜𝗚𝗡𝗔𝗟𝗦 𝗖𝗢𝗡𝗧𝗥𝗢𝗟
-═══════════════════════════════════
+        message = f"""🎯 **Auto SnD Signals (Enhanced Control):**
+        • Feature Flag: {'✅ ON' if AUTO_SIGNALS_ENABLED else '❌ OFF'}
+        • Runtime Status: {status}
+        • Mode: Works in {deployment_mode} mode
+        • Eligible Users: {len(eligible_users)} (Admin + Lifetime)
+        • Target Coins: {len(self.auto_signals.target_symbols)} top coins
+        • Scan Interval: {self.auto_signals.scan_interval // 60} minutes
 
-🤖 **AUTO SIGNALS STATUS**
-
-⚡ **System:** {'🟢 **ACTIVE**' if AUTO_SIGNALS_ENABLED and self.auto_signals and self.auto_signals.is_running else '🔴 **INACTIVE**'}
-🎚️ **Feature Flag:** {'🟢 **ON**' if AUTO_SIGNALS_ENABLED else '🔴 **OFF**'}
-👥 **Eligible Users:** **{len(eligible_users)}** (Admin + Lifetime)
-🎯 **Target Coins:** **{len(self.auto_signals.target_symbols) if self.auto_signals else 0}** symbols
-
-═══════════════════════════════════
-
-👑 **PREMIUM MANAGEMENT**
-
-• `/setpremium <user_id> <days>` - Grant premium
-• `/setpremium <user_id> 0` - **Lifetime premium**
-• `/remove_premium <user_id>` - Remove premium
-• `/grant_package <user_id> <package>` - Quick packages
-
-**Packages:** `lifetime` `1month` `2month` `6month` `1year`
-
-═══════════════════════════════════
-
-💳 **CREDIT MANAGEMENT**
-
-• `/grant_credits <user_id> <amount>` - Add credits
-• `/fix_all_credits` - Fix NULL/negative credits
-• `/refresh_credits` - Bonus to free users
-• **Credit Packages:** `credits_100` `credits_500`
-
-═══════════════════════════════════
-
-🎯 **AUTO SIGNALS CONTROL**
-
-• `/autosignal_status` - System status
-• `/enable_auto_signal_ai` - Start signals (legacy)
-• `/disable_auto_signal_ai` - Stop signals (legacy)
-• `/autosignal_force_off` - Force stop all auto signals
-• `/autosignal_temp_on` - Temporary enable (session only)
-
-═══════════════════════════════════
-
-📢 **BROADCAST SYSTEM**
-
-• `/broadcast <message>` - Create broadcast
-• `/broadcast_welcome` - Welcome message
-• `/confirm_broadcast` - Send message
-• `/cancel_broadcast` - Cancel message
+        🔧 **Admin Commands:**
+        • `/grant_premium <user_id> <days>` - Grant premium
+        • `/revoke_premium <user_id>` - Revoke premium
+        • `/grant_credits <user_id> <amount>` - Add credits
+        • `/autosignal_status` - Enhanced auto signals status
+        • `/autosignal_force_off` - Force stop all auto signals
+        • `/autosignal_temp_on` - Temporary enable (session only)
+        • `/enable_auto_signal_ai` - Start signals (legacy)
+        • `/disable_auto_signal_ai` - Stop signals (legacy)
+        • `/broadcast <message>` - Send broadcast
 """
 
         await update.message.reply_text(message, parse_mode='Markdown')
@@ -1901,13 +1871,13 @@ Gunakan `/subscribe` untuk upgrade!
             # Check CoinAPI key (multiple possible environment variable names)
             coinapi_key = os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
             coinapi_status = "🟢 **ACTIVE**" if coinapi_key else "🔴 **NO KEY**"
-
+            
             cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
             cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
-
+            
             openai_key = os.getenv('OPENAI_API_KEY')
             openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
-
+            
             cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
             cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
         except:
@@ -1941,6 +1911,17 @@ Gunakan `/subscribe` untuk upgrade!
 🎚️ **Feature Flag:** {'🟢 **ON**' if AUTO_SIGNALS_ENABLED else '🔴 **OFF**'}
 👥 **Eligible Users:** **{len(eligible_auto_users)}** (Admin + Lifetime)
 🎯 **Target Coins:** **{len(self.auto_signals.target_symbols) if self.auto_signals else 0}** symbols
+
+═══════════════════════════════════
+
+🌐 **SYSTEM HEALTH**
+
+🔗 **CoinAPI:** {coinapi_status}
+💰 **CMC API:** {cmc_status}
+🤖 **OpenAI API:** {openai_status}
+📰 **CryptoNews API:** {cryptonews_status}
+⚡ **Binance:** 🟢 **ACTIVE**
+🗄️ **SUPABASE:** {database_status}
 
 ═══════════════════════════════════
 
