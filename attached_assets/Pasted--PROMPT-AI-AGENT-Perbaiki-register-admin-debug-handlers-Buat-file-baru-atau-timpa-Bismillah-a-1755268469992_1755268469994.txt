@@ -1,0 +1,136 @@
+🔧 PROMPT AI AGENT — Perbaiki register_admin_debug_handlers
+
+Buat file baru (atau timpa) Bismillah/app/handlers_admin_debug.py dengan isi berikut:
+
+# Bismillah/app/handlers_admin_debug.py
+# Admin debug tools (Supabase-only)
+# Mendaftar registrar: register_admin_debug_handlers(application)
+
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+import os, json
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+
+# Gunakan facade Supabase yang sudah ada
+from supabase_client import supabase_service
+from app.sb_client import health as sb_health_users  # jika ada; jika tidak, bisa hapus referensi ini
+
+def _fmt_env() -> str:
+    url = (os.getenv("SUPABASE_URL") or os.getenv("SUPABASEURL") or "").strip()
+    sk  = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASESERVICEKEY") or "").strip()
+    # Jangan tampilkan full key di chat; hanya panjangnya untuk verifikasi
+    return (
+        f"ENV:\n"
+        f"- SUPABASE_URL: {'SET' if url else 'MISSING'}\n"
+        f"- SUPABASE_SERVICE_KEY: {'SET' if sk else 'MISSING'} (len={len(sk) if sk else 0})"
+    )
+
+@admin_guard
+async def cmd_debug_env(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Cek environment Replit yang kritikal untuk Supabase
+    await safe_reply(update.effective_message, "🔧 " + _fmt_env())
+
+@admin_guard
+async def cmd_debug_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Ping koneksi Supabase (REST root + tabel users)
+    try:
+        ok, detail = supabase_service.health()
+        await safe_reply(update.effective_message, f"🌐 Supabase Health: {'OK' if ok else 'FAIL'} ({detail})")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"🌐 Supabase Health: FAIL\n{e}")
+
+@admin_guard
+async def cmd_debug_probe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Uji tulis→baca→hapus ke tabel users (tanpa menyisakan data)
+    try:
+        # Upsert → Get → Delete manual di supabase_client versi facade
+        # Manfaatkan implementasi yang sudah ada di supabase_client jika tersedia,
+        # atau lakukan uji sederhana dengan upsert_user/get_user tanpa delete (aman).
+        probe_id = 999999777
+        supabase_service.upsert_user(probe_id, is_premium=True, premium_until=None, banned=False)
+        rec = supabase_service.get_user(probe_id)
+        # Tidak semua proyek mengizinkan DELETE; biarkan admin bersihkannya manual bila perlu.
+        await safe_reply(update.effective_message, f"🧪 Write-probe OK\n{rec}")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"🧪 Write-probe FAIL: {e}")
+
+@admin_guard
+async def cmd_debug_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Tampilkan status user yang memanggil
+    u = update.effective_user
+    try:
+        rec = supabase_service.get_user(u.id)
+        is_p = supabase_service.is_premium(u.id)
+        await safe_reply(update.effective_message,
+            f"👤 You: {u.id}\nPremium: {is_p}\nRecord: {json.dumps(rec, ensure_ascii=False, default=str)}")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"❌ debug_me error: {e}")
+
+@admin_guard
+async def cmd_debug_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # /debug_user <user_id> → tampilkan row users di Supabase
+    if not context.args or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /debug_user <user_id>")
+    tid = int(context.args[0])
+    try:
+        rec = supabase_service.get_user(tid)
+        is_p = supabase_service.is_premium(tid)
+        await safe_reply(update.effective_message,
+            f"👤 User: {tid}\nPremium: {is_p}\nRecord: {json.dumps(rec, ensure_ascii=False, default=str)}")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"❌ debug_user error: {e}")
+
+@admin_guard
+async def cmd_debug_fixpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # /debug_fixpremium <user_id> <days|lifetime>
+    if len(context.args) != 2 or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /debug_fixpremium <user_id> <days|lifetime>")
+    from datetime import datetime, timedelta, timezone
+    tid = int(context.args[0])
+    dur = context.args[1].lower().strip()
+    try:
+        if dur == "lifetime":
+            supabase_service.upsert_user(tid, is_premium=True, premium_until=None, banned=False)
+        else:
+            if not dur.isdigit() or int(dur) < 0:
+                return await safe_reply(update.effective_message, "days harus angka ≥ 0 atau 'lifetime'")
+            until = (datetime.now(timezone.utc) + timedelta(days=int(dur))).isoformat()
+            supabase_service.upsert_user(tid, is_premium=True, premium_until=until, banned=False)
+        rec = supabase_service.get_user(tid)
+        await safe_reply(update.effective_message, f"✅ Fixed premium for {tid}\n{json.dumps(rec, ensure_ascii=False, default=str)}")
+    except Exception as e:
+        await safe_reply(update.effective_message, f"❌ debug_fixpremium error: {e}")
+
+def register_admin_debug_handlers(application):
+    # Registrar yang diminta bootstrap
+    application.add_handler(CommandHandler("debug_env", cmd_debug_env))
+    application.add_handler(CommandHandler("debug_ping", cmd_debug_ping))
+    application.add_handler(CommandHandler("debug_probe", cmd_debug_probe))
+    application.add_handler(CommandHandler("debug_me", cmd_debug_me))
+    application.add_handler(CommandHandler("debug_user", cmd_debug_user))
+    application.add_handler(CommandHandler("debug_fixpremium", cmd_debug_fixpremium))
+
+Cara pakai & verifikasi
+
+Pastikan bootstrap memanggil fungsi yang benar:
+
+from app.handlers_admin_debug import register_admin_debug_handlers
+register_admin_debug_handlers(application)
+
+
+Restart. Error import harus hilang.
+
+Uji dari akun admin:
+
+/debug_env → lihat status ENV Supabase (tanpa menampilkan key penuh)
+
+/debug_ping → health Supabase (OK/FAIL)
+
+/debug_probe → uji tulis/baca
+
+/debug_me → status akun admin sendiri
+
+/debug_user <id> → lihat row user target
+
+/debug_fixpremium <id> <days|lifetime> → perbaiki premium user tertentu cepat
