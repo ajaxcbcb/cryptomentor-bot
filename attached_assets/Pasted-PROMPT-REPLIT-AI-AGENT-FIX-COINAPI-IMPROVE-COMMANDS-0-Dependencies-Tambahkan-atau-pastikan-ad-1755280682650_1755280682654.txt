@@ -1,0 +1,410 @@
+PROMPT REPLIT AI AGENT — FIX COINAPI & IMPROVE COMMANDS
+0) Dependencies
+
+Tambahkan (atau pastikan ada) di requirements.txt:
+
+httpx==0.27.2
+pandas==2.2.2
+numpy==1.26.4
+
+1) ENV & Konstanta
+
+Buat app/env.py:
+
+import os
+
+# Utama: COINAPI_API_KEY (baru). Legacy nama lama tetap di-support.
+COINAPI_API_KEY = os.getenv("COINAPI_API_KEY") or os.getenv("COIN_API_KEY") or ""
+
+# Optional fallbacks untuk spot price cepat
+BINANCE_BASE = "https://api.binance.com"
+
+# Default symbol mapping
+SYMBOL_ALIAS = {
+    "btc": "BTC",
+    "eth": "ETH",
+}
+
+# Caching
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "15"))
+
+2) HTTP client + cache ringan
+
+Buat app/providers/http.py:
+
+import time
+import asyncio
+import httpx
+
+class HTTPCache:
+    def __init__(self, ttl=15):
+        self.ttl = ttl
+        self._data = {}  # key: (expire_ts, payload)
+
+    def get(self, key):
+        now = time.time()
+        item = self._data.get(key)
+        if not item: return None
+        exp, payload = item
+        if now > exp:
+            self._data.pop(key, None)
+            return None
+        return payload
+
+    def set(self, key, payload):
+        self._data[key] = (time.time() + self.ttl, payload)
+
+cache = HTTPCache()
+
+async def fetch_json(url, headers=None, params=None, timeout=12, cache_key=None, cache_ttl=None):
+    if cache_key:
+        item = cache.get(cache_key)
+        if item is not None:
+            return item
+    for attempt in range(1, 4):  # 3x retry backoff
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.get(url, headers=headers, params=params)
+                if r.status_code == 429:
+                    await asyncio.sleep(0.8 * attempt)
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if cache_key and cache_ttl:
+                    HTTPCache(cache_ttl)._data = cache._data  # reuse dict
+                    HTTPCache(cache_ttl).set(cache_key, data)
+                    cache.set(cache_key, data)
+                return data
+        except Exception:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(0.5 * attempt)
+
+3) CoinAPI provider (OHLCV + price)
+
+Buat app/providers/coinapi.py:
+
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict
+from app.env import COINAPI_API_KEY
+from app.providers.http import fetch_json
+
+BASE = "https://rest.coinapi.io/v1"
+
+def _headers():
+    if not COINAPI_API_KEY:
+        raise RuntimeError("COINAPI_API_KEY belum di-set")
+    return {"X-CoinAPI-Key": COINAPI_API_KEY}
+
+def _symbol(coin: str, quote="USDT"):
+    s = coin.upper()
+    if s.endswith(quote):  # jika sudah format pair
+        return s
+    return f"{s}{quote}"
+
+async def get_price_spot(coin: str) -> float:
+    # Gunakan /exchangerate/{asset_id_base}/{asset_id_quote}
+    url = f"{BASE}/exchangerate/{coin.upper()}/USDT"
+    data = await fetch_json(url, headers=_headers(), cache_key=f"caprice:{coin}", cache_ttl=10)
+    return float(data["rate"])
+
+async def get_ohlcv(coin: str, period="5MIN", limit=200) -> List[Dict]:
+    # /ohlcv/{symbol}/history?period_id=5MIN&limit=200
+    symbol = f"{coin.upper()}/USDT"
+    url = f"{BASE}/ohlcv/{symbol}/history"
+    params = {"period_id": period, "limit": limit}
+    data = await fetch_json(url, headers=_headers(), params=params, cache_key=f"caohlcv:{coin}:{period}", cache_ttl=20)
+    # Normalisasi keys -> open, high, low, close, volume, time
+    rows = []
+    for d in data:
+        rows.append({
+            "time": d.get("time_period_end"),
+            "open": float(d["price_open"]),
+            "high": float(d["price_high"]),
+            "low": float(d["price_low"]),
+            "close": float(d["price_close"]),
+            "volume": float(d.get("volume_traded", 0.0)),
+        })
+    return rows
+
+4) Indikator teknikal (EMA, RSI, MACD, ATR)
+
+Buat app/services/indicators.py:
+
+import numpy as np
+import pandas as pd
+
+def to_df(ohlcv):
+    df = pd.DataFrame(ohlcv)
+    df["close"] = df["close"].astype(float)
+    df["high"] = df["high"].astype(float)
+    df["low"] = df["low"].astype(float)
+    df["volume"] = df["volume"].astype(float)
+    return df
+
+def ema(series: pd.Series, n: int) -> pd.Series:
+    return series.ewm(span=n, adjust=False).mean()
+
+def rsi(series: pd.Series, n: int = 14) -> pd.Series:
+    delta = series.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    ma_up = up.ewm(com= n-1, adjust=False).mean()
+    ma_down = down.ewm(com= n-1, adjust=False).mean()
+    rs = ma_up / (ma_down + 1e-9)
+    return 100 - (100/(1+rs))
+
+def macd(series: pd.Series, fast=12, slow=26, signal=9):
+    macd_line = ema(series, fast) - ema(series, slow)
+    signal_line = ema(macd_line, signal)
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
+
+def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    high_low = df["high"] - df["low"]
+    high_close = (df["high"] - df["close"].shift()).abs()
+    low_close = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return tr.rolling(n).mean()
+
+5) Analyzer: /futures (1 entry point), /analyze, /futures_signals, /market
+
+Buat app/services/analysis.py:
+
+from typing import Dict, Any, List
+import pandas as pd
+from app.providers.coinapi import get_price_spot, get_ohlcv
+from app.services.indicators import to_df, ema, rsi, macd, atr
+
+def _trend_label(df: pd.DataFrame) -> str:
+    e50 = ema(df["close"], 50)
+    e200 = ema(df["close"], 200)
+    if e50.iloc[-1] > e200.iloc[-1]: return "up"
+    if e50.iloc[-1] < e200.iloc[-1]: return "down"
+    return "sideways"
+
+def _single_entry_point(df: pd.DataFrame) -> float:
+    """
+    Syarat user: satu titik entry saja.
+    Logika:
+      - Trend up  -> entry di 'pullback' ke EMA50 (dibatasi di atas support low N)
+      - Trend down-> entry di 'retrace' ke EMA50 (dibatasi di bawah resistance high N)
+      - Sideways  -> entry di mid (Close -/+ 0.5*ATR)
+    """
+    last_close = float(df["close"].iloc[-1])
+    e50 = ema(df["close"], 50).iloc[-1]
+    a14 = atr(df, 14).iloc[-1]
+    trend = _trend_label(df)
+
+    if trend == "up":
+        # entry = min(EMA50, last_close - 0.5*ATR) → jaga risk
+        return float(min(e50, last_close - 0.5 * a14))
+    elif trend == "down":
+        # entry = max(EMA50, last_close + 0.5*ATR) → sell the rip / short
+        return float(max(e50, last_close + 0.5 * a14))
+    else:
+        # sideways → harga tengah band ATR
+        return float(last_close - 0.2 * a14)
+
+async def analyze_coin(coin: str) -> Dict[str, Any]:
+    ohlcv = await get_ohlcv(coin, period="5MIN", limit=300)
+    df = to_df(ohlcv)
+    df = df.dropna()
+    trend = _trend_label(df)
+    r = rsi(df["close"])
+    m, s, h = macd(df["close"])
+    a = atr(df, 14)
+
+    info = {
+        "coin": coin.upper(),
+        "price": float(df["close"].iloc[-1]),
+        "trend": trend,
+        "rsi": float(r.iloc[-1]),
+        "macd_hist": float(h.iloc[-1]),
+        "atr": float(a.iloc[-1]),
+    }
+    info["entry_one"] = _single_entry_point(df)
+    return info
+
+async def futures_entry(coin: str) -> Dict[str, Any]:
+    # gunakan analyze_coin; enforce single entry point
+    res = await analyze_coin(coin)
+    return {
+        "coin": res["coin"],
+        "price": res["price"],
+        "entry": res["entry_one"],  # SATU TITIK
+        "trend": res["trend"],
+    }
+
+async def futures_signals(coin_list: List[str]) -> List[Dict[str, Any]]:
+    out = []
+    for c in coin_list:
+        try:
+            ana = await analyze_coin(c)
+            # sinyal sederhana: tren up + macd hist > 0 + 40 < rsi < 70
+            good = (ana["trend"]=="up") and (ana["macd_hist"]>0) and (40 < ana["rsi"] < 70)
+            out.append({
+                "coin": ana["coin"],
+                "ok": bool(good),
+                "entry": ana["entry_one"],
+                "rsi": ana["rsi"],
+                "macd_hist": ana["macd_hist"],
+                "trend": ana["trend"],
+                "price": ana["price"],
+            })
+        except Exception as e:
+            out.append({"coin": c.upper(), "error": str(e)})
+    return out
+
+async def market_overview(top: List[str] = ["BTC","ETH"]) -> Dict[str, Any]:
+    data = {}
+    for c in top:
+        try:
+            p = await get_price_spot(c)
+            data[c.upper()] = {"price": float(p)}
+        except Exception as e:
+            data[c.upper()] = {"error": str(e)}
+    return {"coins": data}
+
+6) Command handlers (pakai formatter lama)
+
+Penting: “Output tetap sama.” Kalau kamu punya formatter lama (mis. app/formatters/texts.py), tetap pakai. Di bawah ini disiapkan fallback formatter hanya jika modul lama tidak ada.
+
+Buat app/commands/handlers.py:
+
+import importlib
+from telegram import Update
+from telegram.ext import ContextTypes
+from app.services.analysis import analyze_coin, futures_entry, futures_signals, market_overview
+
+# Coba muat formatter lama
+def _fmt():
+    try:
+        return importlib.import_module("app.formatters.texts")
+    except Exception:
+        return None
+
+def _fallback_err(coin, ctx="price data"):
+    return (
+        f"❌ **Terjadi kesalahan mengambil data untuk {coin.upper()}**\n\n"
+        "💡 **Coba alternatif**:\n"
+        "• `/price {}` - Cek harga basic\n"
+        "• Tunggu beberapa menit dan coba lagi\n"
+        "• Hubungi admin jika masalah berlanjut\n\n"
+        f"🔄 **Error context**: {ctx}\n"
+    ).format(coin.lower())
+
+async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coin = (context.args[0] if context.args else "ETH").upper()
+    try:
+        res = await analyze_coin(coin)
+        F = _fmt()
+        if F and hasattr(F, "format_analyze"):
+            text = F.format_analyze(res)  # gunakan template lama
+        else:
+            text = (
+                f"🔍 Analyze {res['coin']}\n"
+                f"Price: {res['price']:.4f}\nTrend: {res['trend']}\n"
+                f"RSI: {res['rsi']:.2f} | MACD hist: {res['macd_hist']:.4f}\n"
+                f"ATR: {res['atr']:.4f}\nEntry: {res['entry_one']:.4f}"
+            )
+        await update.effective_message.reply_text(text, disable_web_page_preview=True)
+    except Exception as e:
+        await update.effective_message.reply_text(_fallback_err(coin, "analyze"))
+
+async def cmd_futures(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coin = (context.args[0] if context.args else "ETH").upper()
+    try:
+        res = await futures_entry(coin)
+        F = _fmt()
+        if F and hasattr(F, "format_futures"):
+            text = F.format_futures(res)  # template lama
+        else:
+            text = (
+                f"📈 Futures {res['coin']}\n"
+                f"Price: {res['price']:.4f}\n"
+                f"Entry (single): {res['entry']:.4f}\n"
+                f"Trend: {res['trend']}"
+            )
+        await update.effective_message.reply_text(text)
+    except Exception:
+        await update.effective_message.reply_text(_fallback_err(coin, "futures"))
+
+async def cmd_futures_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coins = [c.upper() for c in (context.args or ["BTC","ETH"])]
+    try:
+        lst = await futures_signals(coins)
+        F = _fmt()
+        if F and hasattr(F, "format_futures_signals"):
+            text = F.format_futures_signals(lst)
+        else:
+            lines = ["🛰️ Futures Signals"]
+            for item in lst:
+                if "error" in item:
+                    lines.append(f"- {item['coin']}: error")
+                else:
+                    lines.append(
+                        f"- {item['coin']}: {'✅' if item['ok'] else '❌'} | "
+                        f"entry {item['entry']:.4f} | rsi {item['rsi']:.1f} | "
+                        f"macd {item['macd_hist']:.4f} | {item['trend']}"
+                    )
+            text = "\n".join(lines)
+        await update.effective_message.reply_text(text)
+    except Exception:
+        await update.effective_message.reply_text("❌ Gagal membuat futures signals.")
+
+async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coins = [c.upper() for c in (context.args or ["BTC","ETH","SOL"])]
+    try:
+        mv = await market_overview(coins)
+        F = _fmt()
+        if F and hasattr(F, "format_market"):
+            text = F.format_market(mv)
+        else:
+            lines = ["🌐 Market Overview"]
+            for c, obj in mv["coins"].items():
+                if "error" in obj:
+                    lines.append(f"- {c}: error")
+                else:
+                    lines.append(f"- {c}: {obj['price']:.4f} USDT")
+            text = "\n".join(lines)
+        await update.effective_message.reply_text(text)
+    except Exception:
+        await update.effective_message.reply_text("❌ Gagal mengambil market overview.")
+
+7) Integrasi ke bot
+
+Di app/bot.py (yang sudah ada), daftarkan command baru:
+
+from telegram.ext import CommandHandler
+from app.commands.handlers import (
+    cmd_analyze, cmd_futures, cmd_futures_signals, cmd_market
+)
+
+application.add_handler(CommandHandler("analyze", cmd_analyze))
+application.add_handler(CommandHandler("futures", cmd_futures))
+application.add_handler(CommandHandler("futures_signals", cmd_futures_signals))
+application.add_handler(CommandHandler("market", cmd_market))
+
+
+Jika kamu pakai admin-only untuk command berat, bungkus cmd_analyze & cmd_futures dengan dekorator @admin_only dari modulmu sebelumnya.
+
+8) Perilaku yang diperbaiki
+
+API Key: gunakan COINAPI_API_KEY (support key lama untuk backward compatibility).
+
+Retry + Cache: menghindari spike error dan 429. Error tidak bocor; user mendapat pesan alternatif seperti contohmu.
+
+/futures: sekarang selalu 1 entry point (menggunakan logika EMA50 + ATR).
+
+Output: tetap mengikuti formatter lama jika ada (fungsi format_analyze, format_futures, format_futures_signals, format_market). Jika modul lama tidak ditemukan, fallback formatter dipakai agar bot tetap jalan.
+
+/market: price cepat via CoinAPI; coins dinamis dari argumen (default BTC, ETH, SOL).
+
+9) Secret Replit yang wajib
+
+COINAPI_API_KEY ✅ (atau gunakan nama lama COIN_API_KEY—tetap didukung)
+
+(opsional) CACHE_TTL_SECONDS
+
+(tetap) ADMIN_IDS, BOT_TOKEN, dll.
