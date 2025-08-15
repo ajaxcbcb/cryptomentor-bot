@@ -5,9 +5,9 @@ from app.utils.rate_limiter import rate_limiter
 from app.utils.text_formatter import format_futures_signals_response
 from app.utils.telegram_safe import safe_reply, safe_edit
 from app.services.analysis import (
-    AnalysisService, 
-    analyze_coin, 
-    analyze_coin_crypto, 
+    AnalysisService,
+    analyze_coin,
+    analyze_coin_crypto,
     analyze_coin_futures,
     futures_signals as futures_signals_modern
 )
@@ -72,10 +72,10 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # SPOT analysis (tanpa Entry)
         from app.services.analysis import analyze_coin
         res = await analyze_coin(symbol)
-        
+
         # Map untuk formatter (tanpa Entry)
         item = {k: res.get(k) for k in ["coin", "trend", "structure", "reason", "rsi", "macd_hist", "change_24h", "rr", "stop", "tp1", "tp2", "confidence"] if k in res}
-        
+
         formatted_text = format_signal_card(item, include_entry=False)  # NO Entry line
         await safe_reply(update, formatted_text, prefer_html=False)   # Markdown OK
 
@@ -94,7 +94,7 @@ async def cmd_futures(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # PERP analysis (dengan Entry)
         from app.services.analysis import analyze_coin_futures
         res = await analyze_coin_futures(symbol)  # entry tunggal + SL/TP/TP2/RR
-        
+
         formatted_text = format_signal_card(res, include_entry=True)
         await safe_reply(update, formatted_text, prefer_html=False)
 
@@ -184,3 +184,67 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💡 Pastikan CMC_API_KEY tersedia untuk data optimal.",
             prefer_html=False
         )
+
+# Utility format functions
+def _yn(b: bool) -> str:
+    return "True" if b else "Not"
+
+def _fmt_date(iso: str | None) -> str:
+    if not iso: return "Null"
+    # Tampilkan YYYY-MM-DD HH:MM WIB (tanpa konversi timezone kompleks)
+    return iso.replace("T"," ").split(".")[0].replace("Z"," UTC")
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /start [referralCode]
+    - Membuat/Update user.
+    - Menyimpan referral kalau ada.
+    - Mengirim ringkasan data:
+      User, Premium (True/Not), Premium Until (Lifetime -> Null), Credits, Referral (kode saya), Referred (jumlah referal).
+    """
+    try:
+        from app.db.supabase import upsert_user_on_start # Corrected import path
+        user = update.effective_user
+        user_id = str(user.id)
+        username = user.username or ""
+
+        # Ambil referral code dari argumen /start <refCode> (deep-link)
+        ref_code = None
+        if context.args:
+            # hanya ambil token pertama, uppercase
+            ref_code = str(context.args[0]).upper()
+
+        snapshot = await upsert_user_on_start(user_id, username, ref_code)
+
+        # Hitung Premium Until display:
+        # - Jika lifetime True => tampilkan "Null"
+        # - Jika tidak lifetime dan premium_until None => "Null"
+        # - Jika ada premium_until => tampilkan tanggalnya
+        if snapshot["is_lifetime"]:
+            premium_until_display = "Null"
+        else:
+            premium_until_display = _fmt_date(snapshot["premium_until"])
+
+        # Bangun teks ringkasan (HTML)
+        lines = []
+        lines.append("✅ <b>Data kamu sudah tersimpan!</b>")
+        lines.append("")
+        lines.append(f"👤 <b>User</b>: @{snapshot['username'] or 'unknown'} (ID: {snapshot['id']})")
+        lines.append(f"⭐️ <b>Premium</b>: {_yn(snapshot['is_premium'])}")
+        lines.append(f"📅 <b>Premium Until</b>: {premium_until_display}")
+        lines.append(f"🪙 <b>Credits</b>: {snapshot['credits']}")
+        lines.append(f"🏷️ <b>Referral</b>: {snapshot['referral_code']}")
+        lines.append(f"👥 <b>Referred</b>: {snapshot['referred_count']}")
+        if snapshot.get("referred_by"):
+            lines.append(f"🔗 <i>Referred by</i>: {snapshot['referred_by']}")
+
+        lines.append("")
+        lines.append("🚀 <b>Selamat datang di CryptoMentor AI!</b>")
+        lines.append("Gunakan /help untuk melihat semua perintah yang tersedia.")
+
+        text = "\n".join(lines)
+
+        await safe_reply(update, text, prefer_html=True)
+    except Exception as e:
+        print(f"Error in start_command: {e}")
+        await safe_reply(update, f"❌ Gagal menyimpan data user.\n\nError: {e}", prefer_html=True)

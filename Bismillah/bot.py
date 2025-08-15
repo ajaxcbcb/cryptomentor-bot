@@ -625,7 +625,7 @@ class TelegramBot:
 🚀 **Fitur Terbaru:**
 • Auto SnD Signals untuk Admin & Lifetime users
 • Supply & Demand analysis untuk futures trading
-• Data real-time dari CoinAPI (bukan simulasi)
+• Real-time data dari CoinAPI (bukan simulasi)
 
 **Semua data real-time dari CoinAPI & Binance APIs!**"""
 
