@@ -257,7 +257,7 @@ class TelegramBot:
             print("🤖 Bot handlers registered successfully")
             mode_text = "🌐 DEPLOYMENT MODE (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT MODE (Workspace)"
             print(f"🌍 Environment: {mode_text}")
-            print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
+            print(f"🔑 API Status: CMC=✅, BIN=✅, NEWS=✅ (CoinMarketCap + Binance + CryptoNews)")
             print("🚀 Starting bot polling with Coinglass V4 integration...")
 
             # Test bot connection before starting with shorter timeout
@@ -673,7 +673,7 @@ class TelegramBot:
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + CoinMarketCap Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
 • `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
@@ -734,7 +734,7 @@ class TelegramBot:
 
 🚀 **Data Sources:**
 - **Fundamental & Prices**: CoinAPI Real-time
-- **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
+- **Market Data**: CoinMarketCap Pro + Binance API
 - **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
 ✨ **Fitur Auto Signal:**
@@ -1008,7 +1008,7 @@ class TelegramBot:
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + CoinMarketCap{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
@@ -1152,7 +1152,7 @@ class TelegramBot:
 
                     # Show loading
                     await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass V4...\n\n"
+                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + CoinMarketCap...\n\n"
                         "🔍 Memproses data real-time...",
                         parse_mode='Markdown'
                     )
@@ -1865,6 +1865,14 @@ Gunakan `/subscribe` untuk upgrade!
         else:
             access_level = "⭐ **SENIOR ADMIN**"
 
+        # Check CMC API status
+        try:
+            import os
+            cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
+            cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
+        except:
+            cmc_status = "🔴 **ERROR**"
+
         message = f"""🚀 **CryptoMentor AI - Admin Dashboard**
 ═══════════════════════════════════
 
@@ -1897,6 +1905,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 🗄️ **Database:** {database_status}
 🔗 **CoinAPI:** {coinapi_status}
+💰 **CMC API:** {cmc_status}
 ⚡ **Binance:** 🟢 **ACTIVE**
 🤖 **Auto Signals:** {auto_status}
 
@@ -1949,7 +1958,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 ═══════════════════════════════════
 
-**CryptoMentor AI V4.0** • Powered by **CoinAPI + Binance**"""
+**CryptoMentor AI V3.0** • Powered by **CoinAPI + Binance + CMC**"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
