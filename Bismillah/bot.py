@@ -1907,7 +1907,6 @@ Gunakan `/subscribe` untuk upgrade!
 🔗 **CoinAPI:** {coinapi_status}
 💰 **CMC API:** {cmc_status}
 ⚡ **Binance:** 🟢 **ACTIVE**
-🤖 **Auto Signals:** {auto_status}
 
 ═══════════════════════════════════
 
