@@ -1,0 +1,205 @@
+🔧 PROMPT AI AGENT — Fix Import + Pulihkan Akses Premium/Lifetime (Supabase-only)
+
+Lakukan langkah-langkah berikut tepat seperti ini.
+
+1) Buat/Timpa file /home/runner/workspace/Bismillah/supabase_client.py
+# /home/runner/workspace/Bismillah/supabase_client.py
+# Facade yang mengekspor "supabase_service" agar import lama tetap bekerja,
+# namun implementasi koneksi memakai REST Supabase yang stabil (requests).
+import os, time, requests
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, Any, List, Tuple
+
+REQ_TIMEOUT = 15
+
+def _env() -> Tuple[str, str, str]:
+    # dukung alias penulisan env yang sering salah
+    url = (os.getenv("SUPABASE_URL") or os.getenv("SUPABASEURL") or "").strip().rstrip("/")
+    key = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASESERVICEKEY") or "").strip()
+    if not url or not key:
+        raise RuntimeError("Supabase env missing (SUPABASE_URL / SUPABASE_SERVICE_KEY)")
+    return url, key, f"{url}/rest/v1"
+
+def _headers(key: str, prefer: Optional[str] = None) -> Dict[str, str]:
+    h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if prefer: h["Prefer"] = prefer
+    return h
+
+def _retry(fn, n=3, base=0.6):
+    last = None
+    for i in range(n):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            time.sleep(base * (2 ** i))
+    raise last
+
+class SupabaseService:
+    # ----- Health -----
+    def health(self) -> Tuple[bool, str]:
+        url, key, rest = _env()
+        def _once():
+            r0 = requests.get(rest, headers=_headers(key), timeout=REQ_TIMEOUT)
+            r1 = requests.get(f"{rest}/users", headers=_headers(key),
+                              params={"select":"telegram_id","limit":"1"}, timeout=REQ_TIMEOUT)
+            ok = (r0.status_code in (200,401,404)) and (r1.status_code in (200,206))
+            return ok, f"root={r0.status_code} users={r1.status_code}"
+        return _retry(_once, n=2)
+
+    # ----- Read -----
+    def get_user(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        url, key, rest = _env()
+        def _once():
+            r = requests.get(f"{rest}/users",
+                headers=_headers(key),
+                params={"select":"telegram_id,is_premium,premium_until,banned,credits,updated_at",
+                        "telegram_id": f"eq.{int(telegram_id)}",
+                        "limit":"1"},
+                timeout=REQ_TIMEOUT)
+            if r.status_code not in (200,206):
+                raise RuntimeError(f"GET users {r.status_code} {r.text}")
+            data = r.json()
+            return data[0] if data else None
+        return _retry(_once)
+
+    # ----- Upsert (idempoten) -----
+    def upsert_user(self, telegram_id: int, **fields) -> Dict[str, Any]:
+        url, key, rest = _env()
+        def _once():
+            payload = [{ "telegram_id": int(telegram_id), **fields }]
+            r = requests.post(f"{rest}/users",
+                headers=_headers(key, "resolution=merge-duplicates,return=representation"),
+                params={"on_conflict":"telegram_id"},
+                json=payload, timeout=REQ_TIMEOUT)
+            if r.status_code == 429:
+                raise RuntimeError(f"UPSERT 429 {r.text}")
+            if r.status_code not in (200,201):
+                raise RuntimeError(f"UPSERT users {r.status_code} {r.text}")
+            return r.json()[0] if r.text else {"telegram_id": telegram_id, **fields}
+        return _retry(_once)
+
+    # ----- Premium check (lifetime/aktif & tidak banned) -----
+    def is_premium(self, telegram_id: int) -> bool:
+        u = self.get_user(telegram_id) or {}
+        if u.get("banned"): return False
+        if not u.get("is_premium"): return False
+        pu = u.get("premium_until")
+        if pu is None:  # lifetime
+            return True
+        try:
+            # now() UTC
+            return datetime.fromisoformat(pu) >= datetime.now(timezone.utc)
+        except Exception:
+            return False
+
+    # ----- Daftar premium aktif (untuk broadcast/diagnostik) -----
+    def list_premium_active(self, limit: int = 1000, offset: int = 0) -> List[Dict[str, Any]]:
+        url, key, rest = _env()
+        nowiso = datetime.now(timezone.utc).isoformat()
+        def _once():
+            r = requests.get(f"{rest}/users",
+                headers=_headers(key),
+                params={
+                    "select":"telegram_id,is_premium,premium_until,banned",
+                    "is_premium":"eq.true",
+                    "banned":"eq.false",
+                    "or": f"(premium_until.is.null,premium_until.gte.{nowiso})",
+                    "limit": str(limit),
+                    "offset": str(offset),
+                },
+                timeout=REQ_TIMEOUT)
+            if r.status_code not in (200,206):
+                raise RuntimeError(f"LIST premium {r.status_code} {r.text}")
+            return r.json()
+        return _retry(_once)
+
+# inilah objek yang diimport oleh kode lama
+supabase_service = SupabaseService()
+
+
+Ini akan menghilangkan error import dan memulihkan titik-titik di kode yang sebelumnya memanggil supabase_service.
+
+2) Tambahkan command admin untuk cek & pulihkan akses user
+
+File baru Bismillah/handlers_access_tools.py:
+
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
+from supabase_client import supabase_service
+from app.lib.guards import admin_guard
+from app.safe_send import safe_reply
+
+@admin_guard
+async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    rec = supabase_service.get_user(u.id)
+    is_p = supabase_service.is_premium(u.id)
+    await safe_reply(update.effective_message,
+        f"👤 You: {u.id}\n"
+        f"Premium: {is_p}\n"
+        f"Record: {rec}")
+
+@admin_guard
+async def cmd_refresh_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        return await safe_reply(update.effective_message, "Format: /refresh_access <user_id>")
+    tid = int(context.args[0])
+    ok, detail = supabase_service.health()
+    rec = supabase_service.get_user(tid)
+    is_p = supabase_service.is_premium(tid)
+    await safe_reply(update.effective_message,
+        f"🩺 Health: {'OK' if ok else 'FAIL'} ({detail})\n"
+        f"👤 User: {tid}\n"
+        f"Premium: {is_p}\n"
+        f"Record: {rec}")
+
+def register_access_tools(application):
+    application.add_handler(CommandHandler("whoami", cmd_whoami))
+    application.add_handler(CommandHandler("refresh_access", cmd_refresh_access))
+
+
+Registrasi di bootstrap kamu (mis. bot.py), tambahkan:
+
+from Bismillah.handlers_access_tools import register_access_tools
+register_access_tools(application)
+
+3) (Opsional tapi disarankan) Pastikan semua guard premium pakai Supabase
+
+Kalau kamu punya dekorator/guard seperti @premium_guard/cek di handler, pastikan mereka memakai supabase_service.is_premium(user_id). Contoh:
+
+# app/lib/guards.py (cuplikan)
+from functools import wraps
+from supabase_client import supabase_service
+
+def premium_guard(func):
+    @wraps(func)
+    async def wrapper(update, context, *a, **kw):
+        uid = update.effective_user.id if update and update.effective_user else None
+        if not uid or not supabase_service.is_premium(uid):
+            return await update.effective_message.reply_text("❌ Fitur khusus premium.")
+        return await func(update, context, *a, **kw)
+    return wrapper
+
+
+Dengan ini, semua user premium & lifetime akan kembali lolos guard begitu data mereka ada di tabel public.users.
+
+4) Uji cepat (wajib)
+
+Restart project → tidak ada lagi import error supabase_service.
+
+/whoami dari akun premium/lifetime → harus tampil Premium: True.
+
+/refresh_access <user_id_premium> → Health OK + Record user tampil → kalau is_premium=true dan premium_until null/≥now, akses aktif.
+
+Coba fitur premium—akses harus kembali normal (karena guard sudah baca status dari Supabase).
+
+Catatan penyebab & pencegahan
+
+Import error muncul karena modul lama supabase_client.py tidak mengekspor supabase_service. Facade di atas menjamin ada objek itu ke mana pun kode lama meng-import.
+
+Banyak member premium “kehilangan akses” karena guard gagal memeriksa status premium (modul Supabase error). Begitu import diperbaiki dan guard membaca Supabase lagi, akses kembali on.
+
+Pastikan tabel public.users sudah ada (+ kolom is_premium, premium_until, banned, credits). Kita sudah siapkan SQL sebelumnya; jalankan jika perlu.
+
+Kalau setelah melakukan ini masih ada user premium yang tidak lolos guard, kirimkan contoh /refresh_access <user_id> result-nya (Record JSON) — dari sana bisa langsung kelihatan nilai kolom mana yang off (misal is_premium=false/premium_until sudah lewat).
