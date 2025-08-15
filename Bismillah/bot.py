@@ -204,8 +204,11 @@ class TelegramBot:
             except Exception as cleanup_error:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
 
+            # Import the new start command handler
+            from app.commands.handlers import start_command
+            
             # Add command handlers with proper async functions
-            self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("start", start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
             self.application.add_handler(CommandHandler("price", self.price_command))
             self.application.add_handler(CommandHandler("analyze", self.analyze_command))

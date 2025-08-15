@@ -1,4 +1,7 @@
 
+-- Enable required extensions
+create extension if not exists pgcrypto;
+
 -- USERS: menyimpan profil + premium + referral + credits
 create table if not exists users (
   id text primary key,                    -- telegram user id (string)
@@ -59,7 +62,7 @@ alter table users enable row level security;
 alter table referral_events enable row level security;
 
 -- Policies minimal (server w/ service key override policies)
-create policy "service select users" on users for select using (true);
-create policy "service ins/upd/del users" on users for all using (true) with check (true);
+create policy if not exists "service select users" on users for select using (true);
+create policy if not exists "service ins/upd/del users" on users for all using (true) with check (true);
 
-create policy "service all referral_events" on referral_events for all using (true) with check (true);
+create policy if not exists "service all referral_events" on referral_events for all using (true) with check (true);

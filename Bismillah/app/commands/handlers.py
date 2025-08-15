@@ -194,57 +194,55 @@ def _fmt_date(iso: str | None) -> str:
     # Tampilkan YYYY-MM-DD HH:MM WIB (tanpa konversi timezone kompleks)
     return iso.replace("T"," ").split(".")[0].replace("Z"," UTC")
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /start [referralCode]
-    - Membuat/Update user.
-    - Menyimpan referral kalau ada.
-    - Mengirim ringkasan data:
-      User, Premium (True/Not), Premium Until (Lifetime -> Null), Credits, Referral (kode saya), Referred (jumlah referal).
+    /start [REFCODE]
+    Menyimpan/Update user + referral (jika ada), lalu kirim ringkasan:
+    - User
+    - Premium (True/Not)
+    - Premium Until When / If lifetime Null
+    - Credits
+    - Referral (my code)
+    - Referred (count)
     """
     try:
-        from app.db.supabase import upsert_user_on_start # Corrected import path
+        from app.db.supabase import upsert_user_on_start
         user = update.effective_user
-        user_id = str(user.id)
-        username = user.username or ""
+        uid = str(user.id)
+        uname = user.username or ""
 
-        # Ambil referral code dari argumen /start <refCode> (deep-link)
         ref_code = None
         if context.args:
-            # hanya ambil token pertama, uppercase
             ref_code = str(context.args[0]).upper()
 
-        snapshot = await upsert_user_on_start(user_id, username, ref_code)
+        snap = await upsert_user_on_start(uid, uname, ref_code)
 
-        # Hitung Premium Until display:
-        # - Jika lifetime True => tampilkan "Null"
-        # - Jika tidak lifetime dan premium_until None => "Null"
-        # - Jika ada premium_until => tampilkan tanggalnya
-        if snapshot["is_lifetime"]:
-            premium_until_display = "Null"
-        else:
-            premium_until_display = _fmt_date(snapshot["premium_until"])
+        premium_until_display = "Null" if snap["is_lifetime"] else _fmt_date(snap["premium_until"])
 
-        # Bangun teks ringkasan (HTML)
-        lines = []
-        lines.append("✅ <b>Data kamu sudah tersimpan!</b>")
-        lines.append("")
-        lines.append(f"👤 <b>User</b>: @{snapshot['username'] or 'unknown'} (ID: {snapshot['id']})")
-        lines.append(f"⭐️ <b>Premium</b>: {_yn(snapshot['is_premium'])}")
-        lines.append(f"📅 <b>Premium Until</b>: {premium_until_display}")
-        lines.append(f"🪙 <b>Credits</b>: {snapshot['credits']}")
-        lines.append(f"🏷️ <b>Referral</b>: {snapshot['referral_code']}")
-        lines.append(f"👥 <b>Referred</b>: {snapshot['referred_count']}")
-        if snapshot.get("referred_by"):
-            lines.append(f"🔗 <i>Referred by</i>: {snapshot['referred_by']}")
-
+        lines = [
+            "✅ <b>Data kamu sudah tersimpan!</b>",
+            "",
+            f"👤 <b>User</b>: @{snap['username'] or 'unknown'} (ID: {snap['id']})",
+            f"⭐️ <b>Premium</b>: {_yn(snap['is_premium'])}",
+            f"📅 <b>Premium Until</b>: {premium_until_display}",
+            f"🪙 <b>Credits</b>: {snap['credits']}",
+            f"🏷️ <b>Referral</b>: {snap['referral_code']}",
+            f"👥 <b>Referred</b>: {snap['referred_count']}",
+        ]
+        if snap.get("referred_by"):
+            lines.append(f"🔗 <i>Referred by</i>: {snap['referred_by']}")
+        
         lines.append("")
         lines.append("🚀 <b>Selamat datang di CryptoMentor AI!</b>")
         lines.append("Gunakan /help untuk melihat semua perintah yang tersedia.")
 
         text = "\n".join(lines)
-
         await safe_reply(update, text, prefer_html=True)
     except Exception as e:
-        print(f"Error in start_command: {e}")
+        print(f"Error in cmd_start: {e}")
         await safe_reply(update, f"❌ Gagal menyimpan data user.\n\nError: {e}", prefer_html=True)
+
+# Legacy compatibility
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper for compatibility with existing bot.py"""
+    await cmd_start(update, context)
