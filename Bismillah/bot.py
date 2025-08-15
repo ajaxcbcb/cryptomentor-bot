@@ -1848,10 +1848,6 @@ Gunakan `/subscribe` untuk upgrade!
         auto_status = "🟢 **RUNNING**" if self.auto_signals and self.auto_signals.is_running else "🔴 **STOPPED**"
         deployment_mode = "🚀 **DEPLOYMENT**" if IS_DEPLOYMENT else "🔧 **DEVELOPMENT**"
 
-        # Get current time for status
-        current_time = datetime.now().strftime('%H:%M WIB')
-        current_date = datetime.now().strftime('%d %B %Y')
-
         # Check all API keys status FIRST
         try:
             import os
@@ -1864,7 +1860,7 @@ Gunakan `/subscribe` untuk upgrade!
             openai_key = os.getenv('OPENAI_API_KEY')
             openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
 
-            cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
+            cryptonews_key = os.getenv('CRYPTONEUS_API_KEY')
             cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
         except:
             cmc_status = "🔴 **ERROR**"
@@ -1890,7 +1886,6 @@ Gunakan `/subscribe` untuk upgrade!
 
 👑 **Admin Access:** {access_level}
 🆔 **Your ID:** `{user_id}` ✅ **VERIFIED**
-📅 **Date:** {current_date} • 🕐 **Time:** {current_time}
 🌍 **Environment:** {deployment_mode}
 
 ═══════════════════════════════════
