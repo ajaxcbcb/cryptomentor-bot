@@ -1869,7 +1869,7 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             import os
             # Check CoinAPI key (multiple possible environment variable names)
-            coinapi_key = os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY') or os.getenv('COIN_API_KEY')
+            coinapi_key = os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
             coinapi_status = "🟢 **ACTIVE**" if coinapi_key else "🔴 **NO KEY**"
             
             cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
@@ -1927,9 +1927,9 @@ Gunakan `/subscribe` untuk upgrade!
 
 👑 **PREMIUM MANAGEMENT**
 
-• `/grant_premium <id> <days>` - Grant premium
-• `/grant_premium <id> 0` - **Lifetime premium**
-• `/revoke_premium <id>` - Remove premium
+• `/setpremium <id> <days>` - Grant premium
+• `/setpremium <id> 0` - **Lifetime premium**
+• `/remove_premium <id>` - Remove premium
 • `/grant_package <id> <package>` - Quick packages
 
 **Packages:** `lifetime` `1month` `2month` `6month` `1year`

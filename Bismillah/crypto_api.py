@@ -14,7 +14,7 @@ class CryptoAPI:
 
     def __init__(self):
         # Check for CoinAPI key
-        self.coinapi_key = os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
+        self.coinapi_key = os.getenv('COINAPI_API_KEY') or os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
         self.coinapi_base_url = "https://rest.coinapi.io/v1"
 
         if self.coinapi_key:
