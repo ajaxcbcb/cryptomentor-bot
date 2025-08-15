@@ -1865,13 +1865,21 @@ Gunakan `/subscribe` untuk upgrade!
         else:
             access_level = "⭐ **SENIOR ADMIN**"
 
-        # Check CMC API status
+        # Check all API keys status
         try:
             import os
             cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
             cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
+            
+            openai_key = os.getenv('OPENAI_API_KEY')
+            openai_status = "🟢 **ACTIVE**" if openai_key else "🔴 **NO KEY**"
+            
+            cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
+            cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
         except:
             cmc_status = "🔴 **ERROR**"
+            openai_status = "🔴 **ERROR**"
+            cryptonews_status = "🔴 **ERROR**"
 
         message = f"""🚀 **CryptoMentor AI - Admin Dashboard**
 ═══════════════════════════════════
@@ -1905,6 +1913,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 🔗 **CoinAPI:** {coinapi_status}
 💰 **CMC API:** {cmc_status}
+🤖 **OpenAI API:** {openai_status}
+📰 **CryptoNews API:** {cryptonews_status}
 ⚡ **Binance:** 🟢 **ACTIVE**
 🗄️ **SUPABASE:** {database_status}
 
