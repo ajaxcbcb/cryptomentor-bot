@@ -1,48 +1,46 @@
 
-import httpx
+import time
 import asyncio
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
-import json
+import httpx
 
-# Simple in-memory cache
-_cache: Dict[str, Dict[str, Any]] = {}
+class HTTPCache:
+    def __init__(self, ttl=30): 
+        self.ttl, self._d = ttl, {}
+    
+    def get(self, k): 
+        v = self._d.get(k)
+        if not v: 
+            return None
+        exp, data = v
+        if time.time() > exp: 
+            self._d.pop(k, None)
+            return None
+        return data
+    
+    def set(self, k, data, ttl=None): 
+        self._d[k] = (time.time() + (ttl or self.ttl), data)
 
-async def fetch_json(url: str, params: Optional[Dict] = None, headers: Optional[Dict] = None, 
-                    timeout: int = 10, cache_key: Optional[str] = None, 
-                    cache_ttl: int = 60) -> Dict[str, Any]:
-    """Fetch JSON with caching and retry"""
+_cache = HTTPCache()
+
+async def fetch_json(url, method="GET", headers=None, params=None, timeout=12, cache_key=None, cache_ttl=None):
+    if cache_key:
+        c = _cache.get(cache_key)
+        if c is not None: 
+            return c
     
-    # Check cache
-    if cache_key and cache_key in _cache:
-        cached = _cache[cache_key]
-        if datetime.now() < cached['expires']:
-            return cached['data']
-    
-    # Prepare request
-    headers = headers or {}
-    params = params or {}
-    
-    # Retry logic
-    for attempt in range(3):
+    for i in range(1, 4):
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.get(url, params=params, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                # Cache result
-                if cache_key:
-                    _cache[cache_key] = {
-                        'data': data,
-                        'expires': datetime.now() + timedelta(seconds=cache_ttl)
-                    }
-                
+            async with httpx.AsyncClient(timeout=timeout) as cli:
+                r = await cli.request(method, url, headers=headers, params=params)
+                if r.status_code in (429, 502, 503): 
+                    await asyncio.sleep(0.6 * i)
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if cache_key: 
+                    _cache.set(cache_key, data, cache_ttl)
                 return data
-                
-        except Exception as e:
-            if attempt == 2:  # Last attempt
-                raise e
-            await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
-    
-    raise Exception("Max retries exceeded")
+        except Exception:
+            if i == 3: 
+                raise
+            await asyncio.sleep(0.5 * i)

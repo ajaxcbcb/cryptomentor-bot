@@ -1,4 +1,3 @@
-
 from typing import List, Dict, Any
 from app.providers.http import fetch_json
 
@@ -22,7 +21,7 @@ async def get_top_usdt_coins(limit: int = 30) -> List[str]:
     
     return coins[:limit]
 
-async def get_24h_ticker(symbol: str) -> Dict[str, Any]:
+async def get_24h(symbol: str) -> Dict[str, Any]:
     """Get 24h ticker for a symbol"""
     url = f"{BINANCE_URL}/api/v3/ticker/24hr"
     params = {"symbol": f"{symbol.upper()}USDT"}

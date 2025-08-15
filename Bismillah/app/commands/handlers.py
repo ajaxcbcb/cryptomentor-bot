@@ -182,6 +182,6 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"❌ Error in market command: {e}")
         await safe_reply(update,
-            "❌ Terjadi kesalahan saat menganalisis pasar.",
+            f"❌ Terjadi kesalahan saat menganalisis pasar.\n\nError: {e}",
             prefer_html=True
         )
