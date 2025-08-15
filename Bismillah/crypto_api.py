@@ -1,9 +1,10 @@
 import os
+import time
 import logging
+import requests
+from data_provider import DataProvider
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-
-from data_provider import data_provider
 
 class CryptoAPI:
     """
@@ -12,53 +13,106 @@ class CryptoAPI:
     """
 
     def __init__(self):
-        self.provider = data_provider
-        logging.info("CryptoAPI initialized with Binance + CoinMarketCap DataProvider")
+        # Check for CoinAPI key
+        self.coinapi_key = os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY')
+        self.coinapi_base_url = "https://rest.coinapi.io/v1"
 
-    def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
-        """
-        Mendapatkan harga crypto real-time dengan fallback strategy
-        Priority: CoinMarketCap -> Binance -> Error
-        """
+        if self.coinapi_key:
+            print("✅ CryptoAPI initialized with CoinAPI + Binance + CoinMarketCap")
+        else:
+            print("⚠️ CryptoAPI initialized without CoinAPI key - using Binance + CoinMarketCap only")
+
+        self.data_provider = DataProvider()
+        self._cache = {}
+        self._cache_expiry = 60  # Cache for 60 seconds
+
+    def get_coinapi_price(self, symbol):
+        """Get price from CoinAPI (primary source)"""
+        if not self.coinapi_key:
+            return {'error': 'CoinAPI key not configured'}
+
         try:
-            symbol = symbol.upper().replace('USDT', '')
-
-            # Get prices using the provider
-            price_data = self.provider.get_realtime_prices([symbol])
-
-            if price_data.get('success') and symbol in price_data.get('prices', {}):
-                symbol_data = price_data['prices'][symbol]
-
-                result = {
-                    'symbol': symbol,
-                    'price': symbol_data.get('price', 0),
-                    'change_24h': symbol_data.get('change_24h', 0),
-                    'change_7d': symbol_data.get('change_7d', 0),
-                    'volume_24h': symbol_data.get('volume_24h', 0),
-                    'market_cap': symbol_data.get('market_cap', 0),
-                    'rank': symbol_data.get('rank', 0),
-                    'source': price_data.get('source', 'unknown'),
-                    'timestamp': datetime.now().isoformat(),
-                    'success': True
-                }
-                return result
+            # Convert symbol to CoinAPI format
+            if symbol.upper() == 'BTC':
+                coinapi_symbol = 'BTC'
+            elif symbol.upper() == 'ETH':
+                coinapi_symbol = 'ETH'
             else:
-                return {
-                    'error': f'Failed to get price for {symbol}',
-                    'source_attempted': price_data.get('source', 'unknown'),
-                    'success': False
-                }
+                coinapi_symbol = symbol.upper()
+
+            headers = {
+                'X-CoinAPI-Key': self.coinapi_key,
+                'Accept': 'application/json'
+            }
+
+            # Get current price
+            url = f"{self.coinapi_base_url}/exchangerate/{coinapi_symbol}/USD"
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                price = data.get('rate', 0)
+
+                if price > 0:
+                    return {
+                        'price': price,
+                        'source': 'coinapi',
+                        'symbol': symbol.upper(),
+                        'timestamp': time.time()
+                    }
+            else:
+                print(f"CoinAPI error {response.status_code}: {response.text}")
+                return {'error': f'CoinAPI HTTP {response.status_code}'}
 
         except Exception as e:
-            logging.error(f"Error in get_crypto_price for {symbol}: {e}")
-            return {'error': f'Price API error: {str(e)}', 'success': False}
+            print(f"CoinAPI request failed: {e}")
+            return {'error': f'CoinAPI request failed: {str(e)}'}
+
+        return {'error': 'No valid price data from CoinAPI'}
+
+    def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
+        """Get cryptocurrency price with caching and fallback"""
+        cache_key = f"price_{symbol.lower()}_{int(time.time() // self._cache_expiry)}"
+
+        if not force_refresh and cache_key in self._cache:
+            print(f"📦 Cache hit for {cache_key}")
+            return self._cache[cache_key]
+
+        print(f"🔄 Fetching fresh price data for {symbol}")
+
+        # Try CoinAPI first (if available)
+        if self.coinapi_key:
+            coinapi_result = self.get_coinapi_price(symbol)
+            if 'error' not in coinapi_result:
+                self._cache[cache_key] = coinapi_result
+                print(f"✅ Got price for {symbol} from CoinAPI: ${coinapi_result['price']:,.4f}")
+                return coinapi_result
+            else:
+                print(f"⚠️ CoinAPI failed for {symbol}: {coinapi_result['error']}")
+
+        # Fallback to data provider (CoinMarketCap + Binance)
+        price_data = self.data_provider.get_cryptocurrency_prices([symbol])
+
+        if price_data and symbol.upper() in price_data:
+            result = price_data[symbol.upper()]
+            result['source'] = 'data_provider'
+            self._cache[cache_key] = result
+            print(f"✅ Got price for {symbol} from DataProvider")
+            return result
+        else:
+            return {
+                'error': f'Failed to get price for {symbol} from any source',
+                'source_attempted': 'coinapi, data_provider',
+                'success': False
+            }
+
 
     def get_multiple_prices(self, symbols: List[str]) -> Dict[str, Any]:
         """
         Mendapatkan harga untuk multiple symbols sekaligus
         """
         try:
-            price_data = self.provider.get_realtime_prices(symbols)
+            price_data = self.data_provider.get_realtime_prices(symbols)
             return price_data
 
         except Exception as e:
@@ -70,7 +124,7 @@ class CryptoAPI:
         Mendapatkan funding rate dari Binance
         """
         try:
-            futures_data = self.provider.get_futures_data(symbol)
+            futures_data = self.data_provider.get_futures_data(symbol)
 
             if futures_data.get('success'):
                 funding_details = futures_data.get('data', {}).get('funding_details', {})
@@ -95,7 +149,7 @@ class CryptoAPI:
         Mendapatkan Open Interest dari Binance
         """
         try:
-            futures_data = self.provider.get_futures_data(symbol)
+            futures_data = self.data_provider.get_futures_data(symbol)
 
             if futures_data.get('success'):
                 oi_data = futures_data.get('data', {}).get('open_interest', {})
@@ -120,7 +174,7 @@ class CryptoAPI:
         Mendapatkan Long/Short ratio dari Binance
         """
         try:
-            futures_data = self.provider.get_futures_data(symbol)
+            futures_data = self.data_provider.get_futures_data(symbol)
 
             if futures_data.get('success'):
                 ls_data = futures_data.get('data', {}).get('long_short', {})
@@ -148,11 +202,11 @@ class CryptoAPI:
         Mendapatkan data futures dari Binance untuk compatibility
         """
         try:
-            futures_data = self.provider.get_futures_data(symbol)
+            futures_data = self.data_provider.get_futures_data(symbol)
 
             if futures_data.get('success'):
                 data = futures_data.get('data', {})
-                
+
                 # Extract key metrics for compatibility
                 result = {
                     'symbol': symbol,
@@ -180,7 +234,7 @@ class CryptoAPI:
         Mendapatkan data futures lengkap dari Binance
         """
         try:
-            futures_data = self.provider.get_futures_data(symbol)
+            futures_data = self.data_provider.get_futures_data(symbol)
 
             if futures_data.get('success'):
                 result = {
@@ -215,7 +269,7 @@ class CryptoAPI:
         Mendapatkan overview pasar dari CoinMarketCap
         """
         try:
-            return self.provider.get_market_overview()
+            return self.data_provider.get_market_overview()
 
         except Exception as e:
             logging.error(f"Error getting market overview: {e}")
@@ -226,7 +280,7 @@ class CryptoAPI:
         Mendapatkan informasi detail crypto dari CoinMarketCap
         """
         try:
-            return self.provider.get_coin_info(symbol)
+            return self.data_provider.get_coin_info(symbol)
 
         except Exception as e:
             logging.error(f"Error getting crypto info for {symbol}: {e}")
@@ -237,7 +291,7 @@ class CryptoAPI:
         Test koneksi ke semua API providers
         """
         try:
-            return self.provider.test_all_apis()
+            return self.data_provider.test_all_apis()
 
         except Exception as e:
             logging.error(f"Error testing API connections: {e}")

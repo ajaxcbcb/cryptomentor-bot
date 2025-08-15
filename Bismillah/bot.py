@@ -1868,6 +1868,10 @@ Gunakan `/subscribe` untuk upgrade!
         # Check all API keys status
         try:
             import os
+            # Check CoinAPI key (multiple possible environment variable names)
+            coinapi_key = os.getenv('COINAPI_KEY') or os.getenv('COINAPI_IO_KEY') or os.getenv('COIN_API_KEY')
+            coinapi_status = "🟢 **ACTIVE**" if coinapi_key else "🔴 **NO KEY**"
+            
             cmc_key = os.getenv('CMC_API_KEY') or os.getenv('COINMARKETCAP_API_KEY')
             cmc_status = "🟢 **ACTIVE**" if cmc_key else "🔴 **NO KEY**"
             
@@ -1877,6 +1881,7 @@ Gunakan `/subscribe` untuk upgrade!
             cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
             cryptonews_status = "🟢 **ACTIVE**" if cryptonews_key else "🔴 **NO KEY**"
         except:
+            coinapi_status = "🔴 **ERROR**"
             cmc_status = "🔴 **ERROR**"
             openai_status = "🔴 **ERROR**"
             cryptonews_status = "🔴 **ERROR**"
