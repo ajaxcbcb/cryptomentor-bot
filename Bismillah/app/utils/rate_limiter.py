@@ -1,41 +1,102 @@
 
+from __future__ import annotations
 import time
 import asyncio
-from typing import Dict, Optional
-from collections import defaultdict, deque
+from typing import Dict, Tuple, Callable, Awaitable, Optional, Hashable
+
+# Import config safely with fallback
+try:
+    from app.config import USE_RATE_LIMIT, RATE_LIMIT_QPS, BURST_TOKENS
+except ImportError:
+    # Fallback if config not available
+    import os
+    USE_RATE_LIMIT = os.getenv("USE_RATE_LIMIT", "true").lower() in ("1", "true", "yes")
+    RATE_LIMIT_QPS = float(os.getenv("RATE_LIMIT_QPS", "1.5"))
+    BURST_TOKENS = int(os.getenv("BURST_TOKENS", "3"))
 
 class RateLimiter:
-    """Simple rate limiter for API calls"""
-    
-    def __init__(self, max_calls: int = 100, time_window: int = 60):
-        self.max_calls = max_calls
-        self.time_window = time_window
-        self.calls: Dict[str, deque] = defaultdict(deque)
-    
-    def is_allowed(self, key: str) -> bool:
-        """Check if a call is allowed for the given key"""
-        now = time.time()
-        call_times = self.calls[key]
-        
-        # Remove old calls outside the time window
-        while call_times and call_times[0] <= now - self.time_window:
-            call_times.popleft()
-        
-        # Check if we're under the limit
-        if len(call_times) < self.max_calls:
-            call_times.append(now)
-            return True
-        
-        return False
-    
-    def get_reset_time(self, key: str) -> Optional[float]:
-        """Get the time when the rate limit will reset"""
-        call_times = self.calls[key]
-        if not call_times:
-            return None
-        
-        return call_times[0] + self.time_window
+    """
+    Token-bucket per key (mis. per-user atau per-command).
+    - qps: token per detik (rata-rata)
+    - burst: jumlah token maksimum (burst allowance)
+    - key: (scope, user_id) tuple, atau string lain yang hashable
+    """
+    def __init__(self, qps: float = 1.0, burst: int = 3):
+        self.qps = max(0.01, qps)
+        self.burst = max(1, burst)
+        self._store: Dict[Hashable, Tuple[float, float]] = {}  # key -> (tokens, last_ts)
+        self._lock = asyncio.Lock()
 
+    def _refill(self, tokens: float, last_ts: float) -> Tuple[float, float]:
+        now = time.monotonic()
+        tokens = min(self.burst, tokens + (now - last_ts) * self.qps)
+        return tokens, now
+
+    async def allow(self, key: Hashable, cost: float = 1.0) -> bool:
+        if not USE_RATE_LIMIT:
+            return True
+        async with self._lock:
+            tokens, last_ts = self._store.get(key, (self.burst, time.monotonic()))
+            tokens, now = self._refill(tokens, last_ts)
+            if tokens >= cost:
+                tokens -= cost
+                self._store[key] = (tokens, now)
+                return True
+            # belum cukup token
+            self._store[key] = (tokens, now)
+            return False
+
+    async def wait(self, key: Hashable, cost: float = 1.0) -> None:
+        """Block until allowed (gunakan untuk internal jobs)."""
+        if not USE_RATE_LIMIT:
+            return
+        while True:
+            if await self.allow(key, cost):
+                return
+            # hitung waktu tunggu kira2
+            await asyncio.sleep(max(0.05, cost / self.qps))
+
+# ---- Instance global yang diharapkan ada oleh kode lain ----
+rate_limiter = RateLimiter(qps=RATE_LIMIT_QPS, burst=BURST_TOKENS)
+
+# ---- Decorator helper untuk handlers ----
+def limit_command(scope: str, cost: float = 1.0):
+    """
+    Pakai di handler Telegram:
+    @limit_command("analyze", cost=1)
+    async def cmd_analyze(update, context): ...
+    """
+    def wrap(fn: Callable[..., Awaitable]):
+        async def inner(*args, **kwargs):
+            # cari update untuk ambil user.id
+            update = None
+            if args:
+                for a in args:
+                    # PTB: update arg pertama/ kedua
+                    if getattr(a, "effective_user", None):
+                        update = a
+                        break
+            if update and getattr(update, "effective_user", None):
+                uid = str(update.effective_user.id)
+                key = (scope, uid)
+            else:
+                key = (scope, "anonymous")
+
+            if await rate_limiter.allow(key, cost=cost):
+                return await fn(*args, **kwargs)
+            else:
+                # throttle message minimalis; jangan raise agar tidak crash
+                try:
+                    msg = getattr(update, "effective_message", None)
+                    if msg:
+                        await msg.reply_text("⏳ Terlalu banyak permintaan. Coba lagi sebentar...")
+                except Exception:
+                    pass
+                return None
+        return inner
+    return wrap
+
+# Legacy compatibility - keep existing classes for backward compatibility
 class AsyncRateLimiter:
     """Async rate limiter with delay functionality"""
     
@@ -44,14 +105,7 @@ class AsyncRateLimiter:
     
     async def acquire(self, key: str) -> None:
         """Acquire rate limit permission, waiting if necessary"""
-        while not self.limiter.is_allowed(key):
-            reset_time = self.limiter.get_reset_time(key)
-            if reset_time:
-                wait_time = max(0, reset_time - time.time())
-                if wait_time > 0:
-                    await asyncio.sleep(min(wait_time, 1))  # Wait max 1 second at a time
-            else:
-                await asyncio.sleep(0.1)  # Small delay if no reset time
+        await self.limiter.wait(key, 1.0)
 
 # Global rate limiters for different APIs
 api_rate_limiters = {
