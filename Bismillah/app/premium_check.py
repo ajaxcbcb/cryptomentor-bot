@@ -1,48 +1,26 @@
+import asyncio
+from app.db.local_db import is_premium as local_is_premium, get_user_credits as local_get_credits
 
-from datetime import datetime, timezone
-from app.supabase_conn import get_user_by_tid
-
-def is_premium(tid: int) -> bool:
-    """Check if user has active premium using Supabase data only"""
+def _run_async(coro):
+    """Helper to run async functions in sync context"""
     try:
-        u = get_user_by_tid(tid) or {}
-        if u.get("banned"): 
-            return False
-        if not u.get("is_premium"): 
-            return False
-        
-        pu = u.get("premium_until")
-        if pu is None:  # Lifetime premium
-            return True
-            
-        # Check if premium is still valid
-        try:
-            premium_until = datetime.fromisoformat(pu.replace('Z', '+00:00'))
-            return premium_until >= datetime.now(timezone.utc)
-        except Exception:
-            return False
-    except Exception:
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+def is_premium(user_id: int) -> bool:
+    """Check if user has premium status"""
+    try:
+        return _run_async(local_is_premium(str(user_id)))
+    except Exception as e:
+        print(f"Error checking premium status: {e}")
         return False
 
-def get_user_credits(tid: int) -> int:
-    """Get user credits from Supabase"""
+def get_user_credits(user_id: int) -> int:
+    """Get user credit balance"""
     try:
-        u = get_user_by_tid(tid) or {}
-        return u.get("credits", 0)
-    except Exception:
+        return _run_async(local_get_credits(str(user_id)))
+    except Exception as e:
+        print(f"Error getting user credits: {e}")
         return 0
-
-def is_banned(tid: int) -> bool:
-    """Check if user is banned"""
-    try:
-        u = get_user_by_tid(tid) or {}
-        return bool(u.get("banned", False))
-    except Exception:
-        return False
-
-def get_user_info(tid: int) -> dict:
-    """Get complete user info from Supabase"""
-    try:
-        return get_user_by_tid(tid) or {}
-    except Exception:
-        return {}

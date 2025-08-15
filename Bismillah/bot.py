@@ -882,14 +882,14 @@ class TelegramBot:
 
         user_id = update.message.from_user.id
 
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+            is_premium = local_is_premium(user_id)
+            credits = local_get_credits(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
             credits = 0
 
         is_admin = self.is_admin(user_id)
@@ -941,14 +941,14 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+            is_premium = local_is_premium(user_id)
+            credits = local_get_credits(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
             credits = 0
 
         is_admin = self.is_admin(user_id)
@@ -1015,14 +1015,14 @@ class TelegramBot:
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         user_id = update.message.from_user.id
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+            is_premium = local_is_premium(user_id)
+            credits = local_get_credits(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
             credits = 0
 
         is_admin = self.is_admin(user_id)
@@ -1119,14 +1119,14 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+            is_premium = local_is_premium(user_id)
+            credits = local_get_credits(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
             credits = 0
 
         is_admin = self.is_admin(user_id)
@@ -1194,14 +1194,14 @@ class TelegramBot:
                     timeframe = parts[3]
 
                     # Check credits
-                    # Use Supabase for premium checks
+                    # Use local database for premium checks
                     try:
-                        from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-                        is_premium = sb_is_premium(user_id)
-                        credits = sb_get_credits(user_id)
+                        from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+                        is_premium = local_is_premium(user_id)
+                        credits = local_get_credits(user_id)
                     except Exception as e:
-                        print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-                        is_premium = False  # Default to free if Supabase fails
+                        print(f"⚠️ Local database check failed, using fallback: {e}")
+                        is_premium = False  # Default to free if database fails
                         credits = 0
 
                     is_admin = self.is_admin(user_id)
@@ -1363,14 +1363,14 @@ class TelegramBot:
         """Handle /credits command"""
         user_id = update.message.from_user.id
 
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+            from app.premium_check import is_premium as local_is_premium, get_user_credits as local_get_credits
+            is_premium = local_is_premium(user_id)
+            credits = local_get_credits(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
             credits = 0
 
         is_admin = self.is_admin(user_id)
@@ -1592,13 +1592,13 @@ Harga akan diambil real-time dari CoinAPI."""
         """Handle /subscribe command"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "Tidak ada username"
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium
-            is_premium = sb_is_premium(user_id)
+            from app.premium_check import is_premium as local_is_premium
+            is_premium = local_is_premium(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
 
         user_data = self.db.get_user(user_id)
         is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
@@ -1678,13 +1678,13 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium
-            is_premium = sb_is_premium(user_id)
+            from app.premium_check import is_premium as local_is_premium
+            is_premium = local_is_premium(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
 
         # Get bot username dynamically
         try:
@@ -1822,10 +1822,10 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             # Get AI response
             response = self.ai.get_ai_response(question, 'id')
-            # Premium access check using Supabase
+            # Premium access check using local database
             try:
-                from app.premium_check import is_premium as sb_is_premium_ask_ai
-                if not sb_is_premium_ask_ai(user_id):
+                from app.premium_check import is_premium as local_is_premium_ask_ai
+                if not local_is_premium_ask_ai(user_id):
                     await update.effective_message.reply_text(
                         "⚠️ **Premium Required**\n\n"
                         "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
@@ -1834,7 +1834,7 @@ Gunakan `/subscribe` untuk upgrade!
                     )
                     return
             except Exception as e:
-                print(f"⚠️ Supabase premium check failed for ask_ai, using fallback: {e}")
+                print(f"⚠️ Local database check failed for ask_ai, using fallback: {e}")
                 # Fallback to local db check if Supabase fails
                 if not self.db.is_user_premium(user_id):
                     await update.effective_message.reply_text(
@@ -2384,13 +2384,13 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
         user_id = update.message.from_user.id
-        # Use Supabase for premium checks
+        # Use local database for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium
-            is_premium = sb_is_premium(user_id)
+            from app.premium_check import is_premium as local_is_premium
+            is_premium = local_is_premium(user_id)
         except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
+            print(f"⚠️ Local database check failed, using fallback: {e}")
+            is_premium = False  # Default to free if database fails
 
         if not is_premium:
             await update.message.reply_text(
@@ -2569,64 +2569,6 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             "Gunakan `/confirm_broadcast` untuk mengirim atau `/cancel_broadcast` untuk membatalkan.",
             parse_mode='Markdown'
         )
-
-    async def confirm_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /confirm_broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.pending_broadcast:
-            await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
-            return
-
-        if self.broadcast_in_progress:
-            await update.message.reply_text("❌ Broadcast sedang berlangsung. Harap tunggu.")
-            return
-
-        # Start broadcast
-        self.broadcast_in_progress = True
-        all_users = self.db.get_all_users()
-
-        await update.message.reply_text(f"📢 Memulai broadcast ke {len(all_users)} users...")
-
-        success_count = 0
-        for user_data in all_users:
-            user_id_target = user_data.get('user_id')
-            if not user_id_target:
-                continue
-
-            try:
-                # Send message with exact formatting - try markdown first, fallback to plain text
-                try:
-                    await self.application.bot.send_message(
-                        chat_id=user_id_target,
-                        text=self.pending_broadcast,
-                        parse_mode='Markdown'
-                    )
-                except Exception as markdown_error:
-                    # If markdown fails, send as plain text to preserve exact formatting
-                    print(f"Markdown failed for user {user_id_target}, sending as plain text: {markdown_error}")
-                    await self.application.bot.send_message(
-                        chat_id=user_id_target,
-                        text=self.pending_broadcast,
-                        parse_mode=None
-                    )
-
-                success_count += 1
-                await asyncio.sleep(0.1)  # Rate limiting
-
-            except Exception as e:
-                print(f"Failed to send broadcast to user {user_id_target}: {e}")
-                continue
-
-        # Cleanup
-        self.pending_broadcast = None
-        self.broadcast_in_progress = False
-
-        await update.message.reply_text(f"✅ Broadcast selesai! Berhasil dikirim ke {success_count}/{len(all_users)} users.")
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
