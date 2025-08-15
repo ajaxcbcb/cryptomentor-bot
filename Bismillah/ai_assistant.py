@@ -1111,13 +1111,15 @@ class AIAssistant:
 
 {trading_setup_text}
 
-🔬 **TECHNICAL ANALYSIS ({timeframe})**:
+```
+🔬 TECHNICAL ANALYSIS ({timeframe}):
 • EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
 • EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
 • RSI(14): {rsi_value:.1f} ({rsi_condition})
 • MACD: {macd_value:.4f} ({macd_condition})
 • ATR: ${primary_indicators.get('atr', 0):,.4f}
 • Volume Trend: {signal_data.get('volume_trend', 'Normal')}
+```
 
 🎯 **SUPPLY & DEMAND ZONES**:"""
 
@@ -1207,117 +1209,196 @@ class AIAssistant:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
     async def generate_futures_signals(self, language='id', crypto_api=None, query_args=None):
-        """Generate comprehensive futures signals with Top 30 volume scanning and confidence ≥ 75%"""
+        """Generate comprehensive futures signals with SnD analysis"""
         try:
             print(f"🔄 Starting futures signals generation...")
 
-            # Import the new analysis service using proper package import
-            try:
-                from app.services import futures_signals
-            except ImportError as e:
-                print(f"❌ Failed to import futures_signals: {e}")
-                return self._error_fallback("FUTURES_SIGNALS", "analysis service not available")
+            # Target symbols for analysis
+            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK', 
+                          'BNB', 'TRX', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT', 'ATOM', 'FIL', 'ETC',
+                          'ALGO', 'VET', 'MANA', 'SAND', 'SHIB']
 
-            # Determine scan target
-            target_symbols = None
+            # If specific symbol requested, use that
             if query_args and len(query_args) > 0:
-                # If specific symbols requested
-                target_symbols = [arg.upper() for arg in query_args if len(arg) <= 6]
-                if not target_symbols:
-                    target_symbols = None  # Fall back to Top 30
+                first_arg = query_args[0].upper()
+                if len(first_arg) <= 5 and first_arg in target_symbols: # Check if it's a valid symbol and short enough
+                    target_symbols = [first_arg]
+                else:
+                    # Randomize symbol selection for variety each time
+                    import random
+                    target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
+            else:
+                # Randomize symbol selection for variety each time
+                import random
+                target_symbols = random.sample(target_symbols, min(15, len(target_symbols)))
 
-            # Use new analysis service with Top 30 auto-scan if no symbols specified
-            analysis_results = await futures_signals(target_symbols, threshold=75.0)
+            all_signals = []
 
-            def _fmt_percent(x: float) -> str:
-                return f"{x:.2f}".rstrip("0").rstrip(".")
+            # Scan symbols for signals
+            for symbol in target_symbols[:3]:  # Limit to 3 for performance
+                try:
+                    # Get OHLCV data with perp market for futures
+                    ohlcv_data = await crypto_api.get_ohlcv_data(symbol, period="5MIN", limit=300, market="perp")
 
-            # Format response header
-            now = self._get_wib_time()
-            scan_type = f"Top 30 by Volume" if not target_symbols else f"Specific: {', '.join(target_symbols[:5])}"
-            
-            if not analysis_results:
+                    if not ohlcv_data or not ohlcv_data.get('success'):
+                        print(f"⚠️ OHLCV data failed for {symbol}: {ohlcv_data.get('error', 'Unknown error') if ohlcv_data else 'No data'}")
+                        continue
+
+                    # Process OHLCV data - convert list to DataFrame
+                    raw_data = ohlcv_data.get('data', [])
+                    if not raw_data or len(raw_data) == 0:
+                        print(f"⚠️ Empty OHLCV data for {symbol}")
+                        continue
+                    
+                    # Convert to DataFrame for technical analysis
+                    try:
+                        import pandas as pd
+                        ohlcv_df = pd.DataFrame(raw_data)
+                        
+                        # Rename columns to match expected format
+                        column_mapping = {
+                            'close': 'price_close',
+                            'high': 'price_high', 
+                            'low': 'price_low',
+                            'open': 'price_open',
+                            'volume': 'volume_traded'
+                        }
+                        ohlcv_df = ohlcv_df.rename(columns=column_mapping)
+                        
+                        if ohlcv_df.empty or len(ohlcv_df) < 20:
+                            print(f"⚠️ Insufficient OHLCV data for {symbol}: {len(ohlcv_df)} rows")
+                            continue
+                            
+                    except Exception as df_error:
+                        print(f"⚠️ DataFrame conversion error for {symbol}: {df_error}")
+                        continue
+
+                    # Calculate technical indicators
+                    indicators = self.calculate_technical_indicators(ohlcv_df)
+                    if 'error' in indicators:
+                        print(f"⚠️ Error calculating indicators for {symbol}: {indicators['error']}")
+                        continue
+                    
+                    # Get futures and price data
+                    futures_data = crypto_api.get_futures_data(symbol)
+                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+
+                    if 'error' in price_data or not price_data.get('success'):
+                        continue
+
+                    current_price = self._normalize_data(price_data, ['price', 'current_price'])
+                    if not current_price:
+                        continue
+
+                    # Generate signal
+                    signal = self._enhanced_scan_symbol_for_signal(symbol, crypto_api)
+                    
+                    if signal:
+                        all_signals.append(signal)
+                        print(f"✅ Found signal: {symbol} - {signal['confidence']:.2f}% ({signal['direction']})")
+                except Exception as e:
+                    print(f"Error scanning {symbol}: {e}")
+                    continue
+
+            # Apply filtering and formatting rules
+            filtered_signals = self._filter_and_format_signals(all_signals)
+
+            # Format response
+            if not filtered_signals:
                 return f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-🕐 Scan Time: {now}
+🕐 Scan Time: {self._get_wib_time()}
 📊 Signals Found: 0 (Confidence ≥ 75.00%)
-🎯 Scan Type: {scan_type}
 
 ❌ Tidak ada sinyal memenuhi syarat
+
+📊 Symbols Scanned: {', '.join(target_symbols)}
+⚠️ Status: Tidak ada setup trading yang jelas saat ini
 
 💡 Kemungkinan Penyebab:
 • Market dalam kondisi consolidation
 • Volatilitas rendah saat ini
-• Confidence threshold terlalu tinggi
+• Menunggu momentum yang lebih jelas
 
 🔄 Alternatif:
 • Coba /futures btc untuk analisis spesifik
 • Gunakan /analyze eth untuk analisis fundamental
 • Monitor kondisi market dengan /market
 
-📡 Next scan akan menggunakan Top 30 by volume berbeda"""
+📡 Next scan akan mengacak koin berbeda"""
 
-            # Format successful signals
+            # Format signals message
             message = f"""🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS
 
-🕐 Scan Time: {now}
-📊 Signals Found: {len(analysis_results)} (Confidence ≥ 75.00%)
-🎯 Scan Type: {scan_type}
-
-📌 **TOP SIGNALS:**
+🕐 Scan Time: {self._get_wib_time()}
+📊 Signals Found: {len(filtered_signals)} (Confidence ≥ 75.00%)
 
 """
 
-            for i, result in enumerate(analysis_results, 1):
-                direction = 'LONG' if result.get('trend') == 'up' else 'SHORT'
-                direction_emoji = "🟢" if direction == 'LONG' else "🔴"
-                
-                # Calculate stop loss and take profits based on ATR
-                entry = result.get('entry', result.get('price', 0))
-                atr_val = result.get('atr', entry * 0.02)
-                
-                if direction == 'LONG':
-                    sl = entry - (atr_val * 2)
-                    tp1 = entry + (atr_val * 1.5)
-                    tp2 = entry + (atr_val * 3)
-                else:
-                    sl = entry + (atr_val * 2)
-                    tp1 = entry - (atr_val * 1.5)
-                    tp2 = entry - (atr_val * 3)
+            for i, signal in enumerate(filtered_signals, 1):
+                direction_emoji = "🟢" if signal['direction'] in ['LONG', 'BUY'] else "🔴"
 
-                # Get 24h change if available
-                symbol = result['coin']
+                # Get 24h change data
+                symbol = signal['symbol']
+                price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
+                change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
+
+                # Format dengan formatter baru
                 try:
-                    price_data = crypto_api.get_crypto_price(symbol) if crypto_api else {}
-                    change_24h = price_data.get('change_24h', 0) if price_data.get('success') else 0
-                except:
-                    change_24h = 0
+                    import sys
+                    import os
+                    sys.path.append(os.path.join(os.path.dirname(__file__), 'app', 'formatters'))
+                    from trade_setup import format_detailed_setup
+                    
+                    # Prepare setup data
+                    setup_data = {
+                        "entry": signal.get('entry'),
+                        "stop": signal.get('sl'),
+                        "tp1": signal.get('tp1'), "tp1_pct": 50,
+                        "tp2": signal.get('tp2'), "tp2_pct": 30,
+                        "rr": float(signal.get('rr_ratio', '2.0').split(':')[0]) if isinstance(signal.get('rr_ratio'), str) else signal.get('rr_ratio', 2.0),
+                        "max_risk_pct": 2.0
+                    }
+                    
+                    mini_setup = format_detailed_setup(setup_data, title=f"{i}. {signal['symbol']} {direction_emoji} {signal['direction']}")
+                    
+                    message += f"""{mini_setup}
+⭐️ Confidence: {signal['confidence']:.2f}%
+🔄 Trend: {signal['trend']}
+⚡️ Structure: {signal['structure']} Bias
+🧠 Reason: {signal['reason']}
+📈 24h Change: {change_24h:+.2f}%
 
-                message += f"""{i}. **{symbol}** {direction_emoji} **{direction}**
-⭐️ **Confidence**: {_fmt_percent(result['confidence'])}%
-• 🎯 **Entry**: ${entry:.4f}
-• 🛑 **Stop Loss**: ${sl:.4f}  
-• 1️⃣ **TP1**: ${tp1:.4f} (50%)
-• 2️⃣ **TP2**: ${tp2:.4f} (50%)
-• 📊 **RSI**: {result['rsi']:.1f} | **MACD**: {result['macd_hist']:.4f}
-• 📈 **24h Change**: {change_24h:+.2f}%
+"""
+                except ImportError:
+                    # Fallback format
+                    message += f"""{i}. {signal['symbol']} {direction_emoji} {signal['direction']}
+⭐️ Confidence: {signal['confidence']:.2f}%
+• 🎯 Entry: ${signal['entry']:.2f}
+• 🛑 Stop Loss: ${signal['sl']:.2f}
+• 1️⃣ TP1: ${signal['tp1']:.2f}
+• 2️⃣ TP2: ${signal['tp2']:.2f}
+• ⚖️ R/R Ratio: {signal['rr_ratio']}
+🔄 Trend: {signal['trend']}
+⚡️ Structure: {signal['structure']} Bias
+🧠 Reason: {signal['reason']}
+📈 24h Change: {change_24h:+.2f}%
 
 """
 
-            message += """⚠️ **TRADING DISCLAIMER:**
-• Signals berbasis Top 30 volume + confidence ≥75%
-• Gunakan proper position sizing (1-3% per trade)  
-• Set stop loss sebelum entry
-• Take profit secara bertahap
+            message += """⚠️ TRADING DISCLAIMER:
+• Signals berbasis Supply & Demand analysis
+• Gunakan proper risk management
+• Position sizing sesuai risk level
 • DYOR sebelum trading
 
-📡 **Data Sources**: Binance Top 30 USDT Volume + Technical Analysis
-🔄 **Update Frequency**: Real-time scan dengan Top 30 otomatis"""
+📡 Next scan akan mengacak koin berbeda
+🔄 Jalankan ulang untuk variasi sinyal"""
 
             return message
 
         except Exception as e:
-            return self._error_fallback("FUTURES_SIGNALS", f"Top 30 scan process: {str(e)[:50]}")
+            return self._error_fallback("FUTURES_SIGNALS", f"scan process: {str(e)[:50]}")
 
     # ============ HELPER METHODS ============
 
@@ -1649,14 +1730,14 @@ class AIAssistant:
         try:
             if direction == 'BUY':
                 entry = current_price * 0.999
-                stop_loss = entry - (atr * 2)  # Stop loss below entry for BUY
-                tp1 = entry + (atr * 1.5)
-                tp2 = entry + (atr * 3)
+                stop_loss = current_price - (atr * 2)
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 3)
             elif direction == 'SELL':
                 entry = current_price * 1.001
-                stop_loss = entry + (atr * 2)  # Stop loss above entry for SELL
-                tp1 = entry - (atr * 1.5)
-                tp2 = entry - (atr * 3)
+                stop_loss = current_price + (atr * 2)
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 3)
             else:  # NEUTRAL
                 return {
                     'entry': current_price,
@@ -1739,11 +1820,96 @@ class AIAssistant:
             return None
 
     async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
-        """Enhanced scan for trading signal with more detailed logic - DEPRECATED"""
-        # This method is deprecated and replaced by the new analysis service
-        # to avoid coroutine errors. Use app.services.analysis.analyze_coin_futures instead
-        print(f"⚠️ _enhanced_scan_symbol_for_signal is deprecated for {symbol}")
-        return None
+        """Enhanced scan for trading signal with more detailed logic"""
+        try:
+            if not crypto_api:
+                return None
+
+            # Get price and futures data
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = crypto_api.get_futures_data(symbol)
+
+            if 'error' in price_data or not price_data.get('success'):
+                return None
+
+            current_price = self._normalize_data(price_data, ['price', 'current_price'])
+            if not current_price:
+                return None
+
+            # Get 1h and 4h technical analysis
+            timeframes_to_scan = {
+                '1h': self.get_coinapi_ohlcv_data(symbol, '1HRS', 100),
+                '4h': self.get_coinapi_ohlcv_data(symbol, '4HRS', 100)
+            }
+
+            all_indicators = {}
+            for tf, ohlcv_data in timeframes_to_scan.items():
+                if ohlcv_data and ohlcv_data.get('success'):
+                    indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                    if 'error' not in indicators:
+                        all_indicators[tf] = indicators
+
+            if not all_indicators.get('1h'):
+                return None # Need at least 1h indicators
+
+            indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
+
+            # Generate signal with enhanced logic
+            signal_data = self._generate_enhanced_trading_signal(
+                indicators, all_indicators.get('4h', {}), futures_data, current_price, {}
+            )
+
+            # Ensure confidence is within bounds (75-100%)
+            confidence = max(75, min(100, signal_data['confidence']))
+
+            if signal_data['direction'] == 'NEUTRAL' or confidence < 75:
+                return None
+
+            # Calculate trading levels
+            atr = indicators.get('atr', current_price * 0.02)
+            levels = self._calculate_advanced_trading_levels(current_price, signal_data, indicators, {})
+
+            # Determine trend and structure
+            ema_50 = indicators.get('ema_50', 0)
+            ema_200 = indicators.get('ema_200', 0)
+            primary_trend = 'Bullish' if ema_50 > ema_200 else 'Bearish'
+
+            # Determine reason based on technical indicators
+            rsi = indicators.get('rsi', 50)
+            macd = indicators.get('macd_histogram', 0)
+
+            if signal_data['direction'] in ['BUY', 'LONG']:
+                if rsi < 50 and macd > 0:
+                    reason = 'Oversold bounce with momentum'
+                elif ema_50 > ema_200 and rsi > 40:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
+            else:
+                if rsi > 50 and macd < 0:
+                    reason = 'Overbought rejection with momentum'
+                elif ema_50 < ema_200 and rsi < 60:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
+
+            return {
+                'symbol': symbol,
+                'direction': signal_data['direction'],
+                'confidence': confidence,
+                'entry': levels['entry'],
+                'sl': levels['stop_loss'],
+                'tp1': levels['tp1'],
+                'tp2': levels['tp2'],
+                'rr': f"{levels.get('rr_ratio', 2.0):.1f}:1",
+                'primary_trend': primary_trend,
+                'structure': signal_data['direction'],
+                'reason': reason
+            }
+
+        except Exception as e:
+            print(f"Error enhanced scanning {symbol}: {e}")
+            return None
 
     def _get_confidence_level(self, confidence):
         """Get confidence level description"""
@@ -1893,23 +2059,23 @@ class AIAssistant:
                 entry = current_price * 0.998
                 entry_min = current_price * 0.995
                 entry_max = current_price * 1.001
-                stop_loss = entry - (atr * 2.5)  # Stop loss below entry for LONG
+                stop_loss = current_price - (atr * 2.5)
 
                 # Multiple TP levels
-                tp1 = entry + (atr * 1.5)
-                tp2 = entry + (atr * 2.5)
-                tp3 = entry + (atr * 4.0)
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 2.5)
+                tp3 = current_price + (atr * 4.0)
 
             elif direction == 'SHORT':
                 entry = current_price * 1.002
                 entry_min = current_price * 0.999
                 entry_max = current_price * 1.005
-                stop_loss = entry + (atr * 2.5)  # Stop loss above entry for SHORT
+                stop_loss = current_price + (atr * 2.5)
 
                 # Multiple TP levels
-                tp1 = entry - (atr * 1.5)
-                tp2 = entry - (atr * 2.5)
-                tp3 = entry - (atr * 4.0)
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 2.5)
+                tp3 = current_price - (atr * 4.0)
 
             else:  # NEUTRAL
                 return {

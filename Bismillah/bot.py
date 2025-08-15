@@ -248,10 +248,6 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("autosignal_temp_on", self.start_auto_signals_command)) # Assuming start is the desired action
 
 
-            # Add health check command
-            from app.commands.handlers import cmd_health
-            self.application.add_handler(CommandHandler("health", cmd_health))
-
             # Add callback query handler
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
