@@ -45,7 +45,7 @@ async def cmd_futures_signals(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     coins = [c.upper() for c in (context.args or [])]
     threshold = 75.0  # High confidence threshold
-    
+
     print(f"🚨 /futures_signals from user {user_id} - coins: {coins}")
 
     try:
@@ -172,16 +172,27 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /market command"""
     user_id = update.effective_user.id
     syms = [s.upper() for s in (context.args or [])]
-    
+
     print(f"📊 /market from user {user_id} - symbols: {syms}")
 
     try:
+        # Build comprehensive market report
         rep = await build_market_report(symbols=syms or None)
+
+        # Format with HTML support
         text = format_market_report(rep)
+
+        # Send with HTML formatting
         await safe_reply(update, text, prefer_html=True)
+
+        print(f"✅ Market analysis completed, sending response ({len(text)} chars)")
+
     except Exception as e:
         print(f"❌ Error in market command: {e}")
         await safe_reply(update,
-            f"❌ Terjadi kesalahan saat menganalisis pasar.\n\nError: {e}",
-            prefer_html=True
+            f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n"
+            f"Error: {str(e)[:100]}...\n\n"
+            "🔄 Silakan coba lagi dalam beberapa menit.\n"
+            "💡 Pastikan CMC_API_KEY tersedia untuk data optimal.",
+            prefer_html=False
         )
