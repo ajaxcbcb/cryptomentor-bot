@@ -11,7 +11,7 @@ def db_status():
     return {
         'mode': 'local_sqlite',
         'ready': True,
-        'note': 'SQLite database at /mnt/data/app.db'
+        'note': 'Local SQLite database ready - No Supabase dependencies'
     }
 
 def _run_async(coro):

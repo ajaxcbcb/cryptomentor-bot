@@ -276,20 +276,8 @@ class Database:
                 # Update user info if provided (keep existing data intact)
                 self.update_user_info(telegram_id, username, first_name, last_name, language_code)
 
-                # Sync with Supabase if enabled
-                if self.supabase_enabled:
-                    try:
-                        from supabase_client import add_user
-                        sync_result = add_user(
-                            user_id=telegram_id,
-                            username=username,
-                            first_name=first_name,
-                            last_name=last_name,
-                            is_premium=existing_user.get('is_premium', False)
-                        )
-                        print(f"🔄 Supabase sync result for existing user: {sync_result['success']}")
-                    except Exception as sync_error:
-                        print(f"⚠️ Supabase sync failed for existing user: {sync_error}")
+                # Local database only - no sync needed
+                print(f"✅ User {telegram_id} updated in local database")
 
                 return True
 
@@ -338,27 +326,8 @@ class Database:
 
             self.cursor.execute("COMMIT")
 
-            # Sync with Supabase if enabled
-            if self.supabase_enabled:
-                try:
-                    from supabase_client import add_user
-                    print(f"🔄 Syncing new user {telegram_id} to Supabase...")
-                    sync_result = add_user(
-                        user_id=telegram_id,
-                        username=clean_username,
-                        first_name=clean_first_name,
-                        last_name=clean_last_name,
-                        is_premium=False
-                    )
-
-                    if sync_result["success"]:
-                        print(f"✅ User {telegram_id} successfully synced to Supabase")
-                        # Verify user count immediately
-                        if hasattr(self, 'get_live_user_count'):
-                            live_count = self.get_live_user_count()
-                            print(f"📊 Live Supabase user count after sync: {live_count}")
-                    else:
-                        print(f"❌ Supabase sync failed: {sync_result.get('error')}")
+            # Using local SQLite database only
+            print(f"✅ User {telegram_id} saved to local database")nt(f"❌ Supabase sync failed: {sync_result.get('error')}")
 
                 except Exception as sync_error:
                     print(f"❌ Critical Supabase sync error: {sync_error}")

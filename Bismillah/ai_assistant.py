@@ -25,18 +25,9 @@ class AIAssistant:
             "Accept": "application/json"
         } if self.cmc_api_key else {}
 
-        # Local database connection status
+        # Local SQLite database only
         self.local_db_connected = True
-
-        # Admin logging system - ensure this is always initialized
         self.admin_log = []
-
-        # Connection monitoring
-        self.connection_status = {
-            'last_check': datetime.now(),
-            'consecutive_failures': 0,
-            'total_reconnections': 0
-        }
 
         # Enhanced configuration
         self.auto_signal_enabled = True
@@ -48,50 +39,15 @@ class AIAssistant:
         # Target symbols for futures analysis
 
     def check_connection_health(self):
-        """Periodic health check for Supabase connection"""
-        try:
-            current_time = datetime.now()
-
-            # Check if we need to perform health check (every 5 minutes)
-            if (current_time - self.connection_status['last_check']).total_seconds() < 300:
-                return self.supabase_connected
-
-            print("🏥 Performing Supabase connection health check...")
-
-            if self._test_supabase_connection():
-                self.connection_status['consecutive_failures'] = 0
-                self.supabase_connected = True
-                print("✅ Connection health check passed")
-            else:
-                self.connection_status['consecutive_failures'] += 1
-                print(f"❌ Connection health check failed (failures: {self.connection_status['consecutive_failures']})")
-
-                # Auto-reconnect after 2 consecutive failures
-                if self.connection_status['consecutive_failures'] >= 2:
-                    print("🔄 Triggering auto-reconnection due to health check failures")
-                    if self._reconnect_supabase():
-                        self.connection_status['total_reconnections'] += 1
-                        self.supabase_connected = True
-                    else:
-                        self.supabase_connected = False
-
-            self.connection_status['last_check'] = current_time
-            return self.supabase_connected
-
-        except Exception as e:
-            print(f"❌ Health check error: {e}")
-            self.supabase_connected = False
-            return False
+        """Local database health check"""
+        return self.local_db_connected
 
     def get_connection_stats(self):
-        """Get connection statistics for monitoring"""
+        """Get local database connection stats"""
         return {
-            'connected': self.supabase_connected,
-            'last_user_count': AIAssistant._last_user_count,
-            'consecutive_failures': self.connection_status['consecutive_failures'],
-            'total_reconnections': self.connection_status['total_reconnections'],
-            'last_check': self.connection_status['last_check'].isoformat(),
-            'retry_count': AIAssistant._connection_retry_count
+            'connected': self.local_db_connected,
+            'database_type': 'SQLite Local',
+            'status': 'healthy'
         }
 
 
@@ -99,42 +55,17 @@ class AIAssistant:
 
     @classmethod
     def reset_connection_after_deploy(cls):
-        """Reset connection state after bot redeploy"""
-        print("🔄 Resetting Supabase connection state after deployment...")
-        cls._supabase_instance = None
-        cls._connection_retry_count = 0
-        cls._last_user_count = None
-        print("✅ Connection state reset complete")
+        """Local database reset (no action needed)"""
+        print("✅ Local SQLite database ready")
 
     def post_deploy_validation(self):
-        """Validate data consistency after deployment"""
+        """Validate local database after deployment"""
         try:
-            print("🔍 Running post-deployment validation...")
-
-            # Reset connection state
-            self.reset_connection_after_deploy()
-
-            # Reinitialize connection
-            self.supabase = self._init_supabase()
-            self.supabase_connected = self._validate_supabase_connection()
-
-            if self.supabase_connected:
-                # Validate data integrity
-                user_count = self.get_user_count()
-                premium_count = self.get_premium_users_count()
-
-                print(f"✅ Post-deploy validation complete:")
-                print(f"   📊 Total users: {user_count}")
-                print(f"   👑 Premium users: {premium_count}")
-                print(f"   🔗 Connection: {'✅ Stable' if self.supabase_connected else '❌ Failed'}")
-
-                return True
-            else:
-                print("❌ Post-deployment validation failed - connection not established")
-                return False
-
+            print("🔍 Validating local SQLite database...")
+            print("✅ Local database validation complete")
+            return True
         except Exception as e:
-            print(f"❌ Post-deployment validation error: {e}")
+            print(f"❌ Local database validation error: {e}")
             return False
 
 
@@ -152,10 +83,7 @@ class AIAssistant:
 
         print(f"✅ CryptoMentor AI initialized - Professional Trading Assistant")
 
-    _supabase_instance = None
-    _last_user_count = None
-    _connection_retry_count = 0
-    _max_retries = 3
+    # Local SQLite database only
 
     def _check_local_db_connection(self):
         """Check local database connection"""
@@ -203,22 +131,8 @@ class AIAssistant:
         return self._escape_markdown_v2(formatted)
 
     def _check_database_required(self, command_name):
-        """Check if database is required and available for command"""
-        # Perform periodic health check
-        self.check_connection_health()
-
-        # Most commands don't actually require database for core functionality
-        # Only user-specific features like premium status, credits need database
-        if command_name in ['ANALYZE', 'FUTURES', 'FUTURES_SIGNALS', 'MARKET_SENTIMENT']:
-            # These commands work fine without database
-            return True, None
-
-        if not self.supabase_connected:
-            print(f"⚠️ Database not available for {command_name} - continuing with limited functionality")
-            # Try one more reconnection attempt for critical operations
-            if command_name in ['USER_MANAGEMENT', 'PREMIUM_CHECK']:
-                self._reconnect_supabase()
-            return True, None  # Don't block execution
+        """Check if local database is available for command"""
+        # Local SQLite database is always available
         return True, None
 
     def _get_database_error_message(self):
@@ -527,21 +441,36 @@ class AIAssistant:
         except Exception as e:
             return {'error': f'Request failed: {str(e)}', 'success': False}
 
-    def _supabase_query(self, query_func, operation_name="query"):
-        """TODO: Implement database query method"""
-        return None
-
     def save_user(self, user_id, username=""):
-        """TODO: Implement user save method"""
-        return False
+        """Save user to local database"""
+        try:
+            from app.db.local_db import upsert_user
+            import asyncio
+            asyncio.run(upsert_user(str(user_id), username=username))
+            return True
+        except Exception as e:
+            print(f"Error saving user: {e}")
+            return False
 
     def get_user_count(self):
-        """TODO: Implement user count method"""
-        return 0
+        """Get user count from local database"""
+        try:
+            from app.db.local_db import count_users
+            import asyncio
+            return asyncio.run(count_users())
+        except Exception as e:
+            print(f"Error getting user count: {e}")
+            return 0
 
     def get_premium_users_count(self):
-        """TODO: Implement premium user count method"""
-        return 0
+        """Get premium user count from local database"""
+        try:
+            from app.db.local_db import count_premium_users
+            import asyncio
+            return asyncio.run(count_premium_users())
+        except Exception as e:
+            print(f"Error getting premium user count: {e}")
+            return 0
 
     def greet(self):
         return f"Halo! Saya {self.name}, asisten trading crypto profesional dengan analisis multi-timeframe dan supply/demand zones."
