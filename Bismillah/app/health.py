@@ -56,20 +56,7 @@ def check_cmc() -> Tuple[bool, str]:
     except Exception as e:
         return False, f"request_error: {e}"
 
-def check_cryptonews() -> Tuple[bool, str]:
-    base = os.getenv("CRYPTONEWS_BASE_URL", "https://cryptonews-api.com")
-    key = os.getenv("CRYPTONEWS_API_KEY")
-    if not key:
-        return False, "missing CRYPTONEWS_API_KEY"
-    url = f"{base.rstrip('/')}/api/v1?tickers=BTC&items=1&token={key}"
-    try:
-        with httpx.Client(timeout=TIMEOUT) as client:
-            r = client.get(url)
-        if r.status_code == 200:
-            return True, "200 OK"
-        return False, f"{r.status_code} {_short(r.text, 80)}"
-    except Exception as e:
-        return False, f"request_error: {e}"
+
 
 # === NEW: OpenAI ===
 def check_openai() -> Tuple[bool, str]:
@@ -94,8 +81,7 @@ def services_status_lines() -> List[str]:
         ("Supabase", check_supabase),
         ("CoinAPI", check_coinapi),
         ("CoinMarketCap", check_cmc),
-        ("CryptoNews", check_cryptonews),
-        ("OpenAI", check_openai),  # <--- NEW
+        ("OpenAI", check_openai),
     ]
     lines: List[str] = []
     for name, fn in SERVICES:
