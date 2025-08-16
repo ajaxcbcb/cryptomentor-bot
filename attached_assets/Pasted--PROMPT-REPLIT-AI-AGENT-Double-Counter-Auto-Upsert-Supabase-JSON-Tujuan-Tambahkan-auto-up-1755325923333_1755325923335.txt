@@ -1,0 +1,312 @@
+🚀 PROMPT REPLIT AI AGENT — Double Counter + Auto-Upsert (Supabase & JSON)
+Tujuan
+
+Tambahkan auto-upsert user ke tabel users Supabase setiap ada command/pesan masuk (bukan hanya /start).
+
+Tambahkan /status (alias /system) yang menampilkan dua counter:
+
+Local JSON (lama) → Total Users & Premium
+
+Supabase → Total Users & Premium (aktif = lifetime atau belum kadaluarsa)
+
+Buat fungsi SQL stats_totals() (jika belum ada) untuk menghitung total & premium aktif di Supabase.
+
+Jangan rusak logic bot yang ada, jangan menghapus penyimpanan JSON lama.
+
+Langkah & Perubahan
+
+Deteksi framework bot yang dipakai proyek:
+
+Jika aiogram v3: pakai middleware BaseMiddleware.
+
+Jika pyTelegramBotAPI (telebot):
+
+Jika versi mendukung @bot.middleware_handler, gunakan itu.
+
+Jika tidak, buat helper touch_user(message) dan panggil di semua handler (terutama /start, dan handler catch-all).
+
+Cari file JSON lokal (mis. data/users.json, users.json, atau yang sejenis). Jika tidak ada, biarkan argumen path-nya None.
+
+Jangan mengubah secrets/env. Asumsikan SUPABASE_URL & SUPABASE_SERVICE_KEY sudah ada.
+
+Jangan kirim field asing (mis. banned) saat upsert ke Supabase.
+
+1) Buat/Update SQL fungsi Supabase (simpan ke file)
+
+Buat file db/stats_totals.sql dengan isi berikut (jika file sudah ada, pastikan sama):
+
+create or replace function public.stats_totals()
+returns table(total_users bigint, premium_users bigint)
+language sql stable as $$
+  select
+    count(*)::bigint as total_users,
+    count(*) filter (
+      where
+        coalesce(is_lifetime, false)
+        or (coalesce(is_premium, false) and premium_until is not null and premium_until > now())
+    )::bigint as premium_users
+  from public.users;
+$$;
+
+NOTIFY pgrst, 'reload schema';
+
+
+Catatan: File ini tidak dieksekusi di Replit. Developer akan jalankan di Supabase SQL Editor.
+
+2) Util gabungan counter JSON + Supabase
+
+Buat file app/stats.py:
+
+import json
+from datetime import datetime, timezone
+from typing import Tuple, Optional
+from .sb_client import supabase
+
+TZ = timezone.utc
+ALLOWED_USER_FIELDS = {"telegram_id", "username", "first_name", "last_name", "is_premium", "is_lifetime", "premium_until", "credits"}
+
+def _parse_users_from_json_payload(payload) -> list:
+    if payload is None:
+        return []
+    if isinstance(payload, dict):
+        users = payload.get("users", payload)
+        if isinstance(users, dict):
+            return list(users.values())
+        if isinstance(users, list):
+            return users
+        return []
+    if isinstance(payload, list):
+        return payload
+    return []
+
+def _is_premium_active_local(u: dict) -> bool:
+    if not isinstance(u, dict):
+        return False
+    if u.get("is_lifetime"):
+        return True
+    if u.get("is_premium") and u.get("premium_until"):
+        try:
+            val = u["premium_until"]
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(val, tz=TZ)
+            else:
+                dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            return dt > datetime.now(TZ)
+        except Exception:
+            return False
+    return False
+
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int, int]:
+    payload = None
+    if data_obj is not None:
+        payload = data_obj
+    elif path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except FileNotFoundError:
+            payload = None
+    users = _parse_users_from_json_payload(payload)
+    total = len(users)
+    premium = sum(1 for u in users if _is_premium_active_local(u))
+    return total, premium
+
+def get_supabase_totals() -> Tuple[int, int]:
+    res = supabase.rpc("stats_totals").execute()
+    row = (res.data[0] if isinstance(res.data, list) and res.data else
+           res.data if isinstance(res.data, dict) else
+           {"total_users": 0, "premium_users": 0})
+    return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
+
+def ping_supabase_ok() -> bool:
+    try:
+        supabase.table("users").select("id").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+def build_system_status(auto_signals_running: bool, legacy_json_path: Optional[str]=None, legacy_data: Optional[dict]=None) -> str:
+    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    supa_total, supa_premium = get_supabase_totals()
+    db_text = "✅" if ping_supabase_ok() else "❌"
+    auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
+
+    return (
+        "📊 System Status\n"
+        f"• Database: SUPABASE - {db_text}\n"
+        f"• Auto Signals: {auto_text}\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}\n"
+        f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}"
+    )
+
+3) Auto-Upsert ke Supabase untuk semua event/command
+3A) Jika proyek pakai aiogram v3
+
+Buat file app/middlewares/ensure_user.py:
+
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject, Message, CallbackQuery
+from typing import Callable, Dict, Any, Awaitable
+from ..users_repo import ensure_user
+
+def _touch_user_from(obj):
+    u = getattr(obj, "from_user", None)
+    if u:
+        ensure_user(
+            telegram_id=u.id,
+            username=getattr(u, "username", None),
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+        )
+
+class EnsureUserMiddleware(BaseMiddleware):
+    async def __call__(self,
+                       handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+                       event: TelegramObject,
+                       data: Dict[str, Any]) -> Any:
+        if isinstance(event, Message):
+            _touch_user_from(event)
+        elif isinstance(event, CallbackQuery):
+            _touch_user_from(event)
+        return await handler(event, data)
+
+
+Daftarkan middleware (edit file bootstrap bot, mis. main.py / bot.py):
+
+from aiogram import Dispatcher
+from app.middlewares.ensure_user import EnsureUserMiddleware
+
+dp = Dispatcher()
+dp.message.middleware(EnsureUserMiddleware())
+dp.callback_query.middleware(EnsureUserMiddleware())
+
+3B) Jika proyek pakai pyTelegramBotAPI (telebot)
+
+Coba gunakan middleware jika tersedia:
+
+from app.users_repo import ensure_user
+
+@bot.middleware_handler(update_types=['message', 'callback_query'])
+def ensure_user_middleware(bot_instance, data):
+    u = None
+    msg = data.get('message')
+    cq = data.get('callback_query')
+    if msg and getattr(msg, "from_user", None):
+        u = msg.from_user
+    elif cq and getattr(cq, "from_user", None):
+        u = cq.from_user
+    if u:
+        ensure_user(
+            telegram_id=u.id,
+            username=getattr(u, "username", None),
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+        )
+
+
+Jika versi tidak mendukung middleware, buat helper dan panggil di setiap handler (minimal /start + handler catch-all):
+
+from app.users_repo import ensure_user
+from telebot import types
+
+def touch_user(message: types.Message):
+    u = message.from_user
+    if u:
+        ensure_user(
+            telegram_id=u.id,
+            username=getattr(u, "username", None),
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+        )
+
+# contoh pakai:
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    touch_user(message)
+    # ...lanjut handler start...
+
+@bot.message_handler(func=lambda m: True)
+def fallback_all(message):
+    touch_user(message)
+    # ...lanjutkan logika umum...
+
+4) Command /status (alias /system)
+4A) aiogram v3
+
+Tambahkan router/handler:
+
+from aiogram import Router, types
+from app.stats import build_system_status
+
+router = Router()
+AUTO_SIGNALS_RUNNING = True  # atur sesuai system
+LEGACY_JSON_PATH = "data/users.json"  # jika tidak ada, biarkan None
+
+@router.message(commands={'status','system'})
+async def status_handler(msg: types.Message):
+    text = build_system_status(
+        auto_signals_running=AUTO_SIGNALS_RUNNING,
+        legacy_json_path=LEGACY_JSON_PATH
+    )
+    await msg.answer(text)
+
+
+Pastikan router diregistrasikan ke Dispatcher.
+
+4B) telebot
+
+Tambahkan:
+
+from app.stats import build_system_status
+AUTO_SIGNALS_RUNNING = True
+LEGACY_JSON_PATH = "data/users.json"
+
+@bot.message_handler(commands=['status','system'])
+def cmd_status(message):
+    text = build_system_status(
+        auto_signals_running=AUTO_SIGNALS_RUNNING,
+        legacy_json_path=LEGACY_JSON_PATH
+    )
+    bot.reply_to(message, text)
+
+5) Sanitasi payload saat upsert (hindari kolom asing)
+
+Edit app/users_repo.py, pastikan hanya kolom valid yang dikirim:
+
+from datetime import datetime, timezone
+from typing import Optional, Dict
+from .sb_client import supabase
+
+TZ = timezone.utc
+ALLOWED_USER_FIELDS = {"telegram_id", "username", "first_name", "last_name"}
+
+def _sanitize(payload: dict) -> dict:
+    return {k: v for k, v in payload.items() if k in ALLOWED_USER_FIELDS and v is not None}
+
+def ensure_user(telegram_id: int, username: Optional[str]=None, first_name: Optional[str]=None, last_name: Optional[str]=None) -> Dict:
+    raw = {"telegram_id": telegram_id, "username": username, "first_name": first_name, "last_name": last_name}
+    data = _sanitize(raw)
+    res = supabase.table("users").upsert(data, on_conflict="telegram_id").select("*").execute()
+    return res.data[0]
+
+6) Acceptance Criteria
+
+Setiap pesan/command dari user meng-upsert user ke Supabase tanpa error.
+
+/status menampilkan:
+
+Local JSON: Total & Premium (berdasarkan JSON lama).
+
+Supabase: Total & Premium (berdasarkan stats_totals()).
+
+Tidak ada error PGRST204 terkait kolom tak dikenal (payload disanitasi).
+
+Tidak menghapus atau mematikan sistem JSON lama.
+
+Perubahan hanya pada file yang disebut di atas + registrasi middleware/router/handler.
+
+Setelah perubahan, jalankan smoke test manual:
+
+Kirim /start dan satu command lain → pastikan user baru muncul di tabel users.
+
+Jalankan /status → pastikan dua counter tampil.
