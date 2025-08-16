@@ -1,0 +1,99 @@
+🚀 PROMPT REPLIT AI AGENT — Pakai Local JSON yg benar di /admin
+
+GOAL
+
+Pastikan panel /admin membaca Local JSON dari premium_users_backup_20250802_130229.json (BUKAN data/users_local.json).
+
+Izinkan override via Secret LEGACY_JSON_PATH.
+
+Jangan ubah logic lain; UTC & HTML-chunking tetap.
+
+TASKS
+
+Update app/admin.py: set default path ke premium_users_backup_20250802_130229.json dan teruskan ke build_system_status(...).
+
+Pastikan app/stats.py menerima legacy_json_path dan meneruskannya ke pembaca JSON (tanpa memaksa fallback data/users_local.json bila parameter sudah ada).
+
+Bersihkan referensi lama: ganti semua sisa hardcode data/users_local.json (jika ada) agar tidak dipakai lagi.
+
+1) Ganti isi app/admin.py (minimal patch)
+# app/admin.py
+import os
+from .stats import build_system_status
+
+# Default ke file backup yang benar; bisa di-override via Secrets: LEGACY_JSON_PATH
+DEFAULT_LEGACY_PATH = "premium_users_backup_20250802_130229.json"
+LEGACY_JSON_PATH = os.getenv("LEGACY_JSON_PATH", DEFAULT_LEGACY_PATH)
+
+# Jika kamu punya is_auto_signal_running(), pakai itu. Kalau tidak, biarkan True atau import dari autosignal.
+try:
+    from .autosignal import is_auto_signal_running
+    _auto = is_auto_signal_running()
+except Exception:
+    _auto = True
+
+def get_admin_panel_text():
+    return build_system_status(
+        auto_signals_running=_auto,
+        legacy_json_path=LEGACY_JSON_PATH
+    )
+
+
+Catatan: Simpan file premium_users_backup_20250802_130229.json di root project. Kalau letaknya beda, set Secret LEGACY_JSON_PATH ke path lengkap (mis. data/premium_users_backup_20250802_130229.json).
+
+2) Verifikasi app/stats.py
+
+Pastikan fungsi tanda tangan & pemanggilan sudah seperti ini (ubah kalau belum):
+
+# app/stats.py (cuplikan penting)
+from datetime import datetime, timezone
+from typing import Optional, Tuple
+from .sb_client import supabase, health
+
+UTC = timezone.utc
+
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int]:
+    # ... (fungsi ini membaca path json bila diberikan)
+    pass  # (biarkan implementasi kamu yang sekarang)
+
+def build_system_status(auto_signals_running: bool,
+                        legacy_json_path: Optional[str]=None,
+                        legacy_data: Optional[dict]=None) -> str:
+    # PASTIKAN baris ini memakai parameter path yang dikirim dari admin.py
+    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+
+    ok, db_detail = health()
+    supa_total, supa_premium = (0, 0)
+    if ok:
+        # ... hitung supabase
+        pass
+
+    now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
+    # ... (format output tetap seperti sebelumnya)
+    # return string status
+
+
+Intinya: jangan override legacy_json_path dengan default lama seperti data/users_local.json kalau parameter sudah diisi.
+
+3) Bersihkan referensi lama
+
+Cari & ganti hardcode lama:
+
+Grep project untuk string: users_local.json
+
+Hapus / ganti referensinya agar tidak dipakai lagi (karena sekarang kita pakai LEGACY_JSON_PATH atau default file backup).
+
+ACCEPTANCE
+
+(Opsional) Set Secret LEGACY_JSON_PATH jika file bukan di root.
+
+Restart bot → kirim /admin.
+
+Bagian Local JSON sekarang menampilkan:
+
+• Local JSON - Total Users: <angka> | Premium: <angka> (path: premium_users_backup_20250802_130229.json)
+
+
+UTC & HTML chunking tetap OK; fitur lain tidak berubah.
+
+Kalau setelah patch masih belum terbaca, kasih tahu letak pasti file backup itu (root / folder mana), biar aku ubahkan default path-nya di prompt jadi tepat.
