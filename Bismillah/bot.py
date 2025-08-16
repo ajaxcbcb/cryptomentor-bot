@@ -1960,6 +1960,11 @@ Gunakan `/subscribe` untuk upgrade!
             # Admin info
             admin_ids = list(self.ADMIN_IDS) if hasattr(self, 'ADMIN_IDS') else [self.admin_id] if hasattr(self, 'admin_id') else []
 
+            # Check admin hierarchy
+            from app.lib.auth import get_admin_hierarchy, is_super_admin
+            hierarchy = get_admin_hierarchy()
+            is_user_super_admin = is_super_admin(user_id)
+
             message = f"""👑 **CryptoMentor AI - Admin Panel**
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1992,15 +1997,17 @@ Gunakan `/subscribe` untuk upgrade!
 • `/enable_auto_signal_ai` - Start auto signals
 • `/disable_auto_signal_ai` - Stop auto signals
 
-🔧 **Debug & Diagnostics**
-• `/whoami` - Your admin info
-• `/admin_debug` - Admin configuration debug
-• `/sb_diag` - Supabase diagnostics
-• `/sb_repair` - Attempt Supabase repair
+{'👑 **Super Admin Commands (ADMIN Secret Only)**' if is_user_super_admin else '🔧 **Debug & Diagnostics**'}
+{'• `/add_admin <user_id>` - Add new admin' if is_user_super_admin else '• `/whoami` - Your admin info'}
+{'• `/remove_admin <user_id>` - Remove admin' if is_user_super_admin else '• `/admin_debug` - Admin configuration debug'}
+{'• `/list_admins` - List all admins' if is_user_super_admin else '• `/sb_diag` - Supabase diagnostics'}
+{'• `/whoami` - Your admin info' if is_user_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/admin_debug` - Admin configuration debug' if is_user_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 **Your Admin ID**: `{user_id}`
-🔑 **Configured Admins**: {', '.join(map(str, admin_ids)) if admin_ids else 'None'}
+{'👑 **Your Role**: SUPER ADMIN' if is_user_super_admin else '⚡ **Your Role**: ADMIN'}
+🔑 **Total Admins**: {hierarchy['total_admins']}
 ⏰ **Server Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 ⚠️ **Use admin commands responsibly!**"""
@@ -2886,36 +2893,245 @@ ADMIN2 = [optional_second_admin_id]
         """Handle /admin_debug command - shows admin configuration debug info"""
         user_id = update.effective_user.id if update.effective_user else None
 
+        # Import new auth system
+        from app.lib.auth import get_admin_hierarchy, is_super_admin
+
+        hierarchy = get_admin_hierarchy()
+
         message = f"🔧 **Admin Debug Information**\n\n"
         message += f"👤 **Caller ID**: `{user_id}`\n"
         message += f"✅ **Is Admin**: {self.is_admin(user_id)}\n"
+        message += f"👑 **Is Super Admin**: {is_super_admin(user_id)}\n\n"
+
+        message += f"🏛️ **Admin Hierarchy:**\n"
+        if hierarchy['super_admin']:
+            message += f"• **Super Admin**: {hierarchy['super_admin']} 👑\n"
+        
+        if hierarchy['dynamic_admins']:
+            message += f"• **Dynamic Admins**: {', '.join(hierarchy['dynamic_admins'])}\n"
+        
+        if hierarchy['static_admins']:
+            message += f"• **Static Admins**: {', '.join(hierarchy['static_admins'])}\n"
+        
+        message += f"• **Total Admins**: {hierarchy['total_admins']}\n\n"
 
         if ADMIN_SYSTEM_AVAILABLE:
             admin_ids = get_admin_ids()
-            message += f"👑 **Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
-            message += f"🆕 **System**: New Dynamic Admin Auth\n\n"
+            message += f"👑 **All Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
+            message += f"🆕 **System**: Dynamic Admin Management\n\n"
 
             # Show environment variables
+            admin_secret = os.getenv("ADMIN", "").strip()
             admin1 = os.getenv("ADMIN1", "").strip()
             admin2 = os.getenv("ADMIN2", "").strip()
-            admin_user_id = os.getenv("ADMIN_USER_ID", "").strip()
-            admin2_user_id = os.getenv("ADMIN2_USER_ID", "").strip()
 
             env_vars = []
+            if admin_secret: env_vars.append("ADMIN=SET (Super Admin)")
             if admin1: env_vars.append("ADMIN1=SET")
             if admin2: env_vars.append("ADMIN2=SET")
-            if admin_user_id: env_vars.append("ADMIN_USER_ID=SET")
-            if admin2_user_id: env_vars.append("ADMIN2_USER_ID=SET")
 
             message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
         else:
             message += f"⚠️ **System**: Fallback (New system failed to load)\n\n"
 
+        if is_super_admin(user_id):
+            message += f"👑 **Super Admin Commands:**\n"
+            message += f"• `/add_admin <user_id>` - Add new admin\n"
+            message += f"• `/remove_admin <user_id>` - Remove admin\n"
+            message += f"• `/list_admins` - List all admins\n\n"
+
         message += f"💡 **Setup Instructions:**\n"
-        message += f"• Set `ADMIN1` = `{user_id}` in Replit Secrets\n"
-        message += f"• Optional: Set `ADMIN2` for second admin\n"
-        message += f"• Restart bot after changes\n\n"
+        message += f"• Set `ADMIN` = `{user_id}` in Replit Secrets for super admin\n"
+        message += f"• Use `/add_admin` to add additional admins\n"
+        message += f"• Restart bot after secret changes\n\n"
         message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def add_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add_admin command - Super admin only"""
+        from app.lib.auth import add_admin, is_super_admin
+
+        user_id = update.message.from_user.id
+
+        if not is_super_admin(user_id):
+            await update.message.reply_text(
+                "❌ **Access Denied**\n\n"
+                "Only the Super Admin (ADMIN secret) can add new admins.\n"
+                "Use `/admin_debug` to check your admin status.",
+                parse_mode='Markdown'
+            )
+            return
+
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/add_admin <user_id>`\n\n"
+                "**Contoh:** `/add_admin 123456789`\n\n"
+                "💡 **Tip:** User yang akan dijadikan admin harus menggunakan `/whoami` terlebih dahulu untuk mendapatkan User ID mereka.",
+                parse_mode='Markdown'
+            )
+            return
+
+        new_admin_id = int(context.args[0])
+
+        # Check if already admin
+        if self.is_admin(new_admin_id):
+            await update.message.reply_text(
+                f"⚠️ **User {new_admin_id} sudah menjadi admin!**\n\n"
+                "Gunakan `/list_admins` untuk melihat daftar admin saat ini.",
+                parse_mode='Markdown'
+            )
+            return
+
+        # Add the admin
+        success = add_admin(new_admin_id, user_id)
+
+        if success:
+            message = f"""✅ **Admin berhasil ditambahkan!**
+
+👤 **New Admin ID**: `{new_admin_id}`
+👑 **Added by Super Admin**: `{user_id}`
+
+🎉 **User {new_admin_id} sekarang memiliki akses admin penuh!**
+
+💡 **Next Steps:**
+• User baru dapat menggunakan semua command admin
+• User baru dapat akses `/admin` panel
+• Gunakan `/list_admins` untuk verifikasi"""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "super_admin_add_admin",
+                f"Added admin {new_admin_id}"
+            )
+        else:
+            message = f"❌ **Gagal menambahkan admin {new_admin_id}**\n\nTerjadi kesalahan sistem."
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def remove_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /remove_admin command - Super admin only"""
+        from app.lib.auth import remove_admin, is_super_admin
+
+        user_id = update.message.from_user.id
+
+        if not is_super_admin(user_id):
+            await update.message.reply_text(
+                "❌ **Access Denied**\n\n"
+                "Only the Super Admin (ADMIN secret) can remove admins.",
+                parse_mode='Markdown'
+            )
+            return
+
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/remove_admin <user_id>`\n\n"
+                "**Contoh:** `/remove_admin 123456789`",
+                parse_mode='Markdown'
+            )
+            return
+
+        target_admin_id = int(context.args[0])
+
+        # Check if user is admin
+        if not self.is_admin(target_admin_id):
+            await update.message.reply_text(
+                f"⚠️ **User {target_admin_id} bukan admin!**\n\n"
+                "Gunakan `/list_admins` untuk melihat daftar admin saat ini.",
+                parse_mode='Markdown'
+            )
+            return
+
+        # Check if trying to remove super admin
+        if is_super_admin(target_admin_id):
+            await update.message.reply_text(
+                "❌ **Tidak dapat menghapus Super Admin!**\n\n"
+                "Super Admin tidak dapat dihapus dari sistem.",
+                parse_mode='Markdown'
+            )
+            return
+
+        # Remove the admin
+        success = remove_admin(target_admin_id, user_id)
+
+        if success:
+            message = f"""✅ **Admin berhasil dihapus!**
+
+👤 **Removed Admin ID**: `{target_admin_id}`
+👑 **Removed by Super Admin**: `{user_id}`
+
+⚠️ **User {target_admin_id} tidak lagi memiliki akses admin.**
+
+💡 **Note:** User masih dapat menggunakan bot sebagai user biasa."""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "super_admin_remove_admin",
+                f"Removed admin {target_admin_id}"
+            )
+        else:
+            message = f"❌ **Gagal menghapus admin {target_admin_id}**\n\nTerjadi kesalahan sistem."
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def list_admins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /list_admins command - Super admin only"""
+        from app.lib.auth import get_admin_hierarchy, is_super_admin
+
+        user_id = update.message.from_user.id
+
+        if not is_super_admin(user_id):
+            await update.message.reply_text(
+                "❌ **Access Denied**\n\n"
+                "Only the Super Admin can view the admin list.\n"
+                "Regular admins can use `/admin_debug` to see basic info.",
+                parse_mode='Markdown'
+            )
+            return
+
+        hierarchy = get_admin_hierarchy()
+
+        message = f"""👑 **CryptoMentor AI - Admin Management**
+
+🏛️ **Admin Hierarchy:**
+
+"""
+
+        if hierarchy['super_admin']:
+            message += f"👑 **Super Admin (ADMIN Secret):**\n"
+            message += f"• `{hierarchy['super_admin']}` - Full Control\n\n"
+
+        if hierarchy['dynamic_admins']:
+            message += f"⚡ **Dynamic Admins (Added by Super Admin):**\n"
+            for admin_id in hierarchy['dynamic_admins']:
+                message += f"• `{admin_id}` - Full Admin Access\n"
+            message += "\n"
+
+        if hierarchy['static_admins']:
+            message += f"📌 **Static Admins (Environment Variables):**\n"
+            for admin_id in hierarchy['static_admins']:
+                message += f"• `{admin_id}` - Legacy Admin\n"
+            message += "\n"
+
+        message += f"📊 **Summary:**\n"
+        message += f"• **Total Admins**: {hierarchy['total_admins']}\n"
+        message += f"• **Super Admin**: {1 if hierarchy['super_admin'] else 0}\n"
+        message += f"• **Dynamic Admins**: {len(hierarchy['dynamic_admins'])}\n"
+        message += f"• **Static Admins**: {len(hierarchy['static_admins'])}\n\n"
+
+        message += f"🛠️ **Super Admin Commands:**\n"
+        message += f"• `/add_admin <user_id>` - Add new admin\n"
+        message += f"• `/remove_admin <user_id>` - Remove admin\n"
+        message += f"• `/admin_debug` - System debug info\n\n"
+
+        message += f"⚠️ **Notes:**\n"
+        message += f"• Super Admin cannot be removed\n"
+        message += f"• Dynamic admins can be added/removed\n"
+        message += f"• Static admins require bot restart to change"
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -3023,6 +3239,11 @@ ADMIN2 = [optional_second_admin_id]
             print("✅ AutoSignal admin commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register AutoSignal commands: {e}")
+
+        # Add admin management commands
+        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
+        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
+        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
