@@ -1982,6 +1982,21 @@ Gunakan `/subscribe` untuk upgrade!
         return False
 
     # Essential admin commands
+    def _to_html_chunks(self, text: str, max_len: int = 3500):
+        """Convert text to HTML-escaped chunks"""
+        import html
+        esc = html.escape(text, quote=False)
+        buf, cur = [], 0
+        for line in esc.splitlines(True):  # keep newlines
+            if cur + len(line) > max_len and buf:
+                yield "".join(buf)
+                buf, cur = [line], len(line)
+            else:
+                buf.append(line)
+                cur += len(line)
+        if buf:
+            yield "".join(buf)
+
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - Enhanced admin panel with system status"""
         from app.admin import get_admin_panel_text
@@ -2005,72 +2020,78 @@ Gunakan `/subscribe` untuk upgrade!
             hierarchy = get_admin_hierarchy()
             is_user_super_admin = is_super_admin(user_id)
 
-            message = f"""👑 **CryptoMentor AI - Admin Panel**
+            message = f"""👑 CryptoMentor AI - Admin Panel
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {system_status}
 
-👥 **User Management**
-• `/setpremium <user_id> <days|lifetime>` - Set premium
-• `/remove_premium <user_id>` - Remove premium
-• `/grant_credits <user_id> <amount>` - Grant credits
-• `/check_user_status <user_id>` - Check user info
+👥 User Management
+• /setpremium <user_id> <days|lifetime> - Set premium
+• /remove_premium <user_id> - Remove premium
+• /grant_credits <user_id> <amount> - Grant credits
+• /check_user_status <user_id> - Check user info
 
-🛠️ **System Commands**
-• `/sb_status` - Supabase connection status
-• `/db_status` - Database health check
-• `/recovery_stats` - System statistics
-• `/restart` - Restart bot service
+🛠️ System Commands
+• /sb_status - Supabase connection status
+• /db_status - Database health check
+• /recovery_stats - System statistics
+• /restart - Restart bot service
 
-📢 **Broadcasting**
-• `/broadcast <message>` - Send to all users
-• `/broadcast_welcome` - Send welcome broadcast
-• `/confirm_broadcast` - Confirm pending broadcast
-• `/cancel_broadcast` - Cancel pending broadcast
+📢 Broadcasting
+• /broadcast <message> - Send to all users
+• /broadcast_welcome - Send welcome broadcast
+• /confirm_broadcast - Confirm pending broadcast
+• /cancel_broadcast - Cancel pending broadcast
 
-🎯 **Auto Signals (Lifetime Users Only)**
-• `/auto_signal_ai_status` - Check auto signals status
-• `/enable_auto_signal_ai` - Start auto signals
-• `/disable_auto_signal_ai` - Stop auto signals
+🎯 Auto Signals (Lifetime Users Only)
+• /auto_signal_ai_status - Check auto signals status
+• /enable_auto_signal_ai - Start auto signals
+• /disable_auto_signal_ai - Stop auto signals
 
-{'👑 **Super Admin Commands (ADMIN Secret Only)**' if is_user_super_admin else '🔧 **Debug & Diagnostics**'}
-{'• `/add_admin <user_id>` - Add new admin' if is_user_super_admin else '• `/whoami` - Your admin info'}
-{'• `/remove_admin <user_id>` - Remove admin' if is_user_super_admin else '• `/admin_debug` - Admin configuration debug'}
-{'• `/list_admins` - List all admins' if is_user_super_admin else '• `/sb_diag` - Supabase diagnostics'}
-{'• `/whoami` - Your admin info' if is_user_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
-{'• `/admin_debug` - Admin configuration debug' if is_user_super_admin else ''}
+{'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
+{'• /add_admin <user_id> - Add new admin' if is_user_super_admin else '• /whoami - Your admin info'}
+{'• /remove_admin <user_id> - Remove admin' if is_user_super_admin else '• /admin_debug - Admin configuration debug'}
+{'• /list_admins - List all admins' if is_user_super_admin else '• /sb_diag - Supabase diagnostics'}
+{'• /whoami - Your admin info' if is_user_super_admin else '• /sb_repair - Attempt Supabase repair'}
+{'• /admin_debug - Admin configuration debug' if is_user_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 **Your Admin ID**: `{user_id}`
-{'👑 **Your Role**: SUPER ADMIN' if is_user_super_admin else '⚡ **Your Role**: ADMIN'}
-🔑 **Total Admins**: {hierarchy['total_admins']}
+👤 Your Admin ID: {user_id}
+{'👑 Your Role: SUPER ADMIN' if is_user_super_admin else '⚡ Your Role: ADMIN'}
+🔑 Total Admins: {hierarchy['total_admins']}
 
-⚠️ **Use admin commands responsibly!**"""
+⚠️ Use admin commands responsibly!"""
 
         except Exception as e:
-            message = f"""👑 **CryptoMentor AI - Admin Panel**
+            message = f"""👑 CryptoMentor AI - Admin Panel
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
-❌ **Error loading system stats**: {str(e)}
+❌ Error loading system stats: {str(e)}
 
-📋 **Core Admin Commands**
-• `/setpremium <user_id> <days|lifetime>` - Set premium
-• `/remove_premium <user_id>` - Remove premium
-• `/grant_credits <user_id> <amount>` - Grant credits
-• `/check_user_status <user_id>` - Check user status
-• `/broadcast <message>` - Broadcast to all users
-• `/recovery_stats` - System statistics
-• `/sb_status` - Database status
-• `/restart` - Restart bot
+📋 Core Admin Commands
+• /setpremium <user_id> <days|lifetime> - Set premium
+• /remove_premium <user_id> - Remove premium
+• /grant_credits <user_id> <amount> - Grant credits
+• /check_user_status <user_id> - Check user status
+• /broadcast <message> - Broadcast to all users
+• /recovery_stats - System statistics
+• /sb_status - Database status
+• /restart - Restart bot
 
-🔧 **Debug Commands**
-• `/whoami` - Your info
-• `/admin_debug` - Debug admin config
-• `/db_status` - Database health
+🔧 Debug Commands
+• /whoami - Your info
+• /admin_debug - Debug admin config
+• /db_status - Database health
 
-👤 **Your Admin ID**: `{user_id}`"""
+👤 Your Admin ID: {user_id}"""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        # Send message in HTML chunks to avoid parsing errors
+        for chunk in self._to_html_chunks(message):
+            await update.message.reply_text(
+                chunk,
+                parse_mode='HTML',
+                disable_web_page_preview=True
+            )
 
 
 
