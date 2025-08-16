@@ -1,0 +1,194 @@
+🚀 PROMPT REPLIT AI AGENT — Hubungkan Local JSON premium_users_backup_20250802_130229.json ke /admin
+
+GOAL
+
+/admin menampilkan Local JSON (Total & Premium) dari file: premium_users_backup_20250802_130229.json.
+
+Path bisa di-override via env LEGACY_JSON_PATH; default ke nama file tersebut.
+
+Jika build_system_status belum menerima argumen legacy_json_path, tambahkan dukungan di app/stats.py.
+
+Jangan mengubah logic lain. Pertahankan UTC & HTML+chunking untuk /admin.
+
+1) Update app/admin.py – set path lokal & teruskan ke builder
+
+Ganti isi app/admin.py menjadi:
+
+# app/admin.py
+import os
+from .stats import build_system_status
+
+# Default ke file backup yang kamu sebutkan; bisa di-override via Secrets ENV: LEGACY_JSON_PATH
+DEFAULT_LEGACY_PATH = "premium_users_backup_20250802_130229.json"
+LEGACY_JSON_PATH = os.getenv("LEGACY_JSON_PATH", DEFAULT_LEGACY_PATH)
+
+def get_admin_panel_text():
+    # build_system_status harus menerima legacy_json_path=...
+    return build_system_status(
+        auto_signals_running=True,          # status autosignal kamu sendiri; kalau sudah ada import, boleh ganti
+        legacy_json_path=LEGACY_JSON_PATH   # <-- penting: pakai file lokal ini
+    )
+
+
+Jika kamu sudah punya is_auto_signal_running(), boleh ganti auto_signals_running=True menjadi is_auto_signal_running().
+
+2) Pastikan app/stats.py mendukung argumen legacy_json_path
+
+Periksa app/stats.py. Jika belum ada dukungan parameter legacy_json_path di build_system_status, patch file tersebut seperti di bawah (bagian terkait saja):
+
+# app/stats.py (PATCH MINIMAL)
+import json, os
+from datetime import datetime, timezone
+from typing import Tuple, Optional
+from .sb_client import supabase, health
+
+UTC = timezone.utc
+
+def _parse_users_from_json_payload(payload) -> list:
+    if payload is None: return []
+    if isinstance(payload, dict):
+        users = payload.get("users", payload)
+        if isinstance(users, dict): return list(users.values())
+        if isinstance(users, list): return users
+        return []
+    if isinstance(payload, list): return payload
+    return []
+
+def _is_premium_active_local(u: dict) -> bool:
+    try:
+        if u.get("is_lifetime"): return True
+        if u.get("is_premium") and u.get("premium_until"):
+            val = u["premium_until"]
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(val, tz=UTC)
+            else:
+                dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            return dt > datetime.now(UTC)
+    except Exception:
+        pass
+    return False
+
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int]:
+    payload = None
+    if data_obj is not None:
+        payload = data_obj
+    elif path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except FileNotFoundError:
+            payload = None
+        except json.JSONDecodeError:
+            # coba JSON Lines (jsonl)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    items = [json.loads(line) for line in f if line.strip()]
+                payload = {"users": items}
+            except Exception:
+                payload = None
+    users = _parse_users_from_json_payload(payload)
+    total = len(users)
+    premium = sum(1 for u in users if _is_premium_active_local(u))
+    return total, premium
+
+def get_supabase_totals() -> Tuple[int,int]:
+    if supabase is None: return 0, 0
+    res = supabase.rpc("stats_totals").execute()
+    row = (res.data[0] if isinstance(res.data, list) and res.data else
+           res.data if isinstance(res.data, dict) else
+           {"total_users": 0, "premium_users": 0})
+    return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
+
+def build_system_status(auto_signals_running: bool,
+                        legacy_json_path: Optional[str]=None,
+                        legacy_data: Optional[dict]=None) -> str:
+    # <- PASTIKAN fungsi ini menerima legacy_json_path
+    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    ok, db_detail = health()
+    supa_total, supa_premium = (0, 0)
+    if ok:
+        supa_total, supa_premium = get_supabase_totals()
+
+    db_text = "✅" if ok else "❌"
+    auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
+    now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
+
+    return (
+        "📊 System Status\n\n"
+        f"🗄️ Database: SUPABASE - {db_text}\n"
+        f"🎯 Auto Signals: {auto_text}\n\n"
+        "📊 User Statistics:\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}\n"
+        f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
+        f"⏰ Last Update: {now_utc}"
+    )
+
+
+Jika versi kamu sudah punya fungsi lebih canggih (menunjukkan path & detail), cukup pastikan ia membaca dari legacy_json_path yang dikirim.
+
+3) Pastikan handler /admin kirim HTML + chunking (anti Markdown)
+
+(Kalau sudah dipatch sebelumnya, lewati langkah ini. Kalau belum, ganti handler /admin seperti ini.)
+
+aiogram v3
+# app/routers/admin_router.py
+from aiogram import Router, types
+from app.admin import get_admin_panel_text
+import html
+
+router = Router()
+
+def _to_html_chunks(text: str, max_len: int = 3500):
+    esc = html.escape(text, quote=False)
+    buf, cur = [], 0
+    for line in esc.splitlines(True):
+        if cur + len(line) > max_len and buf:
+            yield "".join(buf)
+            buf, cur = [line], len(line)
+        else:
+            buf.append(line); cur += len(line)
+    if buf:
+        yield "".join(buf)
+
+@router.message(commands={"admin"})
+async def admin_panel(msg: types.Message):
+    text = get_admin_panel_text()  # UTC dihasilkan dari build_system_status
+    for part in _to_html_chunks(text):
+        await msg.answer(part, parse_mode="HTML", disable_web_page_preview=True)
+
+telebot
+# di file bot utama
+from app.admin import get_admin_panel_text
+import html
+
+def _to_html_chunks(text: str, max_len: int = 3500):
+    esc = html.escape(text, quote=False)
+    buf, cur = [], 0
+    for line in esc.splitlines(True):
+        if cur + len(line) > max_len and buf:
+            yield "".join(buf)
+            buf, cur = [line], len(line)
+        else:
+            buf.append(line); cur += len(line)
+    if buf:
+        yield "".join(buf)
+
+@bot.message_handler(commands=['admin'])
+def cmd_admin(message):
+    text = get_admin_panel_text()  # UTC dihasilkan dari build_system_status
+    for part in _to_html_chunks(text):
+        bot.send_message(message.chat.id, part, parse_mode="HTML", disable_web_page_preview=True)
+
+4) ACCEPTANCE
+
+Set LEGACY_JSON_PATH via Secrets (opsional). Jika tidak di-set, default dipakai: premium_users_backup_20250802_130229.json.
+
+Kirim /admin:
+
+Baris Local JSON menampilkan angka dari file tersebut (bukan 0 jika datanya memang ada).
+
+Supabase tetap tampil normal.
+
+Waktu tetap UTC.
+
+Tidak ada error “Can’t parse entities”.
