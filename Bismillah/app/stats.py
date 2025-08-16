@@ -1,8 +1,8 @@
-
 import os, glob, json
 from datetime import datetime, timezone
 from typing import Tuple, Optional
 from .sb_client import supabase, available as sb_available
+from .health import services_status_lines
 
 UTC = timezone.utc
 
@@ -122,7 +122,7 @@ def health() -> Tuple[bool, str]:
     """Health check for Supabase connection"""
     if not sb_available():
         return False, "Supabase client not available"
-    
+
     try:
         # Use hc() RPC for health check
         result = supabase.rpc("hc").execute()
@@ -160,6 +160,11 @@ def build_system_status(auto_signals_running: bool,
     auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
     now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
 
+    # Get integrations status
+    svc_lines = services_status_lines()
+    svc_block = "🔌 Integrations:\n" + "\n".join(f"• {line}" for line in svc_lines) + "\n\n" if svc_lines else ""
+
+    # Build final status message
     return (
         "📊 System Status\n\n"
         f"🗄️ Database: SUPABASE - {db_text}\n"
@@ -167,6 +172,7 @@ def build_system_status(auto_signals_running: bool,
         "📊 User Statistics:\n"
         f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium} (path: {legacy_path})\n"
         f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
+        f"{svc_block}"
         f"⏰ Last Update: {now_utc}\n"
         f"ℹ️ Local Detail: {legacy_detail[:220]}\n"
         f"ℹ️ DB Detail: {db_detail[:220]}"
