@@ -1,0 +1,176 @@
+🚀 PROMPT REPLIT AI AGENT — Add OpenAI + fix CoinAPI env
+
+GOAL
+
+Tambah health check OpenAI menggunakan OPENAI_API_KEY.
+
+Perbarui health check CoinAPI: gunakan COINAPI_API_KEY (fallback COINAPI_KEY tetap didukung).
+
+Pastikan /admin menampilkan:
+
+• OpenAI: ✅ Connected kalau kunci valid,
+
+• CoinAPI: ✅ Connected pakai env baru,
+
+integrasi lain (Supabase, CMC, CryptoNews) tetap berfungsi.
+
+Jangan ubah logic lain; /admin tetap kirim HTML + chunking dan waktu UTC.
+
+PREP
+
+Pastikan secrets ada:
+
+OPENAI_API_KEY
+
+COINAPI_API_KEY (opsional fallback: COINAPI_KEY)
+
+Dependency HTTP:
+
+pip install --upgrade httpx
+
+TASKS
+1) Edit app/health.py
+
+Tambahkan checker check_openai().
+
+Ubah check_coinapi() untuk prioritas COINAPI_API_KEY, fallback COINAPI_KEY.
+
+Masukkan ("OpenAI", check_openai) ke daftar SERVICES yang dipakai di services_status_lines().
+
+Ganti/patch bagian terkait menjadi seperti ini:
+
+# app/health.py
+import os
+from typing import List, Tuple
+import httpx
+
+from .sb_client import available as sb_available, health as sb_health
+
+TIMEOUT = 4.0
+
+def _short(msg: str, n: int = 160) -> str:
+    s = str(msg)
+    return s if len(s) <= n else (s[: n - 3] + "...")
+
+def check_supabase() -> Tuple[bool, str]:
+    if not sb_available():
+        return False, "client_not_initialized (cek SUPABASE_URL/KEY)"
+    ok, detail = sb_health()
+    return ok, _short(detail)
+
+def check_coinapi() -> Tuple[bool, str]:
+    base = os.getenv("COINAPI_BASE_URL", "https://rest.coinapi.io")
+    # PRIORITAS BARU: COINAPI_API_KEY, fallback COINAPI_KEY
+    key = os.getenv("COINAPI_API_KEY") or os.getenv("COINAPI_KEY")
+    if not key:
+        return False, "missing COINAPI_API_KEY"
+    url = f"{base.rstrip('/')}/v1/assets?limit=1"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            r = client.get(url, headers={"X-CoinAPI-Key": key})
+        if r.status_code == 200:
+            return True, "200 OK"
+        return False, f"{r.status_code} {_short(r.text, 80)}"
+    except Exception as e:
+        return False, f"request_error: {e}"
+
+def check_cmc() -> Tuple[bool, str]:
+    base = os.getenv("CMC_BASE_URL", "https://pro-api.coinmarketcap.com")
+    key = os.getenv("CMC_API_KEY") or os.getenv("CMC_PRO_API_KEY")
+    if not key:
+        return False, "missing CMC_API_KEY"
+    url = f"{base.rstrip('/')}/v1/cryptocurrency/map?limit=1"
+    headers = {"X-CMC_PRO_API_KEY": key}
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            r = client.get(url, headers=headers)
+        if r.status_code == 200:
+            try:
+                j = r.json()
+                code = (j.get("status") or {}).get("error_code", 0)
+                if code == 0:
+                    return True, "200 OK"
+                return False, f"status_error:{code}"
+            except Exception:
+                return True, "200 OK (no-json-parse)"
+        return False, f"{r.status_code} {_short(r.text, 80)}"
+    except Exception as e:
+        return False, f"request_error: {e}"
+
+def check_cryptonews() -> Tuple[bool, str]:
+    base = os.getenv("CRYPTONEWS_BASE_URL", "https://cryptonews-api.com")
+    key = os.getenv("CRYPTONEWS_API_KEY")
+    if not key:
+        return False, "missing CRYPTONEWS_API_KEY"
+    url = f"{base.rstrip('/')}/api/v1?tickers=BTC&items=1&token={key}"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            r = client.get(url)
+        if r.status_code == 200:
+            return True, "200 OK"
+        return False, f"{r.status_code} {_short(r.text, 80)}"
+    except Exception as e:
+        return False, f"request_error: {e}"
+
+# === NEW: OpenAI ===
+def check_openai() -> Tuple[bool, str]:
+    base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com")
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        return False, "missing OPENAI_API_KEY"
+    url = f"{base.rstrip('/')}/v1/models"
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            r = client.get(url, headers=headers)
+        if r.status_code == 200:
+            return True, "200 OK"
+        # Banyak kasus 401/403 kalau key salah/expired
+        return False, f"{r.status_code} {_short(r.text, 80)}"
+    except Exception as e:
+        return False, f"request_error: {e}"
+
+def services_status_lines() -> List[str]:
+    SERVICES = [
+        ("Supabase", check_supabase),
+        ("CoinAPI", check_coinapi),
+        ("CoinMarketCap", check_cmc),
+        ("CryptoNews", check_cryptonews),
+        ("OpenAI", check_openai),  # <--- NEW
+    ]
+    lines: List[str] = []
+    for name, fn in SERVICES:
+        ok, msg = fn()
+        badge = "✅ Connected" if ok else f"❌ {_short(msg)}"
+        lines.append(f"{name}: {badge}")
+    return lines
+
+2) (Jika perlu) Pastikan app/stats.py sudah menyisipkan blok Integrations
+
+Jika sebelumnya sudah ada:
+
+from .health import services_status_lines
+
+blok 🔌 Integrations yang menyebut services_status_lines()
+
+→ tidak perlu diubah.
+
+Kalau belum, tambahkan import + blok tersebut sebelum “Last Update”.
+
+ACCEPTANCE
+
+Set secrets:
+
+OPENAI_API_KEY
+
+COINAPI_API_KEY (boleh hapus yang lama atau biarkan; kode tetap fallback)
+
+Kirim /admin → di 🔌 Integrations muncul:
+
+• OpenAI: ✅ Connected (kalau key valid) atau ❌ …
+
+• CoinAPI: ✅ Connected menggunakan env baru COINAPI_API_KEY
+
+Integrasi lain (Supabase, CMC, CryptoNews) tetap tampil.
+
+/admin tetap aman (HTML + chunking) dan waktu tetap UTC.
