@@ -1,41 +1,68 @@
 
-import json
+import os, glob, json
 from datetime import datetime, timezone
 from typing import Tuple, Optional
-import os
-import sys
-
-# Add the current directory to the Python path to import supabase_conn
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from .sb_client import supabase, health
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    try:
-        from app.supabase_conn import get_supabase_client
-        SUPABASE_AVAILABLE = True
-        
-        def health() -> Tuple[bool, str]:
-            """Fallback health check using existing connection"""
-            try:
-                supabase = get_supabase_client()
-                res = supabase.rpc("hc").execute()
-                return True, f"OK {res.data}"
-            except Exception as e:
-                return False, f"hc_failed: {e}"
-    except ImportError:
-        SUPABASE_AVAILABLE = False
-        print("⚠️ Supabase connection not available for stats")
-        
-        def health() -> Tuple[bool, str]:
-            return False, "supabase_not_available"
+from .sb_client import supabase, available as sb_available
 
 UTC = timezone.utc
-ALLOWED_USER_FIELDS = {"telegram_id", "username", "first_name", "last_name", "is_premium", "is_lifetime", "premium_until", "credits"}
+
+CANDIDATE_DIRS = ["data", "storage", "db", ".", "app/data", "app/storage", "Bismillah/data"]
+CANDIDATE_FILES = ["users.json", "users_db.json", "database.json", "db.json", "data.json", "cmai_users.json", "users_local.json"]
+GLOB_PATTERNS = ["**/users*.json", "**/*users*.json", "**/db*.json", "**/data*.json"]
+
+def _find_legacy_json_path() -> Tuple[Optional[str], str]:
+    reasons = []
+    env_path = os.getenv("LEGACY_JSON_PATH")
+    if env_path:
+        if os.path.isfile(env_path):
+            return env_path, f"env:{env_path}"
+        reasons.append(f"LEGACY_JSON_PATH set but not found: {env_path}")
+
+    for d in CANDIDATE_DIRS:
+        for f in CANDIDATE_FILES:
+            p = os.path.join(d, f)
+            if os.path.isfile(p):
+                return p, f"found:{p}"
+
+    matches = []
+    for pattern in GLOB_PATTERNS:
+        matches += glob.glob(pattern, recursive=True)
+        if len(matches) >= 3:
+            break
+    for p in matches:
+        if os.path.isfile(p):
+            return p, f"glob:{p}"
+
+    return None, ("; ".join(reasons) if reasons else "no candidate JSON found")
+
+def _load_json_payload(path: str) -> Tuple[Optional[object], str]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read().strip()
+            # try standard JSON
+            try:
+                return json.loads(text), "json"
+            except json.JSONDecodeError:
+                # try JSON Lines
+                items = []
+                for i, line in enumerate(text.splitlines(), 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        items.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        return None, f"jsonl_error at line {i}: {e}"
+                if items:
+                    # normalisasi: jadikan {"users":[...]} agar parser bawah kompatibel
+                    return {"users": items}, "jsonl"
+                return None, "empty_file"
+    except FileNotFoundError:
+        return None, "not_found"
+    except Exception as e:
+        return None, f"read_error:{e}"
 
 def _parse_users_from_json_payload(payload) -> list:
-    """Parse users from various JSON payload formats"""
     if payload is None:
         return []
     if isinstance(payload, dict):
@@ -50,79 +77,82 @@ def _parse_users_from_json_payload(payload) -> list:
     return []
 
 def _is_premium_active_local(u: dict) -> bool:
-    """Check if user has active premium status locally"""
-    if not isinstance(u, dict):
-        return False
-    if u.get("is_lifetime"):
-        return True
-    if u.get("is_premium") and u.get("premium_until"):
-        try:
+    try:
+        if u.get("is_lifetime"):
+            return True
+        if u.get("is_premium") and u.get("premium_until"):
             val = u["premium_until"]
             if isinstance(val, (int, float)):
                 dt = datetime.fromtimestamp(val, tz=UTC)
             else:
                 dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
             return dt > datetime.now(UTC)
-        except Exception:
-            return False
+    except Exception:
+        pass
     return False
 
-def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int, int]:
-    """Get user totals from legacy JSON storage"""
-    payload = None
+def legacy_json_totals_with_status(explicit_path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int,str,str]:
+    """
+    return: total, premium, path_info, detail
+    """
     if data_obj is not None:
-        payload = data_obj
-    elif path and os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            payload = None
-    
+        users = _parse_users_from_json_payload(data_obj)
+        return len(users), sum(1 for u in users if _is_premium_active_local(u)), "memory", "ok:memory"
+
+    path = explicit_path
+    path_info = ""
+    if not path:
+        path, path_info = _find_legacy_json_path()
+    else:
+        path_info = f"explicit:{path}"
+
+    if not path:
+        return 0, 0, "-", f"not_found | {path_info}"
+
+    payload, how = _load_json_payload(path)
+    if payload is None:
+        return 0, 0, path, f"load_failed:{how}"
+
     users = _parse_users_from_json_payload(payload)
     total = len(users)
     premium = sum(1 for u in users if _is_premium_active_local(u))
-    return total, premium
+    return total, premium, path, f"ok:{how}"
 
-def get_supabase_totals() -> Tuple[int, int]:
-    """Get user totals from Supabase using stats_totals() function"""
-    if not SUPABASE_AVAILABLE:
-        return 0, 0
+def health() -> Tuple[bool, str]:
+    """Health check for Supabase connection"""
+    if not sb_available():
+        return False, "Supabase client not available"
     
     try:
-        if 'supabase' in globals():
-            # Use new sb_client
-            res = supabase.rpc("stats_totals").execute()
-        else:
-            # Use fallback connection
-            from app.supabase_conn import get_supabase_client
-            supabase_client = get_supabase_client()
-            res = supabase_client.rpc("stats_totals").execute()
-        
+        # Use hc() RPC for health check
+        result = supabase.rpc("hc").execute()
+        if result.data:
+            return True, "Connected via RPC hc()"
+        return False, "RPC hc() returned empty"
+    except Exception as e:
+        return False, f"RPC error: {str(e)}"
+
+def get_supabase_totals() -> Tuple[int, int]:
+    if not sb_available():
+        return 0, 0
+    try:
+        res = supabase.rpc("stats_totals").execute()
         row = (res.data[0] if isinstance(res.data, list) and res.data else
                res.data if isinstance(res.data, dict) else
                {"total_users": 0, "premium_users": 0})
-        
         return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
     except Exception as e:
         print(f"Error getting Supabase totals: {e}")
         return 0, 0
 
-def ping_supabase() -> Tuple[bool, str]:
-    """Check Supabase connection using hc() RPC. Returns (success, message)"""
-    return health()
-
-def ping_supabase_ok() -> bool:
-    """Legacy function for backward compatibility"""
-    success, _ = health()
-    return success
-
-def build_system_status(auto_signals_running: bool, legacy_json_path: Optional[str]=None, legacy_data: Optional[dict]=None) -> str:
-    """Build comprehensive system status message with UTC timestamps"""
-    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
-    ok, detail = health()
+def build_system_status(auto_signals_running: bool,
+                        legacy_json_path: Optional[str]=None,
+                        legacy_data: Optional[dict]=None) -> str:
+    legacy_total, legacy_premium, legacy_path, legacy_detail = legacy_json_totals_with_status(
+        explicit_path=legacy_json_path, data_obj=legacy_data
+    )
+    ok, db_detail = health()
     supa_total, supa_premium = (0, 0)
-    
     if ok:
         supa_total, supa_premium = get_supabase_totals()
 
@@ -130,14 +160,14 @@ def build_system_status(auto_signals_running: bool, legacy_json_path: Optional[s
     auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
     now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
 
-    return f"""📊 **System Status**
-
-🗄️ **Database**: SUPABASE - {db_text}
-🎯 **Auto Signals**: {auto_text}
-
-📊 **User Statistics:**
-• **Local JSON** - Total Users: {legacy_total} | Premium: {legacy_premium}
-• **Supabase**  - Total Users: {supa_total} | Premium: {supa_premium}
-
-⏰ **Last Update**: {now_utc}
-ℹ️ **DB Detail**: {detail[:180]}"""
+    return (
+        "📊 System Status\n\n"
+        f"🗄️ Database: SUPABASE - {db_text}\n"
+        f"🎯 Auto Signals: {auto_text}\n\n"
+        "📊 User Statistics:\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium} (path: {legacy_path})\n"
+        f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
+        f"⏰ Last Update: {now_utc}\n"
+        f"ℹ️ Local Detail: {legacy_detail[:220]}\n"
+        f"ℹ️ DB Detail: {db_detail[:220]}"
+    )
