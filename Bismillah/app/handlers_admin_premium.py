@@ -1,4 +1,3 @@
-
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime, timedelta, timezone
@@ -7,6 +6,15 @@ import asyncio
 from app.lib.guards import admin_guard
 from app.safe_send import safe_reply
 from app.supabase_conn import upsert_user_tid, get_user_by_tid, health
+
+# Perubahan dimulai di sini
+import os
+from datetime import datetime, timedelta, timezone
+from aiogram import types
+from .users_repo import get_user_by_telegram_id, update_user_premium
+from .auth import is_admin, admin_denied_text
+# Perubahan berakhir di sini
+
 
 _locks = {}
 def _lock(uid: int) -> asyncio.Lock:
@@ -52,7 +60,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ok_flag and dur_ok:
                 return await safe_reply(msg, f"✅ Premium set untuk {tid}\n{ref}")
             return await safe_reply(msg, f"❌ Verify gagal.\nTerbaca: {ref}\nCek index/rls/policy & coba lagi.")
-            
+
         except Exception as e:
             return await safe_reply(msg, f"❌ Error setpremium: {e}")
 
@@ -61,21 +69,21 @@ async def cmd_remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
     msg = update.effective_message
     if len(context.args) != 1 or not context.args[0].isdigit():
         return await safe_reply(msg, "Format: /remove_premium <userid>")
-    
+
     tid = int(context.args[0])
-    
+
     try:
         async with _lock(tid):
             # Update to remove premium
             upsert_user_tid(tid, is_premium=False, premium_until=None)
-            
+
             # Verify
             ref = get_user_by_tid(tid) or {}
             if not ref.get("is_premium"):
                 return await safe_reply(msg, f"✅ Premium removed untuk {tid}")
             else:
                 return await safe_reply(msg, f"❌ Failed to remove premium.\nTerbaca: {ref}")
-                
+
     except Exception as e:
         return await safe_reply(msg, f"❌ Error remove premium: {e}")
 
@@ -84,26 +92,26 @@ async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     if len(context.args) != 2 or not context.args[0].isdigit() or not context.args[1].isdigit():
         return await safe_reply(msg, "Format: /grant_credits <userid> <amount>")
-    
+
     tid = int(context.args[0])
     amount = int(context.args[1])
-    
+
     try:
         async with _lock(tid):
             # Get current credits
             current_user = get_user_by_tid(tid) or {}
             current_credits = current_user.get("credits", 0)
             new_credits = current_credits + amount
-            
+
             # Update credits
             upsert_user_tid(tid, credits=new_credits)
-            
+
             # Verify
             ref = get_user_by_tid(tid) or {}
             if ref.get("credits", 0) >= new_credits:
                 return await safe_reply(msg, f"✅ Credits granted: {amount} to user {tid}\nNew total: {ref.get('credits', 0)}")
             else:
                 return await safe_reply(msg, f"❌ Failed to grant credits.\nTerbaca: {ref}")
-                
+
     except Exception as e:
         return await safe_reply(msg, f"❌ Error grant credits: {e}")
