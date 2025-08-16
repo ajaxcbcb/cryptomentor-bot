@@ -1938,81 +1938,96 @@ Gunakan `/subscribe` untuk upgrade!
 
     # Essential admin commands
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command"""
+        """Handle /admin command - Enhanced admin panel with system status"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
+            await update.message.reply_text("❌ Access denied. You are not an admin.")
             return
 
-        # Get bot statistics
-        stats = self.db.get_bot_statistics()
-        eligible_auto_users = self.db.get_eligible_auto_signal_users()
-        auto_status = "🟢 RUNNING" if self.auto_signals and self.auto_signals.is_running else "🔴 STOPPED"
-        deployment_mode = "🚀 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
+        try:
+            # Get system stats
+            from app.db_router import db_status
+            db_info = db_status()
 
-        # Enhanced admin verification for multiple admins
-        admin_env_vars = {}
-        for i in range(1, 10):
-            key = f'ADMIN{i}' # Changed to ADMIN{i}
-            env_value = os.getenv(key)
-            if env_value and env_value != '0':
-                admin_env_vars[key] = env_value
+            # Get user stats
+            all_users = self.db.get_all_users() if hasattr(self.db, 'get_all_users') else []
+            premium_users = [u for u in all_users if u.get('is_premium')] if all_users else []
 
-        if not self.is_admin(user_id):
-            await update.message.reply_text(
-                f"❌ **Access Denied**\n\n"
-                f"**Your ID**: {user_id}\n"
-                f"**Configured Admin IDs**: {sorted(list(self.admin_ids))}\n"
-                f"**Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}\n\n"
-                f"⚠️ Admin access hanya untuk user dengan ID yang sesuai dengan admin environment variables di Secrets.",
-                parse_mode='Markdown'
-            )
-            return
+            # Auto signals status
+            auto_status = "🟢 RUNNING" if (self.auto_signals and self.auto_signals.is_running) else "🔴 STOPPED"
 
-        message = f"""👑 **CryptoMentor AI - Admin Panel** ({deployment_mode})
+            # Admin info
+            admin_ids = list(self.ADMIN_IDS) if hasattr(self, 'ADMIN_IDS') else [self.admin_id] if hasattr(self, 'admin_id') else []
 
-🔑 **Admin Verification:**
-• **Your User ID**: {user_id} ✅
-• **Your Admin Status**: {'✅ PRIMARY' if user_id == self.admin_id else '✅ SECONDARY'}
-• **All Admin IDs**: {sorted(list(self.admin_ids))}
-• **Environment Variables**: {', '.join(admin_env_vars.keys()) if admin_env_vars else 'NONE SET'}
-• **Admin Access**: ✅ VERIFIED & GRANTED
+            message = f"""👑 **CryptoMentor AI - Admin Panel**
+━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 **Bot Statistics:**
-• Total Users: {stats['total_users']}
-• Premium Users: {stats['premium_users']}
-• Banned Users: {stats.get('banned_users', 0)}
-• Active Today: {stats['active_today']}
-• Total Credits: {stats['total_credits']:,}
+📊 **System Status**
+• **Database**: {db_info.get('mode', 'Unknown').upper()} - {'✅' if db_info.get('ready') else '❌'}
+• **Auto Signals**: {auto_status}
+• **Total Users**: {len(all_users)}
+• **Premium Users**: {len(premium_users)}
 
-🎯 **Auto SnD Signals:**
-• Status: {auto_status}
-• Mode: Works in {deployment_mode} mode
-• Eligible Users: {len(eligible_auto_users)} (Admin + Lifetime)
-• Scan Interval: {(self.auto_signals.scan_interval // 60) if self.auto_signals else 'N/A'} minutes
+👥 **User Management**
+• `/setpremium <user_id> <days|lifetime>` - Set premium
+• `/remove_premium <user_id>` - Remove premium
+• `/grant_credits <user_id> <amount>` - Grant credits
+• `/check_user_status <user_id>` - Check user info
 
-🔧 **Admin Commands:**
-• `/setpremium <user_id> <type>` - Set premium (month/lifetime)
-• `/revoke_premium <user_id>` - Remove premium status
-• `/grant_credits <user_id> <amount>` - Add credits
-• `/banned <user_id> <ban|unban|check>` - Ban/unban user management
-• `/auto_signals_status` - SnD signals status
-• `/enable_auto_signal_ai` - Start momentum signals scanner
-• `/disable_auto_signal_ai` - Stop momentum signals scanner
-• `/broadcast <message>` - Send broadcast
-• `/setup_admin` - Show admin setup instructions
+🛠️ **System Commands**
+• `/sb_status` - Supabase connection status
+• `/db_status` - Database health check
+• `/recovery_stats` - System statistics
+• `/restart` - Restart bot service
 
-🌐 **API Status:**
-• CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
-• Binance: ✅ Active (Public API)
-• Auto Signals: {auto_status}
+📢 **Broadcasting**
+• `/broadcast <message>` - Send to all users
+• `/broadcast_welcome` - Send welcome broadcast
+• `/confirm_broadcast` - Confirm pending broadcast
+• `/cancel_broadcast` - Cancel pending broadcast
 
-💡 **V4 Features:**
-- CoinAPI integration
-- Advanced futures analysis with real-time data
-- Supply & Demand analysis for futures
-- Auto signals for admin & lifetime users"""
+🎯 **Auto Signals (Lifetime Users Only)**
+• `/auto_signal_ai_status` - Check auto signals status
+• `/enable_auto_signal_ai` - Start auto signals
+• `/disable_auto_signal_ai` - Stop auto signals
+
+🔧 **Debug & Diagnostics**
+• `/whoami` - Your admin info
+• `/admin_debug` - Admin configuration debug
+• `/sb_diag` - Supabase diagnostics
+• `/sb_repair` - Attempt Supabase repair
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 **Your Admin ID**: `{user_id}`
+🔑 **Configured Admins**: {', '.join(map(str, admin_ids)) if admin_ids else 'None'}
+⏰ **Server Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+
+⚠️ **Use admin commands responsibly!**"""
+
+        except Exception as e:
+            message = f"""👑 **CryptoMentor AI - Admin Panel**
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ **Error loading system stats**: {str(e)}
+
+📋 **Core Admin Commands**
+• `/setpremium <user_id> <days|lifetime>` - Set premium
+• `/remove_premium <user_id>` - Remove premium
+• `/grant_credits <user_id> <amount>` - Grant credits
+• `/check_user_status <user_id>` - Check user status
+• `/broadcast <message>` - Broadcast to all users
+• `/recovery_stats` - System statistics
+• `/sb_status` - Database status
+• `/restart` - Restart bot
+
+🔧 **Debug Commands**
+• `/whoami` - Your info
+• `/admin_debug` - Debug admin config
+• `/db_status` - Database health
+
+👤 **Your Admin ID**: `{user_id}`
+⏰ **Server Time**: {datetime.now().strftime('%H:%M:%S WIB')}"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
