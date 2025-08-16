@@ -9,11 +9,27 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from app.supabase_conn import get_supabase_client
+    from .sb_client import supabase, health
     SUPABASE_AVAILABLE = True
 except ImportError:
-    SUPABASE_AVAILABLE = False
-    print("⚠️ Supabase connection not available for stats")
+    try:
+        from app.supabase_conn import get_supabase_client
+        SUPABASE_AVAILABLE = True
+        
+        def health() -> Tuple[bool, str]:
+            """Fallback health check using existing connection"""
+            try:
+                supabase = get_supabase_client()
+                res = supabase.rpc("hc").execute()
+                return True, f"OK {res.data}"
+            except Exception as e:
+                return False, f"hc_failed: {e}"
+    except ImportError:
+        SUPABASE_AVAILABLE = False
+        print("⚠️ Supabase connection not available for stats")
+        
+        def health() -> Tuple[bool, str]:
+            return False, "supabase_not_available"
 
 UTC = timezone.utc
 ALLOWED_USER_FIELDS = {"telegram_id", "username", "first_name", "last_name", "is_premium", "is_lifetime", "premium_until", "credits"}
@@ -74,8 +90,14 @@ def get_supabase_totals() -> Tuple[int, int]:
         return 0, 0
     
     try:
-        supabase = get_supabase_client()
-        res = supabase.rpc("stats_totals").execute()
+        if 'supabase' in globals():
+            # Use new sb_client
+            res = supabase.rpc("stats_totals").execute()
+        else:
+            # Use fallback connection
+            from app.supabase_conn import get_supabase_client
+            supabase_client = get_supabase_client()
+            res = supabase_client.rpc("stats_totals").execute()
         
         row = (res.data[0] if isinstance(res.data, list) and res.data else
                res.data if isinstance(res.data, dict) else
@@ -88,31 +110,23 @@ def get_supabase_totals() -> Tuple[int, int]:
 
 def ping_supabase() -> Tuple[bool, str]:
     """Check Supabase connection using hc() RPC. Returns (success, message)"""
-    if not SUPABASE_AVAILABLE:
-        return False, "Supabase client not available"
-    
-    try:
-        supabase = get_supabase_client()
-        res = supabase.rpc("hc").execute()
-        return True, f"OK {res.data}"
-    except Exception as e:
-        return False, f"ERR: {str(e)[:100]}"
+    return health()
 
 def ping_supabase_ok() -> bool:
     """Legacy function for backward compatibility"""
-    success, _ = ping_supabase()
+    success, _ = health()
     return success
 
 def build_system_status(auto_signals_running: bool, legacy_json_path: Optional[str]=None, legacy_data: Optional[dict]=None) -> str:
-    """Build comprehensive system status message"""
+    """Build comprehensive system status message with UTC timestamps"""
     legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    ok, detail = health()
     supa_total, supa_premium = (0, 0)
-    db_ok, db_msg = ping_supabase()
     
-    if db_ok:
+    if ok:
         supa_total, supa_premium = get_supabase_totals()
 
-    db_text = "✅" if db_ok else "❌"
+    db_text = "✅" if ok else "❌"
     auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
     now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
 
@@ -126,4 +140,4 @@ def build_system_status(auto_signals_running: bool, legacy_json_path: Optional[s
 • **Supabase**  - Total Users: {supa_total} | Premium: {supa_premium}
 
 ⏰ **Last Update**: {now_utc}
-ℹ️ **DB Detail**: {db_msg[:180]}"""
+ℹ️ **DB Detail**: {detail[:180]}"""
