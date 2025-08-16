@@ -1,4 +1,3 @@
-
 import os
 import sys
 from datetime import datetime, timezone
@@ -53,51 +52,71 @@ def ensure_user(telegram_id: int, username: Optional[str]=None, first_name: Opti
         print(f"Error ensuring user {telegram_id}: {e}")
         return None
 
-def touch_user_from_message(message):
-    """Extract user info from Telegram message and ensure user exists in Supabase"""
-    if not message or not hasattr(message, 'from_user'):
-        return None
-    
-    user = message.from_user
-    if not user or not user.id:
-        return None
-    
-    return ensure_user(
-        telegram_id=user.id,
-        username=getattr(user, "username", None),
-        first_name=getattr(user, "first_name", None),
-        last_name=getattr(user, "last_name", None),
-    )
-
 def touch_user_from_update(update):
-    """Extract user info from Telegram update and ensure user exists in Supabase"""
-    if not update:
-        return None
-    
-    # Try message first
-    if hasattr(update, 'message') and update.message:
-        return touch_user_from_message(update.message)
-    
-    # Try callback query
-    if hasattr(update, 'callback_query') and update.callback_query:
-        cq = update.callback_query
-        if hasattr(cq, 'from_user') and cq.from_user:
-            user = cq.from_user
-            return ensure_user(
-                telegram_id=user.id,
-                username=getattr(user, "username", None),
-                first_name=getattr(user, "first_name", None),
-                last_name=getattr(user, "last_name", None),
-            )
-    
-    # Try effective_user
-    if hasattr(update, 'effective_user') and update.effective_user:
+    """Auto-upsert user to Supabase from Telegram update object"""
+    try:
         user = update.effective_user
-        return ensure_user(
-            telegram_id=user.id,
-            username=getattr(user, "username", None),
-            first_name=getattr(user, "first_name", None),
-            last_name=getattr(user, "last_name", None),
-        )
-    
-    return None
+        if not user:
+            return
+
+        # Try new sb_client first
+        try:
+            from .sb_client import upsert_user_via_rpc
+            upsert_user_via_rpc(
+                telegram_id=user.id,
+                username=getattr(user, 'username', None),
+                first_name=getattr(user, 'first_name', None),
+                last_name=getattr(user, 'last_name', None)
+            )
+            print(f"✅ User {user.id} upserted via RPC")
+            return
+        except ImportError:
+            print("ℹ️ sb_client not found, falling back to direct Supabase connection.")
+            pass
+        except Exception as e:
+            print(f"⚠️ Error calling upsert_user_via_rpc for user {user.id}: {e}")
+            # Continue to fallback if RPC call fails
+
+        # Fallback to existing supabase connection
+        try:
+            from .supabase_conn import get_supabase_client
+            supabase = get_supabase_client()
+
+            # Safe upsert - only send allowed fields
+            user_data = {
+                "telegram_id": user.id,
+                "username": getattr(user, 'username', None),
+                "first_name": getattr(user, 'first_name', None),
+                "last_name": getattr(user, 'last_name', None)
+            }
+
+            # Remove None values to avoid DB issues
+            user_data = {k: v for k, v in user_data.items() if v is not None}
+
+            # Use upsert to handle existing users
+            result = supabase.table("users").upsert(user_data, on_conflict="telegram_id").execute()
+            print(f"✅ User {user.id} upserted to Supabase via direct connection")
+
+        except Exception as e:
+            print(f"⚠️ Failed to upsert user {user.id} to Supabase via direct connection: {e}")
+
+    except Exception as e:
+        print(f"❌ Critical error in touch_user_from_update: {e}")
+
+def touch_user_from_message(message):
+    """Helper for telebot-style message objects"""
+    try:
+        user = message.from_user
+        if not user:
+            print("⚠️ No user found in message.")
+            return
+
+        # Create update-like object for compatibility
+        class MockUpdate:
+            def __init__(self, user):
+                self.effective_user = user
+
+        touch_user_from_update(MockUpdate(user))
+
+    except Exception as e:
+        print(f"❌ Error in touch_user_from_message: {e}")

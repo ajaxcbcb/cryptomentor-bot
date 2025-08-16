@@ -1976,21 +1976,24 @@ Gunakan `/subscribe` untuk upgrade!
     # Essential admin commands
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - Enhanced admin panel with system status"""
+        from app.admin import get_admin_panel_text
+        from app.users_repo import touch_user_from_update
+        
         user_id = update.message.from_user.id
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
 
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. You are not an admin.")
             return
 
         try:
-            # Import the new admin panel
-            from app.admin import get_admin_panel_text
-            from app.lib.auth import get_admin_hierarchy, is_super_admin
-            
             # Get system status from new admin panel
             system_status = get_admin_panel_text()
             
             # Check admin hierarchy
+            from app.lib.auth import get_admin_hierarchy, is_super_admin
             hierarchy = get_admin_hierarchy()
             is_user_super_admin = is_super_admin(user_id)
 
@@ -2033,7 +2036,6 @@ Gunakan `/subscribe` untuk upgrade!
 👤 **Your Admin ID**: `{user_id}`
 {'👑 **Your Role**: SUPER ADMIN' if is_user_super_admin else '⚡ **Your Role**: ADMIN'}
 🔑 **Total Admins**: {hierarchy['total_admins']}
-⏰ **Server Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 
 ⚠️ **Use admin commands responsibly!**"""
 
@@ -2058,8 +2060,7 @@ Gunakan `/subscribe` untuk upgrade!
 • `/admin_debug` - Debug admin config
 • `/db_status` - Database health
 
-👤 **Your Admin ID**: `{user_id}`
-⏰ **Server Time**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+👤 **Your Admin ID**: `{user_id}`"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
