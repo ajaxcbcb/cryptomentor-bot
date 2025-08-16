@@ -1,0 +1,77 @@
+🚀 PROMPT — Patch /admin saja (HTML + chunking, no Markdown)
+
+GOAL
+
+Perbaiki /admin agar tidak error “Can’t parse entities…”.
+
+Kirim pesan /admin sebagai HTML yang sudah di-escape dan di-chunk (<4096 chars).
+
+Jangan ubah logic/status lain; cukup handler /admin saja.
+
+Jika proyek aiogram v3
+
+Buat/replace app/routers/admin_router.py dengan kode di bawah.
+(Jika handler /admin ada di file lain, patch bagian handlernya dengan kode yang sama.)
+
+# app/routers/admin_router.py
+from aiogram import Router, types
+from app.admin import get_admin_panel_text
+import html
+
+router = Router()
+
+def _to_html_chunks(text: str, max_len: int = 3500):
+    esc = html.escape(text, quote=False)
+    buf, cur = [], 0
+    for line in esc.splitlines(True):  # keep newlines
+        if cur + len(line) > max_len and buf:
+            yield "".join(buf)
+            buf, cur = [line], len(line)
+        else:
+            buf.append(line); cur += len(line)
+    if buf:
+        yield "".join(buf)
+
+@router.message(commands={"admin"})
+async def admin_panel(msg: types.Message):
+    text = get_admin_panel_text()  # sudah berisi timestamp UTC dari sisi builder
+    for part in _to_html_chunks(text):
+        await msg.answer(
+            part,
+            parse_mode="HTML",            # penting: JANGAN Markdown
+            disable_web_page_preview=True
+        )
+
+
+Pastikan router ini sudah di-include ke Dispatcher kamu (kalau sebelumnya sudah, biarkan).
+
+Jika proyek pyTelegramBotAPI (telebot)
+
+Patch handler /admin di file bot utama jadi seperti ini:
+
+# (di file bot utama)
+from app.admin import get_admin_panel_text
+import html
+
+def _to_html_chunks(text: str, max_len: int = 3500):
+    esc = html.escape(text, quote=False)
+    buf, cur = [], 0
+    for line in esc.splitlines(True):
+        if cur + len(line) > max_len and buf:
+            yield "".join(buf)
+            buf, cur = [line], len(line)
+        else:
+            buf.append(line); cur += len(line)
+    if buf:
+        yield "".join(buf)
+
+@bot.message_handler(commands=['admin'])
+def cmd_admin(message):
+    text = get_admin_panel_text()  # sudah berisi timestamp UTC dari sisi builder
+    for part in _to_html_chunks(text):
+        bot.send_message(
+            message.chat.id,
+            part,
+            parse_mode="HTML",            # penting: JANGAN Markdown
+            disable_web_page_preview=True
+        )
