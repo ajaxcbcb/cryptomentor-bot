@@ -171,8 +171,20 @@ def build_system_status(auto_signals_running: bool,
                         legacy_data: Optional[dict]=None) -> str:
     """Build comprehensive system status"""
 
-    # Get legacy JSON counts - use the provided path parameter
-    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    # Get legacy JSON counts with detail info
+    if legacy_data:
+        legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+        legacy_detail = "ok:memory"
+    elif legacy_json_path:
+        legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+        if legacy_total > 0:
+            legacy_detail = f"ok:loaded from {legacy_json_path}"
+        else:
+            legacy_detail = f"load_failed:no data from {legacy_json_path}"
+    else:
+        legacy_total, legacy_premium = 0, 0
+        legacy_detail = "no_path_specified"
+
     ok, db_detail = health()
     supa_total, supa_premium = (0, 0)
     if ok:
