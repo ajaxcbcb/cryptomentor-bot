@@ -1,0 +1,298 @@
+GOAL
+
+Perbaiki inisialisasi Supabase client (diagnostik jelas bila gagal).
+
+Gunakan RPC hc() untuk healthcheck, stats_totals() untuk counter.
+
+Tambah RPC upsert di backend: panggil upsert_user_rpc pada setiap pesan/command agar user pasti masuk DB.
+
+Pindahkan status panel ke /admin (timestamp UTC), tetap boleh alias /status.
+
+Jangan kirim field asing ke DB.
+
+TASKS
+
+Pastikan dependency:
+
+pip install --upgrade supabase httpx
+
+
+Buat/replace file berikut:
+
+app/sb_client.py (robust init + diagnostics)
+
+app/stats.py (pakai hc(), UTC)
+
+app/admin.py (panel text)
+
+Middleware/hook auto-upsert:
+
+aiogram v3 → app/middlewares/ensure_user.py + register
+
+telebot → helper touch_user() di semua handler
+
+(Opsional) app/routers/admin_router.py untuk aiogram
+
+app/sb_client.py
+import os
+from typing import Tuple, Dict, Any
+
+try:
+    from supabase import create_client, Client
+except Exception as e:
+    create_client = None
+    Client = None
+    _import_error = str(e)
+
+def _getenv(k: str) -> str:
+    return os.getenv(k) or os.environ.get(k)
+
+SUPABASE_URL = _getenv("SUPABASE_URL")
+# Utamakan SERVICE KEY; fallback ke ANON agar tetap bisa tes minimal
+SUPABASE_KEY = <REDACTED_SUPABASE_KEY>
+
+diagnostics: Dict[str, Any] = {}
+supabase = None  # type: ignore
+
+def _validate_env():
+    if not SUPABASE_URL:
+        diagnostics["missing_SUPABASE_URL"] = True
+    if not SUPABASE_KEY:
+        diagnostics["missing_SUPABASE_KEY"] = True
+    if SUPABASE_URL and not SUPABASE_URL.startswith("http"):
+        diagnostics["invalid_url"] = SUPABASE_URL
+
+def init_client():
+    global supabase
+    _validate_env()
+    if create_client is None:
+        diagnostics["import_error"] = _import_error
+        supabase = None
+        return
+    if diagnostics.get("missing_SUPABASE_URL") or diagnostics.get("missing_SUPABASE_KEY"):
+        supabase = None
+        return
+    try:
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = client
+    except Exception as e:
+        diagnostics["init_error"] = str(e)
+        supabase = None
+
+init_client()
+
+def available() -> bool:
+    return supabase is not None
+
+def health() -> Tuple[bool, str]:
+    """Pakai RPC hc() agar error jelas."""
+    if not available():
+        return False, f"client_not_initialized | diag={diagnostics}"
+    try:
+        res = supabase.rpc("hc").execute()  # type: ignore
+        return True, f"OK {res.data}"
+    except Exception as e:
+        return False, f"rpc_hc_failed: {e} | diag={diagnostics}"
+
+def upsert_user_via_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None) -> Dict[str, Any]:
+    """Gunakan RPC server-side untuk upsert (aman terhadap RLS & skema)."""
+    if not available():
+        raise RuntimeError(f"Supabase client not available: {diagnostics}")
+    payload = {
+        "p_telegram_id": int(telegram_id),
+        "p_username": username,
+        "p_first_name": first_name,
+        "p_last_name": last_name
+    }
+    res = supabase.rpc("upsert_user_rpc", payload).execute()  # type: ignore
+    return res.data or {}
+
+app/stats.py
+from datetime import datetime, timezone
+from typing import Tuple, Optional
+import json
+from .sb_client import supabase, health
+
+UTC = timezone.utc
+
+def _parse_users_from_json_payload(payload) -> list:
+    if payload is None: return []
+    if isinstance(payload, dict):
+        users = payload.get("users", payload)
+        if isinstance(users, dict): return list(users.values())
+        if isinstance(users, list): return users
+        return []
+    if isinstance(payload, list): return payload
+    return []
+
+def _is_premium_active_local(u: dict) -> bool:
+    try:
+        if u.get("is_lifetime"): return True
+        if u.get("is_premium") and u.get("premium_until"):
+            val = u["premium_until"]
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(val, tz=UTC)
+            else:
+                dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            return dt > datetime.now(UTC)
+    except Exception:
+        pass
+    return False
+
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int]:
+    payload = None
+    if data_obj is not None:
+        payload = data_obj
+    elif path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except FileNotFoundError:
+            payload = None
+    users = _parse_users_from_json_payload(payload)
+    total = len(users)
+    premium = sum(1 for u in users if _is_premium_active_local(u))
+    return total, premium
+
+def get_supabase_totals() -> Tuple[int,int]:
+    if supabase is None: return 0, 0
+    res = supabase.rpc("stats_totals").execute()
+    row = (res.data[0] if isinstance(res.data, list) and res.data else
+           res.data if isinstance(res.data, dict) else
+           {"total_users": 0, "premium_users": 0})
+    return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
+
+def build_system_status(auto_signals_running: bool,
+                        legacy_json_path: Optional[str]=None,
+                        legacy_data: Optional[dict]=None) -> str:
+    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    ok, detail = health()
+    supa_total, supa_premium = (0, 0)
+    if ok:
+        supa_total, supa_premium = get_supabase_totals()
+    db_text = "✅" if ok else "❌"
+    auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
+    now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
+    return (
+        "📊 System Status\n\n"
+        f"🗄️ Database: SUPABASE - {db_text}\n"
+        f"🎯 Auto Signals: {auto_text}\n\n"
+        "📊 User Statistics:\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}\n"
+        f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
+        f"⏰ Last Update: {now_utc}\n"
+        f"ℹ️ DB Detail: {detail[:220]}"
+    )
+
+app/admin.py
+from .stats import build_system_status
+AUTO_SIGNALS_RUNNING = True
+LEGACY_JSON_PATH = "data/users.json"  # set None jika tidak pakai JSON lokal
+
+def get_admin_panel_text():
+    return build_system_status(
+        auto_signals_running=AUTO_SIGNALS_RUNNING,
+        legacy_json_path=LEGACY_JSON_PATH
+    )
+
+Auto-upsert user di SETIAP command
+aiogram v3 — app/middlewares/ensure_user.py
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject, Message, CallbackQuery
+from typing import Callable, Dict, Any, Awaitable
+from ..sb_client import upsert_user_via_rpc
+
+def _touch(obj):
+    u = getattr(obj, "from_user", None)
+    if u:
+        upsert_user_via_rpc(
+            telegram_id=u.id,
+            username=getattr(u, "username", None),
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+        )
+
+class EnsureUserMiddleware(BaseMiddleware):
+    async def __call__(self,
+                       handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+                       event: TelegramObject,
+                       data: Dict[str, Any]) -> Any:
+        if isinstance(event, Message):
+            _touch(event)
+        elif isinstance(event, CallbackQuery):
+            _touch(event)
+        return await handler(event, data)
+
+
+Registrasi middleware + router /admin (aiogram):
+
+# di bootstrap bot (mis. main.py)
+from aiogram import Dispatcher
+from app.middlewares.ensure_user import EnsureUserMiddleware
+from app.routers.admin_router import router as admin_router
+
+dp = Dispatcher()
+dp.message.middleware(EnsureUserMiddleware())
+dp.callback_query.middleware(EnsureUserMiddleware())
+dp.include_router(admin_router)
+
+
+Router /admin (aiogram):
+
+# app/routers/admin_router.py
+from aiogram import Router, types
+from app.admin import get_admin_panel_text
+router = Router()
+
+@router.message(commands={"admin","status"})
+async def admin_panel(msg: types.Message):
+    await msg.answer(get_admin_panel_text())
+
+telebot — helper touch_user():
+from telebot import types
+from app.sb_client import upsert_user_via_rpc
+
+def touch_user(message: types.Message):
+    u = message.from_user
+    if u:
+        upsert_user_via_rpc(
+            telegram_id=u.id,
+            username=getattr(u, "username", None),
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+        )
+
+@bot.message_handler(commands=['admin','status'])
+def cmd_admin(message):
+    touch_user(message)
+    from app.admin import get_admin_panel_text
+    bot.reply_to(message, get_admin_panel_text())
+
+@bot.message_handler(func=lambda m: True)
+def all_messages(message):
+    touch_user(message)
+    # ...lanjutkan logic kamu...
+
+Kenapa tadi “Supabase client not available”?
+
+Dengan app/sb_client.py baru, jika env salah/kurang/URL invalid, DB Detail akan menampilkan diagnosa diag={...} yang jelas (missing var, import error, init error). Pastikan di Replit Secrets:
+
+SUPABASE_URL → contoh: https://xxxxx.supabase.co
+
+SUPABASE_SERVICE_KEY → Service Role Key (bukan Anon key).
+
+Kalau kamu terpaksa pakai Anon Key, fungsi RPC security definer masih bisa dipanggil, tapi untuk operasi tabel langsung + RLS bisa terbatas.
+
+Uji Cepat (tanpa nunggu apa-apa)
+
+Jalankan SQL di Supabase (di atas).
+
+Pastikan Secrets benar di Replit.
+
+Kirim /admin → sekarang “Last Update” harus UTC.
+
+“DB Detail” harus OK {...} kalau hc() sukses.
+
+Ketik apa saja dari akun Telegram baru → harus otomatis masuk Supabase via upsert_user_rpc.
+
+/admin menampilkan Supabase Total Users > 0 saat sudah ada minimal 1 user.
