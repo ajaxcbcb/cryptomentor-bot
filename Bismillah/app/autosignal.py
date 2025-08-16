@@ -342,3 +342,34 @@ def start_background_scheduler(application):
 
     jq.run_repeating(_tick, interval=SCAN_INTERVAL_SEC, first=10, name="autosignal")
     print(f"[AutoSignal] ✅ started (interval={SCAN_INTERVAL_SEC}s ≈ {SCAN_INTERVAL_SEC//60}m, top={TOP_N}, minConf={MIN_CONFIDENCE}%, tf={TIMEFRAME}, quote={QUOTE})")
+"""
+Sumber kebenaran status Auto Signals di runtime.
+Dipakai oleh panel /admin untuk menampilkan ON/OFF.
+"""
+
+import os
+from threading import Event
+
+# default ON jika env AUTO_SIGNALS_DEFAULT=1, selain itu OFF
+_default_on = os.getenv("AUTO_SIGNALS_DEFAULT", "1") == "1"
+_state = Event()
+if _default_on:
+    _state.set()
+else:
+    _state.clear()
+
+def is_auto_signal_running() -> bool:
+    """Kembalikan True jika Auto Signals sedang aktif."""
+    return _state.is_set()
+
+def start_auto_signals() -> None:
+    """Nyalakan Auto Signals (hanya flag status; worker dijalankan di tempat lain)."""
+    _state.set()
+
+def stop_auto_signals() -> None:
+    """Matikan Auto Signals (flag status)."""
+    _state.clear()
+
+def set_auto_signal_running(flag: bool) -> None:
+    """Set Auto Signals status dengan flag boolean."""
+    _state.set() if flag else _state.clear()

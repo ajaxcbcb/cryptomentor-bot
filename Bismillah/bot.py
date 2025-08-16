@@ -1479,7 +1479,7 @@ Gunakan credit dengan bijak!"""
 ⏰ **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
 🎯 **Target Coins**: {len(self.auto_signals.target_symbols)} altcoins
 📈 **Min Confidence**: {self.auto_signals.min_confidence}%
-🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S') if self.auto_signals.last_scan_time > 0 else 'Never'}
+🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S UTC') if self.auto_signals.last_scan_time > 0 else 'Never'}
 
 🔧 **Commands:**
 • `/enable_auto_signal_ai` - Start momentum signals scanner
@@ -1507,6 +1507,10 @@ Gunakan credit dengan bijak!"""
 
         # Start auto signals
         try:
+            # Update status in autosignal module
+            from app.autosignal import start_auto_signals
+            start_auto_signals()
+            
             asyncio.create_task(self.auto_signals.start_auto_scanner())
             await update.message.reply_text(
                 f"✅ **Auto SnD Signals Enabled**\n\n"
@@ -1540,6 +1544,10 @@ Gunakan credit dengan bijak!"""
 
         # Stop auto signals
         try:
+            # Update status in autosignal module
+            from app.autosignal import stop_auto_signals
+            stop_auto_signals()
+            
             await self.auto_signals.stop_auto_scanner()
             await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
             self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
