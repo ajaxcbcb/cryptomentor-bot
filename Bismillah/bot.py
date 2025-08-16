@@ -442,10 +442,14 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         from app.chat_store import remember_chat
+        from app.users_repo import touch_user_from_update
 
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
 
         # Remember chat consent
         if user and update.effective_chat:
@@ -773,6 +777,11 @@ class TelegramBot:
 
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
+        from app.users_repo import touch_user_from_update
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
+
         print(f"🎯 /price command received from user {update.effective_user.id}")
 
         # Check if user needs restart
@@ -873,6 +882,11 @@ class TelegramBot:
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /analyze command - comprehensive analysis with CoinAPI integration"""
+        from app.users_repo import touch_user_from_update
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
+
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
@@ -1181,6 +1195,11 @@ class TelegramBot:
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline keyboards"""
+        from app.users_repo import touch_user_from_update
+
+        # Auto-upsert user to Supabase for callback queries
+        touch_user_from_update(update)
+
         query = update.callback_query
         try:
             await query.answer()
@@ -1856,8 +1875,35 @@ Gunakan `/subscribe` untuk upgrade!
             await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
             print(f"Error in ask_ai command: {e}")
 
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /status and /system commands - System status with dual counters"""
+        from app.stats import build_system_status
+        from app.users_repo import touch_user_from_update
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
+
+        # Check if auto signals are running
+        auto_signals_running = self.auto_signals and self.auto_signals.is_running if self.auto_signals else False
+        
+        # Path to legacy JSON (adjust path if needed)
+        legacy_json_path = "Bismillah/data/users_local.json" if os.path.exists("Bismillah/data/users_local.json") else None
+
+        # Build status message
+        status_text = build_system_status(
+            auto_signals_running=auto_signals_running,
+            legacy_json_path=legacy_json_path
+        )
+
+        await update.message.reply_text(status_text, parse_mode='Markdown')
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle regular text messages"""
+        from app.users_repo import touch_user_from_update
+
+        # Auto-upsert user to Supabase for any message
+        touch_user_from_update(update)
+
         text = update.message.text.lower().strip()
         user_id = update.message.from_user.id
 
@@ -3148,6 +3194,10 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("price", self.price_command))
         self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+        
+        # System status commands (dual counter)
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        self.application.add_handler(CommandHandler("system", self.status_command))
         self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
         self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
         self.application.add_handler(CommandHandler("market", self.market_command))
