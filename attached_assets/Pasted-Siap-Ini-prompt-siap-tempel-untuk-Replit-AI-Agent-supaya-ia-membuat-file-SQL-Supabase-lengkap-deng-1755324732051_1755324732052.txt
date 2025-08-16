@@ -1,0 +1,242 @@
+Siap. Ini prompt siap-tempel untuk Replit AI Agent supaya ia membuat file SQL Supabase (lengkap dengan semua blok yang kamu tulis), plus skrip cek-koneksi RPC dari Replit.
+
+🚀 PROMPT → untuk Replit AI Agent
+
+Tujuan:
+
+Buat file db/setup_supabase.sql berisi seluruh schema, trigger, view, RPC, dan kebijakan RLS (opsional) persis seperti di bawah.
+
+Buat skrip Python tools/test_supabase_rpc.py untuk menguji koneksi Supabase & memanggil RPC set_premium dan debit_credits.
+
+Jangan ubah file lain.
+
+Langkah Kerja:
+
+Jika folder db/ dan tools/ belum ada, buatkan.
+
+Tulis isi SQL tanpa modifikasi ke db/setup_supabase.sql.
+
+Tulis skrip test yang menggunakan env SUPABASE_URL & SUPABASE_SERVICE_KEY.
+
+Setelah selesai, laporkan file yang dibuat dan contoh cara menjalankan test.
+
+Buat file: db/setup_supabase.sql
+
+-- 1) Schema tabel & index
+create table if not exists public.users (
+  id bigserial primary key,
+  telegram_id bigint unique not null,
+  username text,
+  first_name text,
+  last_name text,
+  is_premium boolean not null default false,
+  is_lifetime boolean not null default false,
+  premium_until timestamptz,
+  credits integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_users_tg on public.users(telegram_id);
+
+create table if not exists public.user_events (
+  id bigserial primary key,
+  telegram_id bigint not null,
+  event_type text not null,   -- 'REGISTER','SET_PREMIUM','DEBIT_CREDIT', dst.
+  meta jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_user_events_tg on public.user_events(telegram_id);
+
+-- 2) Trigger updated_at
+create or replace function public.tg_touch_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end$$;
+
+drop trigger if exists tg_users_updated on public.users;
+create trigger tg_users_updated
+before update on public.users
+for each row execute procedure public.tg_touch_updated_at();
+
+-- 3) Helper function & view
+create or replace function public.is_currently_premium(p_is_premium boolean, p_is_lifetime boolean, p_until timestamptz)
+returns boolean language sql immutable as $$
+  select coalesce(p_is_lifetime, false)
+         or (coalesce(p_is_premium, false) and (p_until is not null and p_until > now()));
+$$;
+
+create or replace view public.v_users as
+select
+  id, telegram_id, username, first_name, last_name,
+  is_premium, is_lifetime, premium_until, credits,
+  public.is_currently_premium(is_premium, is_lifetime, premium_until) as premium_active,
+  created_at, updated_at
+from public.users;
+
+-- 4) RPC / Function untuk premium & credit
+create or replace function public.set_premium(
+  p_telegram_id bigint,
+  p_duration_value integer,
+  p_duration_type text  -- 'days' | 'months' | 'lifetime'
+) returns void language plpgsql security definer as $$
+declare
+  v_now timestamptz := now();
+  v_until timestamptz;
+begin
+  if p_duration_type = 'lifetime' then
+    update public.users
+    set is_premium = true,
+        is_lifetime = true,
+        premium_until = null
+    where telegram_id = p_telegram_id;
+  elsif p_duration_type in ('days','months') then
+    if p_duration_type = 'days' then
+      v_until := greatest(coalesce((select premium_until from public.users where telegram_id=p_telegram_id), v_now), v_now) + (p_duration_value || ' days')::interval;
+    else
+      v_until := greatest(coalesce((select premium_until from public.users where telegram_id=p_telegram_id), v_now), v_now) + (p_duration_value || ' months')::interval;
+    end if;
+
+    update public.users
+    set is_premium = true,
+        is_lifetime = false,
+        premium_until = v_until
+    where telegram_id = p_telegram_id;
+  else
+    raise exception 'Invalid duration_type. Use "days", "months", or "lifetime".';
+  end if;
+
+  insert into public.user_events (telegram_id, event_type, meta)
+  values (p_telegram_id, 'SET_PREMIUM', jsonb_build_object('duration_value', p_duration_value, 'duration_type', p_duration_type));
+end$$;
+
+create or replace function public.debit_credits(
+  p_telegram_id bigint,
+  p_amount integer
+) returns integer language plpgsql security definer as $$
+declare
+  v_remaining integer;
+begin
+  update public.users
+  set credits = greatest(0, credits - p_amount)
+  where telegram_id = p_telegram_id
+  returning credits into v_remaining;
+
+  insert into public.user_events (telegram_id, event_type, meta)
+  values (p_telegram_id, 'DEBIT_CREDIT', jsonb_build_object('amount', p_amount, 'remaining', v_remaining));
+
+  return v_remaining;
+end$$;
+
+-- 5) (Opsional) RLS kebijakan dasar
+-- Jika akses hanya lewat Service Key dari backend, kamu boleh aktifkan RLS minimal seperti ini.
+
+alter table public.users enable row level security;
+alter table public.user_events enable row level security;
+
+create policy users_service_only on public.users
+  for all
+  using (true)
+  with check (true);
+
+create policy user_events_service_only on public.user_events
+  for all
+  using (true)
+  with check (true);
+
+
+Buat file: tools/test_supabase_rpc.py
+
+Skrip ini: (1) memastikan env tersedia, (2) membuat/upsert user dummy, (3) memanggil set_premium & debit_credits, (4) menampilkan hasil.
+
+import os
+import sys
+from supabase import create_client, Client
+
+URL = os.getenv("SUPABASE_URL")
+KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+if not URL or not KEY:
+    print("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in environment.")
+    sys.exit(1)
+
+supabase: Client = create_client(URL, KEY)
+
+DUMMY_TG = 999999999  # ganti kalau mau
+
+def ensure_user():
+    data = {
+        "telegram_id": DUMMY_TG,
+        "username": "dummyuser",
+        "first_name": "Dummy",
+        "last_name": "Tester",
+    }
+    res = supabase.table("users").upsert(data, on_conflict="telegram_id").select("*").execute()
+    return res.data[0]
+
+def call_set_premium_lifetime():
+    res = supabase.rpc("set_premium", {
+        "p_telegram_id": DUMMY_TG,
+        "p_duration_value": 0,
+        "p_duration_type": "lifetime"
+    }).execute()
+    print("set_premium(lifetime) OK", res.data)
+
+def call_debit_credits(amount: int):
+    res = supabase.rpc("debit_credits", {
+        "p_telegram_id": DUMMY_TG,
+        "p_amount": amount
+    }).execute()
+    print(f"debit_credits({amount}) remaining =", res.data)
+
+def show_user():
+    res = supabase.table("users").select("*").eq("telegram_id", DUMMY_TG).limit(1).execute()
+    print("User row =", res.data[0] if res.data else None)
+
+if __name__ == "__main__":
+    print("== Supabase RPC Smoke Test ==")
+    u = ensure_user()
+    show_user()
+    call_set_premium_lifetime()
+    show_user()
+    # seed credits dulu biar debit terlihat
+    supabase.table("users").update({"credits": 10}).eq("telegram_id", DUMMY_TG).execute()
+    call_debit_credits(3)
+    show_user()
+    print("Done.")
+
+
+Output yang diharapkan dari kamu (Replit AI Agent):
+
+Konfirmasi file dibuat:
+
+db/setup_supabase.sql
+
+tools/test_supabase_rpc.py
+
+Instruksi singkat menjalankan test:
+
+Pastikan SUPABASE_URL & SUPABASE_SERVICE_KEY ada di Secrets.
+
+Jalankan: pip install supabase
+
+Jalankan: python tools/test_supabase_rpc.py
+
+Jangan ubah file selain yang disebut di atas.
+
+Catatan penggunaan SQL:
+
+File db/setup_supabase.sql ini tidak dieksekusi di Replit. Developer akan membuka Supabase → SQL Editor, paste/unggah isi file tersebut, lalu Run.
+
+Setelah SQL dijalankan, barulah skrip tools/test_supabase_rpc.py bisa menguji koneksi & RPC.
+
+Acceptance Criteria:
+
+File SQL & skrip test dibuat persis seperti isi di atas.
+
+Skrip test dapat memanggil set_premium (lifetime) & debit_credits tanpa error (dengan asumsi SQL sudah dieksekusi di Supabase).
+
+Tidak ada perubahan lain di repo.
