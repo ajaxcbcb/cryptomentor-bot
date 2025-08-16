@@ -604,6 +604,7 @@ class TelegramBot:
                     # Also register in Supabase
                     self.register_user_supabase(user)
 
+            # Generate response message
         except Exception as e:
             print(f"❌ Error in start command: {e}")
             # Log the error but continue to show welcome message
@@ -1509,7 +1510,7 @@ Gunakan credit dengan bijak!"""
             # Update status in autosignal module
             from app.autosignal import start_auto_signals
             start_auto_signals()
-
+            
             asyncio.create_task(self.auto_signals.start_auto_scanner())
             await update.message.reply_text(
                 f"✅ **Auto SnD Signals Enabled**\n\n"
@@ -1546,7 +1547,7 @@ Gunakan credit dengan bijak!"""
             # Update status in autosignal module
             from app.autosignal import stop_auto_signals
             stop_auto_signals()
-
+            
             await self.auto_signals.stop_auto_scanner()
             await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
             self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
@@ -2000,7 +2001,7 @@ Gunakan `/subscribe` untuk upgrade!
         """Handle /admin command - Enhanced admin panel with system status"""
         from app.admin import get_admin_panel_text
         from app.users_repo import touch_user_from_update
-
+        
         user_id = update.message.from_user.id
 
         # Auto-upsert user to Supabase
@@ -2013,7 +2014,7 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             # Get system status from new admin panel
             system_status = get_admin_panel_text()
-
+            
             # Check admin hierarchy
             from app.lib.auth import get_admin_hierarchy, is_super_admin
             hierarchy = get_admin_hierarchy()
@@ -2034,7 +2035,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /sb_status - Supabase connection status
 • /db_status - Database health check
 • /recovery_stats - System statistics
-• /restart - Restart bot
+• /restart - Restart bot service
 
 📢 Broadcasting
 • /broadcast <message> - Send to all users
@@ -2960,13 +2961,13 @@ ADMIN2 = [optional_second_admin_id]
         message += f"🏛️ **Admin Hierarchy:**\n"
         if hierarchy['super_admin']:
             message += f"• **Super Admin**: {hierarchy['super_admin']} 👑\n"
-
+        
         if hierarchy['dynamic_admins']:
             message += f"• **Dynamic Admins**: {', '.join(hierarchy['dynamic_admins'])}\n"
-
+        
         if hierarchy['static_admins']:
             message += f"• **Static Admins**: {', '.join(hierarchy['static_admins'])}\n"
-
+        
         message += f"• **Total Admins**: {hierarchy['total_admins']}\n\n"
 
         if ADMIN_SYSTEM_AVAILABLE:
@@ -3202,7 +3203,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("price", self.price_command))
         self.application.add_handler(CommandHandler("analyze", self.analyze_command))
-
+        
         # System status commands (dual counter)
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("system", self.status_command))

@@ -1,7 +1,8 @@
+
 import os, glob, json
 from datetime import datetime, timezone
 from typing import Tuple, Optional
-from .sb_client import supabase, health
+from .sb_client import supabase, available as sb_available
 
 UTC = timezone.utc
 
@@ -62,21 +63,25 @@ def _load_json_payload(path: str) -> Tuple[Optional[object], str]:
         return None, f"read_error:{e}"
 
 def _parse_users_from_json_payload(payload) -> list:
-    if payload is None: return []
-    if isinstance(payload, dict):
-        users = payload.get("premium_users", payload.get("users", payload))
-        if isinstance(users, dict): return list(users.values())
-        if isinstance(users, list): return users
+    if payload is None:
         return []
-    if isinstance(payload, list): return payload
+    if isinstance(payload, dict):
+        users = payload.get("users", payload)
+        if isinstance(users, dict):
+            return list(users.values())
+        if isinstance(users, list):
+            return users
+        return []
+    if isinstance(payload, list):
+        return payload
     return []
 
 def _is_premium_active_local(u: dict) -> bool:
     try:
-        if u.get("is_lifetime"): return True
-        if u.get("is_premium") and u.get("subscription_end"):
-            val = u["subscription_end"]
-            if val is None: return True  # null means lifetime/permanent
+        if u.get("is_lifetime"):
+            return True
+        if u.get("is_premium") and u.get("premium_until"):
+            val = u["premium_until"]
             if isinstance(val, (int, float)):
                 dt = datetime.fromtimestamp(val, tz=UTC)
             else:
@@ -117,7 +122,7 @@ def health() -> Tuple[bool, str]:
     """Health check for Supabase connection"""
     if not sb_available():
         return False, "Supabase client not available"
-
+    
     try:
         # Use hc() RPC for health check
         result = supabase.rpc("hc").execute()
@@ -140,38 +145,12 @@ def get_supabase_totals() -> Tuple[int, int]:
         print(f"Error getting Supabase totals: {e}")
         return 0, 0
 
-def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int]:
-    payload = None
-    if data_obj is not None:
-        payload = data_obj
-    elif path:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-        except FileNotFoundError:
-            payload = None
-        except json.JSONDecodeError:
-            # coba JSON Lines (jsonl)
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    items = [json.loads(line) for line in f if line.strip()]
-                payload = {"users": items}
-            except Exception:
-                payload = None
-    users = _parse_users_from_json_payload(payload)
-    total = len(users)
-    premium = sum(1 for u in users if _is_premium_active_local(u))
-    return total, premium
-
 def build_system_status(auto_signals_running: bool,
                         legacy_json_path: Optional[str]=None,
                         legacy_data: Optional[dict]=None) -> str:
-    """
-    return: total, premium, path_info, detail
-    """
-    # Get legacy JSON data
-    legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
-
+    legacy_total, legacy_premium, legacy_path, legacy_detail = legacy_json_totals_with_status(
+        explicit_path=legacy_json_path, data_obj=legacy_data
+    )
     ok, db_detail = health()
     supa_total, supa_premium = (0, 0)
     if ok:
@@ -186,7 +165,7 @@ def build_system_status(auto_signals_running: bool,
         f"🗄️ Database: SUPABASE - {db_text}\n"
         f"🎯 Auto Signals: {auto_text}\n\n"
         "📊 User Statistics:\n"
-        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium} (path: {legacy_path})\n"
         f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
         f"⏰ Last Update: {now_utc}\n"
         f"ℹ️ Local Detail: {legacy_detail[:220]}\n"
