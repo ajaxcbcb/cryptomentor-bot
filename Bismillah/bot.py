@@ -2705,6 +2705,32 @@ ADMIN2 = [optional_second_admin_id]
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def test_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /test_admin command - Test admin access"""
+        user_id = update.message.from_user.id
+        
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+            
+        message = f"""✅ **Admin Test Successful!**
+
+👤 **Your Info:**
+• **User ID**: `{user_id}`
+• **Admin Status**: ✅ CONFIRMED
+• **System**: All admin commands should work
+
+🎯 **Available Commands:**
+• `/admin` - Admin panel
+• `/setpremium` - Set user premium
+• `/grant_credits` - Grant credits
+• `/sb_status` - Supabase status
+• `/broadcast` - Send broadcast
+
+💡 **Kalo command lain gak work, restart bot dulu!**"""
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+
     async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /db_status command"""
         from app.db_router import db_status
@@ -3104,6 +3130,8 @@ ADMIN2 = [optional_second_admin_id]
 
     def _register_handlers(self):
         """Register all bot handlers"""
+        print("🔧 Registering bot handlers...")
+        
         # Add command handlers with proper async functions
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
@@ -3126,25 +3154,46 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("whoami", self.whoami_command))
         self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
 
-        # Admin commands
+        # Admin commands - Core functionality
         self.application.add_handler(CommandHandler("admin", self.admin_command))
-        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
         self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
+        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+        self.application.add_handler(CommandHandler("remove_premium", self.revoke_premium_command))  # Alias
         self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
         self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
-        self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
+        
+        # Admin commands - System management
+        self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+        self.application.add_handler(CommandHandler("restart", self.restart_command))
+        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
+        
+        # Admin commands - Broadcasting
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
         self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
         self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
         self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
-        self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+        
+        # Admin commands - Auto Signals
+        self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
+        self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
+        self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
+        
+        # Admin commands - Utilities
+        self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
         self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
-        self.application.add_handler(CommandHandler("restart", self.restart_command))
         self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
         self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
         self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
+        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
         self.application.add_handler(CommandHandler("banned", self.banned_command))
+        self.application.add_handler(CommandHandler("test_admin", self.test_admin_command))
+
+        # Super Admin commands
+        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
+        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
+        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
+        
+        print("✅ Core admin commands registered")
 
         # Supabase health check command
         try:
@@ -3165,22 +3214,23 @@ ADMIN2 = [optional_second_admin_id]
         # Add database status command
         self.application.add_handler(CommandHandler("db_status", self.db_status_command))
 
-        # Add Supabase repair and diagnostic commands
+        # Add Supabase repair and diagnostic commands (with unique names to avoid conflicts)
         try:
             from app.handlers_sb_repair import cmd_sb_repair
-            from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
+            from app.handlers_admin_premium import cmd_setpremium as sb_setpremium, cmd_remove_premium as sb_remove_premium, cmd_grant_credits as sb_grant_credits
             from app.handlers_user_set import cmd_user_set
             from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
 
             self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
-            self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
-            self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
-            self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+            # Use different command names to avoid conflicts with main bot commands
+            self.application.add_handler(CommandHandler("sb_setpremium", sb_setpremium))
+            self.application.add_handler(CommandHandler("sb_remove_premium", sb_remove_premium))
+            self.application.add_handler(CommandHandler("sb_grant_credits", sb_grant_credits))
             self.application.add_handler(CommandHandler("user_set", cmd_user_set))
             self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
             self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
 
-            print("✅ Supabase admin commands registered")
+            print("✅ Supabase admin commands registered with sb_ prefix")
         except ImportError as e:
             print(f"⚠️ Could not register Supabase commands: {e}")
 
