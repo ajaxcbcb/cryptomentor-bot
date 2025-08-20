@@ -2,34 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 CryptoMentor AI Bot - Main Entry Point
-Enhanced with async support for aiogram v3
+Enhanced with async support for python-telegram-bot v22.3
 """
-
-# Bootstrap dependencies before imports
-try:
-    from app.bootstrap_deps import ensure as _ensure_deps
-except Exception:
-    def _ensure_deps(): pass
-_ensure_deps()
 
 import os
 import sys
 import asyncio
 import logging
 from datetime import datetime
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from dotenv import load_dotenv
-
-# Import our modules
-from ai_assistant import CryptoMentorAI
-from premium_manager import PremiumManager
-from snd_auto_signals import SupplyDemandAutoSignals
-from app.sb_client import init_supabase
-from app.health import health_router
-from app.middlewares.ensure_user_sb import EnsureUserSBMiddleware
-from app.routers.admin_set_credits_all import router as set_all_router
 
 # Enhanced deployment detection
 deployment_indicators = {
@@ -67,18 +47,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
-# Initialize Supabase client
+# Import bot after environment setup
 try:
-    init_supabase()
-    print("✅ Supabase client initialized successfully")
+    from bot import TelegramBot
+    print("✅ Bot module imported successfully")
+except ImportError as e:
+    print(f"❌ Failed to import bot module: {e}")
+    sys.exit(1)
+
+# Import Supabase client and related functions
+try:
+    print("✅ Using centralized Supabase client")
 
     # Verify Supabase integration
-    from supabase_client import supabase, validate_supabase_connection, get_live_user_count
+    from supabase_client import supabase, validate_supabase_connection
 
     try:
+        from supabase_client import get_live_user_count
         if supabase and validate_supabase_connection():
             user_count = get_live_user_count()
             print(f"✅ Supabase connection active - Users: {user_count}")
@@ -105,34 +90,15 @@ async def main():
         try:
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
 
-            # Bot token from environment variables
-            bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-            if not bot_token:
-                logger.error("BOT_TOKEN or TELEGRAM_BOT_TOKEN not found in environment variables.")
-                print("❌ ERROR: Set BOT_TOKEN or TELEGRAM_BOT_TOKEN di Secrets Replit.")
-                sys.exit(1)
+            # Initialize bot
+            bot = TelegramBot()
 
-            # Configure bot properties
-            bot_properties = DefaultBotProperties(parse_mode=ParseMode.HTML)
-            bot = Bot(token=bot_token, default=bot_properties)
-
-            # Initialize Dispatcher
-            dp = Dispatcher()
-
-            # Register middleware for automatic user management
-            dp.message.middleware(EnsureUserSBMiddleware())
-            dp.callback_query.middleware(EnsureUserSBMiddleware())
-
-            # Include routers
-            dp.include_router(health_router)
-            dp.include_router(set_all_router)
-
-            print("🎯 Bot and Dispatcher initialized successfully")
+            print("🎯 Bot initialized successfully")
             print("📡 Starting bot run sequence...")
 
             # Run bot with enhanced logging
-            print("🚀 Calling dp.start_polling()...")
-            await dp.start_polling(bot)
+            print("🚀 Calling bot.run_bot()...")
+            await bot.run_bot()
 
             # If we reach here, bot stopped normally
             print("🛑 Bot stopped by user")

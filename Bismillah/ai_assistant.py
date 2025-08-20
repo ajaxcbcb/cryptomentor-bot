@@ -8,11 +8,6 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 # TODO: Add database client import after setup
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
-
-__all__ = ["CryptoMentorAI"]
 
 class AIAssistant:
     def __init__(self, name="CryptoMentor AI"):
@@ -52,9 +47,6 @@ class AIAssistant:
         self.min_confidence_threshold = 75  # Minimum 75% confidence
 
         # Target symbols for futures analysis
-
-
-        self.target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
 
     def check_connection_health(self):
         """Periodic health check for Supabase connection"""
@@ -102,6 +94,50 @@ class AIAssistant:
             'last_check': self.connection_status['last_check'].isoformat(),
             'retry_count': AIAssistant._connection_retry_count
         }
+
+
+        self.target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'MATIC', 'DOT', 'LINK']
+
+    @classmethod
+    def reset_connection_after_deploy(cls):
+        """Reset connection state after bot redeploy"""
+        print("🔄 Resetting Supabase connection state after deployment...")
+        cls._supabase_instance = None
+        cls._connection_retry_count = 0
+        cls._last_user_count = None
+        print("✅ Connection state reset complete")
+
+    def post_deploy_validation(self):
+        """Validate data consistency after deployment"""
+        try:
+            print("🔍 Running post-deployment validation...")
+
+            # Reset connection state
+            self.reset_connection_after_deploy()
+
+            # Reinitialize connection
+            self.supabase = self._init_supabase()
+            self.supabase_connected = self._validate_supabase_connection()
+
+            if self.supabase_connected:
+                # Validate data integrity
+                user_count = self.get_user_count()
+                premium_count = self.get_premium_users_count()
+
+                print(f"✅ Post-deploy validation complete:")
+                print(f"   📊 Total users: {user_count}")
+                print(f"   👑 Premium users: {premium_count}")
+                print(f"   🔗 Connection: {'✅ Stable' if self.supabase_connected else '❌ Failed'}")
+
+                return True
+            else:
+                print("❌ Post-deployment validation failed - connection not established")
+                return False
+
+        except Exception as e:
+            print(f"❌ Post-deployment validation error: {e}")
+            return False
+
 
 
         # Signal tracking
@@ -208,10 +244,10 @@ class AIAssistant:
 
     def _get_database_error_message(self):
         """Get user-friendly database error message"""
-        return """⚠️ Database tidak tersedia saat ini. 
+        return """⚠️ Database tidak tersedia saat ini\. 
 
-✅ Analisis tetap berfungsi normal!
-💡 Fitur premium dan riwayat mungkin terbatas."""
+✅ Analisis tetap berfungsi normal\\!
+💡 Fitur premium dan riwayat mungkin terbatas\\."""
 
     def _validate_markdown_output(self, text):
         """Validate if text is safe for Markdown parsing"""
@@ -671,6 +707,7 @@ class AIAssistant:
 
 """
 
+            # Add enhanced S&D zones
             analysis += f"""
 🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
 • 🔴 Supply Zone 1: ${enhanced_snd_zones.get('supply_1', current_price * 1.02):,.6f} ({((enhanced_snd_zones.get('supply_1', current_price * 1.02)/current_price-1)*100):+.1f}%)
@@ -845,7 +882,7 @@ class AIAssistant:
 • TP1 (50%): ${trading_levels['tp1']:.2f}
 • TP2 (30%): ${trading_levels['tp2']:.2f} 
 • TP3 (20%): ${trading_levels['tp3']:.2f}
-• Risk/Reward: {trading_levels.get('rr_ratio', 2.0):.1f}:1
+• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
 • Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
 ```
@@ -942,7 +979,7 @@ class AIAssistant:
     def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
         """Generate enhanced trading signal with multiple timeframe confirmation - Helper function"""
         try:
-            # Base signal logic with enhanced features
+            # Basic signal logic with enhanced features
             confidence = 0
             direction = 'NEUTRAL'
             
@@ -1384,6 +1421,901 @@ class AIAssistant:
 
 📡 **Info**: Menggunakan analisis teknikal sebagai backup"""
 
+    # ============ HELPER METHODS ============
+
+    def _analyze_trend(self, timeframes_data, current_price):
+        """Enhanced trend analysis across multiple timeframes with strength assessment"""
+        try:
+            trends = []
+            trend_strengths = []
+
+            for tf, data in timeframes_data.items():
+                ema_50 = data.get('ema_50')
+                ema_200 = data.get('ema_200')
+                rsi = data.get('rsi', 50)
+                macd = data.get('macd_histogram', 0)
+
+                if ema_50 and ema_200:
+                    # Basic trend direction
+                    if ema_50 > ema_200:
+                        trends.append('BULLISH')
+                        # Calculate trend strength
+                        ema_distance = ((ema_50 - ema_200) / ema_200) * 100
+                        strength = min(100, max(0, ema_distance * 50))  # Scale to 0-100
+                    else:
+                        trends.append('BEARISH')
+                        ema_distance = ((ema_200 - ema_50) / ema_50) * 100
+                        strength = min(100, max(0, ema_distance * 50))
+
+                    # Adjust strength based on RSI and MACD
+                    if trends[-1] == 'BULLISH':
+                        if rsi > 60 and macd > 0:
+                            strength *= 1.2  # Strong bullish confluence
+                        elif rsi < 40 or macd < 0:
+                            strength *= 0.7  # Weakening bullish trend
+                    else:  # BEARISH
+                        if rsi < 40 and macd < 0:
+                            strength *= 1.2  # Strong bearish confluence
+                        elif rsi > 60 or macd > 0:
+                            strength *= 0.7  # Weakening bearish trend
+
+                    trend_strengths.append(min(100, strength))
+
+            # Determine overall trend with strength
+            if not trends:
+                return {
+                    'trend': 'SIDEWAYS',
+                    'trend_emoji': '🟡',
+                    'reasoning': 'Insufficient data untuk trend analysis',
+                    'strength': 0
+                }
+
+            bullish_count = trends.count('BULLISH')
+            bearish_count = trends.count('BEARISH')
+            avg_strength = sum(trend_strengths) / len(trend_strengths) if trend_strengths else 0
+
+            if bullish_count > bearish_count:
+                strength_text = "Strong" if avg_strength > 70 else "Moderate" if avg_strength > 40 else "Weak"
+                return {
+                    'trend': 'BULLISH',
+                    'trend_emoji': '🟢',
+                    'reasoning': f'{strength_text} bullish trend - EMA50 > EMA200 di {bullish_count}/{len(trends)} timeframes',
+                    'strength': avg_strength
+                }
+            elif bearish_count > bullish_count:
+                strength_text = "Strong" if avg_strength > 70 else "Moderate" if avg_strength > 40 else "Weak"
+                return {
+                    'trend': 'BEARISH',
+                    'trend_emoji': '🔴',
+                    'reasoning': f'{strength_text} bearish trend - EMA50 < EMA200 di {bearish_count}/{len(trends)} timeframes',
+                    'strength': avg_strength
+                }
+            else:
+                return {
+                    'trend': 'SIDEWAYS',
+                    'trend_emoji': '🟡',
+                    'reasoning': 'Mixed signals antar timeframes - trend belum jelas',
+                    'strength': avg_strength
+                }
+
+        except Exception as e:
+            return {
+                'trend': 'SIDEWAYS',
+                'trend_emoji': '🟡',
+                'reasoning': 'Error dalam enhanced trend analysis',
+                'strength': 0
+            }
+
+    def _get_supply_demand_zones(self, symbol, current_price, crypto_api):
+        """Get supply and demand zones"""
+        try:
+            if crypto_api:
+                snd_data = crypto_api.analyze_supply_demand(symbol, '1h')
+                if snd_data.get('success'):
+                    supply_1 = snd_data.get('Supply 1', current_price * 1.025)
+                    demand_1 = snd_data.get('Demand 1', current_price * 0.975)
+
+                    # Determine position
+                    if current_price > supply_1:
+                        position = "Above supply zone - momentum bullish"
+                    elif current_price < demand_1:
+                        position = "Below demand zone - momentum bearish"
+                    else:
+                        position = "Between key zones - range-bound"
+
+                    return {
+                        'supply_1': supply_1,
+                        'demand_1': demand_1,
+                        'position': position
+                    }
+
+            # Fallback calculation
+            return {
+                'supply_1': current_price * 1.025,
+                'demand_1': current_price * 0.975,
+                'position': 'SnD zones calculated from price levels'
+            }
+
+        except Exception as e:
+            return {
+                'supply_1': current_price * 1.025 if current_price else 0,
+                'demand_1': current_price * 0.975 if current_price else 0,
+                'position': 'SnD analysis unavailable'
+            }
+
+    def _get_enhanced_supply_demand_zones(self, symbol, current_price, indicators, crypto_api):
+        """Get enhanced supply and demand zones with multiple levels"""
+        try:
+            # Get basic SnD data
+            basic_snd = self._get_supply_demand_zones(symbol, current_price, crypto_api)
+
+            # Calculate enhanced zones using technical indicators
+            atr = indicators.get('atr', current_price * 0.02)
+            ema_50 = indicators.get('ema_50', current_price)
+            ema_200 = indicators.get('ema_200', current_price)
+
+            # Calculate multiple resistance and support levels
+            # Supply zones (resistance levels)
+            supply_1 = max(basic_snd.get('supply_1', current_price * 1.02), ema_50 * 1.015)
+            supply_2 = supply_1 + (atr * 2)
+
+            # Demand zones (support levels)  
+            demand_1 = min(basic_snd.get('demand_1', current_price * 0.98), ema_50 * 0.985)
+            demand_2 = demand_1 - (atr * 2)
+
+            # Determine current position relative to zones
+            if current_price > supply_1:
+                position = "Above Supply Zone 1 - Strong Bullish Momentum"
+                strength = "Strong"
+            elif current_price > demand_1:
+                if current_price > ema_50:
+                    position = "Between Zones - Bullish Bias"
+                    strength = "Medium"
+                else:
+                    position = "Between Zones - Bearish Bias"  
+                    strength = "Medium"
+            elif current_price < demand_2:
+                position = "Below Demand Zone 2 - Strong Bearish Momentum"
+                strength = "Strong"
+            else:
+                position = "Near Demand Zone 1 - Support Testing"
+                strength = "Medium"
+
+            return {
+                'supply_1': supply_1,
+                'supply_2': supply_2,
+                'demand_1': demand_1,
+                'demand_2': demand_2,
+                'position': position,
+                'strength': strength,
+                'atr_based': True
+            }
+
+        except Exception as e:
+            # Fallback to basic calculation
+            return {
+                'supply_1': current_price * 1.025,
+                'supply_2': current_price * 1.05,
+                'demand_1': current_price * 0.975,
+                'demand_2': current_price * 0.95,
+                'position': 'Enhanced SnD analysis unavailable',
+                'strength': 'Unknown',
+                'error': str(e)
+            }
+
+    def _get_coin_fundamentals(self, symbol, price_info, coin_info):
+        """Get coin fundamental information"""
+        try:
+            # Extract basic info
+            market_cap = self._normalize_data(price_info, ['market_cap', 'marketCap'])
+            volume_24h = self._normalize_data(price_info, ['volume_24h', 'volume'])
+            rank = self._normalize_data(price_info, ['rank', 'cmc_rank', 'market_cap_rank'])
+
+            # Format market cap
+            if market_cap and market_cap > 0:
+                if market_cap > 1e12:
+                    mc_format = f"${market_cap/1e12:.2f}T"
+                elif market_cap > 1e9:
+                    mc_format = f"${market_cap/1e9:.2f}B"
+                elif market_cap > 1e6:
+                    mc_format = f"${market_cap/1e6:.2f}M"
+                else:
+                    mc_format = f"${market_cap:,.0f}"
+            else:
+                mc_format = "N/A"
+
+            # Format volume
+            if volume_24h and volume_24h > 0:
+                if volume_24h > 1e9:
+                    vol_format = f"${volume_24h/1e9:.2f}B"
+                elif volume_24h > 1e6:
+                    vol_format = f"${volume_24h/1e6:.1f}M"
+                else:
+                    vol_format = f"${volume_24h:,.0f}"
+            else:
+                vol_format = "N/A"
+
+            fundamentals = f"""• 🏆 Market Cap Rank: #{rank if rank else 'N/A'}
+• 💰 Market Cap: {mc_format}
+• 📊 24h Volume: {vol_format}"""
+
+            # Add coin info if available
+            if coin_info and isinstance(coin_info, dict):
+                name = coin_info.get('name', symbol)
+                category = coin_info.get('category', 'N/A')
+                tags = coin_info.get('tags', [])
+
+                if name and name != symbol:
+                    fundamentals += f"\n• 📝 Full Name: {name}"
+                if category and category != 'N/A':
+                    fundamentals += f"\n• 🏷️ Category: {category}"
+                if tags and len(tags) > 0:
+                    top_tags = tags[:3]  # Show top 3 tags
+                    fundamentals += f"\n• 🔖 Tags: {', '.join(top_tags)}"
+
+            # Add market cap category
+            if market_cap and market_cap > 0:
+                if market_cap > 200e9:
+                    cap_category = "Large Cap (Blue Chip)"
+                elif market_cap > 10e9:
+                    cap_category = "Mid Cap"
+                elif market_cap > 1e9:
+                    cap_category = "Small Cap"
+                else:
+                    cap_category = "Micro Cap (High Risk)"
+
+                fundamentals += f"\n• 📈 Cap Category: {cap_category}"
+
+            return fundamentals
+
+        except Exception as e:
+            return f"• Fundamental data: Analysis in progress\n• Error: {str(e)[:50]}..."
+
+    def _format_market_conditions(self, market_data):
+        """Enhanced market conditions formatting with sentiment analysis"""
+        try:
+            if market_data.get('success'):
+                market_cap_change = market_data.get('market_cap_change_24h', 0)
+                btc_dominance = market_data.get('btc_dominance', 0)
+                eth_dominance = market_data.get('eth_dominance', 0)
+                total_market_cap = market_data.get('total_market_cap', 0)
+                total_volume = market_data.get('total_volume_24h', 0)
+
+                # Market sentiment based on market cap change
+                if market_cap_change > 3:
+                    sentiment = "🚀 Very Bullish"
+                elif market_cap_change > 1:
+                    sentiment = "📈 Bullish"
+                elif market_cap_change > -1:
+                    sentiment = "😐 Neutral"
+                elif market_cap_change > -3:
+                    sentiment = "📉 Bearish"
+                else:
+                    sentiment = "💥 Very Bearish"
+
+                # Format market cap and volume
+                if total_market_cap > 1e12:
+                    mc_format = f"${total_market_cap/1e12:.2f}T"
+                elif total_market_cap > 1e9:
+                    mc_format = f"${total_market_cap/1e9:.2f}B"
+                else:
+                    mc_format = "N/A"
+
+                if total_volume > 1e9:
+                    vol_format = f"${total_volume/1e9:.1f}B"
+                elif total_volume > 1e6:
+                    vol_format = f"${total_volume/1e6:.1f}M"
+                else:
+                    vol_format = "N/A"
+
+                return f"{sentiment} | MarketCap: {mc_format} ({self._format_percentage(market_cap_change)}) | Volume: {vol_format} | BTC Dom: {btc_dominance:.1f}% | ETH Dom: {eth_dominance:.1f}%"
+            else:
+                return "Market data temporarily unavailable - using technical analysis"
+        except Exception as e:
+            return f"Market analysis in progress - {str(e)[:30]}..."
+
+    def _generate_trading_signal(self, indicators, futures_data, current_price):
+        """Generate trading signal with confidence"""
+        try:
+            confidence_calc = self._calculate_confidence_score(indicators, {}, futures_data)
+            confidence = confidence_calc['total']
+
+            # Simple signal logic
+            ema_50 = indicators.get('ema_50', 0)
+            ema_200 = indicators.get('ema_200', 0)
+            rsi = indicators.get('rsi', 50)
+
+            if ema_50 > ema_200 and rsi < 70 and confidence >= 60:
+                direction = 'BUY'
+            elif ema_50 < ema_200 and rsi > 30 and confidence >= 60:
+                direction = 'SELL'
+            else:
+                direction = 'NEUTRAL'
+
+            return {
+                'direction': direction,
+                'confidence': confidence,
+                'breakdown': confidence_calc['breakdown']
+            }
+
+        except Exception as e:
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'breakdown': {},
+                'error': str(e)
+            }
+
+    def _calculate_trading_levels(self, current_price, direction, atr):
+        """Calculate entry, stop loss, and take profit levels"""
+        try:
+            if direction == 'BUY':
+                entry = current_price * 0.999
+                stop_loss = current_price - (atr * 2)
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 3)
+            elif direction == 'SELL':
+                entry = current_price * 1.001
+                stop_loss = current_price + (atr * 2)
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 3)
+            else:  # NEUTRAL
+                return {
+                    'entry': current_price,
+                    'stop_loss': current_price,
+                    'tp1': current_price,
+                    'tp2': current_price,
+                    'rr_ratio': 0
+                }
+
+            # Calculate risk/reward
+            risk = abs(entry - stop_loss)
+            reward = abs(tp2 - entry)
+            rr_ratio = reward / risk if risk > 0 else 0
+
+            return {
+                'entry': entry,
+                'stop_loss': stop_loss,
+                'tp1': tp1,
+                'tp2': tp2,
+                'rr_ratio': rr_ratio
+            }
+
+        except Exception as e:
+            return {
+                'entry': current_price,
+                'stop_loss': current_price,
+                'tp1': current_price,
+                'tp2': current_price,
+                'rr_ratio': 0
+            }
+
+    async def _scan_symbol_for_signal(self, symbol, crypto_api):
+        """Scan individual symbol for trading signal"""
+        try:
+            if not crypto_api:
+                return None
+
+            # Get price and futures data
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = crypto_api.get_futures_data(symbol)
+
+            if 'error' in price_data or not price_data.get('success'):
+                return None
+
+            current_price = self._normalize_data(price_data, ['price', 'current_price'])
+            if not current_price:
+                return None
+
+            # Get 1h technical analysis
+            ohlcv = self.get_coinapi_ohlcv_data(symbol, '1HRS', 50)
+            if not ohlcv.get('success'):
+                return None
+
+            indicators = self.calculate_technical_indicators(ohlcv['data'])
+            if 'error' in indicators:
+                return None
+
+            # Generate signal
+            signal_data = self._generate_trading_signal(indicators, futures_data, current_price)
+
+            if signal_data['direction'] == 'NEUTRAL' or signal_data['confidence'] < 75:
+                return None
+
+            # Calculate trading levels
+            atr = indicators.get('atr', current_price * 0.02)
+            levels = self._calculate_trading_levels(current_price, signal_data['direction'], atr)
+
+            return {
+                'symbol': symbol,
+                'direction': signal_data['direction'],
+                'confidence': signal_data['confidence'],
+                'entry': levels['entry'],
+                'sl': levels['stop_loss'],
+                'tp': levels['tp2'],
+                'rr': f"{levels['rr_ratio']:.1f}:1"
+            }
+
+        except Exception as e:
+            print(f"Error scanning {symbol}: {e}")
+            return None
+
+    async def _enhanced_scan_symbol_for_signal(self, symbol, crypto_api):
+        """Enhanced scan for trading signal with more detailed logic - Fixed async function"""
+        try:
+            if not crypto_api:
+                return None
+
+            # Get price and futures data
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            futures_data = crypto_api.get_futures_data(symbol)
+
+            if 'error' in price_data or not price_data.get('success'):
+                return None
+
+            current_price = self._normalize_data(price_data, ['price', 'current_price'])
+            if not current_price:
+                return None
+
+            # Get 1h and 4h technical analysis
+            timeframes_to_scan = {
+                '1h': self.get_coinapi_ohlcv_data(symbol, '1HRS', 100),
+                '4h': self.get_coinapi_ohlcv_data(symbol, '4HRS', 100)
+            }
+
+            all_indicators = {}
+            for tf, ohlcv_data in timeframes_to_scan.items():
+                if ohlcv_data and ohlcv_data.get('success'):
+                    indicators = self.calculate_technical_indicators(ohlcv_data['data'])
+                    if 'error' not in indicators:
+                        all_indicators[tf] = indicators
+
+            if not all_indicators.get('1h'):
+                return None # Need at least 1h indicators
+
+            indicators = all_indicators['1h'] # Primary indicators from 1h timeframe
+
+            # Generate signal with enhanced logic
+            signal_data = self._generate_enhanced_trading_signal(
+                indicators, all_indicators.get('4h', {}), futures_data, current_price, {}
+            )
+
+            # Ensure confidence is within bounds (75-100%)
+            confidence = max(75, min(100, signal_data['confidence']))
+
+            if signal_data['direction'] == 'NEUTRAL' or confidence < 75:
+                return None
+
+            # Calculate trading levels
+            atr = indicators.get('atr', current_price * 0.02)
+            levels = self._calculate_advanced_trading_levels(current_price, signal_data, indicators, {})
+
+            # Determine trend and structure
+            ema_50 = indicators.get('ema_50', 0)
+            ema_200 = indicators.get('ema_200', 0)
+            primary_trend = 'Bullish' if ema_50 > ema_200 else 'Bearish'
+
+            # Determine reason based on technical indicators
+            rsi = indicators.get('rsi', 50)
+            macd = indicators.get('macd_histogram', 0)
+
+            if signal_data['direction'] in ['BUY', 'LONG']:
+                if rsi < 50 and macd > 0:
+                    reason = 'Oversold bounce with momentum'
+                elif ema_50 > ema_200 and rsi > 40:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
+            else:
+                if rsi > 50 and macd < 0:
+                    reason = 'Overbought rejection with momentum'
+                elif ema_50 < ema_200 and rsi < 60:
+                    reason = 'Trend continuation setup'
+                else:
+                    reason = 'Technical confluence detected'
+
+            return {
+                'symbol': symbol,
+                'direction': signal_data['direction'],
+                'confidence': confidence,
+                'entry': levels['entry'],
+                'sl': levels['stop_loss'],
+                'tp1': levels['tp1'],
+                'tp2': levels['tp2'],
+                'rr': f"{levels.get('rr_ratio', 2.0):.1f}:1",
+                'primary_trend': primary_trend,
+                'structure': signal_data['direction'],
+                'reason': reason
+            }
+
+        except Exception as e:
+            print(f"Error enhanced scanning {symbol}: {e}")
+            return None
+
+    def _get_confidence_level(self, confidence):
+        """Get confidence level description"""
+        if confidence >= 75:
+            return "High"
+        elif confidence >= 50:
+            return "Medium"
+        else:
+            return "Low"
+
+    def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
+        """Generate enhanced trading signal with multiple confirmations"""
+        try:
+            # Base confidence calculation
+            confidence_calc = self._calculate_confidence_score(primary_indicators, {}, futures_data)
+            base_confidence = confidence_calc['total']
+
+            # Enhanced signal logic
+            ema_50 = primary_indicators.get('ema_50', 0)
+            ema_200 = primary_indicators.get('ema_200', 0)
+            rsi = primary_indicators.get('rsi', 50)
+            macd = primary_indicators.get('macd_histogram', 0)
+
+            # Primary trend determination
+            primary_trend = 'BULLISH' if ema_50 > ema_200 else 'BEARISH'
+
+            # Higher timeframe confirmation
+            htf_confirmation = 'NEUTRAL'
+            if higher_tf_indicators:
+                htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
+                htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
+                htf_trend = 'BULLISH' if htf_ema_50 > htf_ema_200 else 'BEARISH'
+
+                if htf_trend == primary_trend:
+                    htf_confirmation = 'CONFIRMED'
+                    base_confidence += 15
+                else:
+                    htf_confirmation = 'DIVERGENT'
+                    base_confidence -= 10
+
+            # RSI and MACD confirmation
+            rsi_signal = 'NEUTRAL'
+            if primary_trend == 'BULLISH' and rsi < 70 and macd > 0:
+                rsi_signal = 'BULLISH'
+                base_confidence += 10
+            elif primary_trend == 'BEARISH' and rsi > 30 and macd < 0:
+                rsi_signal = 'BEARISH'
+                base_confidence += 10
+
+            # Supply & Demand confirmation
+            snd_signal = 'NEUTRAL'
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+
+                if current_price <= demand_1 * 1.005 and primary_trend == 'BULLISH':
+                    snd_signal = 'BULLISH'
+                    base_confidence += 12
+                elif current_price >= supply_1 * 0.995 and primary_trend == 'BEARISH':
+                    snd_signal = 'BEARISH' 
+                    base_confidence += 12
+
+            # Final signal determination
+            if (primary_trend == 'BULLISH' and htf_confirmation in ['CONFIRMED', 'NEUTRAL'] and 
+                rsi < 70 and base_confidence >= 60):
+                direction = 'LONG'
+                strategy = 'Trend Following'
+            elif (primary_trend == 'BEARISH' and htf_confirmation in ['CONFIRMED', 'NEUTRAL'] and 
+                  rsi > 30 and base_confidence >= 60):
+                direction = 'SHORT'
+                strategy = 'Trend Following'
+            elif snd_signal != 'NEUTRAL':
+                direction = 'LONG' if snd_signal == 'BULLISH' else 'SHORT'
+                strategy = 'Supply/Demand Reversal'
+            else:
+                direction = 'NEUTRAL'
+                strategy = 'Wait for Setup'
+
+            # Time horizon based on confidence and setup
+            if base_confidence >= 80:
+                time_horizon = '1-4 hours'
+            elif base_confidence >= 65:
+                time_horizon = '4-12 hours'
+            else:
+                time_horizon = '12-24 hours'
+
+            # Volume trend analysis
+            volume_trend = 'Normal'
+            try:
+                recent_volumes = primary_indicators.get('recent_volumes', [])
+                if recent_volumes and len(recent_volumes) >= 5:
+                    avg_volume = sum(recent_volumes[-5:]) / 5
+                    current_volume = recent_volumes[-1]
+                    if current_volume > avg_volume * 1.5:
+                        volume_trend = 'High'
+                        base_confidence += 5
+                    elif current_volume < avg_volume * 0.7:
+                        volume_trend = 'Low'
+                        base_confidence -= 3
+            except:
+                pass
+
+            # Market condition assessment
+            volatility = primary_indicators.get('atr', 0) / current_price * 100
+            if volatility > 5:
+                market_condition = 'High Volatility'
+            elif volatility > 2:
+                market_condition = 'Normal Volatility'
+            else:
+                market_condition = 'Low Volatility'
+
+            return {
+                'direction': direction,
+                'confidence': max(30, min(95, base_confidence)),
+                'strategy': strategy,
+                'time_horizon': time_horizon,
+                'volume_trend': volume_trend,
+                'market_condition': market_condition,
+                'mtf_confirmation': htf_confirmation,
+                'primary_trend': primary_trend,
+                'rsi_signal': rsi_signal,
+                'snd_signal': snd_signal,
+                'breakdown': confidence_calc['breakdown']
+            }
+
+        except Exception as e:
+            return {
+                'direction': 'NEUTRAL',
+                'confidence': 50,
+                'strategy': 'Wait for Setup',
+                'time_horizon': '24+ hours',
+                'volume_trend': 'Unknown',
+                'market_condition': 'Unknown',
+                'mtf_confirmation': 'UNKNOWN',
+                'error': str(e)
+            }
+
+    def _calculate_advanced_trading_levels(self, current_price, signal_data, indicators, snd_data):
+        """Calculate advanced trading levels with multiple TP levels"""
+        try:
+            direction = signal_data['direction']
+            confidence = signal_data['confidence']
+            atr = indicators.get('atr', current_price * 0.02)
+
+            # Base calculations
+            if direction == 'LONG':
+                entry = current_price * 0.998
+                entry_min = current_price * 0.995
+                entry_max = current_price * 1.001
+                stop_loss = current_price - (atr * 2.5)
+
+                # Multiple TP levels
+                tp1 = current_price + (atr * 1.5)
+                tp2 = current_price + (atr * 2.5)
+                tp3 = current_price + (atr * 4.0)
+
+            elif direction == 'SHORT':
+                entry = current_price * 1.002
+                entry_min = current_price * 0.999
+                entry_max = current_price * 1.005
+                stop_loss = current_price + (atr * 2.5)
+
+                # Multiple TP levels
+                tp1 = current_price - (atr * 1.5)
+                tp2 = current_price - (atr * 2.5)
+                tp3 = current_price - (atr * 4.0)
+
+            else:  # NEUTRAL
+                return {
+                    'entry': current_price, 'entry_min': current_price, 'entry_max': current_price,
+                    'stop_loss': current_price, 'tp1': current_price, 'tp2': current_price, 'tp3': current_price,
+                    'rr_ratio': 0, 'risk_percentage': 0, 'position_size': 0,
+                    'entry_method': 'Wait', 'stop_type': 'None'
+                }
+
+            # Adjust based on Supply/Demand if available
+            if snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+
+                if direction == 'LONG' and demand_1 < current_price:
+                    stop_loss = max(stop_loss, demand_1 * 0.995)
+                elif direction == 'SHORT' and supply_1 > current_price:
+                    stop_loss = min(stop_loss, supply_1 * 1.005)
+
+            # Calculate risk/reward
+            risk = abs(entry - stop_loss)
+            reward = abs(tp3 - entry)
+            rr_ratio = reward / risk if risk > 0 else 2.0
+
+            # Position sizing based on confidence
+            if confidence >= 85:
+                position_size = 3.0
+                risk_percentage = 2.5
+            elif confidence >= 75:
+                position_size = 2.5
+                risk_percentage = 2.0
+            elif confidence >= 65:
+                position_size = 2.0
+                risk_percentage = 1.5
+            else:
+                position_size = 1.0
+                risk_percentage = 1.0
+
+            # Entry method based on quality
+            entry_method = 'Market Order' if confidence >= 80 else 'Limit Order at Zone'
+            stop_type = 'ATR-Based Stop' if confidence >= 70 else 'Support/Resistance Stop'
+
+            return {
+                'entry': entry,
+                'entry_min': entry_min,
+                'entry_max': entry_max,
+                'stop_loss': stop_loss,
+                'tp1': tp1,
+                'tp2': tp2,
+                'tp3': tp3,
+                'rr_ratio': rr_ratio,
+                'risk_percentage': risk_percentage,
+                'position_size': position_size,
+                'entry_method': entry_method,
+                'stop_type': stop_type
+            }
+
+        except Exception as e:
+            return {
+                'entry': current_price, 'entry_min': current_price, 'entry_max': current_price,
+                'stop_loss': current_price, 'tp1': current_price, 'tp2': current_price, 'tp3': current_price,
+                'rr_ratio': 1.0, 'risk_percentage': 1.0, 'position_size': 1.0,
+                'entry_method': 'Manual', 'stop_type': 'Manual', 'error': str(e)
+            }
+
+    def _get_zone_position(self, current_price, supply_zone, demand_zone):
+        """Determine position relative to S&D zones"""
+        if current_price >= supply_zone:
+            return "Above Supply - Bearish Pressure"
+        elif current_price <= demand_zone:
+            return "Below Demand - Bullish Support"
+        else:
+            return "Between Zones - Range Bound"
+
+    def _get_futures_bias(self, long_ratio, funding_rate):
+        """Determine futures market bias"""
+        if long_ratio > 70 and funding_rate > 0.01:
+            return "Extreme Long Squeeze Risk"
+        elif long_ratio < 30 and funding_rate < -0.01:
+            return "Extreme Short Squeeze Risk"
+        elif long_ratio > 60:
+            return "Long Heavy - Contrarian Short"
+        elif long_ratio < 40:
+            return "Short Heavy - Contrarian Long"
+        else:
+            return "Balanced Positioning"
+
+    def _get_advanced_trading_insights(self, signal_data, trading_levels, confidence):
+        """Generate advanced trading insights"""
+        insights = []
+
+        direction = signal_data['direction']
+        strategy = signal_data.get('strategy', 'Unknown')
+
+        if confidence >= 85:
+            insights.append("• 🔥 Extremely high probability setup - Consider larger position")
+            insights.append("• ⚡ Strong confluence of multiple signals")
+        elif confidence >= 75:
+            insights.append("• 🎯 High probability setup with good risk/reward")
+            insights.append("• 📊 Multiple timeframe alignment confirmed")
+        elif confidence >= 65:
+            insights.append("• 💡 Moderate setup - Standard position sizing")
+            insights.append("• ⚠️ Monitor for additional confirmation")
+        else:
+            insights.append("• 🚫 Low confidence - Consider paper trading first")
+            insights.append("• 🔍 Wait for better setup or additional confluence")
+
+        if direction in ['LONG', 'SHORT']:
+            insights.append(f"• 🎪 {strategy} approach recommended")
+            if trading_levels['rr_ratio'] > 3:
+                insights.append("• 💰 Excellent risk/reward ratio - High profit potential")
+            elif trading_levels['rr_ratio'] > 2:
+                insights.append("• ✅ Good risk/reward - Acceptable trade setup")
+
+        mtf_confirmation = signal_data.get('mtf_confirmation', 'UNKNOWN')
+        if mtf_confirmation == 'CONFIRMED':
+            insights.append("• 📈 Higher timeframe strongly supports this direction")
+        elif mtf_confirmation == 'DIVERGENT':
+            insights.append("• ⚠️ Higher timeframe shows divergence - Trade with caution")
+
+        volume_trend = signal_data.get('volume_trend', 'Normal')
+        if volume_trend == 'High':
+            insights.append("• 🌊 High volume supports the move - Strong momentum")
+        elif volume_trend == 'Low':
+            insights.append("• 📉 Low volume - Watch for volume confirmation")
+
+        return "\n".join(insights)
+
+    def _filter_and_format_signals(self, signals):
+        """Filter and format signals according to rules with randomization"""
+        if not signals:
+            return []
+
+        # Step 1: Filter signals with confidence >= 75%
+        filtered = []
+        for signal in signals:
+            confidence = signal.get('confidence', 0)
+
+            # Fix confidence if > 100 (divide by 10)
+            if confidence > 100:
+                confidence = confidence / 10
+
+            # Only keep signals with >= 75% confidence
+            if confidence >= 75.0:
+                # Format the signal properly
+                formatted_signal = self._format_signal_properly(signal, confidence)
+                filtered.append(formatted_signal)
+
+        # Return empty if no signals meet criteria
+        if not filtered:
+            return []
+
+        # Step 2: Remove duplicates - keep highest confidence for each symbol
+        unique_signals = {}
+        for signal in filtered:
+            symbol = signal['symbol']
+            if symbol not in unique_signals or signal['confidence'] > unique_signals[symbol]['confidence']:
+                unique_signals[symbol] = signal
+
+        # Convert back to list
+        deduplicated_signals = list(unique_signals.values())
+
+        # Step 3: Randomize the signals for variety
+        import random
+        random.shuffle(deduplicated_signals)
+
+        # Step 4: Return maximum 5 signals
+        return deduplicated_signals[:5]
+
+    def _format_signal_properly(self, signal, corrected_confidence):
+        """Format individual signal according to rules"""
+        # Format R/R Ratio properly (X.X:1) - ensure one decimal place
+        rr_value = signal.get('risk_reward', 2.0)
+
+        # Handle different input formats
+        if isinstance(rr_value, str):
+            # Extract number from string like "2.5:1"
+            try:
+                rr_value = float(rr_value.split(':')[0])
+            except:
+                rr_value = 2.0
+        elif isinstance(rr_value, (int, float)):
+            rr_value = float(rr_value)
+        else:
+            rr_value = 2.0
+
+        # Ensure proper formatting with exactly 1 decimal place
+        rr_formatted = f"{rr_value:.1f}:1"
+
+        # Determine trend based on direction
+        direction = signal.get('direction', 'LONG')
+        trend = signal.get('primary_trend', 'Bullish' if direction in ['LONG', 'BUY'] else 'Bearish')
+
+        return {
+            'symbol': signal.get('symbol', 'UNKNOWN'),
+            'direction': direction,
+            'confidence': corrected_confidence,
+            'entry': signal.get('entry', 0),
+            'sl': signal.get('sl', 0), 
+            'tp1': signal.get('tp1', 0),
+            'tp2': signal.get('tp2', 0),
+            'rr_ratio': rr_formatted,
+            'trend': trend.title(),
+            'structure': direction,
+            'reason': signal.get('reason', 'Technical analysis with confluence')
+        }
+
+    def _error_fallback(self, symbol, error_context):
+        """Generate user-friendly error message"""
+        return f"""❌ **Terjadi kesalahan mengambil data untuk {symbol}**
+
+💡 **Coba alternatif**:
+• `/price {symbol.lower()}` - Cek harga basic
+• Tunggu beberapa menit dan coba lagi
+• Hubungi admin jika masalah berlanjut
+
+🔄 **Error context**: {error_context}
+🕐 **Time**: {self._get_wib_time()}"""
+
     # ============ LEGACY COMPATIBILITY METHODS ============
 
     def get_ai_response(self, text, language='id', user_id=None):
@@ -1770,52 +2702,3 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
     async def generate_futures_signals_enhanced(self, language='id', crypto_api=None, query_args=None):
         """Enhanced futures signals wrapper"""
         return await self.generate_futures_signals(language, crypto_api, query_args)
-
-
-@dataclass
-class CryptoMentorAI:
-    """
-    Minimal AI helper untuk bot. Menyediakan API sync & async yang umum dipakai:
-      - handle(text, user=None)        -> str
-      - respond(text, user=None)       -> str
-      - __call__(text, user=None)      -> str
-      - ahandle(text, user=None)       -> awaitable[str]
-      - arespond(text, user=None)      -> awaitable[str]
-
-    Ganti implementasi 'generate_reply' sesuai kebutuhan (mis. pakai OpenAI).
-    """
-    config: Dict[str, Any] = field(default_factory=dict)
-
-    def generate_reply(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        # TODO: integrasikan ke pipeline sebenarnya (OpenAI, rules, dsb).
-        # Untuk sekarang, kasih jawaban dummy agar import dan wiring tidak error.
-        text = (text or "").strip()
-        if not text:
-            return "Hi! CryptoMentorAI is ready ✅"
-        return f"🤖 CryptoMentorAI received: {text}"
-
-    # --- Sync APIs ---
-    def handle(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        return self.generate_reply(text, user)
-
-    def respond(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        return self.generate_reply(text, user)
-
-    def __call__(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        return self.generate_reply(text, user)
-
-    # --- Async wrappers (untuk handler yang awaitable) ---
-    async def ahandle(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        return self.generate_reply(text, user)
-
-    async def arespond(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
-        return self.generate_reply(text, user)
-
-# Jika proyek punya kelas lama bernama berbeda, buka alias agar tetap kompatibel:
-try:
-    # contoh: kalau sebelumnya ada `class CryptoMentor: ...`
-    CryptoMentor  # type: ignore[name-defined]
-    # buat alias supaya `from ai_assistant import CryptoMentorAI` tetap berhasil
-    CryptoMentorAI = CryptoMentor  # type: ignore[assignment]
-except Exception:
-    pass

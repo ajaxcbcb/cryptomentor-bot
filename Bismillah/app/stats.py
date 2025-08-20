@@ -1,85 +1,86 @@
 import os, glob, json
 from datetime import datetime, timezone
-from typing import Tuple, Optional, Any
+from typing import Tuple, Optional
 from .sb_client import supabase, available as sb_available
 from .health import services_status_lines
 
 UTC = timezone.utc
 
-def _coerce_json(obj: Any) -> Any:
-    """
-    Force anything to become JSON object (dict/list) if possible:
-    - If string: try json.loads; if failed, try JSON Lines.
-    - If already dict/list: return as is.
-    - Otherwise: return None.
-    """
-    if isinstance(obj, (dict, list)) or obj is None:
-        return obj
-    if isinstance(obj, str):
-        s = obj.strip()
-        # try regular JSON
-        try:
-            return json.loads(s)
-        except Exception:
-            pass
-        # try JSON Lines
-        try:
-            items = []
-            for line in s.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                items.append(json.loads(line))
-            return {"users": items} if items else None
-        except Exception:
-            return None
-    return None
+CANDIDATE_DIRS = ["data", "storage", "db", ".", "app/data", "app/storage", "Bismillah/data"]
+CANDIDATE_FILES = ["users.json", "users_db.json", "database.json", "db.json", "data.json", "cmai_users.json", "users_local.json"]
+GLOB_PATTERNS = ["**/users*.json", "**/*users*.json", "**/db*.json", "**/data*.json"]
 
-def _normalize_users_structure(payload: Any) -> list:
-    """
-    Accept any format -> return list of user dicts.
-    - dict with 'users' key: use that
-    - dict-of-dict: take values()
-    - list: directly
-    - otherwise: []
-    """
-    payload = _coerce_json(payload)
+def _find_legacy_json_path() -> Tuple[Optional[str], str]:
+    reasons = []
+    env_path = os.getenv("LEGACY_JSON_PATH")
+    if env_path:
+        if os.path.isfile(env_path):
+            return env_path, f"env:{env_path}"
+        reasons.append(f"LEGACY_JSON_PATH set but not found: {env_path}")
+
+    for d in CANDIDATE_DIRS:
+        for f in CANDIDATE_FILES:
+            p = os.path.join(d, f)
+            if os.path.isfile(p):
+                return p, f"found:{p}"
+
+    matches = []
+    for pattern in GLOB_PATTERNS:
+        matches += glob.glob(pattern, recursive=True)
+        if len(matches) >= 3:
+            break
+    for p in matches:
+        if os.path.isfile(p):
+            return p, f"glob:{p}"
+
+    return None, ("; ".join(reasons) if reasons else "no candidate JSON found")
+
+def _load_json_payload(path: str) -> Tuple[Optional[object], str]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read().strip()
+            # try standard JSON
+            try:
+                return json.loads(text), "json"
+            except json.JSONDecodeError:
+                # try JSON Lines
+                items = []
+                for i, line in enumerate(text.splitlines(), 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        items.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        return None, f"jsonl_error at line {i}: {e}"
+                if items:
+                    # normalisasi: jadikan {"users":[...]} agar parser bawah kompatibel
+                    return {"users": items}, "jsonl"
+                return None, "empty_file"
+    except FileNotFoundError:
+        return None, "not_found"
+    except Exception as e:
+        return None, f"read_error:{e}"
+
+def _parse_users_from_json_payload(payload) -> list:
+    if payload is None:
+        return []
     if isinstance(payload, dict):
-        # Check for common keys that contain user data
-        if "premium_users" in payload:
-            users = payload["premium_users"]
-        elif "users" in payload:
-            users = payload["users"]
-        else:
-            users = payload
-
+        users = payload.get("users", payload)
         if isinstance(users, dict):
-            return [v for v in users.values() if isinstance(v, dict)]
+            return list(users.values())
         if isinstance(users, list):
-            return [u for u in users if isinstance(u, dict)]
+            return users
         return []
     if isinstance(payload, list):
-        return [u for u in payload if isinstance(u, dict)]
+        return payload
     return []
 
 def _is_premium_active_local(u: dict) -> bool:
     try:
         if u.get("is_lifetime"):
             return True
-        # Check various premium indicators
-        if u.get("is_premium"):
-            # If subscription_end exists, check if it's valid
-            if "subscription_end" in u and u["subscription_end"]:
-                val = u["subscription_end"]
-                if isinstance(val, (int, float)):
-                    dt = datetime.fromtimestamp(val, tz=UTC)
-                else:
-                    dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
-                return dt > datetime.now(UTC)
-            # If no subscription_end but is_premium=1, consider active
-            return True
-        # Legacy check for premium_until
-        if u.get("premium_until"):
+        if u.get("is_premium") and u.get("premium_until"):
             val = u["premium_until"]
             if isinstance(val, (int, float)):
                 dt = datetime.fromtimestamp(val, tz=UTC)
@@ -88,7 +89,34 @@ def _is_premium_active_local(u: dict) -> bool:
             return dt > datetime.now(UTC)
     except Exception:
         pass
-    return bool(u.get("is_premium"))
+    return False
+
+def legacy_json_totals_with_status(explicit_path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int,str,str]:
+    """
+    return: total, premium, path_info, detail
+    """
+    if data_obj is not None:
+        users = _parse_users_from_json_payload(data_obj)
+        return len(users), sum(1 for u in users if _is_premium_active_local(u)), "memory", "ok:memory"
+
+    path = explicit_path
+    path_info = ""
+    if not path:
+        path, path_info = _find_legacy_json_path()
+    else:
+        path_info = f"explicit:{path}"
+
+    if not path:
+        return 0, 0, "-", f"not_found | {path_info}"
+
+    payload, how = _load_json_payload(path)
+    if payload is None:
+        return 0, 0, path, f"load_failed:{how}"
+
+    users = _parse_users_from_json_payload(payload)
+    total = len(users)
+    premium = sum(1 for u in users if _is_premium_active_local(u))
+    return total, premium, path, f"ok:{how}"
 
 def health() -> Tuple[bool, str]:
     """Health check for Supabase connection"""
@@ -117,43 +145,45 @@ def get_supabase_totals() -> Tuple[int, int]:
         print(f"Error getting Supabase totals: {e}")
         return 0, 0
 
-def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[Any]=None) -> Tuple[int,int]:
-    """
-    Count Total & Premium from:
-    - data_obj (in-memory) or
-    - file path (JSON / string JSON / JSONL).
-    Safe against string formats.
-    """
-    payload = None
-    if data_obj is not None:
-        payload = data_obj
-    elif path:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read()
-            payload = _coerce_json(text)
-        except FileNotFoundError:
-            payload = None
-        except Exception:
-            payload = None
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[dict]=None) -> Tuple[int,int]:
+    """Get user counts from legacy JSON storage"""
 
-    users = _normalize_users_structure(payload)
+    if data_obj:
+        users = data_obj.get("users", [])
+        total = len(users)
+        premium = sum(1 for u in users if u.get("is_premium"))
+        return total, premium
+
+    # No default fallback - use provided path only
+    if not path:
+        return 0, 0
+    
+    payload, how = _load_json_payload(path)
+    if payload is None:
+        return 0, 0
+    users = _parse_users_from_json_payload(payload)
     total = len(users)
-    premium = sum(1 for u in users if _is_premium_active_local(u))
+    premium = sum(1 for u in users if u.get("is_premium"))
     return total, premium
 
 def build_system_status(auto_signals_running: bool,
                         legacy_json_path: Optional[str]=None,
-                        legacy_data: Optional[Any]=None) -> str:
+                        legacy_data: Optional[dict]=None) -> str:
     """Build comprehensive system status"""
 
-    # Protect against unexpected errors
-    legacy_err = ""
-    try:
+    # Get legacy JSON counts with detail info
+    if legacy_data:
         legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
-    except Exception as e:
+        legacy_detail = "ok:memory"
+    elif legacy_json_path:
+        legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+        if legacy_total > 0:
+            legacy_detail = f"ok:loaded from {legacy_json_path}"
+        else:
+            legacy_detail = f"load_failed:no data from {legacy_json_path}"
+    else:
         legacy_total, legacy_premium = 0, 0
-        legacy_err = f"(local-error: {e})"
+        legacy_detail = "no_path_specified"
 
     ok, db_detail = health()
     supa_total, supa_premium = (0, 0)
@@ -175,12 +205,10 @@ def build_system_status(auto_signals_running: bool,
         f"🗄️ Database: SUPABASE - {db_text}\n"
         f"🎯 Auto Signals: {auto_text}\n\n"
         "📊 User Statistics:\n"
-        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}"
-        + (f" (path: {json_path_display})" if legacy_json_path else "")
-        + (f" {legacy_err}" if legacy_err else "")
-        + "\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium} (path: {json_path_display})\n"
         f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
         f"{svc_block}"
         f"⏰ Last Update: {now_utc}\n"
+        f"ℹ️ Local Detail: {legacy_detail[:220]}\n"
         f"ℹ️ DB Detail: {db_detail[:220]}"
     )
