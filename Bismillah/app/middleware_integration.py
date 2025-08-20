@@ -85,3 +85,33 @@ async def ensure_user_exists_legacy(user_id: int, username: str = None, first_na
             ensure_user_and_welcome(user_id, username, first_name, last_name)
     except Exception as e:
         print(f"Warning: Could not ensure user {user_id} exists: {e}")
+# app/middleware_integration.py
+from aiogram import Dispatcher
+from app.middlewares.ensure_weekly_sb import EnsureWeeklyCreditsMiddleware
+
+def setup_middlewares(dp: Dispatcher):
+    """Setup all middlewares for the bot"""
+    
+    # Weekly credits refresh middleware
+    dp.message.middleware(EnsureWeeklyCreditsMiddleware())
+    dp.callback_query.middleware(EnsureWeeklyCreditsMiddleware())
+    
+    print("✅ Middlewares configured")
+
+def setup_routers(dp: Dispatcher):
+    """Setup all routers for the bot"""
+    
+    try:
+        # Import and register routers
+        from app.routers.core import router as core_router
+        from app.routers.admin_set_premium import router as admin_premium_router
+        from app.routers.admin_set_credit_all import router as admin_credit_router
+        
+        dp.include_router(core_router)
+        dp.include_router(admin_premium_router) 
+        dp.include_router(admin_credit_router)
+        
+        print("✅ Routers configured")
+        
+    except ImportError as e:
+        print(f"⚠️ Router import error: {e}")

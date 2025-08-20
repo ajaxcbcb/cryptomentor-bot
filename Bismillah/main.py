@@ -5,6 +5,25 @@ CryptoMentor AI Bot - Main Entry Point
 Enhanced with async support for python-telegram-bot v22.3
 """
 
+# --- BOOTSTRAP: fix pydantic/supabase sebelum import lain ---
+import sys, subprocess
+def _pip(spec): 
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", spec])
+    except Exception as e:
+        print(f"[pip warn] {spec} -> {e}")
+
+for pkg in ("pydantic>=2.6,<3", "pydantic-core>=2.16", "supabase>=2.4", "httpx>=0.24,<0.28"):
+    _pip(pkg)
+
+import pydantic as _p
+if not hasattr(_p, "with_config"):
+    def with_config(*args, **kwargs):
+        def _d(obj): return obj
+        return _d
+    _p.with_config = with_config
+# --- END BOOTSTRAP ---
+
 import os
 import sys
 import asyncio
