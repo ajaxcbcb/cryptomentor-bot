@@ -1,73 +1,117 @@
 
-import os
-from typing import Tuple, Dict, Any
+# app/sb_client.py
+from __future__ import annotations
+import os, re, time
+from typing import Tuple, Optional
+from supabase import create_client, Client
+import httpx
 
-try:
-    from supabase import create_client, Client
-except Exception as e:
-    create_client = None
-    Client = None
-    _import_error = str(e)
+# ====== ENV RESOLUTION ======
+def _env(name: str) -> Optional[str]:
+    v = os.getenv(name)
+    return v.strip() if v and v.strip() else None
 
-def _getenv(k: str) -> str:
-    return os.getenv(k) or os.environ.get(k)
+def _resolve_url() -> str:
+    url = _env("SUPABASE_URL") or ""
+    if not url:
+        raise RuntimeError("Missing SUPABASE_URL")
+    return url.rstrip("/")
 
-SUPABASE_URL = _getenv("SUPABASE_URL")
-# Utamakan SERVICE KEY; fallback ke ANON agar tetap bisa tes minimal
-SUPABASE_KEY = <REDACTED_SUPABASE_KEY>
+def _resolve_service_key() -> str:
+    # Prioritas: SERVICE (baru) → fallback ke nama lama
+    key = (
+        _env("SUPABASE_SERVICE_KEY")
+        or _env("SERVICE_ROLE_KEY")
+        or _env("SUPABASE_SECRET_KEY")
+        or _env("SUPABASE_KEY")
+        or ""
+    )
+    if not key:
+        raise RuntimeError("Missing SUPABASE_SERVICE_KEY (service role)")
+    return key
 
-diagnostics: Dict[str, Any] = {}
-supabase = None  # type: ignore
+def _mask(s: str, head: int = 6, tail: int = 6) -> str:
+    if not s: return ""
+    if len(s) <= head + tail + 3:
+        return s[0] + "***" + s[-1]
+    return f"{s[:head]}…{s[-tail:]}"
 
-def _validate_env():
-    if not SUPABASE_URL:
-        diagnostics["missing_SUPABASE_URL"] = True
-    if not SUPABASE_KEY:
-        diagnostics["missing_SUPABASE_KEY"] = True
-    if SUPABASE_URL and not SUPABASE_URL.startswith("http"):
-        diagnostics["invalid_url"] = SUPABASE_URL
+# ====== CLIENT ======
+_supabase: Optional[Client] = None
+_diagnostics: str = ""
 
-def init_client():
-    global supabase
-    _validate_env()
-    if create_client is None:
-        diagnostics["import_error"] = _import_error
-        supabase = None
-        return
-    if diagnostics.get("missing_SUPABASE_URL") or diagnostics.get("missing_SUPABASE_KEY"):
-        supabase = None
-        return
-    try:
-        client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        supabase = client
-    except Exception as e:
-        diagnostics["init_error"] = str(e)
-        supabase = None
+def init() -> Client:
+    global _supabase, _diagnostics
+    url = _resolve_url()
+    key = _resolve_service_key()
 
-init_client()
+    # Validasi URL
+    if not re.search(r"\.supabase\.co$", url):
+        # tetap izinkan self-host, tapi beri catatan
+        _note = "URL tidak standar (.supabase.co). Pastikan benar."
+    else:
+        _note = "ok"
+
+    _supabase = create_client(url, key)
+    _diagnostics = f"url={url} key(service_role)={_mask(key)} note={_note}"
+    return _supabase
+
+def supabase() -> Client:
+    global _supabase
+    if _supabase is None:
+        init()
+    return _supabase  # type: ignore
 
 def available() -> bool:
-    return supabase is not None
-
-def health() -> Tuple[bool, str]:
-    """Pakai RPC hc() agar error jelas."""
-    if not available():
-        return False, f"client_not_initialized | diag={diagnostics}"
     try:
-        res = supabase.rpc("hc").execute()  # type: ignore
-        return True, f"OK {res.data}"
-    except Exception as e:
-        return False, f"rpc_hc_failed: {e} | diag={diagnostics}"
+        return supabase() is not None
+    except Exception:
+        return False
 
-def upsert_user_via_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None) -> Dict[str, Any]:
-    """Gunakan RPC server-side untuk upsert (aman terhadap RLS & skema)."""
-    if not available():
-        raise RuntimeError(f"Supabase client not available: {diagnostics}")
+def diagnostics() -> str:
+    return _diagnostics
+
+# ====== HEALTH CHECK ======
+def health() -> Tuple[bool, str]:
+    """
+    Coba RPC 'hc' jika ada; bila 401/403, kemungkinan key salah (anon).
+    """
+    try:
+        cli = supabase()
+        try:
+            res = cli.rpc("hc").execute()
+            # res.data bisa apa saja; yang penting 200 OK
+            return True, "hc rpc OK"
+        except Exception as e:
+            # fallback: GET /rest/v1 root (harus 404/200; 401 → key salah)
+            url = _resolve_url().rstrip("/") + "/rest/v1/"
+            hdr = {"apikey": _resolve_service_key(), "Authorization": f"Bearer {_resolve_service_key()}"}
+            try:
+                r = httpx.get(url, headers=hdr, timeout=6.0)
+                if r.status_code in (200, 404):
+                    return True, f"rest ping {r.status_code}"
+                elif r.status_code in (401, 403):
+                    return False, f"{r.status_code} unauthorized (pakai Service Role?)"
+                else:
+                    return False, f"{r.status_code} {r.text[:80]}"
+            except Exception as ex:
+                return False, f"health error: {ex}"
+    except Exception as ex:
+        return False, f"init error: {ex}"
+
+# ====== WEEKLY CREDITS RPC WRAPPERS (dipakai bot) ======
+WEEKLY_FREE_CREDITS = int(os.getenv("WEEKLY_FREE_CREDITS", "100"))
+
+def upsert_user_with_weekly_reset_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None):
     payload = {
         "p_telegram_id": int(telegram_id),
         "p_username": username,
         "p_first_name": first_name,
-        "p_last_name": last_name
+        "p_last_name": last_name,
+        "p_weekly_quota": WEEKLY_FREE_CREDITS,
     }
-    res = supabase.rpc("upsert_user_rpc", payload).execute()  # type: ignore
-    return res.data or {}
+    return supabase().rpc("upsert_user_with_weekly_reset", payload).execute().data  # type: ignore
+
+def enforce_weekly_reset_calendar_rpc(telegram_id: int):
+    payload = { "p_telegram_id": int(telegram_id), "p_weekly_quota": WEEKLY_FREE_CREDITS }
+    return supabase().rpc("enforce_weekly_reset_calendar", payload).execute().data  # type: ignore
