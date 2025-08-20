@@ -157,7 +157,7 @@ class WeeklyCreditRefresh:
 def main():
     """Main function for scheduled execution"""
     print("🚀 CryptoMentor AI - Weekly Credit Refresh")
-    print(f"📅 Started at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(f"📅 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}")
     
     refresh_system = WeeklyCreditRefresh()
     result = refresh_system.refresh_credits_for_free_users()
