@@ -1,0 +1,201 @@
+🚀 PROMPT REPLIT AI AGENT — Connect Replit ↔ Supabase + Weekly Credits
+
+GOAL
+
+Pakai SUPABASE_URL + SUPABASE_SERVICE_KEY (Service role/Secret API Key).
+
+Gunakan RPC yang sudah ada: hc(), upsert_user_with_weekly_reset(), enforce_weekly_reset_calendar(), stats_totals().
+
+Middleware sentuh user di tiap interaksi.
+
+/admin menampilkan status & totals Supabase.
+
+0) Secrets (Wajib)
+
+Tambahkan di Replit → Secrets:
+
+SUPABASE_URL → https://<project>.supabase.co
+
+SUPABASE_SERVICE_KEY → Service role (Secret API Key) dari Project Settings → API Keys → Secret API Keys
+
+1) Dependencies
+
+Edit / buat requirements.txt:
+
+supabase>=2.4
+httpx>=0.24,<0.28
+aiogram==3.*           # kalau proyekmu pakai aiogram v3
+
+2) Satu pintu koneksi Supabase
+
+Buat file app/supabase_conn.py:
+
+# app/supabase_conn.py
+from __future__ import annotations
+import os
+from functools import lru_cache
+from typing import Tuple
+from supabase import create_client, Client
+import httpx
+
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = <REDACTED_SUPABASE_KEY>
+
+def _assert_env():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
+
+@lru_cache(maxsize=1)
+def get_supabase_client() -> Client:
+    _assert_env()
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def health() -> Tuple[bool, str]:
+    try:
+        cli = get_supabase_client()
+        try:
+            cli.rpc("hc").execute()  # fungsi hc() sudah dibuat di DB
+            return True, "rpc(hc): OK"
+        except Exception:
+            r = httpx.get(
+                f"{SUPABASE_URL}/rest/v1/",
+                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+                timeout=6.0,
+            )
+            if r.status_code in (200, 404):
+                return True, f"rest {r.status_code}"
+            if r.status_code in (401, 403):
+                return False, f"{r.status_code} unauthorized (gunakan Service role key)"
+            return False, f"{r.status_code} {r.text[:120]}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+Ini juga memperbaiki error lama: cannot import name 'get_supabase_client'.
+
+3) Wrapper RPC & helpers
+
+Buat file app/sb_repo.py:
+
+# app/sb_repo.py
+from __future__ import annotations
+from typing import Optional, Dict, Any
+from .supabase_conn import get_supabase_client
+
+WEEKLY_FREE_CREDITS = 100  # bisa ubah ke env jika perlu
+
+def ensure_user_and_welcome(
+    tg_id: int, username: Optional[str]=None, first_name: Optional[str]=None, last_name: Optional[str]=None
+) -> Dict[str, Any]:
+    s = get_supabase_client()
+    payload = {
+        "p_telegram_id": int(tg_id),
+        "p_username": username,
+        "p_first_name": first_name,
+        "p_last_name": last_name,
+        "p_weekly_quota": WEEKLY_FREE_CREDITS,
+    }
+    # User baru => credits=100 (idempotent); user lama -> update biodata ringan
+    return s.rpc("upsert_user_with_weekly_reset", payload).execute().data or {}
+
+def enforce_weekly_reset_calendar(tg_id: int) -> Dict[str, Any]:
+    s = get_supabase_client()
+    payload = {"p_telegram_id": int(tg_id), "p_weekly_quota": WEEKLY_FREE_CREDITS}
+    # Non-premium & belum di pekan ini -> set 100; premium di-skip
+    return s.rpc("enforce_weekly_reset_calendar", payload).execute().data or {}
+
+def stats_totals() -> tuple[int,int]:
+    s = get_supabase_client()
+    res = s.rpc("stats_totals").execute()
+    row = res.data[0] if isinstance(res.data, list) else res.data
+    return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
+
+4) Middleware sentuh user (aiogram v3)
+
+Buat file app/middlewares/ensure_weekly_sb.py:
+
+# app/middlewares/ensure_weekly_sb.py
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject, Message, CallbackQuery
+from typing import Callable, Dict, Any, Awaitable
+from ..sb_repo import ensure_user_and_welcome, enforce_weekly_reset_calendar
+
+def _touch(obj):
+    u = getattr(obj, "from_user", None)
+    if not u: return
+    ensure_user_and_welcome(u.id, getattr(u,"username",None), getattr(u,"first_name",None), getattr(u,"last_name",None))
+    try:
+        enforce_weekly_reset_calendar(u.id)
+    except Exception:
+        pass
+
+class EnsureWeeklySBMiddleware(BaseMiddleware):
+    async def __call__(self, handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+                       event: TelegramObject, data: Dict[str, Any]) -> Any:
+        if isinstance(event, Message): _touch(event)
+        elif isinstance(event, CallbackQuery): _touch(event)
+        return await handler(event, data)
+
+
+Registrasi di main.py (setelah Dispatcher() dibuat):
+
+from app.middlwares.ensure_weekly_sb import EnsureWeeklySBMiddleware  # perhatikan path!
+# Jika foldernya bernama "middlewares" (jamak), pakai:
+from app.middlewares.ensure_weekly_sb import EnsureWeeklySBMiddleware
+
+dp.message.middleware(EnsureWeeklySBMiddleware())
+dp.callback_query.middleware(EnsureWeeklySBMiddleware())
+
+
+Jika pakai telebot, panggil:
+
+from app.sb_repo import ensure_user_and_welcome, enforce_weekly_reset_calendar
+def touch_user(message):
+    u = message.from_user
+    ensure_user_and_welcome(u.id, u.username, u.first_name, u.last_name)
+    try: enforce_weekly_reset_calendar(u.id)
+    except: pass
+
+
+lalu panggil touch_user(message) di setiap handler (minimal /start dan fallback handler).
+
+5) Panel /admin (status & totals)
+
+Buat file app/admin_status.py atau edit builder panelmu:
+
+# app/admin_status.py
+from datetime import datetime, timezone
+from app.supabase_conn import health as sb_health
+from app.sb_repo import stats_totals
+
+def build_admin_panel(local_total:int, local_premium:int, local_path:str, autosignals_running: bool) -> str:
+    ok, reason = sb_health()
+    s_total, s_premium = (0,0)
+    if ok:
+        try:
+            s_total, s_premium = stats_totals()
+        except Exception as e:
+            reason = f"stats_totals error: {e}"
+
+    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+    return (
+        "📊 System Status\n\n"
+        f"🗄️ Database: SUPABASE - {'✅' if ok else '❌'}\n"
+        f"🎯 Auto Signals: {'🟢 RUNNING' if autosignals_running else '🔴 STOPPED'}\n\n"
+        "📊 User Statistics:\n"
+        f"• Local JSON - Total Users: {local_total} | Premium: {local_premium} (path: {local_path})\n"
+        f"• Supabase  - Total Users: {s_total} | Premium: {s_premium}\n\n"
+        f"🔎 DB Detail: {('OK' if ok else reason)}\n"
+        f"⏰ Last Update: {now}"
+    )
+
+
+Pastikan handler /admin kamu memakai fungsi builder di atas saat merender teks.
+
+6) Sanity check (opsional)
+
+Di main.py, tepat setelah start:
+
+from app.supabase_conn import health as sb_health
+ok, detail = sb_health()
+print(f"[Supabase] available={ok} | {detail}")
