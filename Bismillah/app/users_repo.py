@@ -1,4 +1,3 @@
-
 from typing import Optional, Dict, Any, Tuple
 import os, time
 from datetime import datetime, timezone
@@ -13,11 +12,11 @@ def get_user_by_telegram_id(tg_id: int) -> Optional[Dict[str, Any]]:
     return res.data[0] if res.data else None
 
 def ensure_user_registered(
-    tg_id: int, 
-    username: Optional[str], 
-    first_name: Optional[str], 
+    tg_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
     last_name: Optional[str],
-    referred_by: Optional[int] = None, 
+    referred_by: Optional[int] = None,
     welcome_quota: Optional[int] = None
 ) -> Dict[str, Any]:
     """Register user with welcome credits using RPC"""
@@ -48,15 +47,15 @@ def revoke_premium(tg_id: int) -> None:
     """Revoke premium status"""
     s = get_supabase_client()
     s.table("users").update({
-        "is_premium": False, 
-        "is_lifetime": False, 
+        "is_premium": False,
+        "is_lifetime": False,
         "premium_until": None
     }).eq("telegram_id", int(tg_id)).execute()
 
 def get_credits(tg_id: int) -> int:
     """Get user credits"""
     row = get_user_by_telegram_id(tg_id)
-    if row is None: 
+    if row is None:
         raise RuntimeError("User not found in DB")
     return int(row.get("credits") or 0)
 
@@ -68,50 +67,49 @@ def set_user_credits(tg_id: int, amount: int) -> int:
     return int((row or {}).get("credits") or 0)
 
 def debit_credits(tg_id: int, amount: int) -> int:
-    """
-    Debit atomic: try RPC debit_credits if available, fallback to CAS
-    """
+    """Debit credits from user, return remaining (negative if insufficient)"""
     s = get_supabase_client()
-    # 1) Try RPC if function exists
-    try:
-        res = s.rpc("debit_credits", {"p_telegram_id": int(tg_id), "p_amount": int(amount)}).execute()
-        if hasattr(res, "data") and res.data is not None:
-            return int(res.data)
-    except Exception:
-        pass
-    
-    # 2) Fallback CAS (optimistic concurrency)
-    for _ in range(3):
-        row = get_user_by_telegram_id(tg_id)
-        if not row: 
-            raise RuntimeError("User not found in DB")
-        old = int(row.get("credits") or 0)
-        new = max(0, old - int(amount))
-        upd = s.table("users").update({"credits": new})\
-              .eq("telegram_id", int(tg_id)).eq("updated_at", row["updated_at"]).execute()
-        if upd.data: 
-            return new
-        time.sleep(0.05)  # Small retry delay
-    
-    # Last resort: direct write
-    s.table("users").update({"credits": new}).eq("telegram_id", int(tg_id)).execute()
-    return new
+
+    # Get current credits with fresh data
+    result = s.table("users").select("credits").eq("telegram_id", int(tg_id)).limit(1).execute()
+    if not result.data:
+        print(f"❌ User {tg_id} not found for credit debit")
+        return -1
+
+    current_credits = result.data[0].get('credits', 0)
+
+    # Strict check - insufficient credits
+    if current_credits < amount:
+        print(f"❌ Insufficient credits: user {tg_id} has {current_credits}, needs {amount}")
+        return -1
+
+    new_credits = current_credits - amount
+
+    # Atomic update with safety check
+    update_result = s.table("users").update({"credits": new_credits}).eq("telegram_id", int(tg_id)).eq("credits", current_credits).execute()
+
+    if not update_result.data:
+        print(f"❌ Failed to debit credits for user {tg_id} - concurrent modification")
+        return -1
+
+    print(f"✅ Debited {amount} credits from user {tg_id}, remaining: {new_credits}")
+    return new_credits
 
 def is_premium_active(tg_id: int) -> bool:
     """Check if user has active premium"""
     row = get_user_by_telegram_id(tg_id) or {}
-    if row.get("is_lifetime"): 
+    if row.get("is_lifetime"):
         return True
-    if not row.get("is_premium"): 
+    if not row.get("is_premium"):
         return False
-    
+
     pu = row.get("premium_until")
-    if not pu: 
+    if not pu:
         return False
-    
+
     try:
         s = str(pu)
-        if s.endswith("Z"): 
+        if s.endswith("Z"):
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
         return dt > datetime.now(timezone.utc)
@@ -159,7 +157,7 @@ def touch_user_from_update(update):
         user = update.effective_user
         if not user:
             return
-        
+
         ensure_user_registered(
             tg_id=user.id,
             username=getattr(user, 'username', None),
@@ -167,6 +165,6 @@ def touch_user_from_update(update):
             last_name=getattr(user, 'last_name', None)
         )
         print(f"✅ User {user.id} upserted")
-        
+
     except Exception as e:
         print(f"❌ Error in touch_user_from_update: {e}")
