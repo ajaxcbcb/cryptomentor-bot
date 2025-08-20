@@ -2760,10 +2760,8 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 • Bot akan memuat konfigurasi admin baru
 
 💡 **Format Environment Variables:**
-```
 ADMIN1 = {user_id}
 ADMIN2 = [optional_second_admin_id]
-```
 
 🔍 **Verifikasi Setup:**
 • Gunakan `/admin` setelah restart
