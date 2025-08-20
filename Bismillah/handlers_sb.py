@@ -43,22 +43,18 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import os
     admin_ids = set()
     
-    # Check ADMIN, ADMIN1, ADMIN2, etc.
-    primary_admin = (os.getenv("ADMIN") or "").strip()
-    if primary_admin and primary_admin.lower() != "none":
-        admin_ids.add(str(primary_admin))
-    
+    # Check ADMIN1, ADMIN2, etc.
     for i in range(1, 10):
         env_key = f'ADMIN{i}'
         admin_id_str = (os.getenv(env_key) or "").strip()
         
-        # Fallback to old naming format for ADMIN1 and ADMIN2
+        # Fallback to old naming format
         if not admin_id_str and i <= 2:
             fallback_key = f'ADMIN{i}_USER_ID' if i > 1 else 'ADMIN_USER_ID'
             admin_id_str = (os.getenv(fallback_key) or "").strip()
         
         # Add to set if valid
-        if admin_id_str and admin_id_str.lower() not in ("none", "0", ""):
+        if admin_id_str and admin_id_str.lower() != "none":
             admin_ids.add(str(admin_id_str))
     
     # Check if user is admin (string comparison)

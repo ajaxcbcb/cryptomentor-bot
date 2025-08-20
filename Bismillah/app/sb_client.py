@@ -1,3 +1,4 @@
+
 import os
 from typing import Tuple, Dict, Any
 
@@ -70,41 +71,3 @@ def upsert_user_via_rpc(telegram_id: int, username: str=None, first_name: str=No
     }
     res = supabase.rpc("upsert_user_rpc", payload).execute()  # type: ignore
     return res.data or {}
-
-def get_live_user_count():
-    """Get live user count from Supabase"""
-    if not available():
-        return 0
-    try:
-        response = supabase.table('users').select('telegram_id', count='exact').execute()
-        return response.count or 0
-    except Exception as e:
-        print(f"❌ Error getting user count: {e}")
-        return 0
-
-# RPC Functions for automatic user management
-import os
-WEEKLY_FREE_CREDITS = int(os.getenv("WEEKLY_FREE_CREDITS", "100"))
-
-def upsert_user_with_weekly_reset_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None):
-    """Upsert user and ensure new users get weekly credits"""
-    if not available():
-        raise RuntimeError(f"Supabase client not available: {diagnostics}")
-    payload = {
-        "p_telegram_id": int(telegram_id),
-        "p_username": username,
-        "p_first_name": first_name,
-        "p_last_name": last_name,
-        "p_weekly_quota": WEEKLY_FREE_CREDITS,
-    }
-    return supabase.rpc("upsert_user_with_weekly_reset", payload).execute().data
-
-def enforce_weekly_reset_calendar_rpc(telegram_id: int):
-    """Enforce weekly credit reset for non-premium users (Monday 00:00 UTC)"""
-    if not available():
-        return {"reset": False}
-    payload = {
-        "p_telegram_id": int(telegram_id),
-        "p_weekly_quota": WEEKLY_FREE_CREDITS,
-    }
-    return supabase.rpc("enforce_weekly_reset_calendar", payload).execute().data

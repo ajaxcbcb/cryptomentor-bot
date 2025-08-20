@@ -1,0 +1,212 @@
+🚀 PROMPT REPLIT AI AGENT — Fix 'str' object has no attribute 'get' di /admin (parser JSON lokal super-robust)
+
+GOAL
+
+Perbaiki error "'str' object has no attribute 'get'" saat build System Status.
+
+Robust reader untuk Local JSON:
+
+Terima JSON biasa (objek/list), string JSON, JSON Lines, dict-of-dict.
+
+Normalisasi jadi list of user dicts.
+
+Jangan ubah logic Supabase, integrasi, HTML chunking, atau UTC.
+
+Pastikan /admin memakai file lokal premium_users_backup_20250802_130229.json (bisa di-override via LEGACY_JSON_PATH).
+
+TASKS
+1) Patch app/admin.py (set path lokal yang benar)
+
+Jika sudah dilakukan sebelumnya, pastikan nilainya sama.
+
+# app/admin.py
+import os
+from .stats import build_system_status
+
+DEFAULT_LEGACY_PATH = "premium_users_backup_20250802_130229.json"
+LEGACY_JSON_PATH = os.getenv("LEGACY_JSON_PATH", DEFAULT_LEGACY_PATH)
+
+try:
+    from .autosignal import is_auto_signal_running
+    _auto = is_auto_signal_running()
+except Exception:
+    _auto = True
+
+def get_admin_panel_text():
+    return build_system_status(
+        auto_signals_running=_auto,
+        legacy_json_path=LEGACY_JSON_PATH
+    )
+
+2) Overwrite bagian parsing di app/stats.py
+
+Ganti fungsi pembacaan & normalisasi JSON lokal agar tidak pernah memanggil .get pada string, dan tahan JSONL.
+
+# app/stats.py (PATCH BAGIAN PARSER LOKAL)
+import json, os
+from datetime import datetime, timezone
+from typing import Tuple, Optional, Any
+from .sb_client import supabase, health
+
+UTC = timezone.utc
+
+def _coerce_json(obj: Any) -> Any:
+    """
+    Paksa apa pun jadi objek JSON (dict/list) bila memungkinkan:
+    - Jika string: coba json.loads; kalau gagal, coba JSON Lines.
+    - Jika sudah dict/list: kembalikan apa adanya.
+    - Selain itu: kembalikan None.
+    """
+    if isinstance(obj, (dict, list)) or obj is None:
+        return obj
+    if isinstance(obj, str):
+        s = obj.strip()
+        # coba JSON biasa
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+        # coba JSON Lines
+        try:
+            items = []
+            for line in s.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                items.append(json.loads(line))
+            return {"users": items} if items else None
+        except Exception:
+            return None
+    return None
+
+def _normalize_users_structure(payload: Any) -> list:
+    """
+    Terima bentuk apa pun -> kembalikan list of user dicts.
+    - dict dengan key 'users': pakai itu
+    - dict-of-dict: ambil values()
+    - list: langsung
+    - selain itu: []
+    """
+    payload = _coerce_json(payload)
+    if isinstance(payload, dict):
+        users = payload.get("users", payload)
+        if isinstance(users, dict):
+            return [v for v in users.values() if isinstance(v, dict)]
+        if isinstance(users, list):
+            return [u for u in users if isinstance(u, dict)]
+        return []
+    if isinstance(payload, list):
+        return [u for u in payload if isinstance(u, dict)]
+    return []
+
+def _is_premium_active_local(u: dict) -> bool:
+    try:
+        if u.get("is_lifetime"):
+            return True
+        if u.get("is_premium") and u.get("premium_until"):
+            val = u["premium_until"]
+            if isinstance(val, (int, float)):
+                dt = datetime.fromtimestamp(val, tz=UTC)
+            else:
+                dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            return dt > datetime.now(UTC)
+    except Exception:
+        pass
+    return False
+
+def get_legacy_json_totals(path: Optional[str]=None, data_obj: Optional[Any]=None) -> Tuple[int,int]:
+    """
+    Hitung Total & Premium dari:
+    - data_obj (in-memory) atau
+    - file path (JSON / string JSON / JSONL).
+    Aman terhadap format string.
+    """
+    payload = None
+    if data_obj is not None:
+        payload = data_obj
+    elif path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+            payload = _coerce_json(text)
+        except FileNotFoundError:
+            payload = None
+        except Exception:
+            payload = None
+
+    users = _normalize_users_structure(payload)
+    total = len(users)
+    premium = sum(1 for u in users if _is_premium_active_local(u))
+    return total, premium
+
+def build_system_status(auto_signals_running: bool,
+                        legacy_json_path: Optional[str]=None,
+                        legacy_data: Optional[Any]=None) -> str:
+    # Lindungi agar tidak crash bila ada error tak terduga
+    try:
+        legacy_total, legacy_premium = get_legacy_json_totals(legacy_json_path, legacy_data)
+    except Exception as e:
+        legacy_total, legacy_premium = 0, 0
+        legacy_err = f"(local-error: {e})"
+    else:
+        legacy_err = ""
+
+    ok, db_detail = health()
+    supa_total, supa_premium = (0, 0)
+    if ok:
+        try:
+            res = supabase.rpc("stats_totals").execute()
+            row = (res.data[0] if isinstance(res.data, list) and res.data else
+                   res.data if isinstance(res.data, dict) else
+                   {"total_users": 0, "premium_users": 0})
+            supa_total = int(row.get("total_users", 0))
+            supa_premium = int(row.get("premium_users", 0))
+        except Exception:
+            pass
+
+    db_text = "✅" if ok else "❌"
+    auto_text = "🟢 RUNNING" if auto_signals_running else "🔴 STOPPED"
+    now_utc = datetime.now(UTC).strftime("%H:%M:%S UTC")
+
+    # Jika Anda sudah punya blok Integrations, biarkan seperti sebelumnya.
+    return (
+        "📊 System Status\n\n"
+        f"🗄️ Database: SUPABASE - {db_text}\n"
+        f"🎯 Auto Signals: {auto_text}\n\n"
+        "📊 User Statistics:\n"
+        f"• Local JSON - Total Users: {legacy_total} | Premium: {legacy_premium}"
+        + (f" (path: {legacy_json_path})" if legacy_json_path else "")
+        + (f" {legacy_err}" if legacy_err else "")
+        + "\n"
+        f"• Supabase  - Total Users: {supa_total} | Premium: {supa_premium}\n\n"
+        f"⏰ Last Update: {now_utc}"
+    )
+
+
+Catatan:
+
+_coerce_json akan mengubah string menjadi objek JSON bila memungkinkan. Kalau JSON biasa gagal, ia mencoba JSON Lines.
+
+_normalize_users_structure selalu mengembalikan list, jadi tidak ada .get dipanggil pada string lagi.
+
+build_system_status dibungkus try/except untuk tidak pernah melempar error ke handler /admin.
+
+3) (Opsional) Pastikan handler /admin tetap kirim HTML + chunking
+
+Jika sudah dipatch sebelumnya, lewati. Kalau belum, pastikan handler /admin meng-escape HTML dan mengirim dalam beberapa bagian jika panjang (anti “Can’t parse entities”).
+
+ACCEPTANCE
+
+Simpan file premium_users_backup_20250802_130229.json di root (atau set LEGACY_JSON_PATH ke path sebenarnya).
+
+Restart bot → kirim /admin:
+
+Tidak ada lagi error 'str' object has no attribute 'get'.
+
+Baris Local JSON menampilkan angka dari file itu, plus (path: ...).
+
+Jika file tidak valid, panel tetap muncul dan memberi indikator (local-error: ...) alih-alih crash.
+
+Bagian lain (Supabase, Integrations, UTC, HTML chunking) tetap berfungsi.
+
+Kalau masih error, kirim isi singkat 3–5 baris pertama dari file premium_users_backup_20250802_130229.json (tanpa data sensitif) — nanti aku sesuaikan parser-nya lebih spesifik.
