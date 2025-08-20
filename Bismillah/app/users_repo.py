@@ -23,6 +23,7 @@ from .supabase_conn import (
     set_credits as _set_credits,
     stats_totals as _stats_totals,
     is_premium_active as _is_premium_active,
+    get_supabase_client,
 )
 
 # --- Readers ---
@@ -91,6 +92,57 @@ def stats_totals() -> Tuple[int, int]:
 
 def is_premium_active(tg_id: int) -> bool:
     return _is_premium_active(tg_id)
+
+def update_user_premium(tg_id: int, is_premium: bool, premium_until: Optional[str] = None) -> None:
+    """Update user premium status - compatibility function for legacy code"""
+    try:
+        supabase = get_supabase_client()
+        
+        update_data = {
+            "is_premium": is_premium,
+            "premium_until": premium_until
+        }
+        
+        result = supabase.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
+        print(f"✅ Updated premium status for user {tg_id}: is_premium={is_premium}")
+        
+    except Exception as e:
+        print(f"❌ Error updating premium for user {tg_id}: {e}")
+        raise
+
+def add_user_credits(tg_id: int, amount: int) -> None:
+    """Add credits to user - compatibility function"""
+    try:
+        user = get_user_by_telegram_id(tg_id)
+        if user:
+            current_credits = user.get('credits', 0)
+            new_credits = current_credits + amount
+            set_credits(tg_id, new_credits)
+        else:
+            print(f"❌ User {tg_id} not found for credit addition")
+    except Exception as e:
+        print(f"❌ Error adding credits to user {tg_id}: {e}")
+        raise
+
+def deduct_user_credits(tg_id: int, amount: int) -> bool:
+    """Deduct credits from user - compatibility function"""
+    try:
+        user = get_user_by_telegram_id(tg_id)
+        if user:
+            current_credits = user.get('credits', 0)
+            if current_credits >= amount:
+                new_credits = current_credits - amount
+                set_credits(tg_id, new_credits)
+                return True
+            else:
+                print(f"❌ Insufficient credits for user {tg_id}: {current_credits} < {amount}")
+                return False
+        else:
+            print(f"❌ User {tg_id} not found for credit deduction")
+            return False
+    except Exception as e:
+        print(f"❌ Error deducting credits from user {tg_id}: {e}")
+        return False
 
 def touch_user_from_update(update):
     """Auto-upsert user to Supabase from Telegram update object"""
