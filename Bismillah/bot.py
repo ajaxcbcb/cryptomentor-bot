@@ -2019,6 +2019,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /remove_premium <user_id> - Remove premium
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user info
+• /check_premium <user_id> - Check premium status
 
 💳 Credit Management
 • /fix_all_credits - Reset all free users to 100 credits
@@ -3217,6 +3218,116 @@ ADMIN2 = [optional_second_admin_id]
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def check_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /check_premium command - Check premium status of any user"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) != 1:
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/check_premium <user_id>`\n\n"
+                "**Contoh:**\n"
+                "• `/check_premium 123456789`",
+                parse_mode='Markdown'
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ User ID harus berupa angka!")
+            return
+
+        try:
+            from app.premium_check import is_premium_active, get_user_credits
+            from app.users_repo import get_user_by_telegram_id
+
+            # Get user data from Supabase
+            user_data = get_user_by_telegram_id(target_user_id)
+            
+            if not user_data:
+                await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
+                return
+
+            # Get premium status
+            is_premium = is_premium_active(target_user_id)
+            credits = get_user_credits(target_user_id)
+            
+            # Get user info
+            first_name = user_data.get('first_name', 'Unknown')
+            username = user_data.get('username', 'No username')
+            is_lifetime = user_data.get('is_lifetime', False)
+            premium_until = user_data.get('premium_until')
+            created_at = user_data.get('created_at', 'Unknown')
+
+            # Format premium status
+            if is_lifetime:
+                premium_status = "🌟 **LIFETIME PREMIUM**"
+                premium_details = "• Akses unlimited selamanya\n• Auto SnD signals access"
+            elif is_premium:
+                premium_status = "⭐ **PREMIUM ACTIVE**"
+                if premium_until:
+                    try:
+                        # Parse premium until date
+                        if isinstance(premium_until, str):
+                            if premium_until.endswith('Z'):
+                                premium_until = premium_until[:-1] + '+00:00'
+                            elif '+' not in premium_until and 'Z' not in premium_until:
+                                premium_until = premium_until + '+00:00'
+                            premium_dt = datetime.fromisoformat(premium_until)
+                        else:
+                            premium_dt = premium_until
+                        
+                        premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
+                        premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
+                    except Exception as e:
+                        premium_details = f"• Premium until: {premium_until}\n• Unlimited access"
+                else:
+                    premium_details = "• No expiry date set\n• Unlimited access"
+            else:
+                premium_status = "❌ **FREE USER**"
+                premium_details = f"• Credits: {credits}\n• Limited access"
+
+            message = f"""💎 **Premium Status Check**
+
+👤 **User Information:**
+• **ID**: `{target_user_id}`
+• **Name**: {first_name}
+• **Username**: @{username}
+• **Created**: {created_at[:10] if created_at != 'Unknown' else 'Unknown'}
+
+📊 **Status**: {premium_status}
+
+💡 **Details:**
+{premium_details}
+
+🔧 **Admin Actions:**
+• `/setpremium {target_user_id} lifetime` - Set lifetime
+• `/setpremium {target_user_id} 30d` - Set 30 days premium
+• `/revoke_premium {target_user_id}` - Remove premium
+• `/grant_credits {target_user_id} 100` - Add credits"""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_check_premium",
+                f"Checked premium status for user {target_user_id}"
+            )
+
+            await update.message.reply_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error checking premium status**\n\n"
+                f"Error: {str(e)[:200]}...",
+                parse_mode='Markdown'
+            )
+            print(f"❌ Error in check_premium_command: {e}")
+
     async def set_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /set_all_credits command - Set all free users to specific credit amount"""
         user_id = update.message.from_user.id
@@ -3444,6 +3555,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
         self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
         self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
+        self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
