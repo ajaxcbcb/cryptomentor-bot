@@ -28,8 +28,8 @@ class WeeklyCreditRefreshSupabase:
         try:
             s = get_supabase_client()
             
-            # Get all users
-            result = s.table("users").select("telegram_id, first_name, username, credits, is_premium, is_lifetime, premium_until").execute()
+            # Get all users with last refresh data
+            result = s.table("users").select("telegram_id, first_name, username, credits, is_premium, is_lifetime, premium_until, last_weekly_refresh").execute()
             
             if not result.data:
                 print("ℹ️ No users found in Supabase")
@@ -71,6 +71,14 @@ class WeeklyCreditRefreshSupabase:
                 new_credits = weekly_credit_amount
                 
                 try:
+                    # Check if user was already refreshed this week
+                    week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+                    last_refresh = user.get('last_weekly_refresh')
+                    
+                    if last_refresh and last_refresh > week_ago:
+                        print(f"⏭️ {first_name} (@{username}): Already refreshed this week, skipping")
+                        continue
+                    
                     # Update user credits and mark refresh time
                     now = datetime.utcnow().isoformat()
                     update_result = s.table("users").update({
@@ -179,11 +187,13 @@ def main():
     
     refresh_system = WeeklyCreditRefreshSupabase()
     
-    # Force run if argument provided, or if it's Monday at midnight (00:00)
+    # Force run if argument provided, or if it's Monday at midnight (00:00-01:00)
     force_run = len(sys.argv) > 1 and sys.argv[1] == "--force"
     
-    # Run on Monday 00:00 (start of week)
-    if force_run or (current_day == 0 and current_hour == 0):  # Monday at midnight (00:00)
+    # Run on Monday between 00:00-01:00 (start of week) to account for timing
+    is_monday_refresh_time = current_day == 0 and current_hour == 0
+    
+    if force_run or is_monday_refresh_time:
         result = refresh_system.refresh_credits_for_free_users()
         
         if result['success']:

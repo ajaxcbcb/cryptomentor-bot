@@ -19,8 +19,8 @@ class EnsureWeeklyCreditsMiddleware(BaseMiddleware):
         event: Update,
         data: Dict[str, Any]
     ) -> Any:
-        # Weekly refresh is now handled by scheduled task only
-        # This middleware is disabled to prevent frequent credit changes
-        # Credits are refreshed weekly on Monday at midnight via scheduled script
+        # Weekly refresh is ONLY handled by scheduled task on Monday 00:00
+        # This middleware is completely disabled to prevent credit resets
+        # Only the scheduled weekly_credit_refresh_supabase.py should modify credits
         
         return await handler(event, data)

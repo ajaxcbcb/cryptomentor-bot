@@ -19,8 +19,22 @@ def ensure_user_registered(
     referred_by: Optional[int] = None,
     welcome_quota: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Register user with welcome credits using RPC"""
+    """Register user with welcome credits using RPC - only gives welcome credits on first registration"""
     s = get_supabase_client()
+    
+    # Check if user already exists first
+    existing_user = get_user_by_telegram_id(tg_id)
+    if existing_user:
+        # User exists, just update profile info without touching credits
+        s.table("users").update({
+            "username": _san(username),
+            "first_name": first_name,
+            "last_name": last_name
+        }).eq("telegram_id", int(tg_id)).execute()
+        print(f"✅ Updated existing user {tg_id} profile - credits preserved")
+        return existing_user
+    
+    # New user - give welcome credits via RPC
     payload = {
         "p_telegram_id": int(tg_id),
         "p_username": _san(username),
@@ -32,6 +46,7 @@ def ensure_user_registered(
     data = s.rpc("upsert_user_with_welcome", payload).execute().data
     if not data:
         raise RuntimeError("upsert_user_with_welcome returned empty")
+    print(f"✅ New user {tg_id} registered with {WELCOME_CREDITS} welcome credits")
     return data
 
 def set_premium(tg_id: int, duration_type: str, duration_value: int = 0) -> None:
