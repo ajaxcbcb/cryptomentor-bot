@@ -77,8 +77,10 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Perform environment check first
     env_check_ok, env_info = env_ok()
     
-    # Perform health check
-    ok, info = health()
+    # Perform health check using new sb_client
+    from app.sb_client import health as sb_health, diagnostics as sb_diag
+    ok, info = sb_health()
+    diag_info = sb_diag()
     
     status_msg = f"👑 **Supabase Status Check** (Admin: {uid})\n\n"
     
@@ -99,6 +101,7 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg += f"• SUPABASE_SERVICE_KEY: ❌ NOT SET\n"
     
     status_msg += f"\n🔗 **Connection Test:**\n"
+    status_msg += f"🔎 **Details**: {diag_info}\n"
     
     if ok:
         status_msg += f"✅ **Status**: {info}\n"
