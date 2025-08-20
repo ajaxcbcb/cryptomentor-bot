@@ -10,6 +10,19 @@ import sys
 import asyncio
 import logging
 from datetime import datetime
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from dotenv import load_dotenv
+
+# Import our modules
+from ai_assistant import CryptoMentorAI
+from premium_manager import PremiumManager
+from snd_auto_signals import SupplyDemandAutoSignals
+from app.sb_client import init_supabase
+from app.health import health_router
+from app.middlewares.ensure_user_sb import EnsureUserSBMiddleware
+from app.routers.admin_set_credits_all import router as set_all_router
 
 # Enhanced deployment detection
 deployment_indicators = {
@@ -47,23 +60,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import bot after environment setup
-try:
-    from bot import TelegramBot
-    print("✅ Bot module imported successfully")
-except ImportError as e:
-    print(f"❌ Failed to import bot module: {e}")
-    sys.exit(1)
+# Load environment variables
+load_dotenv()
 
-# Import Supabase client and related functions
+# Initialize Supabase client
 try:
-    print("✅ Using centralized Supabase client")
+    init_supabase()
+    print("✅ Supabase client initialized successfully")
 
     # Verify Supabase integration
-    from supabase_client import supabase, validate_supabase_connection
+    from supabase_client import supabase, validate_supabase_connection, get_live_user_count
 
     try:
-        from supabase_client import get_live_user_count
         if supabase and validate_supabase_connection():
             user_count = get_live_user_count()
             print(f"✅ Supabase connection active - Users: {user_count}")
@@ -90,15 +98,34 @@ async def main():
         try:
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
 
-            # Initialize bot
-            bot = TelegramBot()
+            # Bot token from environment variables
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            if not bot_token:
+                logger.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
+                print("❌ TELEGRAM_BOT_TOKEN not found. Please set it in your environment variables.")
+                sys.exit(1)
 
-            print("🎯 Bot initialized successfully")
+            # Configure bot properties
+            bot_properties = DefaultBotProperties(parse_mode=ParseMode.HTML)
+            bot = Bot(token=bot_token, default=bot_properties)
+
+            # Initialize Dispatcher
+            dp = Dispatcher()
+
+            # Register middleware for automatic user management
+            dp.message.middleware(EnsureUserSBMiddleware())
+            dp.callback_query.middleware(EnsureUserSBMiddleware())
+
+            # Include routers
+            dp.include_router(health_router)
+            dp.include_router(set_all_router)
+
+            print("🎯 Bot and Dispatcher initialized successfully")
             print("📡 Starting bot run sequence...")
 
             # Run bot with enhanced logging
-            print("🚀 Calling bot.run_bot()...")
-            await bot.run_bot()
+            print("🚀 Calling dp.start_polling()...")
+            await dp.start_polling(bot)
 
             # If we reach here, bot stopped normally
             print("🛑 Bot stopped by user")

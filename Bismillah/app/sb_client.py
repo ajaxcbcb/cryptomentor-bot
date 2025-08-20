@@ -1,6 +1,6 @@
-
 import os
-from typing import Tuple, Dict, Any
+import logging
+from typing import Tuple, Dict, Any, Optional, List
 
 try:
     from supabase import create_client, Client
@@ -13,8 +13,9 @@ def _getenv(k: str) -> str:
     return os.getenv(k) or os.environ.get(k)
 
 SUPABASE_URL = _getenv("SUPABASE_URL")
-# Utamakan SERVICE KEY; fallback ke ANON agar tetap bisa tes minimal
+# Utamakan SERVICE KEY; fallback agar tetap bisa tes minimal
 SUPABASE_KEY = <REDACTED_SUPABASE_KEY>
+WEEKLY_FREE_CREDITS = int(os.getenv("WEEKLY_FREE_CREDITS", "100"))
 
 diagnostics: Dict[str, Any] = {}
 supabase = None  # type: ignore
@@ -59,15 +60,48 @@ def health() -> Tuple[bool, str]:
     except Exception as e:
         return False, f"rpc_hc_failed: {e} | diag={diagnostics}"
 
-def upsert_user_via_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None) -> Dict[str, Any]:
-    """Gunakan RPC server-side untuk upsert (aman terhadap RLS & skema)."""
+# RPC wrapper functions for user management
+def upsert_user_with_weekly_reset_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None):
+    """Upsert user with automatic weekly reset logic"""
     if not available():
         raise RuntimeError(f"Supabase client not available: {diagnostics}")
     payload = {
         "p_telegram_id": int(telegram_id),
         "p_username": username,
         "p_first_name": first_name,
-        "p_last_name": last_name
+        "p_last_name": last_name,
+        "p_weekly_quota": WEEKLY_FREE_CREDITS,
     }
-    res = supabase.rpc("upsert_user_rpc", payload).execute()  # type: ignore
-    return res.data or {}
+    return supabase.rpc("upsert_user_with_weekly_reset", payload).execute().data
+
+def enforce_weekly_reset_calendar_rpc(telegram_id: int):
+    """Enforce weekly reset based on calendar (Monday 00:00 UTC)"""
+    if not available():
+        return {"reset": False}
+
+    payload = {
+        "p_telegram_id": int(telegram_id),
+        "p_weekly_quota": WEEKLY_FREE_CREDITS
+    }
+    return supabase.rpc("enforce_weekly_reset_calendar", payload).execute().data
+
+def reset_all_free_users_this_week_rpc() -> int:
+    """Reset all free users credits for this week"""
+    if not available():
+        return 0
+
+    payload = {"p_weekly_quota": WEEKLY_FREE_CREDITS}
+    result = supabase.rpc("reset_all_free_users_this_week", payload).execute().data
+    return result if result is not None else 0
+
+def admin_set_credits_all_rpc(amount: int, include_premium: bool=False) -> int:
+    """Admin function to set credits for all users"""
+    if not available():
+        return 0
+
+    payload = {
+        "p_amount": int(amount),
+        "p_only_free": (not include_premium)
+    }
+    result = supabase.rpc("admin_set_credits_all", payload).execute().data
+    return result if result is not None else 0
