@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-CryptoMentor AI Bot - Main Entry Point
-Enhanced with async support for python-telegram-bot v22.3
+CryptoMentor AI - Advanced Crypto Trading Assistant
 """
+
+# Fix pydantic compatibility before any other imports
+try:
+    from app.fix_pydantic import ensure as _ensure_pydantic
+    _ensure_pydantic()
+except Exception as _e:
+    print("[pydantic-fix] warning:", _e)
 
 import os
 import sys
@@ -141,6 +146,15 @@ if __name__ == "__main__":
             sys.exit(1)
 
         print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+
+        # Sanity check pydantic
+        try:
+            from pydantic import with_config
+            print("✅ [pydantic] with_config available")
+        except Exception as e:
+            print(f"❌ [pydantic] with_config MISSING: {e}")
+
+        print("=" * 50)
 
         # Run main async function
         asyncio.run(main())
