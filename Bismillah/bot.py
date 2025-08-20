@@ -944,7 +944,7 @@ class TelegramBot:
 
         except Exception as e:
             # Credits were already debited atomically, no manual refund needed
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
             import traceback
@@ -1003,7 +1003,7 @@ class TelegramBot:
                 await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
                 return
 
-            # Add credit status to response (credits already debited by guard)
+            # Add credit status to response
             analysis_result += f"\n\n{guard_message}"
 
             print(f"✅ Market analysis completed, sending response ({len(analysis_result)} chars)")
@@ -1418,6 +1418,166 @@ Terima kasih telah menjadi member premium!"""
 
 Gunakan credit dengan bijak!"""
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    # Auto Signals Admin Commands
+    async def auto_signals_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auto_signals_status command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        status = "🟢 RUNNING" if self.auto_signals.is_running else "🔴 STOPPED"
+        eligible_users = self.db.get_eligible_auto_signal_users()
+
+        message = f"""🎯 **Auto SnD Signals Status**
+
+📊 **Status**: {status}
+👥 **Eligible Users**: {len(eligible_users)} (Admin + Lifetime)
+⏰ **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
+🎯 **Target Coins**: {len(self.auto_signals.target_symbols)} altcoins
+📈 **Min Confidence**: {self.auto_signals.min_confidence}%
+🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S UTC') if self.auto_signals.last_scan_time > 0 else 'Never'}
+
+🔧 **Commands:**
+• `/enable_auto_signal_ai` - Start momentum signals scanner
+• `/disable_auto_signal_ai` - Stop momentum signals scanner
+
+💡 **Target**: Admin & Lifetime premium users only"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /enable_auto_signal_ai command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        if self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto SnD signals sudah berjalan.")
+            return
+
+        # Start auto signals
+        try:
+            # Update status in autosignal module
+            from app.autosignal import start_auto_signals
+            start_auto_signals()
+
+            asyncio.create_task(self.auto_signals.start_auto_scanner())
+            await update.message.reply_text(
+                f"✅ **Auto SnD Signals Enabled**\n\n"
+                f"🎯 Scanning {len(self.auto_signals.target_symbols)} altcoins\n"
+                f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
+                f"👥 For Admin & Lifetime users only\n\n"
+                f"📊 Next scan will start in approximately {self.auto_signals.scan_interval // 60} minutes...",
+                parse_mode='Markdown'
+            )
+            self.db.log_user_activity(user_id, "admin_enable_auto_signals", "Enabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to enable auto signals: {e}")
+            logger.error(f"Error enabling auto signals: {e}")
+
+
+    async def stop_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /disable_auto_signal_ai command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        if not self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto SnD signals sudah berhenti.")
+            return
+
+        # Stop auto signals
+        try:
+            # Update status in autosignal module
+            from app.autosignal import stop_auto_signals
+            stop_auto_signals()
+
+            await self.auto_signals.stop_auto_scanner()
+            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
+            self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
+            logger.error(f"Error stopping auto signals: {e}")
+
+
+    # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
+    # I'll include the essential ones for functionality
+
+    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /portfolio command"""
+        user_id = update.message.from_user.id
+        portfolio = self.db.get_user_portfolio(user_id)
+
+        if not portfolio:
+            message = """💼 **Portfolio Anda kosong**
+
+Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
+Contoh: `/add_coin btc 0.5`
+
+Harga akan diambil real-time dari CoinAPI."""
+        else:
+            message = "💼 **Portfolio Anda (CoinAPI Real-time):**\n\n"
+            total_value = 0
+
+            for coin in portfolio:
+                symbol = coin['symbol']
+                amount = coin['amount']
+                price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
+
+                if price_data and 'error' not in price_data:
+                    current_price = price_data.get('price', 0)
+                    value = amount * current_price
+                    total_value += value
+
+                    price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
+                    value_format = f"${value:,.2f}"
+                    message += f"• {symbol}: {amount} koin ({price_format} = {value_format})\n"
+                else:
+                    message += f"• {symbol}: {amount} koin (Price unavailable)\n"
+
+            message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add_coin command"""
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Gunakan format: `/add_coin <symbol> <amount>`\nContoh: `/add_coin btc 0.5`")
+            return
+
+        user_id = update.message.from_user.id
+        symbol = context.args[0].upper()
+
+        try:
+            amount = float(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Amount harus berupa angka!")
+            return
+
+        # Add to portfolio
+        self.db.add_to_portfolio(user_id, symbol, amount)
+
+        message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari CoinAPI saat Anda cek `/portfolio`."
+        await update.message.reply_text(message)
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /subscribe command"""
@@ -1874,7 +2034,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 🔧 Debug Commands
 • /whoami - Your info
-• /admin_debug - Admin config debug
+• /admin_debug - Debug admin config
 • /db_status - Database health
 
 👤 Your Admin ID: {user_id}"""
@@ -2899,7 +3059,6 @@ ADMIN2 = [optional_second_admin_id]
         message += f"• Set `ADMIN` = `{user_id}` in Replit Secrets for super admin\n"
         message += f"• Use `/add_admin` to add additional admins\n"
         message += f"• Restart bot after secret changes\n\n"
-
         message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
 
         await update.message.reply_text(message, parse_mode='Markdown')
@@ -3160,6 +3319,8 @@ ADMIN2 = [optional_second_admin_id]
                         premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
                     except Exception as e:
                         premium_details = f"• Premium until: {premium_until}\n• Unlimited access"
+                else:
+                    premium_details = "• No expiry date set\n• Unlimited access"
             else:
                 premium_status = "❌ **FREE USER**"
                 premium_details = f"• Credits: {credits}\n• Limited access"

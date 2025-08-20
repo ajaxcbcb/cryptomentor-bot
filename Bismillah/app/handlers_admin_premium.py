@@ -29,22 +29,22 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with _lock(tid):
+            # Check if user exists before setting premium
+            existing_user = get_user_by_telegram_id(tid)
+            user_status = "existing" if existing_user else "new"
+            
             if dur_arg.lower() == "lifetime":
                 # Use direct set_premium function with auto-create
                 success = set_premium(tid, lifetime=True)
                 
                 if success:
-                    # Check if user was created or already existed
-                    user_data = get_user_by_telegram_id(tid)
-                    user_status = "🆕 User baru dibuat otomatis" if user_data and user_data.get('first_name') == 'Premium User' else "User sudah ada"
-                    
                     status_msg = "✅ **Premium LIFETIME berhasil di-set!**\n\n"
                     status_msg += f"👤 **User ID**: {tid}\n"
-                    status_msg += f"📊 **Status**: {user_status}\n"
+                    status_msg += f"📊 **Status**: {'User sudah ada' if user_status == 'existing' else '🆕 User baru dibuat otomatis'}\n"
                     status_msg += f"💎 **Premium**: LIFETIME (unlimited)\n"
                     status_msg += f"🎯 **Auto Signals**: ✅ Enabled\n\n"
-                    if "baru dibuat" in user_status:
-                        status_msg += "ℹ️ User akan mendapat nama asli ketika mereka /start"
+                    if user_status == "new":
+                        status_msg += "ℹ️ User akan mendapat nama placeholder sampai mereka /start"
                     return await safe_reply(msg, status_msg)
                 else:
                     return await safe_reply(msg, f"❌ Gagal set premium lifetime untuk user {tid}")
@@ -60,20 +60,16 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 success = set_premium(tid, lifetime=False, days=days)
                 
                 if success:
-                    # Check if user was created or already existed
-                    user_data = get_user_by_telegram_id(tid)
-                    user_status = "🆕 User baru dibuat otomatis" if user_data and user_data.get('first_name') == 'Premium User' else "User sudah ada"
-                    
                     # Calculate expiry date for display
                     expiry_date = (datetime.utcnow() + timedelta(days=days)).strftime('%d %B %Y - %H:%M WIB')
                     
                     status_msg = f"✅ **Premium {days} hari berhasil di-set!**\n\n"
                     status_msg += f"👤 **User ID**: {tid}\n"
-                    status_msg += f"📊 **Status**: {user_status}\n"
+                    status_msg += f"📊 **Status**: {'User sudah ada' if user_status == 'existing' else '🆕 User baru dibuat otomatis'}\n"
                     status_msg += f"💎 **Premium**: {days} hari\n"
                     status_msg += f"📅 **Berlaku sampai**: {expiry_date}\n\n"
-                    if "baru dibuat" in user_status:
-                        status_msg += "ℹ️ User akan mendapat nama asli ketika mereka /start"
+                    if user_status == "new":
+                        status_msg += "ℹ️ User akan mendapat nama placeholder sampai mereka /start"
                     return await safe_reply(msg, status_msg)
                 else:
                     return await safe_reply(msg, f"❌ Gagal set premium {days} hari untuk user {tid}")
