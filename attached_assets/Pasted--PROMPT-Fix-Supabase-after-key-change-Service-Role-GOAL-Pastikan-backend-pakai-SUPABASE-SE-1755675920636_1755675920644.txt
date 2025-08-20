@@ -1,0 +1,214 @@
+🚀 PROMPT — “Fix Supabase after key change (Service Role)”
+
+GOAL
+
+Pastikan backend pakai SUPABASE_SERVICE_KEY (service role secret).
+
+Tetapkan fallback dari nama lama (SUPABASE_KEY / SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY).
+
+Perkuat sb_client.py: inisialisasi aman, deteksi kesalahan key (401/403), health check via RPC hc.
+
+Perbarui /admin DB detail agar menyebut key type dan masking token (tanpa bocor).
+
+Jaga semua RPC mingguan (upsert + enforce weekly) tetap jalan.
+
+SECRETS yang WAJIB di Replit
+
+SUPABASE_URL → contoh: https://xxxx.supabase.co
+
+SUPABASE_SERVICE_KEY → Service role dari tab API Keys → Secret API Keys
+(Kalau sekarang masih di “Legacy API Keys”, tetap bisa dipakai; tapi dianjurkan pakai Secret API Keys.
+Jangan pakai anon/publishable untuk backend.)
+
+Opsional fallback yang masih akan dibaca kalau SUPABASE_SERVICE_KEY kosong:
+SERVICE_ROLE_KEY, SUPABASE_SECRET_KEY, SUPABASE_KEY
+
+Deps
+
+pip install --upgrade supabase httpx python-jose
+
+1) Patch / buat app/sb_client.py
+
+Ganti/overwrite file menjadi:
+
+# app/sb_client.py
+from __future__ import annotations
+import os, re, time
+from typing import Tuple, Optional
+from supabase import create_client, Client
+import httpx
+
+# ====== ENV RESOLUTION ======
+def _env(name: str) -> Optional[str]:
+    v = os.getenv(name)
+    return v.strip() if v and v.strip() else None
+
+def _resolve_url() -> str:
+    url = _env("SUPABASE_URL") or ""
+    if not url:
+        raise RuntimeError("Missing SUPABASE_URL")
+    return url.rstrip("/")
+
+def _resolve_service_key() -> str:
+    # Prioritas: SERVICE (baru) → fallback ke nama lama
+    key = (
+        _env("SUPABASE_SERVICE_KEY")
+        or _env("SERVICE_ROLE_KEY")
+        or _env("SUPABASE_SECRET_KEY")
+        or _env("SUPABASE_KEY")
+        or ""
+    )
+    if not key:
+        raise RuntimeError("Missing SUPABASE_SERVICE_KEY (service role)")
+    return key
+
+def _mask(s: str, head: int = 6, tail: int = 6) -> str:
+    if not s: return ""
+    if len(s) <= head + tail + 3:
+        return s[0] + "***" + s[-1]
+    return f"{s[:head]}…{s[-tail:]}"
+
+# ====== CLIENT ======
+_supabase: Optional[Client] = None
+_diagnostics: str = ""
+
+def init() -> Client:
+    global _supabase, _diagnostics
+    url = _resolve_url()
+    key = _resolve_service_key()
+
+    # Validasi URL
+    if not re.search(r"\.supabase\.co$", url):
+        # tetap izinkan self-host, tapi beri catatan
+        _note = "URL tidak standar (.supabase.co). Pastikan benar."
+    else:
+        _note = "ok"
+
+    _supabase = create_client(url, key)
+    _diagnostics = f"url={url} key(service_role)={_mask(key)} note={_note}"
+    return _supabase
+
+def supabase() -> Client:
+    global _supabase
+    if _supabase is None:
+        init()
+    return _supabase  # type: ignore
+
+def available() -> bool:
+    try:
+        return supabase() is not None
+    except Exception:
+        return False
+
+def diagnostics() -> str:
+    return _diagnostics
+
+# ====== HEALTH CHECK ======
+def health() -> Tuple[bool, str]:
+    """
+    Coba RPC 'hc' jika ada; bila 401/403, kemungkinan key salah (anon).
+    """
+    try:
+        cli = supabase()
+        try:
+            res = cli.rpc("hc").execute()
+            # res.data bisa apa saja; yang penting 200 OK
+            return True, "hc rpc OK"
+        except Exception as e:
+            # fallback: GET /rest/v1 root (harus 404/200; 401 → key salah)
+            url = _resolve_url().rstrip("/") + "/rest/v1/"
+            hdr = {"apikey": _resolve_service_key(), "Authorization": f"Bearer {_resolve_service_key()}"}
+            try:
+                r = httpx.get(url, headers=hdr, timeout=6.0)
+                if r.status_code in (200, 404):
+                    return True, f"rest ping {r.status_code}"
+                elif r.status_code in (401, 403):
+                    return False, f"{r.status_code} unauthorized (pakai Service Role?)"
+                else:
+                    return False, f"{r.status_code} {r.text[:80]}"
+            except Exception as ex:
+                return False, f"health error: {ex}"
+    except Exception as ex:
+        return False, f"init error: {ex}"
+
+# ====== WEEKLY CREDITS RPC WRAPPERS (dipakai bot) ======
+WEEKLY_FREE_CREDITS = int(os.getenv("WEEKLY_FREE_CREDITS", "100"))
+
+def upsert_user_with_weekly_reset_rpc(telegram_id: int, username: str=None, first_name: str=None, last_name: str=None):
+    payload = {
+        "p_telegram_id": int(telegram_id),
+        "p_username": username,
+        "p_first_name": first_name,
+        "p_last_name": last_name,
+        "p_weekly_quota": WEEKLY_FREE_CREDITS,
+    }
+    return supabase().rpc("upsert_user_with_weekly_reset", payload).execute().data  # type: ignore
+
+def enforce_weekly_reset_calendar_rpc(telegram_id: int):
+    payload = { "p_telegram_id": int(telegram_id), "p_weekly_quota": WEEKLY_FREE_CREDITS }
+    return supabase().rpc("enforce_weekly_reset_calendar", payload).execute().data  # type: ignore
+
+2) Perbarui /admin supaya menampilkan detail key dengan aman
+
+Edit fungsi pembangun status (mis. app/stats.py) — cukup tambahkan potongan berikut di bagian “DB Detail”:
+
+# app/stats.py (cuplikan)
+from .sb_client import health as sb_health, diagnostics as sb_diag
+
+ok, _ = sb_health()
+db_text = "✅" if ok else "❌"
+db_detail_line = f"🔎 Supabase: {sb_diag()}"  # contoh: url=… key(service_role)=eyJhb…pQ note=ok
+
+# saat merakit panel:
+# ...
+# f"{db_detail_line}\n"
+
+
+Jangan print key penuh — fungsi diagnostics() sudah masking otomatis.
+
+3) Pastikan middleware/handler tetap pakai RPC mingguan
+
+Tidak perlu diubah, asal mereka memanggil:
+
+upsert_user_with_weekly_reset_rpc(...)
+
+enforce_weekly_reset_calendar_rpc(...)
+
+4) (Opsional) Upgrade requirements
+
+Tambahkan/ubah requirements.txt:
+
+supabase>=2.4
+httpx>=0.24
+python-jose>=3.3.0
+aiogram==3.*   # jika pakai aiogram v3
+
+5) Checklist KUNCI di Replit Secrets (wajib benar)
+
+SUPABASE_URL → copy dari Project Settings → URL (bukan REST URL; cukup root https://xxxx.supabase.co)
+
+SUPABASE_SERVICE_KEY → copy dari “API Keys → Secret API Keys → Service role”
+(boleh sementara dari “Legacy API Keys → service_role”, tapi lebih baik pindah ke Secret API Keys)
+
+Jangan pakai anon/publishable untuk backend.
+Setelah mengganti key di Secrets, restart repl.
+
+6) Acceptance
+
+Jalankan /admin → “Database: SUPABASE - ✅”; dan ada baris Supabase: url=… key(service_role)=xxxx…xxxx (masked).
+
+RPC upsert_user_with_weekly_reset dan enforce_weekly_reset_calendar berjalan (user baru = 100, reset Senin 00:00 UTC).
+
+Kalau masih “❌” dan detailnya 401/403 unauthorized → 99% pakai anon/publishable atau key salah; ganti SUPABASE_SERVICE_KEY ke Service role dari Secret API Keys.
+
+Kenapa tadi “tiba-tiba error”?
+
+Supabase baru memisah tampilan Legacy API Keys vs API Keys (Publishable/Secret). Kalau kamu:
+
+mengganti/merotasi key,
+
+mem-disable JWT-based keys,
+
+atau menyalin anon ke backend,
+
+maka request PostgREST jadi 401/403. Prompt di atas memaksa backend membaca Service Role yang benar dan memberi diagnosa jelas di /admin.
