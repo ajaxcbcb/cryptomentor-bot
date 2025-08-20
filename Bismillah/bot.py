@@ -1040,6 +1040,8 @@ class TelegramBot:
         is_admin = self.is_admin(user_id)
 
         # Check credits for non-premium, non-admin users
+        # This check is now handled by credits_guard, but kept here as a fallback/demonstration
+        # The primary guard is `require_credits` within the callback handler.
         if not is_premium and not is_admin and credits < 60:
             await update.message.reply_text("❌ Credit tidak cukup! Sinyal futures membutuhkan 60 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
             return
@@ -1084,15 +1086,23 @@ class TelegramBot:
                 await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
                 return
 
-            # Deduct credit only for non-premium, non-admin users
-            if not is_premium and not is_admin:
-                self.db.deduct_credit(user_id, 60)
-                remaining_credits = self.db.get_user_credits(user_id)
-                signals += f"\n\n💳 Credit tersisa: {remaining_credits} (Sinyal futures: -60 credit)"
-            elif is_premium:
-                signals += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                signals += f"\n\n👑 **Admin Access** - Unlimited"
+            print(f"✅ Generated futures signals ({len(signals)} chars)")
+
+            # Add credit status to response
+            # Determine guard_message based on premium/admin status for consistent response
+            # This ensures the message is correctly formatted regardless of the initial check
+            from app.credits_guard import require_credits
+            if is_premium or is_admin:
+                guard_message = "⭐ **Status Premium** - Unlimited Access" if is_premium else "👑 **Admin Access** - Unlimited"
+            else:
+                # We need to perform the credit check to get the actual remaining credits
+                allowed, remaining, guard_message = require_credits(user_id, 60) # Use 60 for futures signals
+                if not allowed:
+                    await loading_msg.edit_text("❌ Credit tidak cukup! Sinyal futures membutuhkan 60 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
+                    return
+                guard_message = f"💳 Credit tersisa: {remaining} (Sinyal futures: -60 credit)"
+
+            signals += f"\n\n{guard_message}"
 
             # Handle long messages
             if len(signals) > 4000:
@@ -1142,9 +1152,11 @@ class TelegramBot:
         allowed, remaining, guard_message = require_credits(user_id, 20)
 
         if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures command - {guard_message}")
+            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures - {guard_message}")
             await update.message.reply_text(guard_message, parse_mode='Markdown')
             return
+
+        print(f"✅ APPROVED: User {user_id} futures - {guard_message}")
 
         # Clean the symbol query - remove "SND" if present and extract timeframe
         raw_query = ' '.join(context.args).upper()
@@ -1221,43 +1233,41 @@ class TelegramBot:
                     print(f"✅ APPROVED: User {user_id} futures callback - {guard_message}")
 
                     # Show loading
-                    await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass V4...\n\n"
-                        "🔍 Memproses data real-time...",
-                        parse_mode='Markdown'
-                    )
+                    loading_text = f"⏳ Analyzing {symbol.upper()} futures on {timeframe} timeframe with SnD zones..."
+                    await query.edit_message_text(loading_text)
 
-                    try:
-                        print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
+                    # Get analysis
+                    analysis = await self.ai.get_futures_analysis_async(symbol, timeframe, 'id', self.crypto_api)
 
-                        # Get analysis with SnD enhancement
-                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+                    if not analysis or len(analysis.strip()) < 50:
+                        await query.edit_message_text(f"❌ Gagal menganalisis {symbol.upper()} pada timeframe {timeframe}. Coba lagi nanti.")
+                        return
 
-                        # Add credit status to response
-                        analysis_text += f"\n\n{guard_message}"
+                    # Add credit info
+                    analysis += f"\n\n{guard_message}"
 
-                        # Handle long messages
-                        if len(analysis_text) > 4000:
-                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                            try:
-                                await query.edit_message_text(chunks[0], parse_mode='MarkdownV2')
-                                for chunk in chunks[1:]:
-                                    await query.message.reply_text(chunk, parse_mode='MarkdownV2')
-                            except Exception as markdown_error:
-                                print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
-                                # Remove escape characters for plain text
-                                plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
-                                await query.edit_message_text(plain_chunks[0], parse_mode=None)
-                                for chunk in plain_chunks[1:]:
-                                    await query.message.reply_text(chunk, parse_mode=None)
-                        else:
-                            try:
-                                await query.edit_message_text(analysis_text, parse_mode='MarkdownV2')
-                            except Exception as markdown_error:
-                                print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
-                                # Remove escape characters for plain text
-                                plain_text = analysis_text.replace('\\', '')
-                                await query.edit_message_text(plain_text, parse_mode=None)
+                    # Handle long messages
+                    if len(analysis) > 4000:
+                        chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
+                        try:
+                            await query.edit_message_text(chunks[0], parse_mode='MarkdownV2')
+                            for chunk in chunks[1:]:
+                                await query.message.reply_text(chunk, parse_mode='MarkdownV2')
+                        except Exception as markdown_error:
+                            print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
+                            # Remove escape characters for plain text
+                            plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
+                            await query.edit_message_text(plain_chunks[0], parse_mode=None)
+                            for chunk in plain_chunks[1:]:
+                                await query.message.reply_text(chunk, parse_mode=None)
+                    else:
+                        try:
+                            await query.edit_message_text(analysis, parse_mode='MarkdownV2')
+                        except Exception as markdown_error:
+                            print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
+                            # Remove escape characters for plain text
+                            plain_text = analysis.replace('\\', '')
+                            await query.edit_message_text(plain_text, parse_mode=None)
 
                         print(f"✅ Successfully sent futures analysis to user {user_id}")
 
@@ -2034,7 +2044,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /disable_auto_signal_ai - Stop auto signals
 
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
-{'• /add_admin <user_id> - Add new admin' if is_user_super_admin else '• /whoami - Your admin info'}
+{'• /add_admin <user_id> - Add new admin' if is_super_admin else '• /whoami - Your admin info'}
 {'• /remove_admin <user_id> - Remove admin' if is_super_admin else '• /admin_debug - Admin configuration debug'}
 {'• /list_admins - List all admins' if is_super_admin else '• /sb_diag - Supabase diagnostics'}
 {'• /whoami - Your admin info' if is_super_admin else '• /sb_repair - Attempt Supabase repair'}
@@ -2264,6 +2274,8 @@ Gunakan `/subscribe` untuk upgrade!
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
+
+        await update.message.reply_text("🔄 Starting manual credit refresh to 100 credits for all free users...")
 
         try:
             # Fix NULL and negative credits
@@ -3388,18 +3400,10 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
         self.application.add_handler(CommandHandler("banned", self.banned_command))
 
-        # Supabase health check command
-        try:
-            # This block was removed as per the instruction to remove the broken Supabase registration.
-            # If specific Supabase commands are needed, they should be imported and registered separately.
-            pass
-        except ImportError as e:
-            print(f"⚠️ Supabase handler not available: {e}")
-        # Renamed for clarity and consistency with user request
+        # Auto Signals admin commands
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
         self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
         self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
-
 
         # Add callback query handler
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
