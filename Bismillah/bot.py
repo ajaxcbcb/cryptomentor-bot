@@ -2012,6 +2012,10 @@ Gunakan `/subscribe` untuk upgrade!
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user info
 
+💳 Credit Management
+• /refresh_credits - Reset all free users to 100 credits
+• /set_all_credits <amount> - Set all free users to specific credits
+
 🛠️ System Commands
 • /sb_status - Supabase connection status
 • /db_status - Database health check
@@ -2405,47 +2409,83 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         sys.exit(0)
 
     async def refresh_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /refresh_credits command - Manual weekly refresh"""
+        """Handle /refresh_credits command - Manual weekly refresh to 100 credits"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
-        await update.message.reply_text("🔄 Starting manual weekly credit refresh...")
+        await update.message.reply_text("🔄 Starting manual credit refresh to 100 credits for all free users...")
 
         try:
-            # Import and run Supabase refresh
-            import subprocess
-            import sys
+            # Use Supabase to refresh credits directly
+            from app.supabase_conn import get_supabase_client
+            from app.users_repo import is_premium_active
             
-            result = subprocess.run([
-                sys.executable, 
-                "weekly_credit_refresh_supabase.py", 
-                "--force"
-            ], cwd="Bismillah", capture_output=True, text=True)
+            s = get_supabase_client()
             
-            if result.returncode == 0:
-                await update.message.reply_text(
-                    f"✅ **Manual Credit Refresh Completed!**\n\n"
-                    f"📊 Check console for detailed results\n"
-                    f"🕐 Completed at: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                    f"💡 Next automatic refresh: Monday midnight",
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ **Credit Refresh Failed**\n\n"
-                    f"Error: {result.stderr[:500]}\n"
-                    f"Check console for details",
-                    parse_mode='Markdown'
-                )
+            # Get all users
+            result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
+            
+            if not result.data:
+                await update.message.reply_text("❌ No users found in database")
+                return
+                
+            all_users = result.data
+            free_users = []
+            
+            # Filter free users (non-premium)
+            for user in all_users:
+                tg_id = user.get('telegram_id')
+                if not tg_id:
+                    continue
+                    
+                # Check if user is premium
+                if not is_premium_active(tg_id):
+                    free_users.append(user)
+            
+            if not free_users:
+                await update.message.reply_text("ℹ️ No free users found to refresh")
+                return
+                
+            # Update credits for all free users to 100
+            updated_count = 0
+            for user in free_users:
+                telegram_id = user.get('telegram_id')
+                try:
+                    update_result = s.table("users").update({
+                        "credits": 100
+                    }).eq("telegram_id", telegram_id).execute()
+                    
+                    if update_result.data:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    print(f"❌ Error updating user {telegram_id}: {e}")
+                    continue
+            
+            await update.message.reply_text(
+                f"✅ **Manual Credit Refresh Completed!**\n\n"
+                f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
+                f"💳 **Credits Set**: 100 credits per user\n"
+                f"💰 **Total Credits Given**: {updated_count * 100:,}\n"
+                f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
+                f"📅 **Next auto refresh**: Monday 00:00 WIB",
+                parse_mode='Markdown'
+            )
                 
         except Exception as e:
-            await update.message.reply_text(f"❌ Error running refresh: {str(e)}")
+            await update.message.reply_text(
+                f"❌ **Credit Refresh Failed**\n\n"
+                f"Error: {str(e)[:200]}...\n"
+                f"Check console for details",
+                parse_mode='Markdown'
+            )
+            print(f"❌ Error in refresh_credits_command: {e}")
 
         # Log admin action
-        self.db.log_user_activity(user_id, "admin_manual_refresh", "Manual weekly credit refresh triggered")all_free_user_credits()
+        self.db.log_user_activity(user_id, "admin_manual_refresh", f"Manual credit refresh: Set {updated_count} free users to 100 credits")
 
             message = f"""✅ **Credit Refresh Completed!**
 
@@ -3202,6 +3242,103 @@ ADMIN2 = [optional_second_admin_id]
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def set_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /set_all_credits command - Set all free users to specific credit amount"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if len(context.args) != 1:
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/set_all_credits <amount>`\n\n"
+                "**Contoh:**\n"
+                "• `/set_all_credits 100` - Set semua free user ke 100 credit\n"
+                "• `/set_all_credits 200` - Set semua free user ke 200 credit",
+                parse_mode='Markdown'
+            )
+            return
+
+        try:
+            credit_amount = int(context.args[0])
+            if credit_amount < 0:
+                await update.message.reply_text("❌ Credit amount harus positif!")
+                return
+        except ValueError:
+            await update.message.reply_text("❌ Credit amount harus berupa angka!")
+            return
+
+        await update.message.reply_text(f"🔄 Setting all free users to {credit_amount} credits...")
+
+        try:
+            from app.supabase_conn import get_supabase_client
+            from app.users_repo import is_premium_active
+            
+            s = get_supabase_client()
+            
+            # Get all users
+            result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
+            
+            if not result.data:
+                await update.message.reply_text("❌ No users found in database")
+                return
+                
+            all_users = result.data
+            free_users = []
+            
+            # Filter free users (non-premium)
+            for user in all_users:
+                tg_id = user.get('telegram_id')
+                if not tg_id:
+                    continue
+                    
+                # Check if user is premium
+                if not is_premium_active(tg_id):
+                    free_users.append(user)
+            
+            if not free_users:
+                await update.message.reply_text("ℹ️ No free users found")
+                return
+                
+            # Update credits for all free users
+            updated_count = 0
+            for user in free_users:
+                telegram_id = user.get('telegram_id')
+                try:
+                    update_result = s.table("users").update({
+                        "credits": credit_amount
+                    }).eq("telegram_id", telegram_id).execute()
+                    
+                    if update_result.data:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    print(f"❌ Error updating user {telegram_id}: {e}")
+                    continue
+            
+            await update.message.reply_text(
+                f"✅ **Set All Credits Completed!**\n\n"
+                f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
+                f"💳 **Credits Set**: {credit_amount} credits per user\n"
+                f"💰 **Total Credits Given**: {updated_count * credit_amount:,}\n"
+                f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
+                f"⭐ **Premium users unaffected** (unlimited access)",
+                parse_mode='Markdown'
+            )
+                
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Set All Credits Failed**\n\n"
+                f"Error: {str(e)[:200]}...",
+                parse_mode='Markdown'
+            )
+            print(f"❌ Error in set_all_credits_command: {e}")
+
+        # Log admin action
+        self.db.log_user_activity(user_id, "admin_set_all_credits", f"Set {updated_count} free users to {credit_amount} credits")
+
     async def _on_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Global error handler to log unhandled exceptions"""
         user_id = getattr(getattr(update, "effective_user", None), "id", None)
@@ -3316,6 +3453,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
         self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
         self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
+        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))

@@ -59,7 +59,7 @@ class WeeklyCreditRefreshSupabase:
             # Update credits for all free users
             updated_count = 0
             total_credits_given = 0
-            weekly_credit_amount = 50
+            weekly_credit_amount = 100  # Changed from 50 to 100
             
             for user in free_users:
                 telegram_id = user.get('telegram_id')
@@ -67,7 +67,7 @@ class WeeklyCreditRefreshSupabase:
                 username = user.get('username', 'no_username')
                 current_credits = user.get('credits', 0)
                 
-                # Set credits to 50 for free users (weekly refresh)
+                # Set credits to 100 for free users (weekly refresh)
                 new_credits = weekly_credit_amount
                 
                 try:
@@ -94,9 +94,9 @@ class WeeklyCreditRefreshSupabase:
             print("\n" + "=" * 50)
             print("✅ WEEKLY CREDIT REFRESH COMPLETED!")
             print(f"📊 Users updated: {updated_count}/{total_free_users}")
-            print(f"💰 Total credits distributed: {total_credits_given:,}")
+            print(f"💰 Total credits distributed: {total_credits_given:,} (100 credits per user)")
             print(f"🕐 Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}")
-            print(f"📅 Next refresh: Monday midnight next week")
+            print(f"📅 Next refresh: Monday midnight next week (00:00 WIB)")
             
             return {
                 'success': True,
@@ -158,7 +158,7 @@ def main():
     print("🚀 CryptoMentor AI - Weekly Credit Refresh (Supabase)")
     print(f"📅 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}")
     
-    # Check if it's Monday (0 = Monday)
+    # Check if it's Sunday night/Monday morning (Sunday = 6, Monday = 0)
     current_day = datetime.now().weekday()
     current_hour = datetime.now().hour
     
@@ -167,10 +167,11 @@ def main():
     
     refresh_system = WeeklyCreditRefreshSupabase()
     
-    # Force run if argument provided, or if it's Monday midnight
+    # Force run if argument provided, or if it's Monday at midnight (00:00)
     force_run = len(sys.argv) > 1 and sys.argv[1] == "--force"
     
-    if force_run or (current_day == 0 and current_hour == 0):  # Monday at midnight
+    # Run on Monday 00:00 (start of week)
+    if force_run or (current_day == 0 and current_hour == 0):  # Monday at midnight (00:00)
         result = refresh_system.refresh_credits_for_free_users()
         
         if result['success']:
