@@ -1,0 +1,273 @@
+🔧 PROMPT AI AGENT — Connect Replit ↔ Supabase (Fix Pydantic, RPC-ready)
+GOALS
+
+Pastikan pydantic v2 aktif (hilangkan error with_config) sebelum import supabase.
+
+Satu pintu koneksi Supabase (get_supabase_client() + health()).
+
+RPC wrappers: upsert_user_with_welcome, set_premium, stats_totals.
+
+Middleware/handler agar /start benar-benar menyimpan user (dengan referral optional/required via env).
+
+Perintah diagnostik /diag_supabase untuk verifikasi cepat.
+
+STEP 0 — Secrets (Wajib isi)
+
+Di Replit → Tools → Secrets, tambah:
+
+SUPABASE_URL = https://<project>.supabase.co
+
+SUPABASE_SERVICE_KEY = Service role (Secret API Key)
+
+(opsional) ADMIN_IDS = 7255533151,123456789
+
+(opsional) WELCOME_CREDITS = 100
+
+(opsional) REFERRAL_REQUIRED = true (set false jika tidak wajib)
+
+Restart Repl setelah mengisi.
+
+STEP 1 — requirements.txt
+
+Ubah/isi requirements.txt begini:
+
+pydantic>=2.6,<3
+pydantic-core>=2.16
+supabase>=2.4
+httpx>=0.24,<0.28
+aiogram==3.*
+
+STEP 2 — BOOTSTRAP (WAJIB di baris 1 main.py)
+
+Ini yang ngilangin error “cannot import name with_config from pydantic”. HARUS ditempatkan di baris pertama main.py, sebelum import apa pun (termasuk aiogram/supabase).
+
+# --- BOOTSTRAP: fix pydantic/supabase sebelum import lain ---
+import sys, subprocess
+def _pip(spec): subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", spec])
+for pkg in ("pydantic>=2.6,<3", "pydantic-core>=2.16", "supabase>=2.4", "httpx>=0.24,<0.28"):
+    try: _pip(pkg)
+    except Exception as e: print("[pip warn]", pkg, "->", e)
+
+import pydantic as _p
+if not hasattr(_p, "with_config"):
+    def with_config(*args, **kwargs):
+        def _d(obj): return obj
+        return _d
+    _p.with_config = with_config
+# --- END BOOTSTRAP ---
+
+
+Setelah blok ini, lanjut import lain seperti biasa.
+
+STEP 3 — Buat app/supabase_conn.py
+# app/supabase_conn.py
+import os, httpx
+from functools import lru_cache
+from typing import Tuple
+from supabase import create_client, Client
+
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # Service role
+
+def _assert_env():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
+
+@lru_cache(maxsize=1)
+def get_supabase_client() -> Client:
+    _assert_env()
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def health() -> Tuple[bool, str]:
+    try:
+        s = get_supabase_client()
+        try:
+            s.rpc("hc").execute()
+            return True, "rpc(hc): OK"
+        except Exception:
+            pass
+        r = httpx.get(
+            f"{SUPABASE_URL}/rest/v1/",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+            timeout=6.0,
+        )
+        if r.status_code in (200, 404): return True, f"rest {r.status_code}"
+        if r.status_code in (401, 403): return False, f"{r.status_code} unauthorized (Service role?)"
+        return False, f"{r.status_code} {r.text[:120]}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+STEP 4 — Buat app/sb_repo.py (RPC wrappers)
+# app/sb_repo.py
+import os
+from typing import Optional, Dict, Any, Tuple
+from .supabase_conn import get_supabase_client
+
+WELCOME_CREDITS = int(os.getenv("WELCOME_CREDITS", "100"))
+
+def _san(u: Optional[str]) -> Optional[str]:
+    if not u: return None
+    u = u.strip().lstrip("@").lower()
+    return u or None
+
+def user_exists(tg_id: int) -> bool:
+    s = get_supabase_client()
+    res = s.table("users").select("telegram_id").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return bool(res.data)
+
+def upsert_user_with_ref_optional(
+    tg_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    referred_by: Optional[int],
+) -> Dict[str, Any]:
+    """Jika REFERRAL_REQUIRED=true, wajib ada referred_by valid; kalau false, referral opsional."""
+    require_ref = (os.getenv("REFERRAL_REQUIRED", "false").lower() == "true")
+
+    if require_ref:
+        if referred_by is None:
+            raise ValueError("Referral required: missing referred_by")
+        if referred_by == tg_id:
+            raise ValueError("Referral invalid: self-ref")
+        # validasi referrer ada di DB
+        s = get_supabase_client()
+        chk = s.table("users").select("telegram_id").eq("telegram_id", int(referred_by)).limit(1).execute()
+        if not chk.data:
+            raise ValueError("Referral invalid: referrer not found")
+
+    s = get_supabase_client()
+    payload = {
+        "p_telegram_id": int(tg_id),
+        "p_username": _san(username),
+        "p_first_name": first_name,
+        "p_last_name": last_name,
+        "p_welcome_quota": WELCOME_CREDITS,
+        "p_referred_by": int(referred_by) if referred_by else None,
+    }
+    return s.rpc("upsert_user_with_welcome", payload).execute().data or {}
+
+def set_premium_rpc(tg_id: int, duration_type: str, duration_value: int = 0) -> None:
+    s = get_supabase_client()
+    s.rpc("set_premium", {
+        "p_telegram_id": int(tg_id),
+        "p_duration_value": int(duration_value),
+        "p_duration_type": duration_type,  # 'days'|'months'|'lifetime'
+    }).execute()
+
+def stats_totals() -> Tuple[int, int]:
+    s = get_supabase_client()
+    res = s.rpc("stats_totals").execute()
+    row = res.data[0] if isinstance(res.data, list) else res.data
+    return int(row.get("total_users", 0)), int(row.get("premium_users", 0))
+
+STEP 5 — Start Handler & Diagnostik Router (Aiogram v3)
+
+Tambahkan router ini di proyekmu. Ini memastikan /start memanggil RPC upsert dan ada tes /diag_supabase.
+
+Buat app/routers/core.py:
+
+# app/routers/core.py
+from aiogram import Router, types
+from app.supabase_conn import health as sb_health
+from app.sb_repo import upsert_user_with_ref_optional, stats_totals
+
+router = Router()
+
+def _parse_ref(msg: types.Message):
+    if not msg or not msg.text: return None
+    parts = msg.text.split(maxsplit=1)
+    if len(parts)==2:
+        try: return int(parts[1])
+        except: return None
+    return None
+
+@router.message(commands={"start"})
+async def start(msg: types.Message):
+    u = msg.from_user
+    ref = _parse_ref(msg)
+    try:
+        row = upsert_user_with_ref_optional(
+            tg_id=u.id,
+            username=u.username,
+            first_name=u.first_name,
+            last_name=u.last_name,
+            referred_by=ref
+        )
+        await msg.answer(
+            "👋 Welcome!\n"
+            f"• ID: {u.id}\n"
+            f"• Username: @{(u.username or '').lower()}\n"
+            f"• Credits: {row.get('credits', '—')}\n"
+            f"• Referred by: {row.get('referred_by', 'none')}"
+        )
+    except Exception as e:
+        await msg.answer(f"⚠️ Registration failed: {e}")
+
+@router.message(commands={"diag_supabase"})
+async def diag_supabase(msg: types.Message):
+    ok, detail = sb_health()
+    tot=prem=0
+    if ok:
+        try: tot,prem = stats_totals()
+        except Exception as e: detail = f"stats_totals error: {e}"
+    await msg.answer(
+        "🔧 Supabase Diagnostics\n"
+        f"• Health: {'✅' if ok else '❌'} {detail}\n"
+        f"• Totals: users={tot}, premium={prem}"
+    )
+
+
+Di main.py, setelah buat Dispatcher():
+
+from app.routers.core import router as core_router
+dp.include_router(core_router)
+
+STEP 6 — (Opsional) Admin set premium
+
+Buat app/routers/admin_set_premium.py:
+
+from aiogram import Router, types
+import os
+from app.sb_repo import set_premium_rpc
+
+router = Router()
+ADMIN_IDS = {int(x.strip()) for x in (os.getenv("ADMIN_IDS","").split(",") if os.getenv("ADMIN_IDS") else [])}
+
+@router.message(commands={"set_premium"})
+async def set_premium(msg: types.Message):
+    uid = msg.from_user.id if msg.from_user else 0
+    if uid not in ADMIN_IDS:
+        return await msg.answer(f"❌ Admin only. Your ID: {uid}")
+    p=(msg.text or "").split()
+    if len(p)<3:
+        return await msg.answer("Usage: /set_premium <telegram_id> <lifetime|days|months> [value]")
+    tg_id=int(p[1]); dtype=p[2].lower()
+    dval=int(p[3]) if len(p)>=4 and dtype in ("days","months") else 0
+    try:
+        set_premium_rpc(tg_id, dtype, dval)
+        await msg.answer(f"✅ Premium updated for {tg_id}: {dtype} {dval}")
+    except Exception as e:
+        await msg.answer(f"⚠️ set_premium failed: {e}")
+
+
+Daftarkan di main.py:
+
+from app.routers.admin_set_premium import router as admin_prem_router
+dp.include_router(admin_prem_router)
+
+STEP 7 — Sanity Check (wajib dicoba)
+
+Jalankan bot → kirim /diag_supabase
+
+Harus tampil Health: ✅. Kalau ❌, cek SUPABASE_URL & SUPABASE_SERVICE_KEY (wajib Service Role).
+
+Coba /start dari user baru:
+
+Jika REFERRAL_REQUIRED=true, kirim /start <ref_id> di mana <ref_id> adalah telegram_id user yang sudah ada di DB.
+
+Jika REFERRAL_REQUIRED=false, cukup /start.
+
+Cek balasan: Credits harus 100, Referred by sesuai (atau none).
+
+Coba /diag_supabase lagi → Totals naik.
