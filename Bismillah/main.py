@@ -88,6 +88,7 @@ try:
             print(f"✅ Supabase connection active - Stats unavailable: {count_error}")
     else:
         print(f"❌ Supabase connection failed: {reason}")
+        print("💡 Check SUPABASE_URL and SUPABASE_SERVICE_KEY in Secrets")
 
 except ImportError as e:
     print(f"⚠️ Supabase integration failed: {e}")

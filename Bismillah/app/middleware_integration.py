@@ -3,7 +3,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from typing import Optional
-from .sb_repo import user_exists, upsert_user_ref_required, ensure_user_and_welcome
+from .sb_repo import get_user_row, upsert_user_strict
 
 JOIN_TEXT_NO_REF = (
     "🚪 Untuk bergabung, gunakan tautan referral.\n"
@@ -41,7 +41,7 @@ async def handle_new_user_referral_gate(update: Update, context: ContextTypes.DE
     user = update.effective_user
     
     # Check if user already exists
-    if user_exists(user.id):
+    if get_user_row(user.id):
         return True
     
     # New user - check if this is a /start command with referral
@@ -49,7 +49,7 @@ async def handle_new_user_referral_gate(update: Update, context: ContextTypes.DE
         ref_id = parse_ref_from_start(update.message.text)
         if ref_id:
             try:
-                upsert_user_ref_required(
+                upsert_user_strict(
                     tg_id=user.id,
                     username=user.username,
                     first_name=user.first_name,
@@ -81,11 +81,12 @@ async def handle_new_user_referral_gate(update: Update, context: ContextTypes.DE
 async def ensure_user_exists_legacy(user_id: int, username: str = None, first_name: str = None, last_name: str = None):
     """Ensure user exists for legacy users (without referral requirement)"""
     try:
-        if not user_exists(user_id):
-            ensure_user_and_welcome(user_id, username, first_name, last_name)
+        if not get_user_row(user_id):
+            upsert_user_strict(user_id, username, first_name, last_name, None)
     except Exception as e:
         print(f"Warning: Could not ensure user {user_id} exists: {e}")
-# app/middleware_integration.py
+
+# Aiogram middleware setup
 from aiogram import Dispatcher
 from app.middlewares.ensure_weekly_sb import EnsureWeeklyCreditsMiddleware
 
@@ -106,10 +107,12 @@ def setup_routers(dp: Dispatcher):
         from app.routers.core import router as core_router
         from app.routers.admin_set_premium import router as admin_premium_router
         from app.routers.admin_set_credit_all import router as admin_credit_router
+        from app.routers.admin_tools import router as admin_tools_router
         
         dp.include_router(core_router)
         dp.include_router(admin_premium_router) 
         dp.include_router(admin_credit_router)
+        dp.include_router(admin_tools_router)
         
         print("✅ Routers configured")
         
