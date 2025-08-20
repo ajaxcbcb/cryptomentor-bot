@@ -2049,8 +2049,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
 {'• /add_admin <user_id> - Add new admin' if is_user_super_admin else '• /whoami - Your admin info'}
-{'• /remove_admin <user_id> - Remove admin' if is_user_super_admin else '• /admin_debug - Admin configuration debug'}
-{'• /list_admins - List all admins' if is_user_super_admin else '• /sb_diag - Supabase diagnostics'}
+{'• /remove_admin <user_id> - Remove admin' if is_super_admin else '• /admin_debug - Admin configuration debug'}
+{'• /list_admins - List all admins' if is_super_admin else '• /sb_diag - Supabase diagnostics'}
 {'• /whoami - Your admin info' if is_super_admin else '• /sb_repair - Attempt Supabase repair'}
 {'• /admin_debug - Admin configuration debug' if is_super_admin else ''}
 
