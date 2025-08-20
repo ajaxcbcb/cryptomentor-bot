@@ -1,52 +1,42 @@
 
 from datetime import datetime, timezone
-from app.users_repo import get_user_by_telegram_id
+from app.users_repo import get_user_by_telegram_id, is_premium_active
 
 def is_premium(tid: int) -> bool:
     """Check if user has active premium using Supabase data only"""
     try:
-        u = get_user_by_telegram_id(tid) or {}
-        if u.get("banned"): 
-            return False
-        if not u.get("is_premium"): 
-            return False
-        
-        # Check lifetime premium first
-        if u.get("is_lifetime"):
-            return True
-        
-        pu = u.get("premium_until")
-        if pu is None:  # Lifetime premium
-            return True
-            
-        # Check if premium is still valid
-        try:
-            premium_until = datetime.fromisoformat(pu.replace('Z', '+00:00'))
-            return premium_until >= datetime.now(timezone.utc)
-        except Exception:
-            return False
-    except Exception:
+        return is_premium_active(tid)
+    except Exception as e:
+        print(f"❌ Error checking premium for user {tid}: {e}")
         return False
 
 def get_user_credits(tid: int) -> int:
     """Get user credits from Supabase"""
     try:
-        u = get_user_by_telegram_id(tid) or {}
-        return u.get("credits", 0)
-    except Exception:
+        u = get_user_by_telegram_id(tid)
+        if not u:
+            return 0
+        return int(u.get("credits", 0))
+    except Exception as e:
+        print(f"❌ Error getting credits for user {tid}: {e}")
         return 0
 
 def is_banned(tid: int) -> bool:
     """Check if user is banned"""
     try:
-        u = get_user_by_telegram_id(tid) or {}
+        u = get_user_by_telegram_id(tid)
+        if not u:
+            return False
         return bool(u.get("banned", False))
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error checking banned status for user {tid}: {e}")
         return False
 
 def get_user_info(tid: int) -> dict:
     """Get complete user info from Supabase"""
     try:
-        return get_user_by_telegram_id(tid) or {}
-    except Exception:
+        user = get_user_by_telegram_id(tid)
+        return user or {}
+    except Exception as e:
+        print(f"❌ Error getting user info for {tid}: {e}")
         return {}

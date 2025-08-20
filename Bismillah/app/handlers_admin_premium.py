@@ -1,93 +1,60 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
-from datetime import datetime, timedelta, timezone
-import asyncio
-
+from datetime import datetime, timezone, timedelta
+from app.supabase_conn import get_supabase_client
+from app.users_repo import get_user_by_telegram_id, set_premium, revoke_premium
 from app.lib.guards import admin_guard
 from app.safe_send import safe_reply
-from app.supabase_conn import get_supabase_client
-from app.users_repo import get_user_by_telegram_id
+import asyncio
 
-
+# Global lock for preventing concurrent premium operations
 _locks = {}
-def _lock(uid: int) -> asyncio.Lock:
-    if uid not in _locks:
-        _locks[uid] = asyncio.Lock()
-    return _locks[uid]
 
-def _iso_days_from_now(days: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=int(days))).isoformat()
+def _lock(user_id):
+    if user_id not in _locks:
+        _locks[user_id] = asyncio.Lock()
+    return _locks[user_id]
 
 @admin_guard
-async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
-    
-    # Parse arguments - support both "30d" and "30" format
-    if len(context.args) != 2 or not context.args[0].isdigit():
+    if len(context.args) != 2:
         return await safe_reply(msg, "Format: /setpremium <userid> <30d|lifetime>")
-    
-    tid = int(context.args[0])
-    dur_arg = context.args[1].lower().strip()
 
-    async with _lock(tid):
-        try:
-            s = get_supabase_client()
-            
-            # Ensure user exists first
+    user_arg, dur_arg = context.args
+    if not user_arg.isdigit():
+        return await safe_reply(msg, "User ID harus berupa angka")
+
+    tid = int(user_arg)
+
+    try:
+        async with _lock(tid):
+            # Check if user exists
             existing = get_user_by_telegram_id(tid)
             if not existing:
-                # Create user if doesn't exist
-                insert_data = {
-                    "telegram_id": tid,
-                    "username": f"user_{tid}",
-                    "first_name": "Unknown",
-                    "is_premium": False,
-                    "is_lifetime": False,
-                    "credits": 100
-                }
-                s.table("users").insert(insert_data).execute()
-                print(f"✅ Created new user {tid} for premium upgrade")
+                return await safe_reply(msg, f"❌ User {tid} tidak ditemukan di database")
 
-            if dur_arg == "lifetime":
-                # Set lifetime premium
-                update_data = {
-                    "is_premium": True,
-                    "is_lifetime": True,
-                    "premium_until": None
-                }
+            # Parse duration and set premium using RPC
+            if dur_arg.lower() == "lifetime":
+                set_premium(tid, "lifetime", 0)
+                return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid}")
             else:
                 # Parse days (support "30d" or "30" format)
                 days_str = dur_arg.replace('d', '')
-                if not days_str.isdigit() or int(days_str) < 0:
-                    return await safe_reply(msg, "Format days: angka positif atau 'lifetime'\nContoh: 30d, 30, lifetime")
-                
+                if not days_str.isdigit() or int(days_str) < 1:
+                    return await safe_reply(msg, "Format: angka positif atau 'lifetime'\nContoh: 30d, 30, lifetime")
+
                 days = int(days_str)
-                premium_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-                
-                update_data = {
-                    "is_premium": True,
-                    "is_lifetime": False,
-                    "premium_until": premium_until
-                }
+                set_premium(tid, "days", days)
 
-            # Update user premium status
-            result = s.table("users").update(update_data).eq("telegram_id", tid).execute()
-            
-            if not result.data:
-                return await safe_reply(msg, f"❌ Failed to update user {tid}")
+                # Verify the update
+                updated_user = get_user_by_telegram_id(tid)
+                premium_until = updated_user.get('premium_until', 'N/A') if updated_user else 'N/A'
 
-            # Verify update
-            updated_user = get_user_by_telegram_id(tid)
-            if updated_user and updated_user.get("is_premium"):
-                if dur_arg == "lifetime":
-                    return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid}")
-                else:
-                    return await safe_reply(msg, f"✅ Premium {days_str} hari set untuk user {tid}\nBerlaku sampai: {updated_user.get('premium_until', 'N/A')}")
-            else:
-                return await safe_reply(msg, f"❌ Verification failed untuk user {tid}")
+                return await safe_reply(msg, f"✅ Premium {days} hari set untuk user {tid}\nBerlaku sampai: {premium_until}")
 
-        except Exception as e:
-            return await safe_reply(msg, f"❌ Error setpremium: {e}")
+    except Exception as e:
+        return await safe_reply(msg, f"❌ Error setpremium: {str(e)}")
 
 @admin_guard
 async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,34 +66,23 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         async with _lock(tid):
-            s = get_supabase_client()
-            
             # Check if user exists
             existing = get_user_by_telegram_id(tid)
             if not existing:
                 return await safe_reply(msg, f"❌ User {tid} tidak ditemukan")
 
-            # Remove premium status
-            update_data = {
-                "is_premium": False,
-                "is_lifetime": False,
-                "premium_until": None
-            }
-            
-            result = s.table("users").update(update_data).eq("telegram_id", tid).execute()
-            
-            if not result.data:
-                return await safe_reply(msg, f"❌ Failed to revoke premium untuk user {tid}")
+            # Revoke premium using repo function
+            revoke_premium(tid)
 
-            # Verify
+            # Verify revocation
             updated_user = get_user_by_telegram_id(tid)
             if updated_user and not updated_user.get("is_premium"):
-                return await safe_reply(msg, f"✅ Premium berhasil di-revoke untuk user {tid}")
+                return await safe_reply(msg, f"✅ Premium REVOKED untuk user {tid}")
             else:
-                return await safe_reply(msg, f"❌ Verification failed untuk user {tid}")
+                return await safe_reply(msg, f"❌ Gagal revoke premium untuk user {tid}")
 
     except Exception as e:
-        return await safe_reply(msg, f"❌ Error revoke premium: {e}")
+        return await safe_reply(msg, f"❌ Error revoke premium: {str(e)}")
 
 @admin_guard
 async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
