@@ -1,0 +1,110 @@
+🚀 PROMPT REPLIT AI AGENT — Fix ImportError CryptoMentorAI
+
+GOAL
+
+Hilangkan ImportError: cannot import name 'CryptoMentorAI' from 'ai_assistant'.
+
+Tambahkan kelas CryptoMentorAI dengan antarmuka minimal yang umum dipanggil (sync & async).
+
+Jangan ubah logic bot lain.
+
+TASKS
+
+Edit / buat file ai_assistant.py di root proyek.
+
+Jika file sudah ada namun tidak mendefinisikan CryptoMentorAI, tambahkan definisi di bawah tanpa menghapus isi lama.
+
+Jika file sudah mendefinisikan kelas lain (mis. CryptoMentor), buat alias ke CryptoMentorAI.
+
+# ai_assistant.py
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+__all__ = ["CryptoMentorAI"]
+
+@dataclass
+class CryptoMentorAI:
+    """
+    Minimal AI helper untuk bot. Menyediakan API sync & async yang umum dipakai:
+      - handle(text, user=None)        -> str
+      - respond(text, user=None)       -> str
+      - __call__(text, user=None)      -> str
+      - ahandle(text, user=None)       -> awaitable[str]
+      - arespond(text, user=None)      -> awaitable[str]
+
+    Ganti implementasi 'generate_reply' sesuai kebutuhan (mis. pakai OpenAI).
+    """
+    config: Dict[str, Any] = field(default_factory=dict)
+
+    def generate_reply(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        # TODO: integrasikan ke pipeline sebenarnya (OpenAI, rules, dsb).
+        # Untuk sekarang, kasih jawaban dummy agar import dan wiring tidak error.
+        text = (text or "").strip()
+        if not text:
+            return "Hi! CryptoMentorAI is ready ✅"
+        return f"🤖 CryptoMentorAI received: {text}"
+
+    # --- Sync APIs ---
+    def handle(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        return self.generate_reply(text, user)
+
+    def respond(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        return self.generate_reply(text, user)
+
+    def __call__(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        return self.generate_reply(text, user)
+
+    # --- Async wrappers (untuk handler yang awaitable) ---
+    async def ahandle(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        return self.generate_reply(text, user)
+
+    async def arespond(self, text: str, user: Optional[Dict[str, Any]] = None) -> str:
+        return self.generate_reply(text, user)
+
+# Jika proyek punya kelas lama bernama berbeda, buka alias agar tetap kompatibel:
+try:
+    # contoh: kalau sebelumnya ada `class CryptoMentor: ...`
+    CryptoMentor  # type: ignore[name-defined]
+    # buat alias supaya `from ai_assistant import CryptoMentorAI` tetap berhasil
+    CryptoMentorAI = CryptoMentor  # type: ignore[assignment]
+except Exception:
+    pass
+
+
+(Opsional) Selaraskan import di main.py bila path berbeda
+
+Pastikan baris impor seperti ini dan berada setelah bootstrap deps (kalau ada):
+
+from ai_assistant import CryptoMentorAI
+
+
+Jika proyekmu menggunakan package app/ai_assistant.py, maka:
+
+from app.ai_assistant import CryptoMentorAI
+
+
+(Opsional) Uji cepat di Replit Shell
+
+python - << 'PY'
+from ai_assistant import CryptoMentorAI
+ai = CryptoMentorAI()
+print("OK:", isinstance(ai, CryptoMentorAI))
+print(ai.respond("ping"))
+PY
+
+
+ACCEPTANCE
+
+Menjalankan proyek tidak lagi error:
+
+ImportError: cannot import name 'CryptoMentorAI' from 'ai_assistant'
+
+
+from ai_assistant import CryptoMentorAI bekerja.
+
+Bot start normal; jika ada pemanggilan ai.respond(...) / ai.handle(...) / await ai.ahandle(...), semuanya tidak melempar error (mengembalikan string dummy).
+
+Kamu bisa ganti implementasi generate_reply nanti tanpa mengubah titik impor di main.py.
+
+Catatan: kalau ternyata kamu sudah punya kelas dengan nama lain (mis. CryptoMentor), blok alias di akhir file akan otomatis memetakan ke CryptoMentorAI sehingga tidak perlu refactor tempat lain.
