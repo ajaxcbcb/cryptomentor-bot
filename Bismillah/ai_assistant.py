@@ -289,13 +289,12 @@ class AIAssistant:
             self._log_admin_error("SAFE_OUTPUT", f"Format validation failed: {e}")
             return "Terjadi kesalahan format pesan. Hubungi admin.", None
 
-    def _get_wib_time(self):
-        """Get current time in WIB (Asia/Jakarta)"""
+    def _get_utc_time(self):
+        """Get current time in UTC"""
         try:
-            wib_tz = timezone(timedelta(hours=7))
-            return datetime.now(wib_tz).strftime('%H:%M:%S WIB')
+            return datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
         except:
-            return datetime.now().strftime('%H:%M:%S WIB')
+            return datetime.now().strftime('%H:%M:%S UTC')
 
     def _normalize_data(self, data, field_aliases):
         """Normalize data fields using aliases"""
@@ -2314,7 +2313,7 @@ class AIAssistant:
 • Hubungi admin jika masalah berlanjut
 
 🔄 **Error context**: {error_context}
-🕐 **Time**: {self._get_wib_time()}"""
+🕐 **Time**: {self._get_utc_time()}"""
 
     # ============ LEGACY COMPATIBILITY METHODS ============
 

@@ -2065,7 +2065,7 @@ Gunakan `/subscribe` untuk upgrade!
 
 🔧 Debug Commands
 • /whoami - Your info
-• /admin_debug - Debug admin config
+• /admin_debug - Admin config debug
 • /db_status - Database health
 
 👤 Your Admin ID: {user_id}"""
@@ -2422,33 +2422,33 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             # Use Supabase to refresh credits directly
             from app.supabase_conn import get_supabase_client
             from app.users_repo import is_premium_active
-            
+
             s = get_supabase_client()
-            
+
             # Get all users
             result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
-            
+
             if not result.data:
                 await update.message.reply_text("❌ No users found in database")
                 return
-                
+
             all_users = result.data
             free_users = []
-            
+
             # Filter free users (non-premium)
             for user in all_users:
                 tg_id = user.get('telegram_id')
                 if not tg_id:
                     continue
-                    
+
                 # Check if user is premium
                 if not is_premium_active(tg_id):
                     free_users.append(user)
-            
+
             if not free_users:
                 await update.message.reply_text("ℹ️ No free users found to refresh")
                 return
-                
+
             # Update credits for all free users to 100
             updated_count = 0
             for user in free_users:
@@ -2457,14 +2457,14 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
                     update_result = s.table("users").update({
                         "credits": 100
                     }).eq("telegram_id", telegram_id).execute()
-                    
+
                     if update_result.data:
                         updated_count += 1
-                        
+
                 except Exception as e:
                     print(f"❌ Error updating user {telegram_id}: {e}")
                     continue
-            
+
             # Calculate next refresh date
             now = datetime.now()
             days_until_monday = (7 - now.weekday()) % 7
@@ -2472,10 +2472,10 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
                 days_until_monday = 7
             next_refresh = now + timedelta(days=days_until_monday)
             next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
             # Format next refresh with date and day
-            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
-            
+            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 UTC')
+
             await update.message.reply_text(
                 f"✅ **Manual Credit Refresh Completed!**\n\n"
                 f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
@@ -2485,7 +2485,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
                 f"📅 **Next auto refresh**: {next_refresh_str}",
                 parse_mode='Markdown'
             )
-                
+
         except Exception as e:
             await update.message.reply_text(
                 f"❌ **Credit Refresh Failed**\n\n"
@@ -3159,7 +3159,10 @@ ADMIN2 = [optional_second_admin_id]
 
 ⚠️ **User {target_admin_id} tidak lagi memiliki akses admin.**
 
-💡 **Note:** User masih dapat menggunakan bot sebagai user biasa."""
+💡 **Next Steps:**
+• User baru dapat menggunakan semua command admin
+• User baru dapat akses `/admin` panel
+• Gunakan `/list_admins` untuk verifikasi"""
 
             # Log admin action
             self.db.log_user_activity(
@@ -3262,33 +3265,33 @@ ADMIN2 = [optional_second_admin_id]
         try:
             from app.supabase_conn import get_supabase_client
             from app.users_repo import is_premium_active
-            
+
             s = get_supabase_client()
-            
+
             # Get all users
             result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
-            
+
             if not result.data:
                 await update.message.reply_text("❌ No users found in database")
                 return
-                
+
             all_users = result.data
             free_users = []
-            
+
             # Filter free users (non-premium)
             for user in all_users:
                 tg_id = user.get('telegram_id')
                 if not tg_id:
                     continue
-                    
+
                 # Check if user is premium
                 if not is_premium_active(tg_id):
                     free_users.append(user)
-            
+
             if not free_users:
                 await update.message.reply_text("ℹ️ No free users found")
                 return
-                
+
             # Update credits for all free users
             updated_count = 0
             for user in free_users:
@@ -3297,14 +3300,14 @@ ADMIN2 = [optional_second_admin_id]
                     update_result = s.table("users").update({
                         "credits": credit_amount
                     }).eq("telegram_id", telegram_id).execute()
-                    
+
                     if update_result.data:
                         updated_count += 1
-                        
+
                 except Exception as e:
                     print(f"❌ Error updating user {telegram_id}: {e}")
                     continue
-            
+
             # Calculate next refresh date
             now = datetime.now()
             days_until_monday = (7 - now.weekday()) % 7
@@ -3312,10 +3315,10 @@ ADMIN2 = [optional_second_admin_id]
                 days_until_monday = 7
             next_refresh = now + timedelta(days=days_until_monday)
             next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
             # Format next refresh with date and day
-            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
-            
+            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 UTC')
+
             await update.message.reply_text(
                 f"✅ **Set All Credits Completed!**\n\n"
                 f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
@@ -3326,7 +3329,7 @@ ADMIN2 = [optional_second_admin_id]
                 f"⭐ **Premium users unaffected** (unlimited access)",
                 parse_mode='Markdown'
             )
-                
+
         except Exception as e:
             await update.message.reply_text(
                 f"❌ **Set All Credits Failed**\n\n"
@@ -3337,12 +3340,6 @@ ADMIN2 = [optional_second_admin_id]
 
         # Log admin action
         self.db.log_user_activity(user_id, "admin_set_all_credits", f"Set {updated_count} free users to {credit_amount} credits")
-
-    async def _on_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Global error handler to log unhandled exceptions"""
-        user_id = getattr(getattr(update, "effective_user", None), "id", None)
-        command = getattr(getattr(update, "message", None), "text", "unknown")
-        print(f"⚠️ Bot Error: {repr(context.error)} | User: {user_id} | Command: {command[:50]}")
 
     def _register_handlers(self):
         """Register all bot handlers"""
