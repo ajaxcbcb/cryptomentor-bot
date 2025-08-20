@@ -2,8 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 CryptoMentor AI Bot - Main Entry Point
-Enhanced with async support for python-telegram-bot v22.3
+Enhanced with async support for aiogram v3
 """
+
+# Bootstrap dependencies before imports
+try:
+    from app.bootstrap_deps import ensure as _ensure_deps
+except Exception:
+    def _ensure_deps(): pass
+_ensure_deps()
 
 import os
 import sys
@@ -99,10 +106,10 @@ async def main():
             print(f"\n🤖 Initializing CryptoMentor AI Bot (Attempt {retry_count + 1}/{max_retries})")
 
             # Bot token from environment variables
-            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
             if not bot_token:
-                logger.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
-                print("❌ TELEGRAM_BOT_TOKEN not found. Please set it in your environment variables.")
+                logger.error("BOT_TOKEN or TELEGRAM_BOT_TOKEN not found in environment variables.")
+                print("❌ ERROR: Set BOT_TOKEN or TELEGRAM_BOT_TOKEN di Secrets Replit.")
                 sys.exit(1)
 
             # Configure bot properties
