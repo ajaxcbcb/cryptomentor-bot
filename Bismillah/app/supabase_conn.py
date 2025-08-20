@@ -1,7 +1,17 @@
+
+# app/supabase_conn.py
 from __future__ import annotations
 import os
 from functools import lru_cache
 from typing import Tuple
+
+# --- WAJIB: pastikan pydantic v2 OK & with_config tersedia SEBELUM import supabase ---
+try:
+    from app.fix_pydantic import ensure as _ensure_pydantic
+    _ensure_pydantic()
+except Exception as _e:
+    print("[pydantic-fix] warn:", _e)
+
 from supabase import create_client, Client
 import httpx
 

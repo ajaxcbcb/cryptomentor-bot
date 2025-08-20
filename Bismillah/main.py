@@ -5,6 +5,14 @@ CryptoMentor AI Bot - Main Entry Point
 Enhanced with async support for python-telegram-bot v22.3
 """
 
+# --- WAJIB: pastikan pydantic v2 OK di awal ---
+try:
+    from app.fix_pydantic import ensure as _ensure_pydantic
+    _ensure_pydantic()
+    print("✅ [pydantic-fix] Compatibility ensured")
+except Exception as _e:
+    print(f"⚠️ [pydantic-fix] warn(main): {_e}")
+
 import os
 import sys
 import asyncio

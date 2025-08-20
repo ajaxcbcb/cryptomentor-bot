@@ -81,6 +81,8 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0] == 'diag':
         status_msg = build_supabase_diagnostics()
     else:
-        status_msg = build_admin_panel(autosignals_running=False)  # You can pass actual autosignal status here
+        # Get autosignal status (you can implement this based on your autosignal system)
+        autosignals_running = False  # Replace with actual status check
+        status_msg = build_admin_panel(autosignals_running=autosignals_running)
     
     await _safe_reply_status(update.effective_message, status_msg)

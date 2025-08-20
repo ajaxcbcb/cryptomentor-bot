@@ -1,10 +1,11 @@
 
 # app/sb_repo.py
 from __future__ import annotations
+import os
 from typing import Optional, Dict, Any
 from .supabase_conn import get_supabase_client
 
-WEEKLY_FREE_CREDITS = 100  # bisa ubah ke env jika perlu
+WEEKLY_FREE_CREDITS = int(os.getenv("WEEKLY_FREE_CREDITS", "100"))
 
 def ensure_user_and_welcome(
     tg_id: int, username: Optional[str]=None, first_name: Optional[str]=None, last_name: Optional[str]=None
