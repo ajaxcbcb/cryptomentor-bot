@@ -493,46 +493,12 @@ class TelegramBot:
 
             print(f"🔍 Processing /start for user {user.id} ({user.first_name})")
 
-            # Check for referral parameter
-            referred_by = None
-            referral_type = 'free'  # default
-            if context.args and len(context.args) > 0:
-                arg = context.args[0]
-                if arg.startswith('ref_'):
-                    try:
-                        referred_by = int(arg[4:])  # Extract user ID from ref_USERID
-                        referral_type = 'free'
-                        print(f"🎁 User {user.id} was referred by {referred_by} (free referral)")
-                    except ValueError:
-                        print(f"❌ Invalid referral code: {arg}")
-                elif arg.startswith('pref_'):
-                    # Premium referral
-                    try:
-                        referred_by = int(arg[5:])  # Extract user ID from pref_USERID
-                        referral_type = 'premium'
-                        print(f"💎 User {user.id} was referred by {referred_by} (premium referral)")
-                    except ValueError:
-                        print(f"❌ Invalid premium referral code: {arg}")
-                elif len(arg) == 8 and (arg.startswith('F') or arg.startswith('P')):
-                    # New referral code format
-                    if arg.startswith('F'):
-                        # Free referral code
-                        referred_by = self.db.get_user_by_referral_code(arg)
-                        referral_type = 'free'
-                        if referred_by:
-                            print(f"🎁 User {user.id} was referred by {referred_by} (free code: {arg})")
-                    elif arg.startswith('P'):
-                        # Premium referral code
-                        referred_by = self.db.get_user_by_premium_referral_code(arg)
-                        referral_type = 'premium'
-                        if referred_by:
-                            print(f"💎 User {user.id} was referred by {referred_by} (premium code: {arg})")
-
-                    if not referred_by:
-                        print(f"❌ Invalid referral code: {arg}")
-
-            # Check if user already exists
+            # Check if user already exists in local DB
             existing_user = self.db.get_user(user.id)
+
+            # Also check Supabase for users created by admin
+            from app.users_repo import get_user_by_telegram_id
+            supabase_user = get_user_by_telegram_id(user.id)
 
             if not existing_user:
                 # New user - create with referral
@@ -576,12 +542,33 @@ class TelegramBot:
                     language_code=user.language_code or 'id'
                 )
 
-            if not success:
-                print(f"❌ Failed to ensure user persistence: {user.id}")
-                # Try to recover from backup
-                recovery_attempted = self.db.recover_user_from_backup(user.id)
-                if recovery_attempted:
-                    print(f"🔄 Attempted recovery for user {user.id}")
+            # Handle users created by admin in Supabase but not in local DB
+            if supabase_user and not existing_user:
+                # Update Supabase user with real user data
+                from app.users_repo import get_supabase_client
+                try:
+                    supabase = get_supabase_client()
+                    update_data = {
+                        "username": user.username or "no_username",
+                        "first_name": user.first_name or "Unknown",
+                        "last_name": user.last_name,
+                        "updated_at": datetime.now().isoformat()
+                    }
+                    supabase.table("users").update(update_data).eq("telegram_id", user.id).execute()
+                    print(f"✅ Updated Supabase user {user.id} with real data from /start")
+
+                    # Also create in local DB for compatibility
+                    self.db.create_user(
+                        telegram_id=user.id,
+                        username=user.username or 'no_username',
+                        first_name=user.first_name or 'Unknown',
+                        last_name=user.last_name,
+                        language_code=user.language_code or 'id'
+                    )
+
+                except Exception as e:
+                    print(f"⚠️ Error updating Supabase user {user.id}: {e}")
+
 
             # Get user data (should exist now)
             existing_user = self.db.get_user(user.id)
@@ -1282,24 +1269,6 @@ class TelegramBot:
                         import traceback
                         traceback.print_exc()
 
-            elif callback_data.startswith('futures_analysis_'):
-                # Existing futures analysis logic
-                parts = callback_data.split('_')
-                if len(parts) >= 4:
-                    symbol = parts[2]
-                    timeframe = parts[3]
-
-                    # Show loading
-                    await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe}...",
-                        parse_mode='Markdown'
-                    )
-
-                    # Get analysis with SnD enhancement
-                    analysis = self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
-
-                    await query.edit_message_text(analysis, parse_mode='Markdown')
-
             elif callback_data.startswith('lang_'):
                 # Language selection
                 language = callback_data.split('_')[1]
@@ -1890,68 +1859,6 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(status_text, parse_mode='Markdown')
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages"""
-        from app.users_repo import touch_user_from_update
-
-        # Auto-upsert user to Supabase for any message
-        touch_user_from_update(update)
-
-        text = update.message.text.lower().strip()
-        user_id = update.message.from_user.id
-
-        print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
-        logger.info(f"Message from user {user_id}: {text[:50]}")
-
-        # Quick price check for popular symbols
-        popular_symbols = ['btc', 'eth', 'bnb', 'sol', 'ada', 'doge', 'avax', 'matic', 'dot', 'link']
-
-        if text in popular_symbols:
-            # Quick price check using CoinAPI
-            symbol = text.upper()
-            loading_msg = await update.message.reply_text(f"⏳ Cek harga {symbol} dari CoinAPI...")
-
-            price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
-
-            if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
-                current_price = price_data.get('price', 0)
-                if current_price < 1:
-                    price_format = f"${current_price:.8f}"
-                elif current_price < 100:
-                    price_format = f"${current_price:.4f}"
-                else:
-                    price_format = f"${current_price:,.2f}"
-
-                change_24h = price_data.get('change_24h', 0)
-                change_emoji = "📈" if change_24h >= 0 else "📉"
-                change_color = "+" if change_24h >= 0 else ""
-
-                message = f"""💰 **{symbol} Quick Price**
-
-{price_format} {change_emoji} {change_color}{change_24h:.2f}%
-
-🔄 Source: CoinAPI Real-time
-💡 Ketik `/price {symbol.lower()}` untuk detail lengkap
-📊 Ketik `/analyze {symbol.lower()}` untuk analisis mendalam"""
-
-                await loading_msg.edit_text(message, parse_mode='Markdown')
-            else:
-                await loading_msg.edit_text(f"❌ Tidak dapat menemukan data CoinAPI untuk {symbol}")
-
-            return
-
-        # Default AI response for other questions
-        if len(text) > 10:  # Only respond to meaningful questions
-            try:
-                response = self.ai.get_ai_response(text, 'id')
-                await update.message.reply_text(response, parse_mode='Markdown')
-
-                # Log activity
-                self.db.log_user_activity(user_id, "ai_chat", f"Message: {text[:50]}...")
-
-            except Exception as e:
-                print(f"Error in AI response: {e}")
-
     async def _check_user_restart_required(self, update: Update):
         """Check if user needs to restart after admin restart"""
         user_id = update.message.from_user.id
@@ -2125,7 +2032,7 @@ Gunakan `/subscribe` untuk upgrade!
             # Parse duration
             is_lifetime = duration_str in ['lifetime', 'selamanya', 'permanent']
             days = None
-            
+
             if not is_lifetime:
                 # Extract number of days
                 if duration_str.endswith('d'):
@@ -2139,11 +2046,11 @@ Gunakan `/subscribe` untuk upgrade!
 
             # Set premium in Supabase
             success = set_premium(target_user_id, lifetime=is_lifetime, days=days)
-            
+
             if success:
                 # Get updated user data to confirm
                 updated_user = get_user_by_telegram_id(target_user_id)
-                
+
                 if is_lifetime:
                     premium_status = "🌟 **LIFETIME PREMIUM**"
                     premium_details = "• Unlimited access selamanya"
@@ -2171,7 +2078,7 @@ Gunakan `/subscribe` untuk upgrade!
 🔄 **Database**: Updated in Supabase ✅"""
 
                 await safe_reply(update.effective_message, message)
-                
+
                 # Log admin action
                 self.db.log_user_activity(
                     user_id,
@@ -2297,20 +2204,20 @@ Gunakan `/subscribe` untuk upgrade!
 
         try:
             target_user_id = int(context.args[0])
-            
+
             # Check if user exists
             user_data = get_user_by_telegram_id(target_user_id)
             if not user_data:
                 await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
                 return
-            
+
             # Revoke premium in Supabase
             success = revoke_premium(target_user_id)
-            
+
             if success:
                 # Get updated user data to confirm
                 updated_user = get_user_by_telegram_id(target_user_id)
-                
+
                 message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User ID**: {target_user_id}
@@ -2323,7 +2230,7 @@ Gunakan `/subscribe` untuk upgrade!
 🔄 **Database**: Updated in Supabase ✅"""
 
                 await safe_reply(update.effective_message, message)
-                
+
                 # Log admin action
                 self.db.log_user_activity(
                     user_id,
@@ -3326,7 +3233,7 @@ ADMIN2 = [optional_second_admin_id]
 
             # Get user data from Supabase
             user_data = get_user_by_telegram_id(target_user_id)
-            
+
             if not user_data:
                 await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
                 return
@@ -3334,7 +3241,7 @@ ADMIN2 = [optional_second_admin_id]
             # Get premium status
             is_premium = is_premium_active(target_user_id)
             credits = get_user_credits(target_user_id)
-            
+
             # Get user info
             first_name = user_data.get('first_name', 'Unknown')
             username = user_data.get('username', 'No username')
@@ -3359,7 +3266,7 @@ ADMIN2 = [optional_second_admin_id]
                             premium_dt = datetime.fromisoformat(premium_until)
                         else:
                             premium_dt = premium_until
-                        
+
                         premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
                         premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
                     except Exception as e:
@@ -3518,24 +3425,24 @@ ADMIN2 = [optional_second_admin_id]
     async def test_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Test command to verify Supabase premium integration"""
         from app.users_repo import get_user_by_telegram_id, is_premium_active
-        
+
         user_id = update.effective_user.id
-        
+
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Admin only command.")
             return
-        
+
         if len(context.args) != 1:
             await update.message.reply_text("Usage: /test_premium <user_id>")
             return
-            
+
         try:
             target_user_id = int(context.args[0])
-            
+
             # Get user data from Supabase
             user_data = get_user_by_telegram_id(target_user_id)
             is_premium = is_premium_active(target_user_id)
-            
+
             if user_data:
                 message = f"""🧪 **Supabase Premium Test**
 
@@ -3553,9 +3460,9 @@ ADMIN2 = [optional_second_admin_id]
 🔄 **Database**: Supabase connection working ✅"""
             else:
                 message = f"❌ User {target_user_id} not found in Supabase"
-                
+
             await update.message.reply_text(message, parse_mode='Markdown')
-            
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
             print(f"Error in test_premium: {e}")

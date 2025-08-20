@@ -29,22 +29,25 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with _lock(tid):
-            s = get_supabase_client()
+            # Check if user exists before setting premium
+            existing_user = get_user_by_telegram_id(tid)
+            user_status = "existing" if existing_user else "new"
             
-            # Parse duration and set premium using RPC
             if dur_arg.lower() == "lifetime":
-                # Call RPC with lifetime
-                result = s.rpc("set_premium", {
-                    "p_telegram_id": tid,
-                    "p_duration_type": "lifetime",
-                    "p_duration_value": 0
-                }).execute()
+                # Use direct set_premium function with auto-create
+                success = set_premium(tid, lifetime=True)
                 
-                if result.data and result.data.get('success'):
-                    return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid}")
+                if success:
+                    status_msg = "✅ **Premium LIFETIME berhasil di-set!**\n\n"
+                    status_msg += f"👤 **User ID**: {tid}\n"
+                    status_msg += f"📊 **Status**: {'User sudah ada' if user_status == 'existing' else '🆕 User baru dibuat otomatis'}\n"
+                    status_msg += f"💎 **Premium**: LIFETIME (unlimited)\n"
+                    status_msg += f"🎯 **Auto Signals**: ✅ Enabled\n\n"
+                    if user_status == "new":
+                        status_msg += "ℹ️ User akan mendapat nama placeholder sampai mereka /start"
+                    return await safe_reply(msg, status_msg)
                 else:
-                    error = result.data.get('error', 'Unknown error') if result.data else 'No response'
-                    return await safe_reply(msg, f"❌ Failed to set lifetime premium: {error}")
+                    return await safe_reply(msg, f"❌ Gagal set premium lifetime untuk user {tid}")
             else:
                 # Parse days (support "30d" or "30" format)
                 days_str = dur_arg.replace('d', '')
@@ -53,19 +56,23 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 days = int(days_str)
                 
-                # Call RPC with days
-                result = s.rpc("set_premium", {
-                    "p_telegram_id": tid,
-                    "p_duration_type": "days",
-                    "p_duration_value": days
-                }).execute()
+                # Use direct set_premium function with auto-create
+                success = set_premium(tid, lifetime=False, days=days)
                 
-                if result.data and result.data.get('success'):
-                    premium_until = result.data.get('premium_until', 'N/A')
-                    return await safe_reply(msg, f"✅ Premium {days} hari set untuk user {tid}\nBerlaku sampai: {premium_until}")
+                if success:
+                    # Calculate expiry date for display
+                    expiry_date = (datetime.utcnow() + timedelta(days=days)).strftime('%d %B %Y - %H:%M WIB')
+                    
+                    status_msg = f"✅ **Premium {days} hari berhasil di-set!**\n\n"
+                    status_msg += f"👤 **User ID**: {tid}\n"
+                    status_msg += f"📊 **Status**: {'User sudah ada' if user_status == 'existing' else '🆕 User baru dibuat otomatis'}\n"
+                    status_msg += f"💎 **Premium**: {days} hari\n"
+                    status_msg += f"📅 **Berlaku sampai**: {expiry_date}\n\n"
+                    if user_status == "new":
+                        status_msg += "ℹ️ User akan mendapat nama placeholder sampai mereka /start"
+                    return await safe_reply(msg, status_msg)
                 else:
-                    error = result.data.get('error', 'Unknown error') if result.data else 'No response'
-                    return await safe_reply(msg, f"❌ Failed to set {days}d premium: {error}")
+                    return await safe_reply(msg, f"❌ Gagal set premium {days} hari untuk user {tid}")
 
     except Exception as e:
         return await safe_reply(msg, f"❌ Error setpremium: {str(e)}")

@@ -62,11 +62,33 @@ def create_user_if_not_exists(telegram_id: int, username: str = None, first_name
         return False
 
 def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> bool:
-    """Set premium status for user in Supabase"""
+    """Set premium status for user in Supabase (auto-creates user if not exists)"""
     try:
         supabase = get_supabase_client()
         
-        # Prepare update data
+        # Check if user exists, if not create them first
+        existing_user = get_user_by_telegram_id(telegram_id)
+        if not existing_user:
+            print(f"User {telegram_id} not found. Creating new user...")
+            # Create user with minimal data since admin is adding premium
+            user_data = {
+                "telegram_id": telegram_id,
+                "username": f"user_{telegram_id}",  # Placeholder username
+                "first_name": "Premium User",  # Placeholder name
+                "is_premium": False,  # Will be updated below
+                "is_lifetime": False,
+                "credits": 100,  # Default credits
+                "premium_until": None
+            }
+            
+            # Insert new user
+            create_result = supabase.table("users").insert(user_data).execute()
+            if not create_result.data:
+                print(f"Failed to create user {telegram_id}")
+                return False
+            print(f"Successfully created user {telegram_id}")
+        
+        # Prepare premium update data
         update_data = {
             "is_premium": True,
             "is_lifetime": lifetime,
@@ -83,7 +105,7 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
             premium_until = datetime.utcnow() + timedelta(days=30)
             update_data["premium_until"] = premium_until.isoformat()
         
-        # Update user
+        # Update user with premium status
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
         
         if result.data:
