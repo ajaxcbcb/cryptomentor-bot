@@ -37,53 +37,23 @@ async def _safe_reply_status(message, raw_text: str):
 
 async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only command to check Supabase connection status"""
+    from app.admin_status import get_admin_status
+    from app.admin_auth import is_admin, denied
+    
     uid = update.effective_user.id if update and update.effective_user else None
     
-    # Dynamic admin check with environment variable fallback
-    import os
-    admin_ids = set()
-    
-    # Check ADMIN1, ADMIN2, etc.
-    for i in range(1, 10):
-        env_key = f'ADMIN{i}'
-        admin_id_str = (os.getenv(env_key) or "").strip()
-        
-        # Fallback to old naming format
-        if not admin_id_str and i <= 2:
-            fallback_key = f'ADMIN{i}_USER_ID' if i > 1 else 'ADMIN_USER_ID'
-            admin_id_str = (os.getenv(fallback_key) or "").strip()
-        
-        # Add to set if valid
-        if admin_id_str and admin_id_str.lower() != "none":
-            admin_ids.add(str(admin_id_str))
-    
-    # Check if user is admin (string comparison)
-    is_admin = str(uid) in admin_ids
-    
-    if not is_admin:
-        await update.effective_message.reply_text(
-            f"❌ **Admin Access Required**\n\n"
-            f"**Your ID**: {uid}\n"
-            f"**Admin IDs**: {sorted(list(admin_ids)) if admin_ids else 'NONE CONFIGURED'}\n\n"
-            f"⚙️ **Setup Instructions:**\n"
-            f"1. Buka Secrets tab di Replit\n"
-            f"2. Tambahkan `ADMIN1` = {uid}\n"
-            f"3. Restart bot untuk apply changes\n\n"
-            f"💡 Atau contact owner untuk menambahkan ID Anda ke admin list.",
-            parse_mode='Markdown'
-        )
+    if not is_admin(uid):
+        await update.effective_message.reply_text(denied(uid))
         return
     
-    # Perform environment check first
-    env_check_ok, env_info = env_ok()
-    
-    # Perform health check
-    ok, info = health()
+    # Get status from admin status module
+    status_data = await get_admin_status()
     
     status_msg = f"👑 **Supabase Status Check** (Admin: {uid})\n\n"
     
     # Environment validation
     status_msg += f"🔐 **Environment Variables:**\n"
+    import os
     sb_url = os.getenv('SUPABASE_URL', 'NOT SET')
     sb_key = os.getenv('SUPABASE_SERVICE_KEY', 'NOT SET')
     
@@ -99,25 +69,15 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg += f"• SUPABASE_SERVICE_KEY: ❌ NOT SET\n"
     
     status_msg += f"\n🔗 **Connection Test:**\n"
+    status_msg += f"{'✅' if status_data['ok'] else '❌'} **Status**: {status_data['reason']}\n"
+    status_msg += f"📊 **Users**: {status_data['total_users']} | **Premium**: {status_data['premium_users']}\n"
+    status_msg += f"⏰ **Last Check**: {status_data['timestamp']}\n"
     
-    if ok:
-        status_msg += f"✅ **Status**: {info}\n"
-        status_msg += f"✅ **Health**: Connection Successful\n"
-    else:
-        status_msg += f"❌ **Status**: {info}\n"
-        status_msg += f"❌ **Health**: Connection Failed\n"
-        
-        # Troubleshooting hints
-        if "SUPABASE_URL belum diset" in info:
-            status_msg += f"\n💡 **Fix**: Set SUPABASE_URL in Secrets"
-        elif "tidak valid" in info:
-            status_msg += f"\n💡 **Fix**: Use https://<ref>.supabase.co format"
-        elif "SUPABASE_SERVICE_KEY belum diset" in info:
-            status_msg += f"\n💡 **Fix**: Set SUPABASE_SERVICE_KEY in Secrets"
-        elif "table_status=404" in info:
-            status_msg += f"\n💡 **Fix**: Create 'users' table in Supabase"
-        elif "401" in info or "403" in info:
+    if not status_data['ok']:
+        if "unauthorized" in status_data['reason']:
             status_msg += f"\n💡 **Fix**: Use service_role key, not anon key"
+        elif "SUPABASE_URL" in status_data['reason']:
+            status_msg += f"\n💡 **Fix**: Set SUPABASE_URL in Secrets"
     
     status_msg += f"\n🌐 Environment: {'Production' if os.getenv('REPLIT_DEPLOYMENT') else 'Development'}"
     

@@ -57,27 +57,24 @@ except ImportError as e:
 
 # Import Supabase client and related functions
 try:
-    print("✅ Using centralized Supabase client")
+    from app.supabase_conn import health, get_supabase_client
+    from app.sb_repo import stats_totals
 
-    # Verify Supabase integration
-    from supabase_client import supabase, validate_supabase_connection
-
-    try:
-        from supabase_client import get_live_user_count
-        if supabase and validate_supabase_connection():
-            user_count = get_live_user_count()
-            print(f"✅ Supabase connection active - Users: {user_count}")
-        else:
-            print("❌ Supabase connection failed")
-    except Exception as count_error:
-        print(f"⚠️ Could not get user count: {count_error}")
-        if supabase and validate_supabase_connection():
-            print("✅ Supabase connection active")
-        else:
-            print("❌ Supabase connection failed")
+    ok, reason = health()
+    if ok:
+        try:
+            total_users, premium_users = stats_totals()
+            print(f"✅ Supabase connection active - Users: {total_users} | Premium: {premium_users}")
+        except Exception as count_error:
+            print(f"✅ Supabase connection active - Stats unavailable: {count_error}")
+    else:
+        print(f"❌ Supabase connection failed: {reason}")
 
 except ImportError as e:
     print(f"⚠️ Supabase integration failed: {e}")
+    print("✅ Bot will continue with local database only")
+except Exception as e:
+    print(f"⚠️ Supabase connection error: {e}")
     print("✅ Bot will continue with local database only")
 
 

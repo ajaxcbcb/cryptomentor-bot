@@ -1,8 +1,6 @@
-
-requests
-python-telegram-bot==20.7
-nest-asyncio
-python-dotenv
-telegram
-aiohttp
-supabase
+pydantic>=2.6,<3
+pydantic-core>=2.16
+python-telegram-bot==22.3
+supabase>=2.4
+httpx>=0.24,<0.28
+aiogram==3.*
