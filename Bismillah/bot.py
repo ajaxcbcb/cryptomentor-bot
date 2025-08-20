@@ -890,8 +890,9 @@ class TelegramBot:
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /analyze command - comprehensive analysis with CoinAPI integration"""
+        """Handle /analyze command - comprehensive analysis with CoinAPI integration using Supabase credit guard"""
         from app.users_repo import touch_user_from_update
+        from app.credits_guard import require_credits
 
         # Auto-upsert user to Supabase
         touch_user_from_update(update)
@@ -905,25 +906,17 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
+        symbol = context.args[0].upper()
 
-        # Use Supabase for premium checks
-        try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
-            credits = 0
-
-        is_admin = self.is_admin(user_id)
-
-        # Check credits for non-premium, non-admin users
-        if not is_premium and not is_admin and credits < 20:
-            await update.message.reply_text("❌ Credit tidak cukup! Analisis komprehensif membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
+        allowed, remaining, guard_message = require_credits(user_id, 20)
+        
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
+            await update.message.reply_text(guard_message, parse_mode='Markdown')
             return
 
-        symbol = context.args[0].upper()
+        print(f"✅ APPROVED: User {user_id} analyze command - {guard_message}")
 
         # Show loading
         loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
@@ -932,15 +925,8 @@ class TelegramBot:
             # Get comprehensive analysis using CoinAPI data
             analysis = self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
 
-            # Deduct credit only for non-premium, non-admin users
-            if not is_premium and not is_admin:
-                self.db.deduct_credit(user_id, 20)
-                remaining_credits = self.db.get_user_credits(user_id)
-                analysis += f"\n\n💳 Credit tersisa: {remaining_credits} (Analisis CoinAPI: -20 credit)"
-            elif is_premium:
-                analysis += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                analysis += f"\n\n👑 **Admin Access** - Unlimited"
+            # Add credit status to response
+            analysis += f"\n\n{guard_message}"
 
             # Handle long messages
             if len(analysis) > 4000:
@@ -952,6 +938,7 @@ class TelegramBot:
                 await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
+            # Credits were already debited atomically, no manual refund needed
             error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
@@ -959,10 +946,10 @@ class TelegramBot:
             traceback.print_exc()
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /market command with strict credit checking"""
+        """Handle /market command with strict credit checking using Supabase credits_guard"""
         from app.safe_send import safe_reply
-        from app.users_repo import touch_user_from_update, add_user_credits, get_user_credits
-        from app.premium_check import is_premium as sb_is_premium
+        from app.users_repo import touch_user_from_update
+        from app.credits_guard import require_credits
 
         user_id = update.effective_user.id
         message = update.effective_message
@@ -974,24 +961,17 @@ class TelegramBot:
         if await self._check_user_restart_required(update):
             return
 
-        # Get premium and credit status
-        try:
-            is_premium = sb_is_premium(user_id)
-            credits = get_user_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Supabase premium check failed for market command, using fallback: {e}")
-            is_premium = False
-            credits = 0
-
-        is_admin = self.is_admin(user_id)
-
-        # STRICT credit check BEFORE any operation (20 credits for market analysis)
-        if not is_premium and not is_admin and credits < 20:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for market command")
-            await safe_reply(message, "❌ Credit tidak cukup! Overview pasar membutuhkan 20 credit. Gunakan `/credits` untuk melihat sisa credit Anda.")
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
+        allowed, remaining, guard_message = require_credits(user_id, 20)
+        
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits for market command - {guard_message}")
+            await safe_reply(message, guard_message)
             return
 
-        # Show loading message with query processing info
+        print(f"✅ APPROVED: User {user_id} market command - {guard_message}")
+
+        # Show loading message
         loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinAPI...")
 
         try:
@@ -1001,34 +981,8 @@ class TelegramBot:
             print("📊 Calling AI market sentiment analysis with CoinAPI...")
             analysis_result = self.ai.get_market_sentiment('id', self.crypto_api)
 
-            # Deduct credits ONLY if the operation is about to succeed
-            if not is_premium and not is_admin:
-                # Using database directly for credit deduction to ensure atomicity
-                # Note: This assumes self.db is properly initialized
-                if self.db:
-                    deduction_success = self.db.deduct_credit(user_id, 20)
-                    if deduction_success:
-                        remaining_credits = self.db.get_user_credits(user_id)
-                        analysis_result += f"\n\n💳 Credit tersisa: {remaining_credits} (Overview pasar CoinAPI: -20 credit)"
-                        print(f"✅ Credits deducted for user {user_id}, remaining: {remaining_credits}")
-                    else:
-                        # This case should ideally be caught by the initial check, but as a fallback
-                        print(f"❌ FAILED TO DEDUCT CREDITS for user {user_id} in market command. Refunding...")
-                        # No credits were deducted, so no refund needed.
-                        await safe_reply(loading_msg, "❌ Terjadi kesalahan internal saat memproses kredit Anda. Silakan coba lagi.")
-                        return
-                else:
-                    # Database not available, cannot deduct credits
-                    await safe_reply(loading_msg, "❌ Terjadi kesalahan konfigurasi database. Tidak dapat memproses permintaan.")
-                    return
-            elif is_premium:
-                analysis_result += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                analysis_result += f"\n\n👑 **Admin Access** - Unlimited"
-
-
             if not analysis_result or len(analysis_result.strip()) < 50:
-                # Fallback if data is too short or empty
+                # Analysis failed - no need to refund since credits were already debited atomically
                 fallback_msg = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
 
 ⚠️ **Data sementara tidak lengkap atau gagal diambil.**
@@ -1039,39 +993,18 @@ class TelegramBot:
 • `/analyze btc` - Analisis mendalam Bitcoin dengan CoinAPI data
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
-                if not is_premium and not is_admin:
-                    # If credits were deducted and analysis failed, refund them
-                    if self.db and self.db.add_user_credits(user_id, 20): # Assuming add_user_credits exists and returns success status
-                        print(f"⚠️ Market analysis failed (empty result), refunded 20 credits to user {user_id}")
-                        fallback_msg += "\n\n💳 **Credits have been refunded due to failure.**"
-                    else:
-                        print(f"⚠️ Market analysis failed (empty result), but could not refund credits for user {user_id}")
 
                 await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
                 return
+
+            # Add credit status to response
+            analysis_result += f"\n\n{guard_message}"
 
             print(f"✅ Market analysis completed, sending response ({len(analysis_result)} chars)")
             await loading_msg.edit_text(analysis_result, parse_mode='Markdown')
 
         except Exception as e:
-            # Refund credits on error if they were potentially deducted or if the operation failed before deduction
-            if not is_premium and not is_admin:
-                try:
-                    if self.db:
-                        # Attempt refund only if initial credit check passed, implying a deduction might have happened or was intended
-                        # A more robust approach would track if deduction actually occurred.
-                        # For simplicity here, refunding if any error occurs after the initial check.
-                        # This assumes the `deduct_credit` operation didn't complete successfully before the error.
-                        # A better implementation would involve try-except blocks around deduction or transactional logic.
-                        # As a safeguard: if `credits` was < 20 initially, the check would have failed.
-                        # If `credits` was >= 20, we assume a deduction attempt was made or will be made.
-                        # So, in case of error, we refund.
-                        if self.db.add_user_credits(user_id, 20): # Assuming add_user_credits exists and returns success status
-                            print(f"⚠️ Market command error, attempted refund of 20 credits to user {user_id}")
-                        else:
-                            print(f"⚠️ Market command error, failed to refund credits for user {user_id}")
-                except Exception as refund_e:
-                    print(f"❌ Error during refund attempt for user {user_id}: {refund_e}")
+            # Credits were already debited atomically, no need to refund manually
             await safe_reply(loading_msg, f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/price btc` atau `/analyze btc`.")
             print(f"❌ Market command error: {e}")
             import traceback
