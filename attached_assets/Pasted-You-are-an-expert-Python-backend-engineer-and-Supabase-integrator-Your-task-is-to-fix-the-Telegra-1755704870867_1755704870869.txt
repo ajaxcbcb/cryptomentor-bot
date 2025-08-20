@@ -1,0 +1,39 @@
+You are an expert Python backend engineer and Supabase integrator. 
+Your task is to fix the Telegram bot integration with Supabase for the premium system only.
+
+Context:
+- The bot has commands `/start`, `/setpremium <user_id> <duration>`, and `/revoke_premium <user_id>`.
+- The Supabase table `users` has these relevant columns:
+  - id (bigint, telegram user id)
+  - is_premium (bool)
+  - is_lifetime (bool)
+  - premium_until (timestamp)
+  - created_at, updated_at (timestamps)
+
+Current issues:
+1. `/setpremium` responds in Telegram but does not update the Supabase database.
+2. Lifetime, 30d, or custom days (e.g. 50) should correctly set:
+   - `is_premium = true`
+   - `is_lifetime = true` if lifetime, else false
+   - `premium_until = null` if lifetime, else `NOW() + interval '<days> days'`
+3. `/revoke_premium` should reset `is_premium = false`, `is_lifetime = false`, `premium_until = null`.
+4. When `/start` is called, ensure the user exists in Supabase (`insert if not exists`), but do not touch credits.
+
+Your job:
+- Fix broken imports (currently errors like `cannot import name get_user_by_telegram_id`).
+- Implement database functions in `users_repo.py`:
+  - `get_user_by_tid(telegram_id)`
+  - `create_user_if_not_exists(telegram_id, username)`
+  - `set_premium(telegram_id, lifetime: bool, days: int|None)`
+  - `revoke_premium(telegram_id)`
+- Make sure these functions use the official `supabase-py` client and actually update Supabase.
+- In command handlers:
+  - `/start` → call `create_user_if_not_exists`
+  - `/setpremium` → call `set_premium`
+  - `/revoke_premium` → call `revoke_premium`
+- After each update, fetch the user again from Supabase to confirm the changes and send the confirmation message to Telegram.
+
+Deliverables:
+- Corrected code for `users_repo.py` with the four functions above.
+- Corrected handlers for `/start`, `/setpremium`, `/revoke_premium`.
+- Ensure all premium updates persist in Supabase and are reflected in bot responses.
