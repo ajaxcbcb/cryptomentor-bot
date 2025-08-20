@@ -142,6 +142,23 @@ if __name__ == "__main__":
 
         print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 
+        # Sanity check pydantic
+        try:
+            from pydantic import with_config
+            print("✅ [pydantic] with_config available")
+        except Exception as e:
+            print(f"❌ [pydantic] with_config MISSING: {e}")
+
+        # Supabase health check
+        try:
+            from app.supabase_conn import health as sb_health
+            ok, detail = sb_health()
+            print(f"✅ [Supabase] {'ONLINE' if ok else 'OFFLINE'} | {detail}")
+        except Exception as e:
+            print(f"⚠️ [Supabase] Health check failed: {e}")
+
+        print("=" * 50)
+
         # Run main async function
         asyncio.run(main())
 

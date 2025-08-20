@@ -74,51 +74,13 @@ async def cmd_sb_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Perform environment check first
-    env_check_ok, env_info = env_ok()
+    # Use new admin panel builder
+    from app.admin_status import build_admin_panel, build_supabase_diagnostics
     
-    # Perform health check
-    ok, info = health()
-    
-    status_msg = f"👑 **Supabase Status Check** (Admin: {uid})\n\n"
-    
-    # Environment validation
-    status_msg += f"🔐 **Environment Variables:**\n"
-    sb_url = os.getenv('SUPABASE_URL', 'NOT SET')
-    sb_key = os.getenv('SUPABASE_SERVICE_KEY', 'NOT SET')
-    
-    # Mask sensitive info
-    if sb_url != 'NOT SET':
-        status_msg += f"• SUPABASE_URL: {'✅ SET' if 'supabase.co' in sb_url else '❌ INVALID'}\n"
+    # Check if this is a diagnostic request
+    if context.args and context.args[0] == 'diag':
+        status_msg = build_supabase_diagnostics()
     else:
-        status_msg += f"• SUPABASE_URL: ❌ NOT SET\n"
-    
-    if sb_key != 'NOT SET':
-        status_msg += f"• SUPABASE_SERVICE_KEY: ✅ SET\n"
-    else:
-        status_msg += f"• SUPABASE_SERVICE_KEY: ❌ NOT SET\n"
-    
-    status_msg += f"\n🔗 **Connection Test:**\n"
-    
-    if ok:
-        status_msg += f"✅ **Status**: {info}\n"
-        status_msg += f"✅ **Health**: Connection Successful\n"
-    else:
-        status_msg += f"❌ **Status**: {info}\n"
-        status_msg += f"❌ **Health**: Connection Failed\n"
-        
-        # Troubleshooting hints
-        if "SUPABASE_URL belum diset" in info:
-            status_msg += f"\n💡 **Fix**: Set SUPABASE_URL in Secrets"
-        elif "tidak valid" in info:
-            status_msg += f"\n💡 **Fix**: Use https://<ref>.supabase.co format"
-        elif "SUPABASE_SERVICE_KEY belum diset" in info:
-            status_msg += f"\n💡 **Fix**: Set SUPABASE_SERVICE_KEY in Secrets"
-        elif "table_status=404" in info:
-            status_msg += f"\n💡 **Fix**: Create 'users' table in Supabase"
-        elif "401" in info or "403" in info:
-            status_msg += f"\n💡 **Fix**: Use service_role key, not anon key"
-    
-    status_msg += f"\n🌐 Environment: {'Production' if os.getenv('REPLIT_DEPLOYMENT') else 'Development'}"
+        status_msg = build_admin_panel(autosignals_running=False)  # You can pass actual autosignal status here
     
     await _safe_reply_status(update.effective_message, status_msg)
