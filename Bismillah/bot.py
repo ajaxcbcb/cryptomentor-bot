@@ -464,13 +464,24 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         from app.chat_store import remember_chat
-        from app.users_repo import touch_user_from_update
+        from app.users_repo import touch_user_from_update, create_user_if_not_exists
 
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
 
-        # Auto-upsert user to Supabase
+        # Ensure user exists in Supabase
+        try:
+            create_user_if_not_exists(
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name
+            )
+            print(f"✅ User {user.id} ensured in Supabase")
+        except Exception as e:
+            print(f"⚠️ Failed to ensure user in Supabase: {e}")
+
+        # Auto-upsert user to Supabase (legacy compatibility)
         touch_user_from_update(update)
 
         # Remember chat consent

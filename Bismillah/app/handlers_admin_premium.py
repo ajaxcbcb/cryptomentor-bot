@@ -29,45 +29,19 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with _lock(tid):
-            s = get_supabase_client()
-            
-            # First ensure user exists
-            existing_user = s.table("users").select("*").eq("telegram_id", tid).limit(1).execute()
-            if not existing_user.data:
-                # Create user first if doesn't exist
-                s.table("users").insert({
-                    "telegram_id": tid,
-                    "first_name": f"User{tid}",
-                    "username": None,
-                    "credits": 100,
-                    "is_premium": False,
-                    "is_lifetime": False
-                }).execute()
-                print(f"✅ Created new user {tid}")
-
-            # Parse duration and set premium using RPC
             if dur_arg.lower() == "lifetime":
-                # Call RPC with lifetime
-                result = s.rpc("set_premium", {
-                    "p_telegram_id": tid,
-                    "p_duration_type": "lifetime",
-                    "p_duration_value": 0
-                }).execute()
+                # Set lifetime premium
+                updated_user = set_premium(tid, lifetime=True)
                 
-                print(f"🔍 RPC set_premium result for lifetime: {result.data}")
-                
-                if result.data and result.data.get('success'):
-                    # Verify the change
-                    verify = s.table("users").select("is_premium, is_lifetime, premium_until").eq("telegram_id", tid).execute()
-                    if verify.data:
-                        user = verify.data[0]
-                        status = f"is_premium={user.get('is_premium')}, is_lifetime={user.get('is_lifetime')}, premium_until={user.get('premium_until')}"
-                        return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid}\n📊 Status: {status}")
-                    else:
-                        return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid} (verification failed)")
+                # Verify the change
+                verify_user = get_user_by_telegram_id(tid)
+                if verify_user and verify_user.get('is_premium') and verify_user.get('is_lifetime'):
+                    return await safe_reply(msg, 
+                        f"✅ Premium LIFETIME set untuk user {tid}\n"
+                        f"📊 Status: is_premium={verify_user.get('is_premium')}, "
+                        f"is_lifetime={verify_user.get('is_lifetime')}")
                 else:
-                    error = result.data.get('error', 'Unknown error') if result.data else 'No response'
-                    return await safe_reply(msg, f"❌ Failed to set lifetime premium: {error}\nRPC Response: {result.data}")
+                    return await safe_reply(msg, f"❌ Failed to verify lifetime premium for user {tid}")
             else:
                 # Parse days (support "30d" or "30" format)
                 days_str = dur_arg.replace('d', '')
@@ -76,28 +50,19 @@ async def cmd_set_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 days = int(days_str)
                 
-                # Call RPC with days
-                result = s.rpc("set_premium", {
-                    "p_telegram_id": tid,
-                    "p_duration_type": "days",
-                    "p_duration_value": days
-                }).execute()
+                # Set timed premium
+                updated_user = set_premium(tid, lifetime=False, days=days)
                 
-                print(f"🔍 RPC set_premium result for {days}d: {result.data}")
-                
-                if result.data and result.data.get('success'):
-                    premium_until = result.data.get('premium_until', 'N/A')
-                    # Verify the change
-                    verify = s.table("users").select("is_premium, is_lifetime, premium_until").eq("telegram_id", tid).execute()
-                    if verify.data:
-                        user = verify.data[0]
-                        status = f"is_premium={user.get('is_premium')}, premium_until={user.get('premium_until')}"
-                        return await safe_reply(msg, f"✅ Premium {days} hari set untuk user {tid}\n📊 Status: {status}\nBerlaku sampai: {premium_until}")
-                    else:
-                        return await safe_reply(msg, f"✅ Premium {days} hari set untuk user {tid}\nBerlaku sampai: {premium_until}")
+                # Verify the change
+                verify_user = get_user_by_telegram_id(tid)
+                if verify_user and verify_user.get('is_premium'):
+                    premium_until = verify_user.get('premium_until', 'N/A')
+                    return await safe_reply(msg, 
+                        f"✅ Premium {days} hari set untuk user {tid}\n"
+                        f"📊 Status: is_premium={verify_user.get('is_premium')}\n"
+                        f"Berlaku sampai: {premium_until}")
                 else:
-                    error = result.data.get('error', 'Unknown error') if result.data else 'No response'
-                    return await safe_reply(msg, f"❌ Failed to set {days}d premium: {error}\nRPC Response: {result.data}")
+                    return await safe_reply(msg, f"❌ Failed to verify {days}d premium for user {tid}")
 
     except Exception as e:
         print(f"❌ Error in cmd_set_premium: {e}")
@@ -158,12 +123,15 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return await safe_reply(msg, f"❌ User {tid} tidak ditemukan")
 
             # Revoke premium using repo function
-            revoke_premium(tid)
+            updated_user = revoke_premium(tid)
 
             # Verify revocation
-            updated_user = get_user_by_telegram_id(tid)
-            if updated_user and not updated_user.get("is_premium"):
-                return await safe_reply(msg, f"✅ Premium REVOKED untuk user {tid}")
+            verify_user = get_user_by_telegram_id(tid)
+            if verify_user and not verify_user.get("is_premium"):
+                return await safe_reply(msg, 
+                    f"✅ Premium REVOKED untuk user {tid}\n"
+                    f"📊 Status: is_premium={verify_user.get('is_premium')}, "
+                    f"is_lifetime={verify_user.get('is_lifetime')}")
             else:
                 return await safe_reply(msg, f"❌ Gagal revoke premium untuk user {tid}")
 
