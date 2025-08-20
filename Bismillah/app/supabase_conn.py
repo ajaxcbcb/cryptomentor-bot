@@ -125,6 +125,18 @@ def is_premium_active(tg_id: int) -> bool:
     row = get_user_by_tid(tg_id)
     return _is_premium_active_row(row or {})
 
+def update_user_tid(tg_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Update user by telegram_id - compatibility function"""
+    s = get_supabase_client()
+    
+    # Sanitize username if provided
+    if "username" in updates:
+        updates["username"] = _san(updates["username"])
+    
+    # Ensure telegram_id is integer
+    result = s.table("users").update(updates).eq("telegram_id", int(tg_id)).execute()
+    return result.data[0] if result.data else updates
+
 def upsert_user_tid(tg_id: int, test_probe: bool = False, credits: int = 100, **kwargs) -> Dict[str, Any]:
     """Legacy compatibility: upsert user with minimal data"""
     s = get_supabase_client()
