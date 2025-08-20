@@ -1793,6 +1793,54 @@ Gunakan `/subscribe` untuk upgrade!
             parse_mode='Markdown'
         )
 
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle regular text messages (non-commands)"""
+        from app.users_repo import touch_user_from_update, is_premium_active
+        from app.safe_send import safe_reply
+
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
+
+        user_id = update.effective_user.id if update.effective_user else None
+        message_text = update.message.text if update.message else ""
+
+        # Check if user needs restart
+        if await self._check_user_restart_required(update):
+            return
+
+        # Handle general chat - provide helpful suggestions
+        if message_text and len(message_text.strip()) > 0:
+            # Check if it looks like a crypto symbol query
+            text_upper = message_text.upper().strip()
+
+            # Common crypto symbols that users might type directly
+            crypto_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK', 'LTC']
+
+            if text_upper in crypto_symbols or (len(text_upper) <= 6 and text_upper.isalpha()):
+                # User might be asking for a price check
+                await safe_reply(
+                    update.message,
+                    f"💡 Sepertinya Anda ingin cek harga {text_upper}?\n\n"
+                    f"Gunakan command:\n"
+                    f"• `/price {text_upper.lower()}` - Harga real-time dari CoinAPI\n"
+                    f"• `/analyze {text_upper.lower()}` - Analisis lengkap (20 credit)\n"
+                    f"• `/futures {text_upper.lower()}` - Analisis futures dengan SnD (20 credit)\n\n"
+                    f"Atau ketik `/help` untuk panduan lengkap!"
+                )
+                return
+
+            # Generic helpful response for other messages
+            await safe_reply(
+                update.message,
+                "🤖 **Halo! Saya CryptoMentor AI**\n\n"
+                "💡 **Untuk menggunakan bot, gunakan command:**\n"
+                "• `/help` - Panduan lengkap\n"
+                "• `/price btc` - Cek harga Bitcoin\n"
+                "• `/analyze eth` - Analisis Ethereum\n"
+                "• `/market` - Overview pasar crypto\n\n"
+                "📊 **Semua data real-time dari CoinAPI!**"
+            )
+
     async def handle_ask_ai(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /ask_ai command - Free AI questions"""
         if not context.args:
