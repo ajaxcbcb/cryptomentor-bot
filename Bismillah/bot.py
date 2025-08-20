@@ -942,7 +942,7 @@ class TelegramBot:
                 await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)}[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
             import traceback
@@ -1895,68 +1895,6 @@ Gunakan `/subscribe` untuk upgrade!
 
         await update.message.reply_text(status_text, parse_mode='Markdown')
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle regular text messages"""
-        from app.users_repo import touch_user_from_update
-
-        # Auto-upsert user to Supabase for any message
-        touch_user_from_update(update)
-
-        text = update.message.text.lower().strip()
-        user_id = update.message.from_user.id
-
-        print(f"📝 Message received from user {user_id}: '{text[:20]}...'")
-        logger.info(f"Message from user {user_id}: {text[:50]}")
-
-        # Quick price check for popular symbols
-        popular_symbols = ['btc', 'eth', 'bnb', 'sol', 'ada', 'doge', 'avax', 'matic', 'dot', 'link']
-
-        if text in popular_symbols:
-            # Quick price check using CoinAPI
-            symbol = text.upper()
-            loading_msg = await update.message.reply_text(f"⏳ Cek harga {symbol} dari CoinAPI...")
-
-            price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
-
-            if price_data and 'error' not in price_data and price_data.get('price', 0) > 0:
-                current_price = price_data.get('price', 0)
-                if current_price < 1:
-                    price_format = f"${current_price:.8f}"
-                elif current_price < 100:
-                    price_format = f"${current_price:.4f}"
-                else:
-                    price_format = f"${current_price:,.2f}"
-
-                change_24h = price_data.get('change_24h', 0)
-                change_emoji = "📈" if change_24h >= 0 else "📉"
-                change_color = "+" if change_24h >= 0 else ""
-
-                message = f"""💰 **{symbol} Quick Price**
-
-{price_format} {change_emoji} {change_color}{change_24h:.2f}%
-
-🔄 Source: CoinAPI Real-time
-💡 Ketik `/price {symbol.lower()}` untuk detail lengkap
-📊 Ketik `/analyze {symbol.lower()}` untuk analisis mendalam"""
-
-                await loading_msg.edit_text(message, parse_mode='Markdown')
-            else:
-                await loading_msg.edit_text(f"❌ Tidak dapat menemukan data CoinAPI untuk {symbol}")
-
-            return
-
-        # Default AI response for other questions
-        if len(text) > 10:  # Only respond to meaningful questions
-            try:
-                response = self.ai.get_ai_response(text, 'id')
-                await update.message.reply_text(response, parse_mode='Markdown')
-
-                # Log activity
-                self.db.log_user_activity(user_id, "ai_chat", f"Message: {text[:50]}...")
-
-            except Exception as e:
-                print(f"Error in AI response: {e}")
-
     async def _check_user_restart_required(self, update: Update):
         """Check if user needs to restart after admin restart"""
         user_id = update.message.from_user.id
@@ -2091,10 +2029,6 @@ Gunakan `/subscribe` untuk upgrade!
                 parse_mode='HTML',
                 disable_web_page_preview=True
             )
-
-
-
-
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk set premium user dengan Database Router"""
@@ -3260,23 +3194,38 @@ ADMIN2 = [optional_second_admin_id]
 
         # Add Supabase repair and diagnostic commands
         try:
-            from app.handlers_sb_repair import cmd_sb_repair
-            from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
-            from app.handlers_user_set import cmd_user_set
-            from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+            # This block was modified to correctly import and register Supabase commands.
+            from app.handlers_sb import (
+                cmd_sb_status, cmd_sb_upsert, cmd_sb_get,
+                cmd_set_premium, cmd_revoke_premium, cmd_set_credits,
+                cmd_stats_sb, cmd_sb_diag
+            )
+            print("✅ Supabase handlers loaded")
 
-            self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
-            # These commands are already handled by class methods, so avoid re-registering if they conflict.
-            # self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
-            # self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
-            # self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            self.application.add_handler(CommandHandler("user_set", cmd_user_set))
+            # Register Supabase commands
             self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+            self.application.add_handler(CommandHandler("sb_upsert", cmd_sb_upsert))
+            self.application.add_handler(CommandHandler("sb_get", cmd_sb_get))
+            self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
+            self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
+            self.application.add_handler(CommandHandler("setcredits", cmd_set_credits))
+            self.application.add_handler(CommandHandler("stats_sb", cmd_stats_sb))
             self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
 
-            print("✅ Supabase admin commands registered")
         except ImportError as e:
-            print(f"⚠️ Could not register Supabase commands: {e}")
+            print(f"⚠️ Supabase handler not available: {e}")
+            # Register fallback handlers if Supabase handlers fail to import
+            def supabase_not_available(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                return update.message.reply_text("❌ Supabase functionality not available")
+            self.application.add_handler(CommandHandler("sb_status", supabase_not_available))
+            self.application.add_handler(CommandHandler("sb_upsert", supabase_not_available))
+            self.application.add_handler(CommandHandler("sb_get", supabase_not_available))
+            self.application.add_handler(CommandHandler("setpremium", supabase_not_available))
+            self.application.add_handler(CommandHandler("revoke_premium", supabase_not_available))
+            self.application.add_handler(CommandHandler("setcredits", supabase_not_available))
+            self.application.add_handler(CommandHandler("stats_sb", supabase_not_available))
+            self.application.add_handler(CommandHandler("sb_diag", supabase_not_available))
+
 
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:

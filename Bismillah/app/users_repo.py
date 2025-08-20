@@ -120,3 +120,27 @@ def touch_user_from_message(message):
 
     except Exception as e:
         print(f"❌ Error in touch_user_from_message: {e}")
+
+def get_user_by_telegram_id(telegram_id: int) -> Optional[Dict]:
+    """Legacy compatibility function - get user by telegram ID"""
+    if not SUPABASE_AVAILABLE:
+        return None
+    
+    try:
+        from app.supabase_conn import get_user_by_tid
+        return get_user_by_tid(telegram_id)
+    except Exception as e:
+        print(f"Error getting user by telegram_id {telegram_id}: {e}")
+        return None
+
+def upsert_user_via_rpc(telegram_id: int, username: Optional[str]=None, first_name: Optional[str]=None, last_name: Optional[str]=None, referred_by: Optional[int]=None) -> Optional[Dict]:
+    """Legacy compatibility function - upsert user via RPC"""
+    if not SUPABASE_AVAILABLE:
+        return None
+    
+    try:
+        from app.supabase_conn import upsert_user_via_rpc as sb_upsert
+        return sb_upsert(telegram_id, username, first_name, last_name, referred_by)
+    except Exception as e:
+        print(f"Error upserting user {telegram_id}: {e}")
+        return None
