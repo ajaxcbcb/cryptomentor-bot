@@ -5,30 +5,30 @@ CryptoMentor AI Bot - Main Entry Point
 Enhanced with async support for python-telegram-bot v22.3
 """
 
-# --- BOOTSTRAP: fix pydantic/supabase sebelum import lain ---
+# --- BOOTSTRAP: perbaiki pydantic/supabase sebelum import lain ---
 import sys, subprocess
-def _pip(spec): 
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", spec])
-    except Exception as e:
-        print(f"[pip warn] {spec} -> {e}")
-
-for pkg in ("pydantic>=2.6,<3", "pydantic-core>=2.16", "supabase>=2.4", "httpx>=0.24,<0.28"):
-    _pip(pkg)
-
+def _pip(spec): subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", spec])
+for pkg in ("pydantic>=2.6,<3","pydantic-core>=2.16","supabase>=2.4","httpx>=0.24,<0.28"):
+    try: _pip(pkg)
+    except Exception as e: print("[pip warn]", pkg, "->", e)
 import pydantic as _p
 if not hasattr(_p, "with_config"):
-    def with_config(*args, **kwargs):
+    def with_config(*a, **k):
         def _d(obj): return obj
         return _d
     _p.with_config = with_config
 # --- END BOOTSTRAP ---
 
 import os
+import logging
 import sys
 import asyncio
-import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (if exists) and system environment
+load_dotenv()
+
 
 # Enhanced deployment detection
 deployment_indicators = {

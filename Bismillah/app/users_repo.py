@@ -1,56 +1,96 @@
-import os
-import sys
-from datetime import datetime, timezone
-from typing import Optional, Dict
 
-# Add the current directory to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+"""
+Shim/adapter untuk kompatibilitas kode lama.
+Mengekspor nama-nama fungsi yang biasa diimport modul lain:
+- get_user_by_telegram_id
+- get_user
+- ensure_user_registered (alias upsert untuk /start)
+- upsert_user
+- set_premium
+- revoke_premium
+- set_credits / set_user_credits
+- stats_totals
+- is_premium_active
+Semuanya diarahkan ke implementasi Supabase di app.supabase_conn
+"""
 
-try:
-    from app.supabase_conn import get_supabase_client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-    print("⚠️ Supabase connection not available for user repository")
+from typing import Optional, Dict, Any, Tuple
+from .supabase_conn import (
+    get_user_by_tid as _get_user_by_tid,
+    upsert_user_via_rpc as _upsert_user_via_rpc,
+    set_premium_via_rpc as _set_premium_via_rpc,
+    revoke_premium as _revoke_premium,
+    set_credits as _set_credits,
+    stats_totals as _stats_totals,
+    is_premium_active as _is_premium_active,
+)
 
-TZ = timezone.utc
-ALLOWED_USER_FIELDS = {"telegram_id", "username", "first_name", "last_name"}
+# --- Readers ---
+def get_user_by_telegram_id(tg_id: int) -> Optional[Dict[str, Any]]:
+    """Nama yang dicari kode lama. Ambil row user langsung dari Supabase."""
+    return _get_user_by_tid(tg_id)
 
-def _sanitize(payload: dict) -> dict:
-    """Sanitize payload to only include allowed fields and remove None values"""
-    sanitized = {}
-    for k, v in payload.items():
-        if k in ALLOWED_USER_FIELDS and v is not None:
-            sanitized[k] = v
-    return sanitized
+def get_user(tg_id: int) -> Optional[Dict[str, Any]]:
+    """Alias yang kadang dipakai kode lama."""
+    return _get_user_by_tid(tg_id)
 
-def ensure_user(telegram_id: int, username: Optional[str]=None, first_name: Optional[str]=None, last_name: Optional[str]=None) -> Optional[Dict]:
-    """Ensure user exists in Supabase, create/update if needed"""
-    if not SUPABASE_AVAILABLE or not telegram_id:
-        return None
-    
-    try:
-        raw = {
-            "telegram_id": telegram_id, 
-            "username": username, 
-            "first_name": first_name, 
-            "last_name": last_name
-        }
-        data = _sanitize(raw)
-        
-        if not data.get("telegram_id"):
-            return None
-        
-        supabase = get_supabase_client()
-        res = supabase.table("users").upsert(data, on_conflict="telegram_id").select("*").execute()
-        
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-        return None
-        
-    except Exception as e:
-        print(f"Error ensuring user {telegram_id}: {e}")
-        return None
+# --- Writers / Mutators ---
+def ensure_user_registered(
+    tg_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    referred_by: Optional[int] = None,
+    welcome_quota: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Dipanggil dari /start untuk memastikan user terdaftar dan (jika baru) dapat welcome credits.
+    """
+    return _upsert_user_via_rpc(
+        tg_id=tg_id,
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        referred_by=referred_by,
+        welcome_quota=welcome_quota,
+    )
+
+def upsert_user(
+    tg_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    referred_by: Optional[int] = None,
+    welcome_quota: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Alias nama fungsi lain di kode lama."""
+    return ensure_user_registered(tg_id, username, first_name, last_name, referred_by, welcome_quota)
+
+def set_premium(tg_id: int, duration_type: str, duration_value: int = 0) -> None:
+    """
+    Set premium user: duration_type = 'lifetime' | 'days' | 'months'
+    Untuk days/months, duration_value wajib > 0.
+    """
+    _set_premium_via_rpc(tg_id, duration_type, duration_value)
+
+def revoke_premium(tg_id: int) -> None:
+    """Cabut premium user (is_premium=false, is_lifetime=false, premium_until=null)."""
+    _revoke_premium(tg_id)
+
+def set_credits(tg_id: int, amount: int) -> None:
+    """Set credits user langsung di Supabase."""
+    _set_credits(tg_id, amount)
+
+def set_user_credits(tg_id: int, amount: int) -> None:
+    """Alias tambahan yang kadang dipakai kode lama."""
+    _set_credits(tg_id, amount)
+
+# --- Stats / Flags ---
+def stats_totals() -> Tuple[int, int]:
+    return _stats_totals()
+
+def is_premium_active(tg_id: int) -> bool:
+    return _is_premium_active(tg_id)
 
 def touch_user_from_update(update):
     """Auto-upsert user to Supabase from Telegram update object"""
@@ -61,9 +101,9 @@ def touch_user_from_update(update):
 
         # Try new sb_client first
         try:
-            from .sb_client import upsert_user_via_rpc
+            from .supabase_conn import upsert_user_via_rpc
             upsert_user_via_rpc(
-                telegram_id=user.id,
+                tg_id=user.id,
                 username=getattr(user, 'username', None),
                 first_name=getattr(user, 'first_name', None),
                 last_name=getattr(user, 'last_name', None)
@@ -71,52 +111,10 @@ def touch_user_from_update(update):
             print(f"✅ User {user.id} upserted via RPC")
             return
         except ImportError:
-            print("ℹ️ sb_client not found, falling back to direct Supabase connection.")
+            print("ℹ️ supabase_conn not found, falling back.")
             pass
         except Exception as e:
             print(f"⚠️ Error calling upsert_user_via_rpc for user {user.id}: {e}")
-            # Continue to fallback if RPC call fails
-
-        # Fallback to existing supabase connection
-        try:
-            from .supabase_conn import get_supabase_client
-            supabase = get_supabase_client()
-
-            # Safe upsert - only send allowed fields
-            user_data = {
-                "telegram_id": user.id,
-                "username": getattr(user, 'username', None),
-                "first_name": getattr(user, 'first_name', None),
-                "last_name": getattr(user, 'last_name', None)
-            }
-
-            # Remove None values to avoid DB issues
-            user_data = {k: v for k, v in user_data.items() if v is not None}
-
-            # Use upsert to handle existing users
-            result = supabase.table("users").upsert(user_data, on_conflict="telegram_id").execute()
-            print(f"✅ User {user.id} upserted to Supabase via direct connection")
-
-        except Exception as e:
-            print(f"⚠️ Failed to upsert user {user.id} to Supabase via direct connection: {e}")
 
     except Exception as e:
-        print(f"❌ Critical error in touch_user_from_update: {e}")
-
-def touch_user_from_message(message):
-    """Helper for telebot-style message objects"""
-    try:
-        user = message.from_user
-        if not user:
-            print("⚠️ No user found in message.")
-            return
-
-        # Create update-like object for compatibility
-        class MockUpdate:
-            def __init__(self, user):
-                self.effective_user = user
-
-        touch_user_from_update(MockUpdate(user))
-
-    except Exception as e:
-        print(f"❌ Error in touch_user_from_message: {e}")
+        print(f"❌ Error in touch_user_from_update: {e}")

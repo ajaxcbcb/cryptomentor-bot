@@ -274,9 +274,19 @@ class TelegramBot:
                     timeout=5.0
                 )
 
-                print(f"✅ Bot connected successfully: @{bot_info.username}")
+                print("✅ Bot connected successfully: @{bot_info.username}")
                 print(f"📝 Bot ID: {bot_info.id}")
                 print(f"🤖 Bot can join groups: {bot_info.can_join_groups}")
+
+                # Supabase health check at startup
+                try:
+                    from app.supabase_conn import health as _sb_health
+                    ok, detail = _sb_health()
+                    print(f"🗄️ Supabase health: {'✅' if ok else '❌'} {detail}")
+                except ImportError:
+                    print("⚠️ Supabase health check not available")
+                except Exception as e:
+                    print(f"⚠️ Supabase health check error: {e}")
 
             except asyncio.TimeoutError:
                 print("⚠️ Bot connection test timed out - continuing to polling...")
@@ -1419,7 +1429,6 @@ Selamat mengelola CryptoMentor AI!"""
 
 🚀 **Fitur Premium:**
 • Unlimited analisis CoinAPI + SnD
-• Akses semua command SnD
 • {'Auto SnD signals (Lifetime only)' if is_lifetime else 'Priority support'}
 • Priority support
 
