@@ -1,12 +1,11 @@
-# app/admin_status.py
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Tuple
 import os
 import json
 
-from .supabase_conn import health as sb_health
-from .sb_repo import stats_totals
+from app.supabase_conn import health as sb_health
+from app.sb_repo import stats_totals
 
 def get_local_stats() -> Tuple[int, int, str]:
     """Get local JSON statistics"""
@@ -124,3 +123,57 @@ def build_supabase_diagnostics() -> str:
             diagnostics.append("• Review the error detail and consult Supabase documentation or support.")
 
     return "\n".join(diagnostics)
+
+def get_admin_status():
+    """Get comprehensive admin status"""
+
+    # Supabase health check
+    ok, reason = sb_health()
+    s_total, s_premium = (0, 0)
+
+    if ok:
+        try:
+            s_total, s_premium = stats_totals()
+        except Exception as e:
+            reason = f"stats_totals error: {e}"
+
+    # Environment check
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    service_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    env_ok = bool(supabase_url and service_key)
+
+    # Admin users check
+    admin_count = 0
+    for i in range(1, 10):
+        admin_key = f'ADMIN{i}'
+        admin_id = os.getenv(admin_key, "").strip()
+        if admin_id and admin_id.lower() != "none" and admin_id.isdigit():
+            admin_count += 1
+
+    status_text = f"""🔧 **Admin Status Panel**
+📅 {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+
+🗄️ **Supabase:**
+• Status: {'✅ Connected' if ok else '❌ Failed'}
+• Response: {reason}
+• Environment: {'✅ OK' if env_ok else '❌ Missing vars'}
+
+📊 **Database Stats:**
+• Total Users: {s_total:,}
+• Premium Users: {s_premium:,}
+• Free Users: {s_total - s_premium:,}
+
+👥 **Admin Access:**
+• Configured Admins: {admin_count}
+
+💡 **Commands:**
+• `/set_credit_all <amount> [--all]` - Set credits
+• `/set_premium <user_id> <type> [value]` - Manage premium
+• `/sb_status` - Detailed Supabase status
+
+⚙️ **Environment Required:**
+• SUPABASE_URL (supabase.co domain)
+• SUPABASE_SERVICE_KEY (service role)
+• ADMIN1, ADMIN2, etc. (telegram IDs)"""
+
+    return status_text
