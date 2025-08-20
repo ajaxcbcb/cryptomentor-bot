@@ -92,17 +92,7 @@ def _is_premium_active_local(u: dict) -> bool:
 
 def health() -> Tuple[bool, str]:
     """Health check for Supabase connection"""
-    if not sb_available():
-        return False, "Supabase client not available"
-
-    try:
-        # Use hc() RPC for health check
-        result = supabase.rpc("hc").execute()
-        if result.data:
-            return True, "Connected via RPC hc()"
-        return False, "RPC hc() returned empty"
-    except Exception as e:
-        return False, f"RPC error: {str(e)}"
+    return sb_health()
 
 def get_supabase_totals() -> Tuple[int, int]:
     if not sb_available():
@@ -155,7 +145,7 @@ def build_system_status(auto_signals_running: bool,
         legacy_total, legacy_premium = 0, 0
         legacy_err = f"(local-error: {e})"
 
-    ok, db_detail = health()
+    ok, db_detail = sb_health()
     supa_total, supa_premium = (0, 0)
     if ok:
         supa_total, supa_premium = get_supabase_totals()
