@@ -90,13 +90,25 @@ class WeeklyCreditRefreshSupabase:
                     print(f"❌ Error updating user {telegram_id}: {e}")
                     continue
             
+            # Calculate next refresh date
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
+                days_until_monday = 7
+            next_refresh = now + timedelta(days=days_until_monday)
+            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Format next refresh with date and day
+            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
+            
             # Final statistics
             print("\n" + "=" * 50)
             print("✅ WEEKLY CREDIT REFRESH COMPLETED!")
             print(f"📊 Users updated: {updated_count}/{total_free_users}")
             print(f"💰 Total credits distributed: {total_credits_given:,} (100 credits per user)")
             print(f"🕐 Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')}")
-            print(f"📅 Next refresh: Monday midnight next week (00:00 WIB)")
+            print(f"📅 Next refresh: {next_refresh_str}")
             
             return {
                 'success': True,

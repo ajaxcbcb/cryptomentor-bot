@@ -2465,13 +2465,24 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
                     print(f"❌ Error updating user {telegram_id}: {e}")
                     continue
             
+            # Calculate next refresh date
+            now = datetime.now()
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
+                days_until_monday = 7
+            next_refresh = now + timedelta(days=days_until_monday)
+            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Format next refresh with date and day
+            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
+            
             await update.message.reply_text(
                 f"✅ **Manual Credit Refresh Completed!**\n\n"
                 f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
                 f"💳 **Credits Set**: 100 credits per user\n"
                 f"💰 **Total Credits Given**: {updated_count * 100:,}\n"
                 f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                f"📅 **Next auto refresh**: Monday 00:00 WIB",
+                f"📅 **Next auto refresh**: {next_refresh_str}",
                 parse_mode='Markdown'
             )
                 
@@ -3294,12 +3305,24 @@ ADMIN2 = [optional_second_admin_id]
                     print(f"❌ Error updating user {telegram_id}: {e}")
                     continue
             
+            # Calculate next refresh date
+            now = datetime.now()
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
+                days_until_monday = 7
+            next_refresh = now + timedelta(days=days_until_monday)
+            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Format next refresh with date and day
+            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
+            
             await update.message.reply_text(
                 f"✅ **Set All Credits Completed!**\n\n"
                 f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
                 f"💳 **Credits Set**: {credit_amount} credits per user\n"
                 f"💰 **Total Credits Given**: {updated_count * credit_amount:,}\n"
                 f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
+                f"📅 **Next auto refresh**: {next_refresh_str}\n"
                 f"⭐ **Premium users unaffected** (unlimited access)",
                 parse_mode='Markdown'
             )
