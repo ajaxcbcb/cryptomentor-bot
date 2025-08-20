@@ -173,3 +173,108 @@ def is_premium_active(telegram_id: int) -> bool:
     except Exception as e:
         print(f"Error checking premium for user {telegram_id}: {e}")
         return False
+
+def debit_credits(telegram_id: int, amount: int) -> bool:
+    """Deduct credits from user account"""
+    try:
+        supabase = get_supabase_client()
+        
+        # Get current credits
+        user = get_user_by_telegram_id(telegram_id)
+        if not user:
+            print(f"User {telegram_id} not found for credit debit")
+            return False
+            
+        current_credits = user.get("credits", 0)
+        if current_credits < amount:
+            print(f"Insufficient credits for user {telegram_id}: {current_credits} < {amount}")
+            return False
+            
+        # Deduct credits
+        new_credits = current_credits - amount
+        update_data = {
+            "credits": new_credits,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
+        
+        if result.data:
+            print(f"Debited {amount} credits from user {telegram_id}: {current_credits} → {new_credits}")
+            return True
+        else:
+            print(f"Failed to debit credits for user {telegram_id}")
+            return False
+            
+    except Exception as e:
+        print(f"Error debiting credits for user {telegram_id}: {e}")
+        return False
+
+def add_credits(telegram_id: int, amount: int) -> bool:
+    """Add credits to user account"""
+    try:
+        supabase = get_supabase_client()
+        
+        # Get current credits
+        user = get_user_by_telegram_id(telegram_id)
+        if not user:
+            print(f"User {telegram_id} not found for credit addition")
+            return False
+            
+        current_credits = user.get("credits", 0)
+        new_credits = current_credits + amount
+        
+        update_data = {
+            "credits": new_credits,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
+        
+        if result.data:
+            print(f"Added {amount} credits to user {telegram_id}: {current_credits} → {new_credits}")
+            return True
+        else:
+            print(f"Failed to add credits for user {telegram_id}")
+            return False
+            
+    except Exception as e:
+        print(f"Error adding credits for user {telegram_id}: {e}")
+        return False
+
+def set_credits(telegram_id: int, amount: int) -> bool:
+    """Set exact credit amount for user"""
+    try:
+        supabase = get_supabase_client()
+        
+        update_data = {
+            "credits": amount,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
+        
+        if result.data:
+            print(f"Set {amount} credits for user {telegram_id}")
+            return True
+        else:
+            print(f"Failed to set credits for user {telegram_id}")
+            return False
+            
+    except Exception as e:
+        print(f"Error setting credits for user {telegram_id}: {e}")
+        return False
+
+def check_sufficient_credits(telegram_id: int, required_amount: int) -> bool:
+    """Check if user has sufficient credits"""
+    try:
+        user = get_user_by_telegram_id(telegram_id)
+        if not user:
+            return False
+            
+        current_credits = user.get("credits", 0)
+        return current_credits >= required_amount
+        
+    except Exception as e:
+        print(f"Error checking credits for user {telegram_id}: {e}")
+        return False

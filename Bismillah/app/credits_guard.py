@@ -1,7 +1,45 @@
 
 from typing import Tuple
-from .users_repo import is_premium_active, debit_credits, get_credits
+from .users_repo import is_premium_active, debit_credits, get_credits, check_sufficient_credits, add_credits, set_credits
 import os
+
+def check_and_deduct_credits(telegram_id: int, command_cost: int = 1) -> Tuple[bool, str]:
+    """
+    Check if user has enough credits and deduct if they do
+    Returns (success, message)
+    """
+    try:
+        # Premium users don't need credits
+        if is_premium_active(telegram_id):
+            return True, "✅ Premium user - unlimited access"
+        
+        # Check if user has sufficient credits
+        if not check_sufficient_credits(telegram_id, command_cost):
+            current_credits = get_credits(telegram_id)
+            return False, f"❌ Insufficient credits! You have {current_credits}, need {command_cost}"
+        
+        # Deduct credits
+        if debit_credits(telegram_id, command_cost):
+            remaining = get_credits(telegram_id)
+            return True, f"✅ Command executed. Remaining credits: {remaining}"
+        else:
+            return False, "❌ Failed to deduct credits. Please try again."
+            
+    except Exception as e:
+        print(f"Error in check_and_deduct_credits for user {telegram_id}: {e}")
+        return False, "❌ Credit system error. Please contact admin."
+
+def get_credit_status(telegram_id: int) -> str:
+    """Get formatted credit status for user"""
+    try:
+        if is_premium_active(telegram_id):
+            return "💎 Premium User - Unlimited Access"
+        else:
+            credits = get_credits(telegram_id)
+            return f"💰 Credits: {credits}"
+    except Exception as e:
+        print(f"Error getting credit status for user {telegram_id}: {e}")
+        return "❌ Error checking credits"
 
 def require_credits(tg_id: int, cost: int) -> Tuple[bool, int, str]:
     """
