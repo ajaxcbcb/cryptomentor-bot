@@ -61,12 +61,62 @@ def create_user_if_not_exists(telegram_id: int, username: str = None, first_name
         print(f"Error creating user {telegram_id}: {e}")
         return False
 
-def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> bool:
-    """Set premium status for user in Supabase"""
+def create_premium_user(telegram_id: int, username: str = None, first_name: str = None, lifetime: bool = False, days: int = None) -> bool:
+    """Create premium user directly in Supabase (upsert)"""
     try:
         supabase = get_supabase_client()
         
-        # Prepare update data
+        # Prepare premium data
+        premium_until = None
+        if not lifetime:
+            if days:
+                premium_until = datetime.utcnow() + timedelta(days=days)
+            else:
+                premium_until = datetime.utcnow() + timedelta(days=30)  # Default 30 days
+            premium_until = premium_until.isoformat()
+        
+        # User data with premium status
+        user_data = {
+            "telegram_id": telegram_id,
+            "username": username or f"user_{telegram_id}",
+            "first_name": first_name or "Premium User",
+            "is_premium": True,
+            "is_lifetime": lifetime,
+            "premium_until": premium_until,
+            "credits": 999999,  # Give premium users high credits
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Use upsert to create or update
+        result = supabase.table("users").upsert(user_data, on_conflict="telegram_id").execute()
+        
+        if result.data:
+            premium_type = "LIFETIME" if lifetime else f"{days or 30} days"
+            print(f"Created/Updated premium user {telegram_id} with {premium_type}")
+            return True
+        else:
+            print(f"Failed to create premium user {telegram_id}")
+            return False
+            
+    except Exception as e:
+        print(f"Error creating premium user {telegram_id}: {e}")
+        return False
+
+def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> bool:
+    """Set premium status for user in Supabase (auto-create if not exists)"""
+    try:
+        supabase = get_supabase_client()
+        
+        # Check if user exists
+        existing_user = get_user_by_telegram_id(telegram_id)
+        
+        if not existing_user:
+            # User doesn't exist, create as premium user
+            print(f"User {telegram_id} not found, creating as premium user")
+            return create_premium_user(telegram_id, lifetime=lifetime, days=days)
+        
+        # User exists, update premium status
         update_data = {
             "is_premium": True,
             "is_lifetime": lifetime,
@@ -83,12 +133,12 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
             premium_until = datetime.utcnow() + timedelta(days=30)
             update_data["premium_until"] = premium_until.isoformat()
         
-        # Update user
+        # Update existing user
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
         
         if result.data:
             premium_type = "LIFETIME" if lifetime else f"{days or 30} days"
-            print(f"Set premium {premium_type} for user {telegram_id}")
+            print(f"Set premium {premium_type} for existing user {telegram_id}")
             return True
         else:
             print(f"Failed to update premium for user {telegram_id}")
