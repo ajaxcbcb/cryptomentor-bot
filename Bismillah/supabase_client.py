@@ -219,6 +219,40 @@ def get_live_user_count() -> int:
         print(f"❌ Error getting user count: {e}")
         return 0
 
+def verify_database_integrity() -> Dict[str, Any]:
+    """Verify database integrity and connection"""
+    if not supabase:
+        return {
+            "success": False,
+            "error": "Supabase client not initialized",
+            "tables_accessible": False,
+            "total_users": 0
+        }
+    
+    try:
+        # Test basic connection and count users
+        result = supabase.table('users').select('count', count='exact').limit(1).execute()
+        total_users = result.count or 0
+        
+        # Test basic read operation
+        test_result = supabase.table('users').select('telegram_id').limit(1).execute()
+        tables_accessible = test_result is not None
+        
+        return {
+            "success": True,
+            "tables_accessible": tables_accessible,
+            "total_users": total_users,
+            "connection_healthy": True
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "tables_accessible": False,
+            "total_users": 0,
+            "connection_healthy": False
+        }
+
 # Health check function
 def health_check() -> Tuple[bool, str]:
     """Check Supabase health"""
@@ -237,5 +271,6 @@ __all__ = [
     'get_user', 'add_user', 'update_user', 'delete_user',
     'set_premium', 'revoke_premium', 'add_premium',
     'admin_set_premium', 'admin_revoke_premium', 'admin_grant_credits',
-    'parse_premium_duration', 'get_live_user_count', 'health_check'
+    'parse_premium_duration', 'get_live_user_count', 'health_check',
+    'verify_database_integrity'
 ]
