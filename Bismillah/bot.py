@@ -1026,23 +1026,24 @@ class TelegramBot:
 
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
+        from app.users_repo import touch_user_from_update
+        from app.credits_guard import require_credits
+
         user_id = update.message.from_user.id
-        # Use Supabase for premium checks
-        try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
-            is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
-        except Exception as e:
-            print(f"⚠️ Supabase premium check failed, using fallback: {e}")
-            is_premium = False  # Default to free if Supabase fails
-            credits = 0
 
-        is_admin = self.is_admin(user_id)
+        # Auto-upsert user to Supabase
+        touch_user_from_update(update)
 
-        # Check credits for non-premium, non-admin users
-        if not is_premium and not is_admin and credits < 60:
-            await update.message.reply_text("❌ Credit tidak cukup! Sinyal futures membutuhkan 60 credit. Gunakan `/credits` untuk melihat sisa credit Anda.", parse_mode='Markdown')
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
+        allowed, remaining, guard_message = require_credits(user_id, 60)
+
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
+            await update.message.reply_text(guard_message, parse_mode='Markdown')
+            # CRITICAL: Return immediately without processing - NO analysis should run
             return
+
+        print(f"✅ APPROVED: User {user_id} futures_signals command - {guard_message}")
 
         # Show loading message with query processing info
         query_display = ""
@@ -1084,15 +1085,8 @@ class TelegramBot:
                 await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
                 return
 
-            # Deduct credit only for non-premium, non-admin users
-            if not is_premium and not is_admin:
-                self.db.deduct_credit(user_id, 60)
-                remaining_credits = self.db.get_user_credits(user_id)
-                signals += f"\n\n💳 Credit tersisa: {remaining_credits} (Sinyal futures: -60 credit)"
-            elif is_premium:
-                signals += f"\n\n⭐ **Status Premium** - Unlimited Access"
-            elif is_admin:
-                signals += f"\n\n👑 **Admin Access** - Unlimited"
+            # Add credit status to response (credits already debited by guard)
+            signals += f"\n\n{guard_message}"
 
             # Handle long messages
             if len(signals) > 4000:
@@ -1138,12 +1132,20 @@ class TelegramBot:
 
         user_id = update.message.from_user.id
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (pre-check for UI display)
-        allowed, remaining, guard_message = require_credits(user_id, 20)
-
-        if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures command - {guard_message}")
-            await update.message.reply_text(guard_message, parse_mode='Markdown')
+        # Pre-check credits for UI display (don't debit yet - will debit when user selects timeframe)
+        from app.users_repo import get_credits, is_premium_active
+        
+        is_admin = self.is_admin(user_id)
+        is_premium = is_premium_active(user_id)
+        current_credits = get_credits(user_id)
+        
+        if not is_admin and not is_premium and current_credits < 20:
+            await update.message.reply_text(
+                f"❌ Credit tidak cukup! Analisis futures membutuhkan 20 credit.\n\n"
+                f"💳 Credit Anda: {current_credits}\n"
+                f"💡 Gunakan `/credits` atau upgrade ke premium.",
+                parse_mode='Markdown'
+            )
             return
 
         # Clean the symbol query - remove "SND" if present and extract timeframe
@@ -1181,7 +1183,13 @@ class TelegramBot:
             display_text += f"🎯 **Timeframe yang diminta**: {clean_timeframe}\n\n"
 
         display_text += "Pilih timeframe untuk analisis SnD dengan Entry/TP/SL:"
-        display_text += f"\n\n💳 **Status**: {guard_message.split('(')[0].strip()}"
+        
+        if is_admin:
+            display_text += f"\n\n👑 **Status**: Admin - Unlimited Access"
+        elif is_premium:
+            display_text += f"\n\n⭐ **Status**: Premium - Unlimited Access"  
+        else:
+            display_text += f"\n\n💳 **Status**: {current_credits} credits (20 akan dipotong saat dipilih)"
 
         await update.message.reply_text(
             display_text,
@@ -1209,16 +1217,16 @@ class TelegramBot:
                     symbol = parts[2]
                     timeframe = parts[3]
 
-                    # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
+                    # NOW debit credits when user actually selects timeframe (not just preview)
                     from app.credits_guard import require_credits
                     allowed, remaining, guard_message = require_credits(user_id, 20)
 
                     if not allowed:
-                        print(f"❌ BLOCKED: User {user_id} insufficient credits for futures callback - {guard_message}")
+                        print(f"❌ BLOCKED: User {user_id} insufficient credits for futures analysis - {guard_message}")
                         await query.edit_message_text(guard_message)
                         return
 
-                    print(f"✅ APPROVED: User {user_id} futures callback - {guard_message}")
+                    print(f"✅ APPROVED: User {user_id} futures analysis - {guard_message}")
 
                     # Show loading
                     await query.edit_message_text(
@@ -1233,7 +1241,7 @@ class TelegramBot:
                         # Get analysis with SnD enhancement
                         analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
 
-                        # Add credit status to response
+                        # Add credit status to response (credits already debited by guard)
                         analysis_text += f"\n\n{guard_message}"
 
                         # Handle long messages
