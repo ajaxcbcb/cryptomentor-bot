@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, Tuple
 import os, time
 from datetime import datetime, timezone
-from .supabase_conn import get_supabase_client, _san
+from app.supabase_conn import get_supabase_client, _san
 
 WELCOME_CREDITS = int(os.getenv("WELCOME_CREDITS", "100"))
 
@@ -96,24 +96,50 @@ def debit_credits(tg_id: int, amount: int) -> int:
     return new_credits
 
 def is_premium_active(tg_id: int) -> bool:
-    """Check if user has active premium"""
-    row = get_user_by_telegram_id(tg_id) or {}
-    if row.get("is_lifetime"):
-        return True
-    if not row.get("is_premium"):
-        return False
-
-    pu = row.get("premium_until")
-    if not pu:
-        return False
+    """Check if user has active premium status"""
+    s = get_supabase_client()
 
     try:
-        s = str(pu)
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        return dt > datetime.now(timezone.utc)
-    except Exception:
+        result = s.table("users").select("is_premium, is_lifetime, premium_until").eq("telegram_id", int(tg_id)).limit(1).execute()
+        if not result.data:
+            return False
+
+        user = result.data[0]
+
+        # Check lifetime premium
+        if user.get('is_lifetime'):
+            return True
+
+        # Check regular premium
+        if not user.get('is_premium'):
+            return False
+
+        # Check if premium hasn't expired
+        premium_until = user.get('premium_until')
+        if not premium_until:
+            return user.get('is_lifetime', False)  # Fallback to lifetime check
+
+        # Parse premium_until timestamp
+        try:
+            if isinstance(premium_until, str):
+                # Handle ISO format with timezone
+                if premium_until.endswith('Z'):
+                    premium_until = premium_until[:-1] + '+00:00'
+                premium_dt = datetime.fromisoformat(premium_until)
+            else:
+                premium_dt = premium_until
+
+            # Ensure timezone awareness
+            if premium_dt.tzinfo is None:
+                premium_dt = premium_dt.replace(tzinfo=timezone.utc)
+
+            return premium_dt > datetime.now(timezone.utc)
+        except Exception as e:
+            print(f"❌ Error parsing premium_until for user {tg_id}: {e}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error checking premium status for user {tg_id}: {e}")
         return False
 
 def stats_totals() -> Tuple[int, int]:
