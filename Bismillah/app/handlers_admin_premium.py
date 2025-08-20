@@ -5,7 +5,8 @@ import asyncio
 
 from app.lib.guards import admin_guard
 from app.safe_send import safe_reply
-from app.supabase_conn import get_supabase_client, get_user_by_tid
+from app.supabase_conn import get_supabase_client
+from app.users_repo import get_user_by_telegram_id
 
 
 _locks = {}
@@ -33,7 +34,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             s = get_supabase_client()
             
             # Ensure user exists first
-            existing = get_user_by_tid(tid)
+            existing = get_user_by_telegram_id(tid)
             if not existing:
                 # Create user if doesn't exist
                 insert_data = {
@@ -45,6 +46,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "credits": 100
                 }
                 s.table("users").insert(insert_data).execute()
+                print(f"✅ Created new user {tid} for premium upgrade")
 
             if dur_arg == "lifetime":
                 # Set lifetime premium
@@ -75,7 +77,7 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return await safe_reply(msg, f"❌ Failed to update user {tid}")
 
             # Verify update
-            updated_user = get_user_by_tid(tid)
+            updated_user = get_user_by_telegram_id(tid)
             if updated_user and updated_user.get("is_premium"):
                 if dur_arg == "lifetime":
                     return await safe_reply(msg, f"✅ Premium LIFETIME set untuk user {tid}")
@@ -100,7 +102,7 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
             s = get_supabase_client()
             
             # Check if user exists
-            existing = get_user_by_tid(tid)
+            existing = get_user_by_telegram_id(tid)
             if not existing:
                 return await safe_reply(msg, f"❌ User {tid} tidak ditemukan")
 
@@ -117,7 +119,7 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return await safe_reply(msg, f"❌ Failed to revoke premium untuk user {tid}")
 
             # Verify
-            updated_user = get_user_by_tid(tid)
+            updated_user = get_user_by_telegram_id(tid)
             if updated_user and not updated_user.get("is_premium"):
                 return await safe_reply(msg, f"✅ Premium berhasil di-revoke untuk user {tid}")
             else:
@@ -138,15 +140,16 @@ async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with _lock(tid):
             # Get current credits
-            current_user = get_user_by_tid(tid) or {}
+            current_user = get_user_by_telegram_id(tid) or {}
             current_credits = current_user.get("credits", 0)
             new_credits = current_credits + amount
 
-            # Update credits
-            upsert_user_tid(tid, credits=new_credits)
+            # Update credits using Supabase
+            s = get_supabase_client()
+            s.table("users").update({"credits": new_credits}).eq("telegram_id", tid).execute()
 
             # Verify
-            ref = get_user_by_tid(tid) or {}
+            ref = get_user_by_telegram_id(tid) or {}
             if ref.get("credits", 0) >= new_credits:
                 return await safe_reply(msg, f"✅ Credits granted: {amount} to user {tid}\nNew total: {ref.get('credits', 0)}")
             else:

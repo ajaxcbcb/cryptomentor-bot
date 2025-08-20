@@ -1134,11 +1134,11 @@ class TelegramBot:
 
         # Pre-check credits for UI display (don't debit yet - will debit when user selects timeframe)
         from app.users_repo import get_credits, is_premium_active
-        
+
         is_admin = self.is_admin(user_id)
         is_premium = is_premium_active(user_id)
         current_credits = get_credits(user_id)
-        
+
         if not is_admin and not is_premium and current_credits < 20:
             await update.message.reply_text(
                 f"❌ Credit tidak cukup! Analisis futures membutuhkan 20 credit.\n\n"
@@ -1183,7 +1183,7 @@ class TelegramBot:
             display_text += f"🎯 **Timeframe yang diminta**: {clean_timeframe}\n\n"
 
         display_text += "Pilih timeframe untuk analisis SnD dengan Entry/TP/SL:"
-        
+
         if is_admin:
             display_text += f"\n\n👑 **Status**: Admin - Unlimited Access"
         elif is_premium:
@@ -1386,7 +1386,7 @@ class TelegramBot:
         is_admin = self.is_admin(user_id)
 
         if is_admin:
-            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
+            message = f"""👑 **CryptoMentor AI Bot - Credit Information**
 
 👑 **Status**: **ADMIN**
 ♾️ **Credit**: **UNLIMITED**
@@ -2021,7 +2021,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /check_user_status <user_id> - Check user info
 
 💳 Credit Management
-• /refresh_credits - Reset all free users to 100 credits
+• /fix_all_credits - Reset all free users to 100 credits
 • /set_all_credits <amount> - Set all free users to specific credits
 
 🛠️ System Commands
@@ -2273,6 +2273,8 @@ Gunakan `/subscribe` untuk upgrade!
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
+        await update.message.reply_text("🔄 Starting manual credit refresh to 100 credits for all free users...")
+
         try:
             # Fix NULL and negative credits
             fixed_count = self.db.fix_all_user_credits()
@@ -2497,8 +2499,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         except Exception as e:
             await update.message.reply_text(
                 f"❌ **Credit Refresh Failed**\n\n"
-                f"Error: {str(e)[:200]}...\n"
-                f"Check console for details",
+                f"Error: {str(e)[:200]}...",
                 parse_mode='Markdown'
             )
             print(f"❌ Error in refresh_credits_command: {e}")
@@ -2771,27 +2772,6 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
     async def setup_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /setup_admin command - Shows admin setup instructions"""
 
-    async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /db_status command"""
-        from app.db_router import db_status
-        from app.safe_send import safe_reply
-
-        status = db_status()
-        message = f"🗄️ **Database Status**\n\n"
-        message += f"• **Mode**: {status['mode']}\n"
-        message += f"• **Ready**: {status['ready']}\n"
-        message += f"• **Note**: {status['note']}\n\n"
-
-        if status['mode'] == 'supabase':
-            message += "📊 **Backend**: Supabase Cloud Database\n"
-        elif status['mode'] == 'local':
-            message += "📁 **Backend**: Local JSON Storage\n"
-        else:
-            message += "❌ **Backend**: No database available\n"
-
-        await safe_reply(update.effective_message, message)
-
-
         user_id = update.message.from_user.id
         first_name = update.message.from_user.first_name or "User"
 
@@ -2851,6 +2831,27 @@ ADMIN2 = [optional_second_admin_id]
 • Restart diperlukan setelah mengubah environment variables"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /db_status command"""
+        from app.db_router import db_status
+        from app.safe_send import safe_reply
+
+        status = db_status()
+        message = f"🗄️ **Database Status**\n\n"
+        message += f"• **Mode**: {status['mode']}\n"
+        message += f"• **Ready**: {status['ready']}\n"
+        message += f"• **Note**: {status['note']}\n\n"
+
+        if status['mode'] == 'supabase':
+            message += "📊 **Backend**: Supabase Cloud Database\n"
+        elif status['mode'] == 'local':
+            message += "📁 **Backend**: Local JSON Storage\n"
+        else:
+            message += "❌ **Backend**: No database available\n"
+
+        await safe_reply(update.effective_message, message)
+
 
     async def banned_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /banned command with Database Router"""
@@ -2961,21 +2962,6 @@ ADMIN2 = [optional_second_admin_id]
         except Exception as e:
             await safe_reply(update.message, f"❌ Error sistem: {str(e)}")
             print(f"Error in banned_command: {e}")
-
-    async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cancel_broadcast command"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.pending_broadcast:
-            await update.message.reply_text("❌ Tidak ada broadcast yang pending.")
-            return
-
-        self.pending_broadcast = None
-        await update.message.reply_text("✅ Broadcast dibatalkan.")
 
     async def whoami_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /whoami command - shows user ID"""
@@ -3167,7 +3153,8 @@ ADMIN2 = [optional_second_admin_id]
 
 ⚠️ **User {target_admin_id} tidak lagi memiliki akses admin.**
 
-💡 **Note:** User masih dapat menggunakan bot sebagai user biasa."""
+💡 **Next Steps:**
+• User {target_admin_id} masih dapat menggunakan bot sebagai user biasa."""
 
             # Log admin action
             self.db.log_user_activity(
@@ -3417,19 +3404,20 @@ ADMIN2 = [optional_second_admin_id]
 
         # Add Supabase repair and diagnostic commands
         try:
-            from app.handlers_sb_repair import cmd_sb_repair
-            from app.handlers_admin_premium import cmd_setpremium, cmd_remove_premium, cmd_grant_credits
-            from app.handlers_user_set import cmd_user_set
-            from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
-
-            self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
             # These commands are already handled by class methods, so avoid re-registering if they conflict.
+            # If specific Supabase commands are needed, they should be imported and registered separately.
+            # from app.handlers_sb_repair import cmd_sb_repair
+            # from app.handlers_admin_premium import cmd_setpremium, cmd_revoke_premium, cmd_grant_credits
+            # from app.handlers_user_set import cmd_user_set
+            # from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+
+            # self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
             # self.application.add_handler(CommandHandler("setpremium", cmd_setpremium))
-            # self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+            # self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
             # self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            self.application.add_handler(CommandHandler("user_set", cmd_user_set))
-            self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
-            self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
+            # self.application.add_handler(CommandHandler("user_set", cmd_user_set))
+            # self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+            # self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
 
             print("✅ Supabase admin commands registered")
         except ImportError as e:
@@ -3438,20 +3426,22 @@ ADMIN2 = [optional_second_admin_id]
         # Add debug commands
         if ADMIN_SYSTEM_AVAILABLE:
             try:
-                from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
-                self.application.add_handler(CommandHandler("whoami", cmd_whoami))
-                self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
+                # These commands are already handled by class methods, so avoid re-registering if they conflict.
+                # from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
+                # self.application.add_handler(CommandHandler("whoami", cmd_whoami))
+                # self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
                 print("✅ Admin debug commands registered")
             except ImportError as e:
                 print(f"⚠️ Could not register debug commands: {e}")
 
         # Add AutoSignal admin commands
         try:
-            from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
-            self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
-            self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
-            self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
-            self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
+            # These commands are already handled by class methods, so avoid re-registering if they conflict.
+            # from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
+            # self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
+            # self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
+            # self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
+            # self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
             print("✅ AutoSignal admin commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register AutoSignal commands: {e}")
