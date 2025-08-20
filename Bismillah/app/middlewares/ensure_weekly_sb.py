@@ -19,8 +19,35 @@ class EnsureWeeklyCreditsMiddleware(BaseMiddleware):
         event: Update,
         data: Dict[str, Any]
     ) -> Any:
-        # Weekly refresh is now handled by scheduled task only
-        # This middleware is disabled to prevent frequent credit changes
-        # Credits are refreshed weekly on Monday at midnight via scheduled script
+        # Extract user info
+        user = None
+        if event.message and event.message.from_user:
+            user = event.message.from_user
+        elif event.callback_query and event.callback_query.from_user:
+            user = event.callback_query.from_user
+            
+        if user:
+            try:
+                # Check and refresh weekly credits
+                s = get_supabase_client()
+                now = datetime.utcnow()
+                week_ago = now - timedelta(days=7)
+                
+                # Check if user needs weekly refresh
+                res = s.table("users").select("*").eq("telegram_id", user.id).single().execute()
+                if res.data:
+                    user_data = res.data
+                    last_refresh = user_data.get("last_weekly_refresh")
+                    
+                    if not last_refresh or datetime.fromisoformat(last_refresh.replace('Z', '+00:00')) < week_ago:
+                        # Give weekly refresh
+                        new_credits = user_data.get("credits", 0) + WEEKLY_REFRESH_CREDITS
+                        s.table("users").update({
+                            "credits": new_credits,
+                            "last_weekly_refresh": now.isoformat()
+                        }).eq("telegram_id", user.id).execute()
+                        
+            except Exception as e:
+                print(f"Weekly refresh error for user {user.id}: {e}")
         
         return await handler(event, data)

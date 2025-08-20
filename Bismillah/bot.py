@@ -2405,47 +2405,16 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         sys.exit(0)
 
     async def refresh_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /refresh_credits command - Manual weekly refresh"""
+        """Handle /refresh_credits command"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
-        await update.message.reply_text("🔄 Starting manual weekly credit refresh...")
-
         try:
-            # Import and run Supabase refresh
-            import subprocess
-            import sys
-            
-            result = subprocess.run([
-                sys.executable, 
-                "weekly_credit_refresh_supabase.py", 
-                "--force"
-            ], cwd="Bismillah", capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                await update.message.reply_text(
-                    f"✅ **Manual Credit Refresh Completed!**\n\n"
-                    f"📊 Check console for detailed results\n"
-                    f"🕐 Completed at: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                    f"💡 Next automatic refresh: Monday midnight",
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text(
-                    f"❌ **Credit Refresh Failed**\n\n"
-                    f"Error: {result.stderr[:500]}\n"
-                    f"Check console for details",
-                    parse_mode='Markdown'
-                )
-                
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error running refresh: {str(e)}")
-
-        # Log admin action
-        self.db.log_user_activity(user_id, "admin_manual_refresh", "Manual weekly credit refresh triggered")all_free_user_credits()
+            # Give all free users 50 bonus credits
+            refreshed_count = self.db.refresh_all_free_user_credits()
 
             message = f"""✅ **Credit Refresh Completed!**
 
