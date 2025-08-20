@@ -6,12 +6,16 @@ from typing import List, Set
 # Kunci env yang didukung (urutan prioritas):
 ENV_KEYS = [
     "ADMIN",          # ← utama (bisa 1 atau banyak)
+    "ADMIN1",         # ← admin pertama
+    "ADMIN2",         # ← admin kedua (tambahan)
     "ADMINS",
     "ADMIN_IDS",
     "ADMIN_ID",
 ]
 # Dukungan legacy: ADMIN1..ADMIN10
 LEGACY_KEYS = [f"ADMIN{i}" for i in range(1, 11)]
+# Fallback legacy
+FALLBACK_KEYS = ["ADMIN_USER_ID", "ADMIN2_USER_ID"]
 
 def _split_candidates(val: str) -> List[str]:
     """Pisah string berdasarkan koma, spasi, newline, titik koma."""
@@ -46,6 +50,14 @@ def get_admin_ids() -> List[int]:
 
     # 2) legacy ADMIN1..ADMIN10
     for k in LEGACY_KEYS:
+        v = os.getenv(k)
+        if v:
+            uid = _coerce_id(v)
+            if uid is not None:
+                ids.add(uid)
+
+    # 3) fallback legacy keys
+    for k in FALLBACK_KEYS:
         v = os.getenv(k)
         if v:
             uid = _coerce_id(v)
