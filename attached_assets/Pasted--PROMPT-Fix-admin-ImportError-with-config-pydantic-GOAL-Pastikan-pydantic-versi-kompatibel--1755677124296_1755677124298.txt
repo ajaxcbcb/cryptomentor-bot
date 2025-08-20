@@ -1,0 +1,103 @@
+🚀 PROMPT — Fix /admin ImportError with_config (pydantic)
+
+GOAL
+
+Pastikan pydantic versi kompatibel terpasang.
+
+Sediakan shim with_config kalau masih tidak ada.
+
+Tidak mengubah logic fitur lain (weekly credits, Supabase, dll).
+
+1) Update requirements.txt
+
+Tambahkan/ubah menjadi minimal berikut (biar serasi dengan aiogram v3 & supabase 2.x):
+
+pydantic>=2.6,<3
+pydantic-core>=2.16
+pydantic-settings>=2.2
+aiogram==3.4.1
+supabase>=2.4
+httpx>=0.24,<0.28
+
+
+Simpan file; Replit akan install otomatis. (Kalau belum, langkah 3 akan pasang saat runtime.)
+
+2) Buat shim pydantic: app/fix_pydantic.py
+# app/fix_pydantic.py
+from __future__ import annotations
+import importlib, sys, subprocess
+
+NEEDED = "pydantic>=2.6,<3"
+
+def _install(spec: str):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", spec])
+
+def ensure():
+    """
+    1) Pastikan pydantic v2.x terpasang.
+    2) Jika simbol 'with_config' tidak ada (beberapa build Replit), sediakan shim no-op.
+    """
+    try:
+        import pydantic as p
+    except Exception:
+        _install(NEEDED)
+        import pydantic as p  # type: ignore
+
+    # kalau versi tidak sesuai, coba upgrade
+    try:
+        v = getattr(p, "__version__", "0")
+        major = int(str(v).split(".")[0])
+        if major < 2:
+            _install(NEEDED)
+            import pydantic as p  # type: ignore
+    except Exception:
+        pass
+
+    # shim with_config bila hilang
+    if not hasattr(p, "with_config"):
+        def with_config(*args, **kwargs):
+            """
+            Shim no-op untuk kompatibilitas:
+            - Bisa dipanggil sebagai decorator: @with_config(...).
+            - Mengembalikan objek/dekorasi apa adanya.
+            """
+            def _decorator(obj):
+                return obj
+            return _decorator
+        setattr(p, "with_config", with_config)
+
+3) Panggil shim sebelum import paket lain
+
+Di baris paling atas main.py (atau entrypoint kamu), tambahkan:
+
+# main.py (TOP)
+try:
+    from app.fix_pydantic import ensure as _ensure_pydantic
+    _ensure_pydantic()
+except Exception as _e:
+    print("[pydantic-fix] warning:", _e)
+
+# lanjut import lain:
+from aiogram import Bot, Dispatcher
+# ...
+
+
+Penting: import shim sebelum modul mana pun yang memakai pydantic.
+
+4) (Opsional) Self-test cepat di startup
+
+Tambahkan ini setelah logging:
+
+# sanity check
+try:
+    from pydantic import with_config
+    print("[pydantic] with_config available")
+except Exception as e:
+    print("[pydantic] with_config MISSING:", e)
+
+5) Acceptance
+
+Jalankan bot lalu kirim /admin.
+❌ Error ImportError("cannot import name 'with_config' from 'pydantic'") hilang.
+
+Fitur lain (Supabase, weekly credits) tetap normal.
