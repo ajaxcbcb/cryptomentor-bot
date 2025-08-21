@@ -1,7 +1,8 @@
+
 import os
 from telegram import Update
 from telegram.ext import ContextTypes
-from app.supabase_repo import ensure_user_exists, set_premium_normalized, revoke_premium, get_user_by_tid, get_vuser_by_tid
+from app.supabase_repo import ensure_user_exists, set_premium_normalized, revoke_premium, get_vuser_by_tid
 
 def _admin_ids() -> set[int]:
     ids = set()
@@ -14,97 +15,152 @@ def _admin_ids() -> set[int]:
                 ids.add(int(tok))
     return ids
 
-def _is_admin(user_id: int) -> bool:
-    return user_id in _admin_ids()
+def _is_admin(uid: int) -> bool:
+    return uid in _admin_ids()
 
 async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /setpremium command with duration normalization"""
     uid = update.effective_user.id if update.effective_user else 0
     if not _is_admin(uid):
         await update.message.reply_text(f"❌ Admin only. Your ID: {uid}")
         return
 
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /setpremium <telegram_id> <lifetime|<days>d|<days>|<months>m>")
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "❌ **Usage:** `/setpremium <telegram_id> <duration>`\n\n"
+            "**Duration formats:**\n"
+            "• `lifetime` - Lifetime premium\n"
+            "• `30d` or `30` - 30 days\n"
+            "• `2m` - 2 months\n\n"
+            "**Examples:**\n"
+            "• `/setpremium 123456789 lifetime`\n"
+            "• `/setpremium 123456789 30d`\n"
+            "• `/setpremium 123456789 2m`",
+            parse_mode='Markdown'
+        )
         return
 
     try:
-        tg_id = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("❌ ID tidak valid.")
+        tg_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Telegram ID must be a number!")
         return
 
-    duration_token = context.args[1]
+    duration = args[1]
 
     try:
-        # Pastikan user ada meskipun belum /start
+        # Ensure user exists even if they haven't /start
         ensure_user_exists(tg_id)
-        v = set_premium_normalized(tg_id, duration_token)
-
-        message = f"✅ Premium updated for user {tg_id}\n\n"
-        message += f"📊 **Details:**\n"
-        message += f"• **Premium**: {v.get('is_premium')}\n"
-        message += f"• **Lifetime**: {v.get('is_lifetime')}\n"
-        message += f"• **Active**: {v.get('premium_active')}\n"
-        message += f"• **Until**: {v.get('premium_until', 'N/A')}\n\n"
-        message += f"💡 User dapat langsung menggunakan fitur premium tanpa perlu /start"
-
-        await update.message.reply_text(message)
+        
+        # Set premium with normalized duration
+        v = set_premium_normalized(tg_id, duration)
+        
+        premium_status = "✅ ACTIVE" if v.get('premium_active') else "❌ INACTIVE"
+        lifetime_status = "🌟 LIFETIME" if v.get('is_lifetime') else "⏰ TIMED"
+        
+        await update.message.reply_text(
+            f"✅ **Premium updated successfully!**\n\n"
+            f"👤 **User ID**: `{tg_id}`\n"
+            f"📊 **Premium Status**: {premium_status}\n"
+            f"💎 **Type**: {lifetime_status}\n"
+            f"📅 **Until**: {v.get('premium_until') or 'No expiry'}\n\n"
+            f"🔍 **Raw Data:**\n"
+            f"• is_premium: {v.get('is_premium')}\n"
+            f"• is_lifetime: {v.get('is_lifetime')}\n"
+            f"• premium_active: {v.get('premium_active')}",
+            parse_mode='Markdown'
+        )
+        
     except Exception as e:
-        await update.message.reply_text(f"⚠️ setpremium failed: {e}")
+        await update.message.reply_text(f"⚠️ **setpremium failed:** {str(e)}")
 
 async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /revoke_premium command"""
     uid = update.effective_user.id if update.effective_user else 0
     if not _is_admin(uid):
         await update.message.reply_text(f"❌ Admin only. Your ID: {uid}")
         return
 
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /revoke_premium <telegram_id>")
+    args = context.args or []
+    if len(args) < 1:
+        await update.message.reply_text(
+            "❌ **Usage:** `/revoke_premium <telegram_id>`\n\n"
+            "**Example:** `/revoke_premium 123456789`",
+            parse_mode='Markdown'
+        )
+        return
+        
+    try:
+        tg_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Telegram ID must be a number!")
         return
 
     try:
-        tg_id = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("❌ ID tidak valid.")
-        return
-
-    try:
-        ensure_user_exists(tg_id)  # kalau belum ada, buat dulu lalu revoke = tetap non-premium
         v = revoke_premium(tg_id)
-
-        message = f"✅ Premium revoked for user {tg_id}\n\n"
-        message += f"📊 **Status sekarang:**\n"
-        message += f"• **Premium**: {v.get('is_premium')}\n"
-        message += f"• **Lifetime**: {v.get('is_lifetime')}\n"
-        message += f"• **Active**: {v.get('premium_active')}\n"
-        message += f"• **Until**: {v.get('premium_until')}"
-
-        await update.message.reply_text(message)
+        
+        await update.message.reply_text(
+            f"✅ **Premium revoked successfully!**\n\n"
+            f"👤 **User ID**: `{tg_id}`\n"
+            f"📊 **Premium Status**: ❌ REVOKED\n\n"
+            f"🔍 **Raw Data:**\n"
+            f"• is_premium: {v.get('is_premium')}\n"
+            f"• is_lifetime: {v.get('is_lifetime')}\n"
+            f"• premium_active: {v.get('premium_active')}\n"
+            f"• premium_until: {v.get('premium_until')}",
+            parse_mode='Markdown'
+        )
+        
     except Exception as e:
-        await update.message.reply_text(f"⚠️ revoke_premium failed: {e}")
+        await update.message.reply_text(f"⚠️ **revoke_premium failed:** {str(e)}")
 
 async def cmd_whois(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 1:
-        await update.message.reply_text("Usage: /whois <telegram_id>")
+    """Handle /whois command to check user status from v_users"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not _is_admin(uid):
+        await update.message.reply_text(f"❌ Admin only. Your ID: {uid}")
+        return
+
+    args = context.args or []
+    if len(args) < 1:
+        await update.message.reply_text(
+            "❌ **Usage:** `/whois <telegram_id>`\n\n"
+            "**Example:** `/whois 123456789`",
+            parse_mode='Markdown'
+        )
+        return
+        
+    try:
+        tg_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Telegram ID must be a number!")
         return
 
     try:
-        tg_id = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("❌ ID tidak valid.")
-        return
-
-    v = get_vuser_by_tid(tg_id) or {}
-
-    message = f"👤 **User Info (v_users)**\n\n"
-    message += f"🆔 **User ID**: {tg_id}\n"
-    message += f"👤 **Name**: {v.get('first_name', 'Unknown')}\n"
-    message += f"📧 **Username**: @{v.get('username', 'no_username')}\n"
-    message += f"⭐ **Premium**: {v.get('is_premium', False)}\n"
-    message += f"💎 **Lifetime**: {v.get('is_lifetime', False)}\n"
-    message += f"🔥 **Active**: {v.get('premium_active', False)}\n"
-    message += f"📅 **Until**: {v.get('premium_until', 'N/A')}\n"
-    message += f"💳 **Credits**: {v.get('credits', 0)}\n"
-    message += f"📊 **In Database**: {'✅ Yes' if v else '❌ No'}"
-
-    await update.message.reply_text(message)
+        v = get_vuser_by_tid(tg_id) or {}
+        
+        if not v:
+            await update.message.reply_text(f"❌ User {tg_id} not found in database")
+            return
+            
+        premium_status = "✅ ACTIVE" if v.get('premium_active') else "❌ INACTIVE"
+        lifetime_status = "🌟 LIFETIME" if v.get('is_lifetime') else "⏰ TIMED"
+        
+        await update.message.reply_text(
+            f"👤 **User Status from v_users**\n\n"
+            f"🆔 **Telegram ID**: `{tg_id}`\n"
+            f"👤 **Name**: {v.get('first_name', 'Unknown')}\n"
+            f"📊 **Premium Status**: {premium_status}\n"
+            f"💎 **Type**: {lifetime_status}\n"
+            f"💳 **Credits**: {v.get('credits', 0)}\n"
+            f"📅 **Premium Until**: {v.get('premium_until') or 'No expiry'}\n\n"
+            f"🔍 **Raw Premium Data:**\n"
+            f"• is_premium: {v.get('is_premium')}\n"
+            f"• is_lifetime: {v.get('is_lifetime')}\n"
+            f"• premium_active: {v.get('premium_active')}",
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ **whois failed:** {str(e)}")

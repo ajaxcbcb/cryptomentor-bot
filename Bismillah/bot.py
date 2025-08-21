@@ -2042,8 +2042,8 @@ Gunakan `/subscribe` untuk upgrade!
             )
 
     async def setpremium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk set premium user dengan Supabase"""
-        from app.users_repo import set_premium, get_user_by_telegram_id
+        """Admin command untuk set premium user dengan Supabase (normalized)"""
+        from app.supabase_repo import ensure_user_exists, set_premium_normalized
         from app.safe_send import safe_reply
 
         user_id = update.effective_user.id
@@ -2053,82 +2053,54 @@ Gunakan `/subscribe` untuk upgrade!
 
         if len(context.args) != 2 or not context.args[0].isdigit():
             await safe_reply(update.effective_message,
-                "❌ Format salah!\n"
-                "Gunakan: /setpremium <user_id> <duration>\n\n"
-                "Duration format:\n"
-                "• `30` - 30 hari\n"
-                "• `lifetime` - Seumur hidup"
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/setpremium <user_id> <duration>`\n\n"
+                "**Duration formats:**\n"
+                "• `lifetime` - Lifetime premium\n"
+                "• `30d` atau `30` - 30 hari\n"
+                "• `2m` - 2 bulan\n\n"
+                "**Examples:**\n"
+                "• `/setpremium 123456789 lifetime`\n"
+                "• `/setpremium 123456789 30d`\n"
+                "• `/setpremium 123456789 2m`"
             )
             return
 
         try:
             target_user_id = int(context.args[0])
-            duration_str = context.args[1].lower()
+            duration_str = context.args[1]
 
-            # Check if user exists
-            user_data = get_user_by_telegram_id(target_user_id)
-            if not user_data:
-                await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
-                return
+            # Ensure user exists even if they haven't /start
+            ensure_user_exists(target_user_id)
 
-            # Parse duration
-            is_lifetime = duration_str in ['lifetime', 'selamanya', 'permanent']
-            days = None
+            # Set premium using normalized function
+            v = set_premium_normalized(target_user_id, duration_str)
 
-            if not is_lifetime:
-                # Extract number of days
-                if duration_str.endswith('d'):
-                    days = int(duration_str[:-1])
-                elif duration_str.endswith('h'):
-                    days = int(duration_str[:-1]) // 24
-                elif duration_str.isdigit():
-                    days = int(duration_str)
-                else:
-                    days = 30  # Default
+            premium_status = "✅ ACTIVE" if v.get('premium_active') else "❌ INACTIVE"
+            lifetime_status = "🌟 LIFETIME" if v.get('is_lifetime') else "⏰ TIMED"
 
-            # Set premium in Supabase
-            success = set_premium(target_user_id, lifetime=is_lifetime, days=days)
-
-            if success:
-                # Get updated user data to confirm
-                updated_user = get_user_by_telegram_id(target_user_id)
-
-                if is_lifetime:
-                    premium_status = "🌟 **LIFETIME PREMIUM**"
-                    premium_details = "• Unlimited access selamanya"
-                else:
-                    premium_status = f"⭐ **PREMIUM {days} HARI**"
-                    premium_until = updated_user.get('premium_until', '')
-                    if premium_until:
-                        try:
-                            premium_dt = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
-                            premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
-                            premium_details = f"• Berlaku sampai: {premium_until_str}"
-                        except:
-                            premium_details = f"• Berlaku sampai: {premium_until}"
-                    else:
-                        premium_details = "• Premium aktif"
-
-                message = f"""✅ **Premium berhasil diset!**
+            message = f"""✅ **Premium berhasil diset!**
 
 👤 **User ID**: {target_user_id}
-📊 **Status**: {premium_status}
+📊 **Premium Status**: {premium_status}
+💎 **Type**: {lifetime_status}
+📅 **Until**: {v.get('premium_until') or 'No expiry'}
 
-💡 **Details:**
-{premium_details}
+🔍 **Verification from v_users:**
+• is_premium: {v.get('is_premium')}
+• is_lifetime: {v.get('is_lifetime')}
+• premium_active: {v.get('premium_active')}
 
 🔄 **Database**: Updated in Supabase ✅"""
 
-                await safe_reply(update.effective_message, message)
+            await safe_reply(update.effective_message, message)
 
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_setpremium",
-                    f"Set premium {duration_str} for user {target_user_id}"
-                )
-            else:
-                await safe_reply(update.effective_message, f"❌ Gagal mengupdate premium untuk user {target_user_id}")
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_setpremium",
+                f"Set premium {duration_str} for user {target_user_id}"
+            )
 
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
@@ -2231,8 +2203,8 @@ Gunakan `/subscribe` untuk upgrade!
         await update.message.reply_text(message, parse_mode='Markdown')
 
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk revoke premium user dengan Supabase"""
-        from app.users_repo import revoke_premium, get_user_by_telegram_id
+        """Admin command untuk revoke premium user dengan Supabase (normalized)"""
+        from app.supabase_repo import revoke_premium
         from app.safe_send import safe_reply
 
         user_id = update.effective_user.id
@@ -2241,46 +2213,40 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 1 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, "Format: /revoke_premium <user_id>")
+            await safe_reply(update.effective_message, 
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/revoke_premium <user_id>`\n\n"
+                "**Example:** `/revoke_premium 123456789`"
+            )
             return
 
         try:
             target_user_id = int(context.args[0])
 
-            # Check if user exists
-            user_data = get_user_by_telegram_id(target_user_id)
-            if not user_data:
-                await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
-                return
+            # Revoke premium using normalized function
+            v = revoke_premium(target_user_id)
 
-            # Revoke premium in Supabase
-            success = revoke_premium(target_user_id)
-
-            if success:
-                # Get updated user data to confirm
-                updated_user = get_user_by_telegram_id(target_user_id)
-
-                message = f"""✅ **Premium berhasil dicabut!**
+            message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User ID**: {target_user_id}
-📊 **Status**: ❌ FREE USER
+📊 **Status**: ❌ REVOKED
 
-💡 **Details:**
-• Premium status: Tidak aktif
-• Credits: {updated_user.get('credits', 0)}
+🔍 **Verification from v_users:**
+• is_premium: {v.get('is_premium')}
+• is_lifetime: {v.get('is_lifetime')}
+• premium_active: {v.get('premium_active')}
+• premium_until: {v.get('premium_until')}
 
 🔄 **Database**: Updated in Supabase ✅"""
 
-                await safe_reply(update.effective_message, message)
+            await safe_reply(update.effective_message, message)
 
-                # Log admin action
-                self.db.log_user_activity(
-                    user_id,
-                    "admin_revoke_premium",
-                    f"Revoked premium for user {target_user_id}"
-                )
-            else:
-                await safe_reply(update.effective_message, f"❌ Gagal mencabut premium untuk user {target_user_id}")
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_revoke_premium",
+                f"Revoked premium for user {target_user_id}"
+            )
 
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
@@ -3502,6 +3468,13 @@ ADMIN2 = [optional_second_admin_id]
             await update.message.reply_text(f"❌ Error: {e}")
             print(f"Error in test_premium: {e}")
 
+    async def whois_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /whois command to check user status from v_users"""
+        from app.routers.admin_premium import cmd_whois
+        
+        # Delegate to the router function
+        await cmd_whois(update, context)
+
     async def _on_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Global error handler to log unhandled exceptions"""
         user_id = getattr(getattr(update, "effective_user", None), "id", None)
@@ -3631,6 +3604,9 @@ ADMIN2 = [optional_second_admin_id]
             print("✅ New admin premium router commands registered")
         except ImportError as e:
             print(f"⚠️ Could not register new admin premium commands: {e}")
+
+        # Add whois command to main bot handlers
+        self.application.add_handler(CommandHandler("whois", self.whois_command))
 
         # Add test commands for Supabase integration
         self.application.add_handler(CommandHandler("test_premium", self.test_premium_command))

@@ -18,6 +18,12 @@ def get_user_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
     res = s.table("users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
     return res.data[0] if res.data else None
 
+def get_vuser_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
+    """Get user from v_users view (includes premium_active calculation)"""
+    s = _client()
+    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
 def ensure_user_exists(
     tg_id: int,
     username: Optional[str] = None,
@@ -63,12 +69,6 @@ def ensure_user_exists(
     if r2.data: 
         return r2.data[0]
     raise RuntimeError("ensure_user_exists failed to create/find user")
-
-def get_vuser_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
-    """Get user from v_users view (includes premium_active calculation)"""
-    s = _client()
-    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
-    return res.data[0] if res.data else None
 
 def _normalize_duration(token: str) -> Tuple[str, int]:
     """
