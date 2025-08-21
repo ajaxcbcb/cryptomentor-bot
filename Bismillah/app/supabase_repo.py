@@ -89,6 +89,15 @@ def _normalize_duration(token: str) -> Tuple[str, int]:
             return ("months", int(num))
     raise ValueError("Invalid duration. Use lifetime | <days>d | <days> | <months>m")
 
+def ensure_user_exists(tg_id: int) -> Dict[str, Any]:
+    """Create minimal user if not exists"""
+    s = _client()
+    # Upsert minimal row
+    row = {"telegram_id": int(tg_id)}
+    s.table("users").upsert(row, on_conflict="telegram_id").execute()
+    r = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return r.data[0] if r.data else row
+
 def set_premium_normalized(tg_id: int, duration_token: str) -> Dict[str, Any]:
     """Accept '30d'/'30'/'2m'/'lifetime', send valid params to RPC, then read from v_users."""
     s = _client()
