@@ -200,12 +200,6 @@ class TelegramBot:
         if os.getenv("ADMIN_IDS"):
             admin_ids.update({int(x.strip()) for x in os.getenv("ADMIN_IDS").split(",") if x.strip().isdigit()})
 
-        # Check individual ADMIN variables (ADMIN, ADMIN1, ADMIN2, etc.)
-        for key in ["ADMIN", "ADMIN1", "ADMIN2", "ADMIN3", "ADMIN4", "ADMIN5"]:
-            admin_value = os.getenv(key, "").strip()
-            if admin_value.isdigit():
-                admin_ids.add(int(admin_value))
-
         self.admin_ids = admin_ids if ADMIN_SYSTEM_AVAILABLE else set()
         self.admin_id = min(self.admin_ids) if self.admin_ids else 0
 
@@ -3271,61 +3265,51 @@ ADMIN2 = [optional_second_admin_id]
 
         try:
             target_user_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka!")
-            return
-
-        try:
-            from app.premium_check import is_premium_active, get_user_credits
-            from app.users_repo import get_user_by_telegram_id
 
             # Get user data from Supabase
             user_data = get_user_by_telegram_id(target_user_id)
-
-            if not user_data:
-                await update.message.reply_text(f"❌ User {target_user_id} tidak ditemukan dalam database.")
-                return
-
-            # Get premium status
             is_premium = is_premium_active(target_user_id)
-            credits = get_user_credits(target_user_id)
 
-            # Get user info
-            first_name = user_data.get('first_name', 'Unknown')
-            username = user_data.get('username', 'No username')
-            is_lifetime = user_data.get('is_lifetime', False)
-            premium_until = user_data.get('premium_until')
-            created_at = user_data.get('created_at', 'Unknown')
+            if user_data:
+                # Get premium status
+                credits = get_user_credits(target_user_id)
 
-            # Format premium status
-            if is_lifetime:
-                premium_status = "🌟 **LIFETIME PREMIUM**"
-                premium_details = "• Akses unlimited selamanya\n• Auto SnD signals access"
-            elif is_premium:
-                premium_status = "⭐ **PREMIUM ACTIVE**"
-                if premium_until:
-                    try:
-                        # Parse premium until date
-                        if isinstance(premium_until, str):
-                            if premium_until.endswith('Z'):
-                                premium_until = premium_until[:-1] + '+00:00'
-                            elif '+' not in premium_until and 'Z' not in premium_until:
-                                premium_until = premium_until + '+00:00'
-                            premium_dt = datetime.fromisoformat(premium_until)
-                        else:
-                            premium_dt = premium_until
+                # Get user info
+                first_name = user_data.get('first_name', 'Unknown')
+                username = user_data.get('username', 'No username')
+                is_lifetime = user_data.get('is_lifetime', False)
+                premium_until = user_data.get('premium_until')
+                created_at = user_data.get('created_at', 'Unknown')
 
-                        premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
-                        premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
-                    except Exception as e:
-                        premium_details = f"• Premium until: {premium_until}\n• Unlimited access"
+                # Format premium status
+                if is_lifetime:
+                    premium_status = "🌟 **LIFETIME PREMIUM**"
+                    premium_details = "• Akses unlimited selamanya\n• Auto SnD signals access"
+                elif is_premium:
+                    premium_status = "⭐ **PREMIUM ACTIVE**"
+                    if premium_until:
+                        try:
+                            # Parse premium until date
+                            if isinstance(premium_until, str):
+                                if premium_until.endswith('Z'):
+                                    premium_until = premium_until[:-1] + '+00:00'
+                                elif '+' not in premium_until and 'Z' not in premium_until:
+                                    premium_until = premium_until + '+00:00'
+                                premium_dt = datetime.fromisoformat(premium_until)
+                            else:
+                                premium_dt = premium_until
+
+                            premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
+                            premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
+                        except Exception as e:
+                            premium_details = f"• Premium until: {premium_until}\n• Unlimited access"
+                    else:
+                        premium_details = "• No expiry date set\n• Unlimited access"
                 else:
-                    premium_details = "• No expiry date set\n• Unlimited access"
-            else:
-                premium_status = "❌ **FREE USER**"
-                premium_details = f"• Credits: {credits}\n• Limited access"
+                    premium_status = "❌ **FREE USER**"
+                    premium_details = f"• Credits: {credits}\n• Limited access"
 
-            message = f"""💎 **Premium Status Check**
+                message = f"""💎 **Premium Status Check**
 
 👤 **User Information:**
 • **ID**: `{target_user_id}`
@@ -3344,14 +3328,17 @@ ADMIN2 = [optional_second_admin_id]
 • `/revoke_premium {target_user_id}` - Remove premium
 • `/grant_credits {target_user_id} 100` - Add credits"""
 
-            # Log admin action
-            self.db.log_user_activity(
-                user_id,
-                "admin_check_premium",
-                f"Checked premium status for user {target_user_id}"
-            )
+                # Log admin action
+                self.db.log_user_activity(
+                    user_id,
+                    "admin_check_premium",
+                    f"Checked premium status for user {target_user_id}"
+                )
 
-            await update.message.reply_text(message, parse_mode='Markdown')
+                await update.message.reply_text(message, parse_mode='Markdown')
+
+            else:
+                await update.message.reply_text(f"❌ User {target_user_id} not found in Supabase")
 
         except Exception as e:
             await update.message.reply_text(

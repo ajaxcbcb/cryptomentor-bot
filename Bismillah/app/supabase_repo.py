@@ -64,18 +64,41 @@ def ensure_user_exists(
         return r2.data[0]
     raise RuntimeError("ensure_user_exists failed to create/find user")
 
-def set_premium(tg_id: int, duration_type: str, duration_value: int = 0) -> Dict[str, Any]:
-    """
-    duration_type: 'lifetime' | 'days' | 'months'
-    duration_value: jumlah hari/bulan untuk 'days'/'months'
-    """
+def get_vuser_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
+    """Get user from v_users view (includes premium_active calculation)"""
     s = _client()
-    # panggil RPC resmi jika ada, fallback ke manual update
+    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
+def _normalize_duration(token: str) -> Tuple[str, int]:
+    """
+    lifetime         -> ('lifetime', 0)
+    30d / 30         -> ('days', 30)
+    2m / 2mo / 2mon  -> ('months', 2)
+    """
+    t = (token or "").strip().lower()
+    if t == "lifetime":
+        return ("lifetime", 0)
+    if t.isdigit():
+        return ("days", int(t))
+    if t.endswith("d") and t[:-1].isdigit():
+        return ("days", int(t[:-1]))
+    if t.endswith(("m", "mo", "mon", "month", "months")):
+        num = "".join(ch for ch in t if ch.isdigit())
+        if num.isdigit():
+            return ("months", int(num))
+    raise ValueError("Invalid duration. Use lifetime | <days>d | <days> | <months>m")
+
+def set_premium_normalized(tg_id: int, duration_token: str) -> Dict[str, Any]:
+    """Accept '30d'/'30'/'2m'/'lifetime', send valid params to RPC, then read from v_users."""
+    s = _client()
+    dtype, dval = _normalize_duration(duration_token)
+    
     try:
         s.rpc("set_premium", {
             "p_telegram_id": int(tg_id),
-            "p_duration_value": int(duration_value),
-            "p_duration_type": duration_type.lower(),
+            "p_duration_value": int(dval),
+            "p_duration_type": dtype,
         }).execute()
     except Exception:
         # Fallback manual update
@@ -86,27 +109,31 @@ def set_premium(tg_id: int, duration_type: str, duration_value: int = 0) -> Dict
             "updated_at": datetime.now().isoformat()
         }
         
-        if duration_type.lower() == "lifetime":
+        if dtype == "lifetime":
             update_data["is_lifetime"] = True
             update_data["premium_until"] = None
         else:
             update_data["is_lifetime"] = False
-            if duration_type.lower() == "days":
-                premium_until = datetime.now() + timedelta(days=duration_value)
-            elif duration_type.lower() == "months":
-                premium_until = datetime.now() + timedelta(days=duration_value * 30)
+            if dtype == "days":
+                premium_until = datetime.now() + timedelta(days=dval)
+            elif dtype == "months":
+                premium_until = datetime.now() + timedelta(days=dval * 30)
             else:
-                premium_until = datetime.now() + timedelta(days=duration_value)
+                premium_until = datetime.now() + timedelta(days=dval)
             
             update_data["premium_until"] = premium_until.isoformat()
         
         s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
     
-    # verifikasi: baca ulang row
-    row = get_user_by_tid(tg_id)
-    if not row:
-        raise RuntimeError("set_premium ok but row not found after update")
-    return row
+    # Verify from view
+    v = get_vuser_by_tid(tg_id)
+    if not v:
+        raise RuntimeError("Premium updated but v_users row not found")
+    return v
+
+def set_premium(tg_id: int, duration_type: str, duration_value: int = 0) -> Dict[str, Any]:
+    """Legacy function - use set_premium_normalized instead"""
+    return set_premium_normalized(tg_id, f"{duration_value}{duration_type[0]}" if duration_value > 0 else "lifetime")
 
 def revoke_premium(tg_id: int) -> Dict[str, Any]:
     s = _client()
@@ -115,7 +142,7 @@ def revoke_premium(tg_id: int) -> Dict[str, Any]:
         "is_lifetime": False,
         "premium_until": None
     }).eq("telegram_id", int(tg_id)).execute()
-    row = get_user_by_tid(tg_id)
-    if not row:
-        raise RuntimeError("revoke_premium ok but row not found after update")
-    return row
+    v = get_vuser_by_tid(tg_id)
+    if not v:
+        raise RuntimeError("Revoke ok but v_users row not found")
+    return v
