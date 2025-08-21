@@ -3635,6 +3635,16 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
         self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
 
+        # Add new admin premium router commands
+        try:
+            from app.routers.admin_premium import cmd_setpremium, cmd_revoke_premium, cmd_whois
+            self.application.add_handler(CommandHandler("setpremium_new", cmd_setpremium))
+            self.application.add_handler(CommandHandler("revoke_premium_new", cmd_revoke_premium))
+            self.application.add_handler(CommandHandler("whois", cmd_whois))
+            print("✅ New admin premium router commands registered")
+        except ImportError as e:
+            print(f"⚠️ Could not register new admin premium commands: {e}")
+
         # Add test commands for Supabase integration
         self.application.add_handler(CommandHandler("test_premium", self.test_premium_command))
 

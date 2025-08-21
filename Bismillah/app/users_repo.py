@@ -1,4 +1,3 @@
-
 import os
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -34,38 +33,60 @@ def get_user_by_tid(telegram_id: int) -> Optional[Dict[str, Any]]:
 def create_user_if_not_exists(telegram_id: int, username: str = None, first_name: str = None) -> bool:
     """Create user in Supabase if not exists"""
     try:
-        supabase = get_supabase_client()
-        
-        # Check if user exists
-        existing = get_user_by_telegram_id(telegram_id)
-        if existing:
-            print(f"User {telegram_id} already exists")
-            return True
-            
-        # Create new user
-        user_data = {
-            "telegram_id": telegram_id,
-            "username": username or "no_username",
-            "first_name": first_name or "Unknown",
-            "is_premium": False,
-            "is_lifetime": False,
-            "credits": 100,  # Default credits for new users
-            "premium_until": None
-        }
-        
-        result = supabase.table("users").insert(user_data).execute()
-        print(f"Created user {telegram_id} in Supabase")
-        return bool(result.data)
-        
+        from app.supabase_repo import ensure_user_exists
+
+        # Use the new ensure_user_exists function
+        ensure_user_exists(
+            tg_id=telegram_id,
+            username=username,
+            first_name=first_name
+        )
+        print(f"✅ User {telegram_id} ensured to exist in Supabase")
+        return True
+
     except Exception as e:
-        print(f"Error creating user {telegram_id}: {e}")
-        return False
+        print(f"❌ Error ensuring user {telegram_id} exists: {e}")
+        # Fallback to old method
+        try:
+            supabase = get_supabase_client()
+
+            # Check if user exists
+            existing = supabase.table("users").select("telegram_id").eq("telegram_id", telegram_id).execute()
+
+            if existing.data:
+                print(f"✅ User {telegram_id} already exists in Supabase")
+                return True
+
+            # Create new user
+            user_data = {
+                "telegram_id": telegram_id,
+                "username": (username or "").strip().lstrip("@").lower() or None,
+                "first_name": first_name or "Unknown",
+                "credits": 100,  # Default credits
+                "is_premium": False,
+                "is_lifetime": False,
+                "created_at": datetime.now().isoformat()
+            }
+
+            result = supabase.table("users").insert(user_data).execute()
+
+            if result.data:
+                print(f"✅ Created new user {telegram_id} in Supabase")
+                return True
+            else:
+                print(f"❌ Failed to create user {telegram_id} in Supabase")
+                return False
+
+        except Exception as e2:
+            print(f"❌ Fallback also failed for user {telegram_id}: {e2}")
+            return False
+
 
 def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> bool:
     """Set premium status for user in Supabase (auto-creates user if not exists)"""
     try:
         supabase = get_supabase_client()
-        
+
         # Check if user exists, if not create them first
         existing_user = get_user_by_telegram_id(telegram_id)
         if not existing_user:
@@ -80,21 +101,21 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
                 "credits": 100,  # Default credits
                 "premium_until": None
             }
-            
+
             # Insert new user
             create_result = supabase.table("users").insert(user_data).execute()
             if not create_result.data:
                 print(f"Failed to create user {telegram_id}")
                 return False
             print(f"Successfully created user {telegram_id}")
-        
+
         # Prepare premium update data
         update_data = {
             "is_premium": True,
             "is_lifetime": lifetime,
             "updated_at": datetime.utcnow().isoformat()
         }
-        
+
         if lifetime:
             update_data["premium_until"] = None
         elif days:
@@ -104,10 +125,10 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
             # Default 30 days if no days specified
             premium_until = datetime.utcnow() + timedelta(days=30)
             update_data["premium_until"] = premium_until.isoformat()
-        
+
         # Update user with premium status
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
-        
+
         if result.data:
             premium_type = "LIFETIME" if lifetime else f"{days or 30} days"
             print(f"Set premium {premium_type} for user {telegram_id}")
@@ -115,7 +136,7 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
         else:
             print(f"Failed to update premium for user {telegram_id}")
             return False
-            
+
     except Exception as e:
         print(f"Error setting premium for user {telegram_id}: {e}")
         return False
@@ -124,7 +145,7 @@ def revoke_premium(telegram_id: int) -> bool:
     """Revoke premium status from user in Supabase"""
     try:
         supabase = get_supabase_client()
-        
+
         # Reset premium status
         update_data = {
             "is_premium": False,
@@ -132,16 +153,16 @@ def revoke_premium(telegram_id: int) -> bool:
             "premium_until": None,
             "updated_at": datetime.utcnow().isoformat()
         }
-        
+
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
-        
+
         if result.data:
             print(f"Revoked premium for user {telegram_id}")
             return True
         else:
             print(f"Failed to revoke premium for user {telegram_id}")
             return False
-            
+
     except Exception as e:
         print(f"Error revoking premium for user {telegram_id}: {e}")
         return False
@@ -150,7 +171,7 @@ def touch_user_from_update(update):
     """Create/update user from Telegram update"""
     if not update or not update.effective_user:
         return
-        
+
     user = update.effective_user
     create_user_if_not_exists(
         telegram_id=user.id,
@@ -173,25 +194,25 @@ def is_premium_active(telegram_id: int) -> bool:
         user = get_user_by_telegram_id(telegram_id)
         if not user:
             return False
-            
+
         if not user.get("is_premium", False):
             return False
-            
+
         if user.get("is_lifetime", False):
             return True
-            
+
         premium_until = user.get("premium_until")
         if not premium_until:
             return False
-            
+
         # Parse premium_until and check if still valid
         if isinstance(premium_until, str):
             premium_dt = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
         else:
             premium_dt = premium_until
-            
+
         return premium_dt > datetime.utcnow()
-        
+
     except Exception as e:
         print(f"Error checking premium for user {telegram_id}: {e}")
         return False
@@ -200,34 +221,34 @@ def debit_credits(telegram_id: int, amount: int) -> bool:
     """Deduct credits from user account"""
     try:
         supabase = get_supabase_client()
-        
+
         # Get current credits
         user = get_user_by_telegram_id(telegram_id)
         if not user:
             print(f"User {telegram_id} not found for credit debit")
             return False
-            
+
         current_credits = user.get("credits", 0)
         if current_credits < amount:
             print(f"Insufficient credits for user {telegram_id}: {current_credits} < {amount}")
             return False
-            
+
         # Deduct credits
         new_credits = current_credits - amount
         update_data = {
             "credits": new_credits,
             "updated_at": datetime.utcnow().isoformat()
         }
-        
+
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
-        
+
         if result.data:
             print(f"Debited {amount} credits from user {telegram_id}: {current_credits} → {new_credits}")
             return True
         else:
             print(f"Failed to debit credits for user {telegram_id}")
             return False
-            
+
     except Exception as e:
         print(f"Error debiting credits for user {telegram_id}: {e}")
         return False
@@ -236,30 +257,30 @@ def add_credits(telegram_id: int, amount: int) -> bool:
     """Add credits to user account"""
     try:
         supabase = get_supabase_client()
-        
+
         # Get current credits
         user = get_user_by_telegram_id(telegram_id)
         if not user:
             print(f"User {telegram_id} not found for credit addition")
             return False
-            
+
         current_credits = user.get("credits", 0)
         new_credits = current_credits + amount
-        
+
         update_data = {
             "credits": new_credits,
             "updated_at": datetime.utcnow().isoformat()
         }
-        
+
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
-        
+
         if result.data:
             print(f"Added {amount} credits to user {telegram_id}: {current_credits} → {new_credits}")
             return True
         else:
             print(f"Failed to add credits for user {telegram_id}")
             return False
-            
+
     except Exception as e:
         print(f"Error adding credits for user {telegram_id}: {e}")
         return False
@@ -268,21 +289,21 @@ def set_credits(telegram_id: int, amount: int) -> bool:
     """Set exact credit amount for user"""
     try:
         supabase = get_supabase_client()
-        
+
         update_data = {
             "credits": amount,
             "updated_at": datetime.utcnow().isoformat()
         }
-        
+
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
-        
+
         if result.data:
             print(f"Set {amount} credits for user {telegram_id}")
             return True
         else:
             print(f"Failed to set credits for user {telegram_id}")
             return False
-            
+
     except Exception as e:
         print(f"Error setting credits for user {telegram_id}: {e}")
         return False
@@ -293,10 +314,10 @@ def check_sufficient_credits(telegram_id: int, required_amount: int) -> bool:
         user = get_user_by_telegram_id(telegram_id)
         if not user:
             return False
-            
+
         current_credits = user.get("credits", 0)
         return current_credits >= required_amount
-        
+
     except Exception as e:
         print(f"Error checking credits for user {telegram_id}: {e}")
         return False
