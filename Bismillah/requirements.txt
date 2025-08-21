@@ -4,5 +4,3 @@ python-telegram-bot==22.3
 supabase>=2.4
 httpx>=0.24,<0.28
 aiogram==3.*
-
-python-dateutil>=2.8

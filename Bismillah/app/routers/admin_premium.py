@@ -1,6 +1,4 @@
-` tags.
 
-<replit_final_file>
 import os
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -21,7 +19,7 @@ def _is_admin(uid: int) -> bool:
     return uid in _admin_ids()
 
 async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /setpremium command with proper duration normalization"""
+    """Handle /setpremium command with duration normalization"""
     uid = update.effective_user.id if update.effective_user else 0
     if not _is_admin(uid):
         await update.message.reply_text(f"❌ Admin only. Your ID: {uid}")
@@ -54,26 +52,26 @@ async def cmd_setpremium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Ensure user exists even if they haven't /start
         ensure_user_exists(tg_id)
-
+        
         # Set premium with normalized duration
         v = set_premium_normalized(tg_id, duration)
-
+        
         premium_status = "✅ ACTIVE" if v.get('premium_active') else "❌ INACTIVE"
         lifetime_status = "🌟 LIFETIME" if v.get('is_lifetime') else "⏰ TIMED"
-
+        
         await update.message.reply_text(
-            f"✅ **Premium berhasil diset!**\n\n"
-            f"👤 **User ID**: {tg_id}\n"
+            f"✅ **Premium updated successfully!**\n\n"
+            f"👤 **User ID**: `{tg_id}`\n"
             f"📊 **Premium Status**: {premium_status}\n"
             f"💎 **Type**: {lifetime_status}\n"
             f"📅 **Until**: {v.get('premium_until') or 'No expiry'}\n\n"
-            f"🔍 **Verification from v_users:**\n"
+            f"🔍 **Raw Data:**\n"
             f"• is_premium: {v.get('is_premium')}\n"
             f"• is_lifetime: {v.get('is_lifetime')}\n"
             f"• premium_active: {v.get('premium_active')}",
             parse_mode='Markdown'
         )
-
+        
     except Exception as e:
         await update.message.reply_text(f"⚠️ **setpremium failed:** {str(e)}")
 
@@ -92,7 +90,7 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode='Markdown'
         )
         return
-
+        
     try:
         tg_id = int(args[0])
     except ValueError:
@@ -101,19 +99,19 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         v = revoke_premium(tg_id)
-
+        
         await update.message.reply_text(
-            f"✅ **Premium berhasil dicabut!**\n\n"
-            f"👤 **User ID**: {tg_id}\n"
-            f"📊 **Status**: ❌ REVOKED\n\n"
-            f"🔍 **Verification from v_users:**\n"
+            f"✅ **Premium revoked successfully!**\n\n"
+            f"👤 **User ID**: `{tg_id}`\n"
+            f"📊 **Premium Status**: ❌ REVOKED\n\n"
+            f"🔍 **Raw Data:**\n"
             f"• is_premium: {v.get('is_premium')}\n"
             f"• is_lifetime: {v.get('is_lifetime')}\n"
             f"• premium_active: {v.get('premium_active')}\n"
             f"• premium_until: {v.get('premium_until')}",
             parse_mode='Markdown'
         )
-
+        
     except Exception as e:
         await update.message.reply_text(f"⚠️ **revoke_premium failed:** {str(e)}")
 
@@ -132,7 +130,7 @@ async def cmd_whois(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-
+        
     try:
         tg_id = int(args[0])
     except ValueError:
@@ -141,14 +139,14 @@ async def cmd_whois(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         v = get_vuser_by_tid(tg_id) or {}
-
+        
         if not v:
             await update.message.reply_text(f"❌ User {tg_id} not found in database")
             return
-
+            
         premium_status = "✅ ACTIVE" if v.get('premium_active') else "❌ INACTIVE"
         lifetime_status = "🌟 LIFETIME" if v.get('is_lifetime') else "⏰ TIMED"
-
+        
         await update.message.reply_text(
             f"👤 **User Status from v_users**\n\n"
             f"🆔 **Telegram ID**: `{tg_id}`\n"
@@ -163,6 +161,6 @@ async def cmd_whois(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• premium_active: {v.get('premium_active')}",
             parse_mode='Markdown'
         )
-
+        
     except Exception as e:
         await update.message.reply_text(f"⚠️ **whois failed:** {str(e)}")

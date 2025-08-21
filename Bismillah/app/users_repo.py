@@ -1,8 +1,7 @@
 import os
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from supabase import create_client, Client
-from dateutil import parser
 
 def get_supabase_client() -> Client:
     """Get authenticated Supabase client"""
@@ -189,66 +188,34 @@ def get_credits(telegram_id: int) -> int:
         print(f"Error getting credits for user {telegram_id}: {e}")
         return 0
 
-def get_vuser_by_telegram_id(tg_id: int) -> Optional[Dict[str, Any]]:
-    """Get user from v_users view (includes premium_active calculation)"""
-    s = get_supabase_client()
-    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
-    return res.data[0] if res.data else None
-
-def is_premium_active(tg_id: int) -> bool:
-    """Check premium status using v_users view as source of truth with fallback"""
-    s = get_supabase_client()
-
-    # 1) Use v_users.premium_active (source of truth)
+def is_premium_active(telegram_id: int) -> bool:
+    """Check if user has active premium"""
     try:
-        res = s.table("v_users").select("premium_active").eq("telegram_id", int(tg_id)).limit(1).execute()
-        if res.data:
-            return bool(res.data[0].get("premium_active"))
-    except Exception as e:
-        print(f"[is_premium_active] v_users failed -> {e}")
-
-    # 2) Fallback directly from 'users' table + tolerant parser
-    try:
-        r = s.table("users").select("is_premium,is_lifetime,premium_until")\
-                .eq("telegram_id", int(tg_id)).limit(1).execute().data
-        if not r: 
+        user = get_user_by_telegram_id(telegram_id)
+        if not user:
             return False
-        row = r[0]
-        if row.get("is_lifetime"): 
+
+        if not user.get("is_premium", False):
+            return False
+
+        if user.get("is_lifetime", False):
             return True
-        if not row.get("is_premium"): 
+
+        premium_until = user.get("premium_until")
+        if not premium_until:
             return False
-        return _ts_in_future(row.get("premium_until"))
+
+        # Parse premium_until and check if still valid
+        if isinstance(premium_until, str):
+            premium_dt = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
+        else:
+            premium_dt = premium_until
+
+        return premium_dt > datetime.utcnow()
+
     except Exception as e:
-        print(f"[is_premium_active] users fallback failed -> {e}")
+        print(f"Error checking premium for user {telegram_id}: {e}")
         return False
-
-def _ts_in_future(pu) -> bool:
-    """Tolerant timestamp parser for premium_until"""
-    if not pu: 
-        return False
-    s = str(pu).strip()
-
-    # Normalize Supabase format to ISO 8601
-    if " " in s and "T" not in s:
-        s = s.replace(" ", "T", 1)   # 'YYYY-MM-DD HH:MM' -> 'YYYY-MM-DDTHH:MM'
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    if s.endswith("+00"):
-        s = s + ":00"
-
-    try:
-        dt = datetime.fromisoformat(s)
-    except Exception:
-        try:
-            dt = parser.parse(str(pu))
-        except Exception:
-            return False
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt > datetime.now(timezone.utc)
-
 
 def debit_credits(telegram_id: int, amount: int) -> bool:
     """Deduct credits from user account"""
