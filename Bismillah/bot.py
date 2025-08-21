@@ -458,19 +458,26 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         from app.chat_store import remember_chat
-        from app.users_repo import create_user_if_not_exists
+        from app.users_repo import create_user_if_not_exists, get_user_credits, set_credits
 
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
 
-        # Create user in Supabase if not exists
+        # Create user in Supabase if not exists and ensure they get 100 credits
         if user:
+            # Create/ensure user exists
             create_user_if_not_exists(
                 telegram_id=user.id,
                 username=user.username,
                 first_name=user.first_name
             )
+
+            # Double-check credits after creation
+            credits = get_user_credits(user.id)
+            if credits < 100:
+                set_credits(user.id, 100)
+                print(f"✅ Ensured user {user.id} has 100 credits")
 
         # Remember chat consent
         if user and update.effective_chat:
@@ -2213,7 +2220,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 1 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ **Format salah!**\n\n"
                 "Gunakan: `/revoke_premium <user_id>`\n\n"
                 "**Example:** `/revoke_premium 123456789`"
@@ -3371,7 +3378,7 @@ ADMIN2 = [optional_second_admin_id]
                     free_users.append(user)
 
             if not free_users:
-                await update.message.reply_text("ℹ️ No free users found")
+                await update.message.reply_text("ℹ️ No free users found to refresh")
                 return
 
             # Update credits for all free users
@@ -3452,7 +3459,7 @@ ADMIN2 = [optional_second_admin_id]
 
 🔍 **Raw Data**:
 • is_premium: {user_data.get('is_premium')}
-• is_lifetime: {user_data.get('is_lifetime')}  
+• is_lifetime: {user_data.get('is_lifetime')}
 • premium_until: {user_data.get('premium_until')}
 • credits: {user_data.get('credits')}
 
@@ -3471,7 +3478,7 @@ ADMIN2 = [optional_second_admin_id]
     async def whois_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /whois command to check user status from v_users"""
         from app.routers.admin_premium import cmd_whois
-        
+
         # Delegate to the router function
         await cmd_whois(update, context)
 
