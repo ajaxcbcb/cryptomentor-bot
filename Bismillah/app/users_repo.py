@@ -127,60 +127,42 @@ def get_user_credits(telegram_id: int) -> int:
 
 
 def create_user_if_not_exists(telegram_id: int, username: str = None, first_name: str = None) -> bool:
-    """Create user in Supabase if not exists with proper 100 credits"""
+    """Create user in Supabase if not exists WITHOUT auto-assigning credits"""
     try:
-        supabase = get_supabase_client()
-
-        # Check if user exists
-        existing = supabase.table("users").select("telegram_id, credits").eq("telegram_id", telegram_id).execute()
-
-        if existing.data:
-            # User exists, check if they have proper credits
-            user = existing.data[0]
-            if user.get('credits', 0) < 100:
-                # Update to ensure minimum 100 credits
-                supabase.table("users").update({"credits": 100}).eq("telegram_id", telegram_id).execute()
-                print(f"✅ Updated credits to 100 for existing user {telegram_id}")
-            else:
-                print(f"✅ User {telegram_id} already exists with {user.get('credits', 0)} credits")
-            return True
-
-        # Create new user with 100 credits
-        user_data = {
-            "telegram_id": telegram_id,
-            "username": (username or "").strip().lstrip("@").lower() or None,
-            "first_name": first_name or "New User",
-            "credits": 100,  # Ensure new users get 100 credits
-            "is_premium": False,
-            "is_lifetime": False,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-
-        result = supabase.table("users").insert(user_data).execute()
-
-        if result.data:
-            print(f"✅ Created new user {telegram_id} with 100 credits in Supabase")
-            return True
-        else:
-            print(f"❌ Failed to create user {telegram_id} in Supabase")
-            return False
+        from app.supabase_repo import ensure_user_exists_no_credit
+        
+        # Use the new function that doesn't mess with credits
+        user_data = ensure_user_exists_no_credit(telegram_id, username, first_name)
+        return bool(user_data)
 
     except Exception as e:
         print(f"❌ Error creating/checking user {telegram_id}: {e}")
         
-        # Try with supabase_repo as fallback
+        # Fallback: manual creation without credits
         try:
-            from app.supabase_repo import ensure_user_exists
-            ensure_user_exists(
-                tg_id=telegram_id,
-                username=username,
-                first_name=first_name
-            )
-            # After ensuring user exists, make sure they have 100 credits
             supabase = get_supabase_client()
-            supabase.table("users").update({"credits": 100}).eq("telegram_id", telegram_id).execute()
-            print(f"✅ User {telegram_id} ensured via supabase_repo and given 100 credits")
-            return True
+            
+            # Check if user exists
+            existing = supabase.table("users").select("telegram_id").eq("telegram_id", telegram_id).execute()
+            if existing.data:
+                print(f"✅ User {telegram_id} already exists")
+                return True
+
+            # Create new user with 0 credits (welcome credits only from /start)
+            user_data = {
+                "telegram_id": telegram_id,
+                "username": (username or "").strip().lstrip("@").lower() or None,
+                "first_name": first_name or "New User",
+                "credits": 0,  # No auto-credits, only from /start welcome
+                "is_premium": False,
+                "is_lifetime": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+
+            result = supabase.table("users").insert(user_data).execute()
+            print(f"✅ Created new user {telegram_id} with 0 credits in Supabase")
+            return bool(result.data)
+
         except Exception as e2:
             print(f"❌ Fallback also failed for user {telegram_id}: {e2}")
             return False
@@ -305,13 +287,16 @@ def revoke_premium(telegram_id: int) -> bool:
         return False
 
 def touch_user_from_update(update):
-    """Create/update user from Telegram update"""
+    """Create/update user from Telegram update WITHOUT auto-assigning credits"""
     if not update or not update.effective_user:
         return
 
     user = update.effective_user
-    create_user_if_not_exists(
-        telegram_id=user.id,
+    from app.supabase_repo import ensure_user_exists_no_credit
+    
+    # Use function that doesn't touch credits
+    ensure_user_exists_no_credit(
+        tg_id=user.id,
         username=user.username,
         first_name=user.first_name
     )

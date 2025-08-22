@@ -464,20 +464,26 @@ class TelegramBot:
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
 
-        # Create user in Supabase if not exists and ensure they get 100 credits
+        # Create user in Supabase with welcome credits (only for /start)
         if user:
-            # Create/ensure user exists
-            create_user_if_not_exists(
-                telegram_id=user.id,
+            from app.supabase_repo import upsert_user_with_welcome
+            
+            # Use welcome function that only gives credits to new users
+            user_data = upsert_user_with_welcome(
+                tg_id=user.id,
                 username=user.username,
-                first_name=user.first_name
+                first=user.first_name,
+                last=user.last_name,
+                welcome=100
             )
-
-            # Double-check credits after creation
-            credits = get_user_credits(user.id)
-            if credits < 100:
-                set_credits(user.id, 100)
-                print(f"✅ Ensured user {user.id} has 100 credits")
+            
+            is_new_user = user_data.get('is_new', False)
+            current_credits = user_data.get('credits', 0)
+            
+            if is_new_user:
+                print(f"✅ NEW USER: {user.id} welcomed with 100 credits")
+            else:
+                print(f"✅ RETURNING USER: {user.id} has {current_credits} credits")
 
         # Remember chat consent
         if user and update.effective_chat:
@@ -899,7 +905,7 @@ class TelegramBot:
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        # Auto-upsert user to Supabase
+        # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
         # Check if user needs restart
@@ -911,10 +917,11 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
+        user = update.message.from_user
         symbol = context.args[0].upper()
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 20)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
+        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
@@ -958,17 +965,18 @@ class TelegramBot:
         from app.credits_guard import require_credits
 
         user_id = update.effective_user.id
+        user = update.effective_user
         message = update.effective_message
 
-        # Auto-upsert user
+        # Auto-upsert user (NO credits change)
         touch_user_from_update(update)
 
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 20)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
+        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for market command - {guard_message}")
@@ -1023,12 +1031,13 @@ class TelegramBot:
         from app.credits_guard import require_credits
 
         user_id = update.message.from_user.id
+        user = update.message.from_user
 
-        # Auto-upsert user to Supabase
+        # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 60)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 60)
+        allowed, remaining, guard_message = require_credits(user_id, 60, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
