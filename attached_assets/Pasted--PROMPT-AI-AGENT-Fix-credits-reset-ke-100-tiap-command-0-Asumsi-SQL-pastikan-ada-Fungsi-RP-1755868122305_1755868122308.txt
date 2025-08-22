@@ -1,0 +1,209 @@
+🔧 PROMPT AI AGENT — Fix “credits reset ke 100 tiap command”
+0) Asumsi SQL (pastikan ada)
+
+Fungsi RPC untuk debit:
+
+create or replace function public.debit_credits(
+  p_telegram_id bigint,
+  p_amount integer
+) returns integer language plpgsql security definer as $$
+declare v_remaining integer;
+begin
+  update public.users
+  set credits = greatest(0, credits - p_amount)
+  where telegram_id = p_telegram_id
+  returning credits into v_remaining;
+
+  insert into public.user_events (telegram_id, event_type, meta)
+  values (p_telegram_id, 'DEBIT_CREDIT', jsonb_build_object('amount', p_amount, 'remaining', v_remaining));
+
+  return v_remaining;
+end$$;
+
+1) Repo Supabase — pisahkan register (tanpa kredit) vs welcome (hanya di /start)
+
+File: app/supabase_repo.py (buat/ubah fungsi2 ini)
+
+# app/supabase_repo.py
+import os
+from typing import Optional, Dict, Any, Tuple
+from supabase import create_client, Client
+
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+def _client() -> Client:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+# --- READERS ---
+def get_user_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
+    s = _client()
+    res = s.table("users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
+def get_vuser_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
+    s = _client()
+    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
+# --- REGISTER (NO CREDIT) untuk command biasa ---
+def ensure_user_exists_no_credit(
+    tg_id: int,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Upsert TANPA mengubah credits. Pakai di /market, /analyze, /futures_signals, dst.
+    """
+    s = _client()
+    row = {
+        "telegram_id": int(tg_id),
+        "username": (username or "").strip().lstrip("@").lower() or None,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    s.table("users").upsert(row, on_conflict="telegram_id", ignore_duplicates=False).execute()
+    r = s.table("users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return r.data[0] if r.data else row
+
+# --- REGISTER WELCOME (HANYA untuk /start) ---
+def upsert_user_with_welcome(tg_id: int, username: Optional[str], first: Optional[str], last: Optional[str], welcome: int = 100) -> Dict[str, Any]:
+    """
+    Khusus /start: kalau user baru, set credits=welcome; kalau sudah ada, JANGAN ubah credits.
+    """
+    s = _client()
+    try:
+        data = s.rpc("upsert_user_with_welcome", {
+            "p_telegram_id": int(tg_id),
+            "p_username": (username or "").strip().lstrip("@").lower() or None,
+            "p_first_name": first,
+            "p_last_name": last,
+            "p_welcome_quota": int(welcome),
+            "p_referred_by": None
+        }).execute().data
+        if data: return data
+    except Exception:
+        pass
+    # fallback insert-only behavior
+    if not get_user_by_tid(tg_id):
+        s.table("users").insert({
+            "telegram_id": int(tg_id),
+            "username": (username or "").strip().lstrip("@").lower() or None,
+            "first_name": first,
+            "last_name": last,
+            "credits": int(welcome),
+        }).execute()
+    return get_user_by_tid(tg_id) or {}
+
+# --- CREDITS: baca & debit ATOMIK via RPC ---
+def get_credits(tg_id: int) -> int:
+    row = get_user_by_tid(tg_id)
+    return int(row.get("credits") or 0) if row else 0
+
+def debit_credits_rpc(tg_id: int, amount: int) -> int:
+    s = _client()
+    res = s.rpc("debit_credits", {"p_telegram_id": int(tg_id), "p_amount": int(amount)}).execute()
+    # res.data bisa integer atau array tergantung driver
+    if isinstance(res.data, list) and res.data:
+        return int(res.data[0])
+    return int(res.data or 0)
+
+2) Premium check dari DB (supaya premium tak didebit)
+
+File: app/users_repo.py (atau pakai yang sudah kamu punya; pastikan fungsi ini ada)
+
+# users_repo.py
+from typing import Optional, Dict, Any
+from .supabase_conn import get_supabase_client
+
+def is_premium_active(tg_id: int) -> bool:
+    s = get_supabase_client()
+    try:
+        res = s.table("v_users").select("premium_active").eq("telegram_id", int(tg_id)).limit(1).execute()
+        if res.data:
+            return bool(res.data[0].get("premium_active"))
+    except Exception:
+        pass
+    return False
+
+3) Guard kredit — tidak reset, debit via RPC
+
+File: app/credits_guard.py (buat/replace)
+
+# app/credits_guard.py
+from typing import Tuple
+from app.users_repo import is_premium_active
+from app.supabase_repo import ensure_user_exists_no_credit, get_credits, debit_credits_rpc
+
+def require_credits(tg_id: int, cost: int, username: str = None, first: str = None, last: str = None) -> Tuple[bool, int, str]:
+    """
+    - Pastikan row user ada TANPA mengubah credits.
+    - Premium aktif: bypass debit.
+    - Non-premium: debit via RPC (atomic), tidak pernah reset ke 100.
+    Returns: (allowed, remaining, message)
+    """
+    ensure_user_exists_no_credit(tg_id, username, first, last)
+
+    if is_premium_active(tg_id):
+        remaining = get_credits(tg_id)  # hanya untuk display
+        return True, remaining, "✅ Premium aktif — kredit tidak terpakai."
+
+    current = get_credits(tg_id)
+    if current < cost:
+        return False, current, f"❌ Kredit tidak cukup. Sisa: {current}, biaya: {cost}."
+
+    remaining = debit_credits_rpc(tg_id, cost)
+    return True, remaining, f"✅ {cost} kredit terpakai. Sisa: {remaining}."
+
+4) Patch semua handler berbiaya: pakai guard ini dan JANGAN panggil welcome-upsert
+
+Contoh untuk /market, /analyze, /futures_signals, /futures:
+
+# contoh pola pada tiap handler berbiaya
+from app.credits_guard import require_credits
+
+COST_MARKET = 20
+COST_ANALYZE = 40
+COST_FUTURES = 60
+
+@router.message(commands={"market"})
+async def market_cmd(m: types.Message):
+    u = m.from_user
+    ok, remaining, info = require_credits(u.id, COST_MARKET, u.username, u.first_name, u.last_name)
+    if not ok:
+        return await m.answer(info)
+    # lanjutkan proses /market...
+    await m.answer(f"{info}")
+
+# ulangi pola sama untuk /analyze dan /futures_signals
+
+
+Cari & ganti di codebase:
+
+Semua pemanggilan ensure_user_registered(..., welcome_quota=100) di command selain /start → ganti ke ensure_user_exists_no_credit(...).
+
+Pastikan hanya /start yang memanggil upsert_user_with_welcome(..., welcome=100).
+
+5) /start (tetap memberi welcome, sekali saja)
+from app.supabase_repo import upsert_user_with_welcome
+
+@router.message(commands={"start"})
+async def start_cmd(m: types.Message):
+    u = m.from_user
+    row = upsert_user_with_welcome(u.id, u.username, u.first_name, u.last_name, welcome=100)
+    await m.answer(f"👋 Welcome! Credits: {row.get('credits')}")
+
+6) Quick test checklist
+
+User baru /start → credits = 100.
+
+Jalankan /market (cost 20) → balasan “Sisa: 80”.
+
+Jalankan lagi /market → “Sisa: 60” (bukan balik ke 100!).
+
+Set premium 30d → jalankan /market → “Premium aktif — kredit tidak terpakai.” (tidak debit).
+
+Non-premium dan sisa < cost → ditolak, tidak ada reset.
