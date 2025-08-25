@@ -78,38 +78,45 @@ def upsert_user_with_welcome(
     Khusus /start: kalau user baru, set credits=welcome; kalau sudah ada, JANGAN ubah credits.
     """
     s = _client()
-    try:
-        data = s.rpc("upsert_user_with_welcome", {
-            "p_telegram_id": int(tg_id),
-            "p_username": (username or "").strip().lstrip("@").lower() or None,
-            "p_first_name": first,
-            "p_last_name": last,
-            "p_welcome_quota": int(welcome),
-            "p_referred_by": None
-        }).execute().data
-        
-        if data and len(data) > 0:
-            row_data = data[0]
-            return {
-                "telegram_id": row_data.get("telegram_id"),
-                "credits": row_data.get("credits"),
-                "is_new": row_data.get("is_new", False)
-            }
-    except Exception as e:
-        print(f"RPC upsert_user_with_welcome failed: {e}")
     
-    # Fallback: manual upsert behavior
+    # Check if user already exists
     existing = get_user_by_tid(tg_id)
-    if not existing:
-        s.table("users").insert({
-            "telegram_id": int(tg_id),
-            "username": (username or "").strip().lstrip("@").lower() or None,
-            "first_name": first,
-            "last_name": last,
-            "credits": int(welcome),
-        }).execute()
+    if existing:
+        # User exists, update profile info only, DON'T touch credits
+        update_data = {}
+        if username is not None:
+            update_data["username"] = (username or "").strip().lstrip("@").lower() or None
+        if first is not None:
+            update_data["first_name"] = first
+        if last is not None:
+            update_data["last_name"] = last
+        
+        if update_data:
+            update_data["updated_at"] = "now()"
+            s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
+        
+        return {
+            "telegram_id": existing.get("telegram_id"),
+            "credits": existing.get("credits", 0),
+            "is_new": False
+        }
     
-    return get_user_by_tid(tg_id) or {}
+    # User doesn't exist, create with welcome credits
+    user_data = {
+        "telegram_id": int(tg_id),
+        "username": (username or "").strip().lstrip("@").lower() or None,
+        "first_name": first or "User",
+        "last_name": last,
+        "credits": int(welcome),
+    }
+    
+    s.table("users").insert(user_data).execute()
+    
+    return {
+        "telegram_id": int(tg_id),
+        "credits": int(welcome),
+        "is_new": True
+    }
 
 # --- CREDITS: baca & debit ATOMIK via RPC ---
 def get_credits(tg_id: int) -> int:

@@ -464,6 +464,37 @@ class TelegramBot:
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
 
+        # Handle referral code from /start parameter
+        referred_by = None
+        referral_type = 'free'  # default
+        
+        if context.args:
+            referral_code = context.args[0].strip()
+            print(f"🔗 Referral code detected: {referral_code}")
+            
+            # Find referrer by code
+            try:
+                from app.supabase_conn import get_supabase_client
+                s = get_supabase_client()
+                
+                # Check for free referral code
+                free_ref = s.table("users").select("telegram_id").eq("referral_code", referral_code).limit(1).execute()
+                if free_ref.data:
+                    referred_by = free_ref.data[0]['telegram_id']
+                    referral_type = 'free'
+                    print(f"✅ Found free referrer: {referred_by}")
+                else:
+                    # Check for premium referral code
+                    premium_ref = s.table("users").select("telegram_id").eq("premium_referral_code", referral_code).limit(1).execute()
+                    if premium_ref.data:
+                        referred_by = premium_ref.data[0]['telegram_id']
+                        referral_type = 'premium'
+                        print(f"✅ Found premium referrer: {referred_by}")
+                    else:
+                        print(f"⚠️ Invalid referral code: {referral_code}")
+            except Exception as e:
+                print(f"❌ Error checking referral code: {e}")
+
         # Create user in Supabase with welcome credits (only for /start)
         if user:
             from app.supabase_repo import upsert_user_with_welcome
@@ -482,6 +513,45 @@ class TelegramBot:
             
             if is_new_user:
                 print(f"✅ NEW USER: {user.id} welcomed with 100 credits")
+                
+                # Process referral bonus for new users only
+                if referred_by:
+                    try:
+                        s = get_supabase_client()
+                        
+                        # Update new user with referrer info
+                        s.table("users").update({
+                            "referred_by": referred_by,
+                            "referral_type": referral_type
+                        }).eq("telegram_id", user.id).execute()
+                        
+                        if referral_type == 'free':
+                            # Give 10 credits to referrer
+                            s.rpc("add_credits", {
+                                "p_telegram_id": referred_by,
+                                "p_amount": 10
+                            }).execute()
+                            
+                            print(f"✅ Gave 10 credits to free referrer {referred_by}")
+                            
+                            # Send notification to referrer
+                            try:
+                                await self.application.bot.send_message(
+                                    chat_id=referred_by,
+                                    text=f"🎉 **Referral Bonus!**\n\n"
+                                         f"✅ +10 credits dari referral {user.first_name}!\n"
+                                         f"💡 Gunakan `/referral` untuk link Anda.",
+                                    parse_mode='Markdown'
+                                )
+                            except Exception as dm_error:
+                                print(f"⚠️ Could not send referral notification to {referred_by}: {dm_error}")
+                                
+                        elif referral_type == 'premium':
+                            print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
+                            
+                    except Exception as ref_error:
+                        print(f"❌ Error processing referral: {ref_error}")
+                        
             else:
                 print(f"✅ RETURNING USER: {user.id} has {current_credits} credits")
 
@@ -1770,29 +1840,65 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             print(f"Error getting bot info: {e}")
             bot_username = "CryptoMentorAI_bot"  # Fallback username
 
-        # Get referral codes
-        referral_codes = self.db.get_user_referral_codes(user_id)
-        if not referral_codes:
+        # Get or create referral codes
+        try:
+            from app.supabase_conn import get_supabase_client
+            s = get_supabase_client()
+            
+            # Get user's referral codes
+            user_data = s.table("users").select("referral_code, premium_referral_code").eq("telegram_id", user_id).limit(1).execute()
+            
+            if user_data.data:
+                user_record = user_data.data[0]
+                free_code = user_record.get('referral_code')
+                premium_code = user_record.get('premium_referral_code')
+                
+                # Generate codes if missing
+                if not free_code or not premium_code:
+                    import random, string
+                    if not free_code:
+                        free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                    if not premium_code:
+                        premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                    
+                    # Update user with new codes
+                    s.table("users").update({
+                        "referral_code": free_code,
+                        "premium_referral_code": premium_code
+                    }).eq("telegram_id", user_id).execute()
+            else:
+                await update.message.reply_text("❌ User not found. Please use /start first.")
+                return
+                
+        except Exception as e:
+            print(f"Error getting referral codes: {e}")
             await update.message.reply_text("❌ Error getting referral codes. Please contact support.")
             return
 
-        free_code = referral_codes['free_referral_code']
-        premium_code = referral_codes['premium_referral_code']
-
         # Get free referral statistics
         try:
-            self.db.cursor.execute("""
-                SELECT COUNT(*) FROM users WHERE referred_by = ?
-            """, (user_id,))
-            total_free_referrals = self.db.cursor.fetchone()[0]
+            s = get_supabase_client()
+            free_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).execute()
+            total_free_referrals = len(free_refs.data) if free_refs.data else 0
             credits_earned = total_free_referrals * 10  # 10 credits per referral
         except Exception as e:
             print(f"Error getting free referral stats: {e}")
             total_free_referrals = 0
             credits_earned = 0
 
-        # Get premium referral statistics
-        premium_stats = self.db.get_premium_referral_stats(user_id)
+        # Get premium referral statistics (simplified for now)
+        try:
+            premium_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+            premium_referrals = len(premium_refs.data) if premium_refs.data else 0
+            premium_earnings = premium_referrals * 10000  # Rp 10,000 per premium referral
+            premium_stats = {
+                'total_referrals': premium_referrals,
+                'total_earnings': premium_earnings,
+                'recent_referrals': []
+            }
+        except Exception as e:
+            print(f"Error getting premium referral stats: {e}")
+            premium_stats = {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
 
         message = f"""🎁 **Program Referral CryptoMentor (CoinAPI Edition)**
 
@@ -2497,93 +2603,22 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         sys.exit(0)
 
     async def refresh_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /refresh_credits command - Manual weekly refresh to 100 credits"""
+        """Handle /refresh_credits command - DISABLED to prevent daily resets"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
-        await update.message.reply_text("🔄 Starting manual credit refresh to 100 credits for all free users...")
-
-        try:
-            # Use Supabase to refresh credits directly
-            from app.supabase_conn import get_supabase_client
-            from app.users_repo import is_premium_active
-
-            s = get_supabase_client()
-
-            # Get all users
-            result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
-
-            if not result.data:
-                await update.message.reply_text("❌ No users found in database")
-                return
-
-            all_users = result.data
-            free_users = []
-
-            # Filter free users (non-premium)
-            for user in all_users:
-                tg_id = user.get('telegram_id')
-                if not tg_id:
-                    continue
-
-                # Check if user is premium
-                if not is_premium_active(tg_id):
-                    free_users.append(user)
-
-            if not free_users:
-                await update.message.reply_text("ℹ️ No free users found to refresh")
-                return
-
-            # Update credits for all free users to 100
-            updated_count = 0
-            for user in free_users:
-                telegram_id = user.get('telegram_id')
-                try:
-                    update_result = s.table("users").update({
-                        "credits": 100
-                    }).eq("telegram_id", telegram_id).execute()
-
-                    if update_result.data:
-                        updated_count += 1
-
-                except Exception as e:
-                    print(f"❌ Error updating user {telegram_id}: {e}")
-                    continue
-
-            # Calculate next refresh date
-            now = datetime.now()
-            days_until_monday = (7 - now.weekday()) % 7
-            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
-                days_until_monday = 7
-            next_refresh = now + timedelta(days=days_until_monday)
-            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # Format next refresh with date and day
-            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
-
-            await update.message.reply_text(
-                f"✅ **Manual Credit Refresh Completed!**\n\n"
-                f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
-                f"💳 **Credits Set**: 100 credits per user\n"
-                f"💰 **Total Credits Given**: {updated_count * 100:,}\n"
-                f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                f"📅 **Next auto refresh**: {next_refresh_str}",
-                parse_mode='Markdown'
-            )
-
-        except Exception as e:
-            await update.message.reply_text(
-                f"❌ **Credit Refresh Failed**\n\n"
-                f"Error: {str(e)[:200]}...",
-                parse_mode='Markdown'
-            )
-            print(f"❌ Error in refresh_credits_command: {e}")
-
-        # Log admin action
-        self.db.log_user_activity(user_id, "admin_manual_refresh", f"Manual credit refresh: Set {updated_count} free users to 100 credits")
+        await update.message.reply_text(
+            "⚠️ **Credit Refresh Command DISABLED**\n\n"
+            "❌ This command has been disabled to prevent daily credit resets.\n\n"
+            "💡 **Alternative commands:**\n"
+            "• `/set_all_credits <amount>` - Set specific amount for all free users\n"
+            "• `/grant_credits <user_id> <amount>` - Add credits to specific user\n\n"
+            "🔧 **Why disabled?** To fix the issue where credits were being reset daily instead of being preserved.",
+            parse_mode='Markdown'
+        )
 
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
@@ -2608,8 +2643,21 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             return
 
         try:
-            # Get premium referral earnings
-            premium_stats = self.db.get_premium_referral_stats(user_id)
+            # Get premium referral earnings from Supabase
+            from app.supabase_conn import get_supabase_client
+            s = get_supabase_client()
+            
+            # Count premium referrals
+            premium_refs = s.table("users").select("telegram_id, first_name, created_at").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+            
+            total_referrals = len(premium_refs.data) if premium_refs.data else 0
+            total_earnings = total_referrals * 10000  # Rp 10,000 per premium referral
+            
+            premium_stats = {
+                'total_referrals': total_referrals,
+                'total_earnings': total_earnings,
+                'recent_referrals': premium_refs.data[:5] if premium_refs.data else []
+            }
 
             message = f"""💎 **Premium Earnings Dashboard**
 
