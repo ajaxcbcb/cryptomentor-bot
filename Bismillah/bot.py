@@ -2180,6 +2180,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /sb_status - Supabase connection status
 • /db_status - Database health check
 • /recovery_stats - System statistics
+• /combined_stats - Combined user stats (SQLite + Supabase)
 • /restart - Restart bot
 
 📢 Broadcasting
@@ -2559,6 +2560,39 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             print(f"Error in recovery_stats_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def combined_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /combined_stats command - Show combined user statistics from both databases"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            from app.combined_stats import format_user_stats_summary
+
+            # Get formatted summary
+            summary = format_user_stats_summary()
+
+            await update.message.reply_text(
+                f"🤖 **CryptoMentor AI - Combined User Statistics**\n\n{summary}\n\n⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}",
+                parse_mode='Markdown'
+            )
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_combined_stats",
+                "Viewed combined user statistics from both databases"
+            )
+
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error getting combined stats!**\n\n**Error**: {str(e)[:200]}...",
+                parse_mode='Markdown'
+            )
+            print(f"Error in combined_stats_command: {e}")
 
     async def check_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /check_admin command"""
@@ -3710,6 +3744,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
         self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
         self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+        self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
         self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
         self.application.add_handler(CommandHandler("restart", self.restart_command))
         self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
