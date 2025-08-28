@@ -467,16 +467,16 @@ class TelegramBot:
         # Handle referral code from /start parameter
         referred_by = None
         referral_type = 'free'  # default
-        
+
         if context.args:
             referral_code = context.args[0].strip()
             print(f"🔗 Referral code detected: {referral_code}")
-            
+
             # Find referrer by code
             try:
                 from app.supabase_conn import get_supabase_client
                 s = get_supabase_client()
-                
+
                 # Check for free referral code
                 free_ref = s.table("users").select("telegram_id").eq("referral_code", referral_code).limit(1).execute()
                 if free_ref.data:
@@ -498,7 +498,7 @@ class TelegramBot:
         # Create user in Supabase with welcome credits (only for /start)
         if user:
             from app.supabase_repo import upsert_user_with_welcome
-            
+
             # Use welcome function that only gives credits to new users
             user_data = upsert_user_with_welcome(
                 tg_id=user.id,
@@ -507,33 +507,33 @@ class TelegramBot:
                 last=user.last_name,
                 welcome=100
             )
-            
+
             is_new_user = user_data.get('is_new', False)
             current_credits = user_data.get('credits', 0)
-            
+
             if is_new_user:
                 print(f"✅ NEW USER: {user.id} welcomed with 100 credits")
-                
+
                 # Process referral bonus for new users only
                 if referred_by:
                     try:
                         s = get_supabase_client()
-                        
+
                         # Update new user with referrer info
                         s.table("users").update({
                             "referred_by": referred_by,
                             "referral_type": referral_type
                         }).eq("telegram_id", user.id).execute()
-                        
+
                         if referral_type == 'free':
                             # Give 10 credits to referrer
                             s.rpc("add_credits", {
                                 "p_telegram_id": referred_by,
                                 "p_amount": 10
                             }).execute()
-                            
+
                             print(f"✅ Gave 10 credits to free referrer {referred_by}")
-                            
+
                             # Send notification to referrer
                             try:
                                 await self.application.bot.send_message(
@@ -545,13 +545,13 @@ class TelegramBot:
                                 )
                             except Exception as dm_error:
                                 print(f"⚠️ Could not send referral notification to {referred_by}: {dm_error}")
-                                
+
                         elif referral_type == 'premium':
                             print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
-                            
+
                     except Exception as ref_error:
                         print(f"❌ Error processing referral: {ref_error}")
-                        
+
             else:
                 print(f"✅ RETURNING USER: {user.id} has {current_credits} credits")
 
@@ -1431,15 +1431,15 @@ class TelegramBot:
         try:
             from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
             from app.users_repo import get_user_by_telegram_id
-            
+
             is_premium = sb_is_premium(user_id)
             credits = sb_get_credits(user_id)
-            
+
             # Get user data from Supabase for accurate premium type detection
             user_data = get_user_by_telegram_id(user_id)
             is_lifetime = user_data and user_data.get('is_lifetime', False) if user_data else False
             premium_until = user_data.get('premium_until') if user_data else None
-            
+
         except Exception as e:
             print(f"⚠️ Supabase premium check failed, using fallback: {e}")
             is_premium = False  # Default to free if Supabase fails
@@ -1495,7 +1495,7 @@ Terima kasih telah menjadi member lifetime premium!"""
                     except Exception as e:
                         print(f"Error parsing premium_until: {e}")
                         expiry_text = "Active"
-                
+
                 message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
 ⭐ **Status**: **PREMIUM** ({expiry_text})
@@ -1706,14 +1706,14 @@ Harga akan diambil real-time dari CoinAPI."""
         try:
             from app.premium_check import is_premium as sb_is_premium
             from app.users_repo import get_user_by_telegram_id
-            
+
             is_premium = sb_is_premium(user_id)
-            
+
             # Get accurate premium type from Supabase
             user_data = get_user_by_telegram_id(user_id)
             is_lifetime = user_data and user_data.get('is_lifetime', False) if user_data else False
             premium_until = user_data.get('premium_until') if user_data else None
-            
+
         except Exception as e:
             print(f"⚠️ Supabase premium check failed, using fallback: {e}")
             is_premium = False  # Default to free if Supabase fails
@@ -1728,7 +1728,7 @@ Harga akan diambil real-time dari CoinAPI."""
             else:
                 premium_type = "PREMIUM"
                 auto_signals_status = "❌ Auto Signals (Lifetime Only)"
-                
+
                 # Show expiry date for timed premium
                 if premium_until:
                     try:
@@ -1844,15 +1844,15 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         try:
             from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
-            
+
             # Get user's referral codes
             user_data = s.table("users").select("referral_code, premium_referral_code").eq("telegram_id", user_id).limit(1).execute()
-            
+
             if user_data.data:
                 user_record = user_data.data[0]
                 free_code = user_record.get('referral_code')
                 premium_code = user_record.get('premium_referral_code')
-                
+
                 # Generate codes if missing
                 if not free_code or not premium_code:
                     import random, string
@@ -1860,7 +1860,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                         free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
                     if not premium_code:
                         premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
-                    
+
                     # Update user with new codes
                     s.table("users").update({
                         "referral_code": free_code,
@@ -1869,7 +1869,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             else:
                 await update.message.reply_text("❌ User not found. Please use /start first.")
                 return
-                
+
         except Exception as e:
             print(f"Error getting referral codes: {e}")
             await update.message.reply_text("❌ Error getting referral codes. Please contact support.")
@@ -1934,12 +1934,14 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             # Show recent premium referrals
             if premium_stats['recent_referrals']:
                 message += "📈 **Recent Premium Referrals:**\n"
-                for ref in premium_stats['recent_referrals'][:3]:
-                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
-                    subscription_type = ref[2]
-                    earnings = ref[3]
-                    date = ref[4][:10]  # Just date part
-                    message += f"• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})\n"
+                for ref in premium_stats['recent_referrals']:
+                    # Assuming ref is a dictionary with keys like 'telegram_id', 'first_name', 'created_at'
+                    referred_name = ref.get('first_name', 'User')
+                    referred_name = referred_name[:15] + "..." if len(referred_name) > 15 else referred_name
+                    # subscription_type = ref.get('subscription_type', 'N/A') # Assuming this key exists if needed
+                    earnings = ref.get('earnings', 10000) # Default to 10k if not available
+                    date = ref.get('created_at', '')[:10] if ref.get('created_at') else ''
+                    message += f"• {referred_name} - Rp {earnings:,} ({date})\n"
                 message += "\n"
         else:
             message += f"""💎 **Ingin Earning Uang Asli?**
@@ -2167,7 +2169,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 👥 User Management
 • /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium
+• /remove_premium <user_id> - Remove premium status
+• /revoke_premium <user_id> - Alias for remove_premium
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user info
 • /check_premium <user_id> - Check premium status
@@ -2216,7 +2219,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 📋 Core Admin Commands
 • /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium
+• /remove_premium <user_id> - Remove premium status
+• /revoke_premium <user_id> - Alias for remove_premium
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user status
 • /broadcast <message> - Broadcast to all users
@@ -2450,6 +2454,79 @@ Gunakan `/subscribe` untuk upgrade!
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
 
+    async def remove_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command untuk remove premium user dengan Supabase (alias for revoke_premium)"""
+        from app.supabase_repo import revoke_premium
+        from app.safe_send import safe_reply
+
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
+            return
+
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            await safe_reply(update.effective_message,
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/remove_premium <user_id>`\n\n"
+                "**Example:** `/remove_premium 123456789`"
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+
+            # Check if user exists first
+            from app.users_repo import get_user_by_telegram_id
+            user_data = get_user_by_telegram_id(target_user_id)
+            if not user_data:
+                await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
+                return
+
+            # Get current premium status for logging
+            current_premium = user_data.get('is_premium', False)
+            current_lifetime = user_data.get('is_lifetime', False)
+
+            if not current_premium:
+                await safe_reply(update.effective_message, f"⚠️ User {target_user_id} sudah bukan premium user.")
+                return
+
+            # Revoke premium using normalized function
+            v = revoke_premium(target_user_id)
+
+            premium_type = "LIFETIME" if current_lifetime else "TIMED"
+            message = f"""✅ **Premium berhasil dihapus!**
+
+👤 **User ID**: {target_user_id}
+👤 **Name**: {user_data.get('first_name', 'Unknown')}
+📊 **Previous Status**: {premium_type} Premium
+📊 **New Status**: ❌ FREE USER
+
+🔍 **Verification:**
+• is_premium: {v.get('is_premium', False)}
+• is_lifetime: {v.get('is_lifetime', False)}
+• premium_active: {v.get('premium_active', False)}
+• premium_until: {v.get('premium_until', 'None')}
+
+🔄 **Database**: Updated in Supabase ✅
+⚠️ **Note**: User akan kembali ke free tier dengan batasan credit normal."""
+
+            await safe_reply(update.effective_message, message)
+
+            # Log admin action with more detail
+            self.db.log_user_activity(
+                user_id,
+                "admin_remove_premium",
+                f"Removed {premium_type} premium from user {target_user_id} ({user_data.get('first_name', 'Unknown')})"
+            )
+
+            print(f"✅ Admin {user_id} removed premium from user {target_user_id}")
+
+        except Exception as e:
+            await safe_reply(update.effective_message, f"❌ Gagal menghapus premium: {e}")
+            print(f"❌ Error in remove_premium command: {e}")
+            import traceback
+            traceback.print_exc()
+
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
         user_id = update.message.from_user.id
@@ -2680,13 +2757,13 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             # Get premium referral earnings from Supabase
             from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
-            
+
             # Count premium referrals
             premium_refs = s.table("users").select("telegram_id, first_name, created_at").eq("referred_by", user_id).eq("referral_type", "premium").execute()
-            
+
             total_referrals = len(premium_refs.data) if premium_refs.data else 0
             total_earnings = total_referrals * 10000  # Rp 10,000 per premium referral
-            
+
             premium_stats = {
                 'total_referrals': total_referrals,
                 'total_earnings': total_earnings,
@@ -2702,12 +2779,13 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 📊 **Recent Premium Referrals:**"""
 
             if premium_stats['recent_referrals']:
-                for ref in premium_stats['recent_referrals'][:5]:
-                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
-                    subscription_type = ref[2]
-                    earnings = ref[3]
-                    date = ref[4][:10]
-                    message += f"\n• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})"
+                for ref in premium_stats['recent_referrals']:
+                    referred_name = ref.get('first_name', 'User')
+                    referred_name = referred_name[:15] + "..." if len(referred_name) > 15 else referred_name
+                    # subscription_type = ref.get('subscription_type', 'N/A') # Assuming this key exists if needed
+                    earnings = ref.get('earnings', 10000) # Default to 10k if not available
+                    date = ref.get('created_at', '')[:10] if ref.get('created_at') else ''
+                    message += f"\n• {referred_name} - Rp {earnings:,} ({date})"
             else:
                 message += "\n• Belum ada referral premium"
 
@@ -2874,10 +2952,10 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
         # Start broadcast
         self.broadcast_in_progress = True
-        
+
         # Get users from both local DB and Supabase
         local_users = self.db.get_all_users()
-        
+
         # Get users from Supabase
         supabase_users = []
         try:
@@ -2893,14 +2971,14 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
         # Combine and deduplicate users
         all_user_ids = set()
         combined_users = []
-        
+
         # Add local users
         for user in local_users:
             user_id_target = user.get('user_id')
             if user_id_target and user_id_target not in all_user_ids:
                 all_user_ids.add(user_id_target)
                 combined_users.append(user)
-        
+
         # Add Supabase users (skip duplicates)
         for user in supabase_users:
             user_id_target = user.get('user_id')
@@ -2921,7 +2999,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
         success_count = 0
         failed_count = 0
-        
+
         for user_data in combined_users:
             user_id_target = user_data.get('user_id')
             if not user_id_target:
@@ -3491,7 +3569,6 @@ ADMIN2 = [optional_second_admin_id]
                                 premium_dt = datetime.fromisoformat(premium_until)
                             else:
                                 premium_dt = premium_until
-
                             premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
                             premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
                         except Exception as e:
@@ -3735,6 +3812,7 @@ ADMIN2 = [optional_second_admin_id]
         # Admin commands
         self.application.add_handler(CommandHandler("admin", self.admin_command))
         self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command)) # Added remove_premium command
         self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
         self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
         self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
