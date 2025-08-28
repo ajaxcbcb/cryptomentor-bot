@@ -261,11 +261,21 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
         return False
 
 def revoke_premium(telegram_id: int) -> bool:
-    """Revoke premium status from user in Supabase"""
+    """Revoke premium status from user in Supabase with verification"""
     try:
         supabase = get_supabase_client()
 
-        # Reset premium status
+        # First check if user exists
+        existing = supabase.table("users").select("telegram_id, is_premium, is_lifetime").eq("telegram_id", telegram_id).execute()
+        if not existing.data:
+            print(f"User {telegram_id} not found for premium revocation")
+            return False
+
+        current_user = existing.data[0]
+        was_premium = current_user.get('is_premium', False)
+        was_lifetime = current_user.get('is_lifetime', False)
+
+        # Reset premium status completely
         update_data = {
             "is_premium": False,
             "is_lifetime": False,
@@ -276,14 +286,29 @@ def revoke_premium(telegram_id: int) -> bool:
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
 
         if result.data:
-            print(f"Revoked premium for user {telegram_id}")
+            premium_type = "lifetime" if was_lifetime else "timed"
+            print(f"✅ Revoked {premium_type} premium for user {telegram_id}")
+            
+            # Double-check the revocation worked
+            verification = supabase.table("users").select("is_premium, is_lifetime, premium_until").eq("telegram_id", telegram_id).execute()
+            if verification.data:
+                verified = verification.data[0]
+                if not verified.get('is_premium') and not verified.get('is_lifetime') and not verified.get('premium_until'):
+                    print(f"✅ Premium revocation verified for user {telegram_id}")
+                    return True
+                else:
+                    print(f"⚠️ Premium revocation incomplete for user {telegram_id}: {verified}")
+                    return False
+            
             return True
         else:
-            print(f"Failed to revoke premium for user {telegram_id}")
+            print(f"❌ Failed to revoke premium for user {telegram_id} - no data returned")
             return False
 
     except Exception as e:
-        print(f"Error revoking premium for user {telegram_id}: {e}")
+        print(f"❌ Error revoking premium for user {telegram_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def touch_user_from_update(update):
