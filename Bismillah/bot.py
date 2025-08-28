@@ -2840,12 +2840,55 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
         # Start broadcast
         self.broadcast_in_progress = True
-        all_users = self.db.get_all_users()
+        
+        # Get users from both local DB and Supabase
+        local_users = self.db.get_all_users()
+        
+        # Get users from Supabase
+        supabase_users = []
+        try:
+            from app.supabase_repo import get_supabase_client
+            s = get_supabase_client()
+            result = s.table("users").select("telegram_id, first_name, username").execute()
+            if result.data:
+                supabase_users = [{"user_id": user["telegram_id"], "first_name": user.get("first_name", "User")} for user in result.data]
+                print(f"📊 Found {len(supabase_users)} users in Supabase for broadcast")
+        except Exception as e:
+            print(f"⚠️ Could not get Supabase users for broadcast: {e}")
 
-        await update.message.reply_text(f"📢 Memulai broadcast ke {len(all_users)} users...")
+        # Combine and deduplicate users
+        all_user_ids = set()
+        combined_users = []
+        
+        # Add local users
+        for user in local_users:
+            user_id_target = user.get('user_id')
+            if user_id_target and user_id_target not in all_user_ids:
+                all_user_ids.add(user_id_target)
+                combined_users.append(user)
+        
+        # Add Supabase users (skip duplicates)
+        for user in supabase_users:
+            user_id_target = user.get('user_id')
+            if user_id_target and user_id_target not in all_user_ids:
+                all_user_ids.add(user_id_target)
+                combined_users.append(user)
+
+        local_count = len(local_users)
+        supabase_count = len(supabase_users)
+        total_unique = len(combined_users)
+
+        await update.message.reply_text(
+            f"📢 Memulai broadcast...\n\n"
+            f"👥 Local DB: {local_count} users\n"
+            f"🗄️ Supabase: {supabase_count} users\n"
+            f"🎯 Total Unique: {total_unique} users"
+        )
 
         success_count = 0
-        for user_data in all_users:
+        failed_count = 0
+        
+        for user_data in combined_users:
             user_id_target = user_data.get('user_id')
             if not user_id_target:
                 continue
@@ -2872,13 +2915,24 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
             except Exception as e:
                 print(f"Failed to send broadcast to user {user_id_target}: {e}")
+                failed_count += 1
                 continue
 
         # Cleanup
         self.pending_broadcast = None
         self.broadcast_in_progress = False
 
-        await update.message.reply_text(f"✅ Broadcast selesai! Berhasil dikirim ke {success_count}/{len(all_users)} users.")
+        await update.message.reply_text(
+            f"✅ **Broadcast Selesai!**\n\n"
+            f"📊 **Statistik:**\n"
+            f"• Total Target: {total_unique} users\n"
+            f"• Berhasil: {success_count} users\n"
+            f"• Gagal: {failed_count} users\n\n"
+            f"🗄️ **Sumber:**\n"
+            f"• Local DB: {local_count} users\n"
+            f"• Supabase: {supabase_count} users",
+            parse_mode='Markdown'
+        )
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
