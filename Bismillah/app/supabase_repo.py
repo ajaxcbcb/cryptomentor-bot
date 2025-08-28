@@ -1,4 +1,3 @@
-
 import os
 from typing import Optional, Dict, Any, Tuple
 from supabase import create_client, Client
@@ -35,7 +34,7 @@ def ensure_user_exists_no_credit(
     Upsert TANPA mengubah credits. Pakai di /market, /analyze, /futures_signals, dst.
     """
     s = _client()
-    
+
     # Check if user exists first
     existing = get_user_by_tid(tg_id)
     if existing:
@@ -47,13 +46,13 @@ def ensure_user_exists_no_credit(
             update_data["first_name"] = first_name
         if last_name is not None:
             update_data["last_name"] = last_name
-        
+
         if update_data:
             update_data["updated_at"] = "now()"
             s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
-        
+
         return existing
-    
+
     # User doesn't exist, create with minimal data (no credits set - will use default)
     row = {
         "telegram_id": int(tg_id),
@@ -62,7 +61,7 @@ def ensure_user_exists_no_credit(
         "last_name": last_name,
         "credits": 0,  # New users get 0 credits by default (welcome credits only from /start)
     }
-    
+
     s.table("users").insert(row).execute()
     return get_user_by_tid(tg_id) or row
 
@@ -78,7 +77,7 @@ def upsert_user_with_welcome(
     Khusus /start: kalau user baru, set credits=welcome; kalau sudah ada, JANGAN ubah credits.
     """
     s = _client()
-    
+
     # Check if user already exists
     existing = get_user_by_tid(tg_id)
     if existing:
@@ -90,17 +89,17 @@ def upsert_user_with_welcome(
             update_data["first_name"] = first
         if last is not None:
             update_data["last_name"] = last
-        
+
         if update_data:
             update_data["updated_at"] = "now()"
             s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
-        
+
         return {
             "telegram_id": existing.get("telegram_id"),
             "credits": existing.get("credits", 0),
             "is_new": False
         }
-    
+
     # User doesn't exist, create with welcome credits
     user_data = {
         "telegram_id": int(tg_id),
@@ -109,9 +108,9 @@ def upsert_user_with_welcome(
         "last_name": last,
         "credits": int(welcome),
     }
-    
+
     s.table("users").insert(user_data).execute()
-    
+
     return {
         "telegram_id": int(tg_id),
         "credits": int(welcome),
@@ -141,10 +140,10 @@ def debit_credits_rpc(tg_id: int, amount: int) -> int:
 def set_premium_normalized(tg_id: int, duration_str: str) -> Dict[str, Any]:
     """Set premium status using normalized duration"""
     from datetime import datetime, timedelta
-    
+
     ensure_user_exists_no_credit(tg_id)
     s = _client()
-    
+
     if duration_str.lower() == 'lifetime':
         update_data = {
             "is_premium": True,
@@ -162,7 +161,7 @@ def set_premium_normalized(tg_id: int, duration_str: str) -> Dict[str, Any]:
             days = int(duration_str)
         else:
             days = 30  # default
-        
+
         premium_until = datetime.now() + timedelta(days=days)
         update_data = {
             "is_premium": True,
@@ -170,9 +169,9 @@ def set_premium_normalized(tg_id: int, duration_str: str) -> Dict[str, Any]:
             "premium_until": premium_until.isoformat(),
             "updated_at": datetime.now().isoformat()
         }
-    
+
     s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
-    
+
     # Return verification from v_users view
     return get_vuser_by_tid(tg_id) or {}
 
@@ -180,19 +179,56 @@ def revoke_premium(tg_id: int) -> Dict[str, Any]:
     """Revoke premium status"""
     ensure_user_exists_no_credit(tg_id)
     s = _client()
-    
+
     update_data = {
         "is_premium": False,
         "is_lifetime": False,
         "premium_until": None,
         "updated_at": datetime.now().isoformat()
     }
-    
+
     s.table("users").update(update_data).eq("telegram_id", int(tg_id)).execute()
-    
+
     # Return verification from v_users view
     return get_vuser_by_tid(tg_id) or {}
 
 def ensure_user_exists(tg_id: int, username: str = None, first_name: str = None):
     """Legacy compatibility function"""
     return ensure_user_exists_no_credit(tg_id, username, first_name)
+
+def get_user_counts() -> tuple[int, int]:
+    """Get total users and premium users count"""
+    try:
+        s = _client()
+
+        # Total users
+        total_result = s.table("users").select("telegram_id", count="exact").execute()
+        total_users = total_result.count if hasattr(total_result, 'count') else 0
+
+        # Premium users
+        premium_result = s.table("users").select("telegram_id", count="exact").eq("is_premium", True).execute()
+        premium_users = premium_result.count if hasattr(premium_result, 'count') else 0
+
+        return total_users, premium_users
+
+    except Exception as e:
+        print(f"❌ Error getting user counts: {e}")
+        return 0, 0
+
+def get_all_user_telegram_ids() -> list[int]:
+    """Get all user telegram IDs for broadcasting"""
+    try:
+        s = _client()
+
+        # Get all telegram_ids from users table
+        result = s.table("users").select("telegram_id").not_.is_("telegram_id", "null").execute()
+
+        if result.data:
+            telegram_ids = [row["telegram_id"] for row in result.data if row.get("telegram_id")]
+            return list(set(telegram_ids))  # Remove duplicates
+
+        return []
+
+    except Exception as e:
+        print(f"❌ Error getting all user telegram IDs: {e}")
+        return []
