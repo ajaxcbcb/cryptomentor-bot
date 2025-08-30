@@ -147,6 +147,14 @@ except ImportError as e:
 # Get initial admin IDs for logging
 ADMIN_IDS = set(get_admin_ids()) if ADMIN_SYSTEM_AVAILABLE else set()
 
+# Log admin configuration
+admin1 = os.getenv("ADMIN1", "").strip()
+admin2 = os.getenv("ADMIN2", "").strip()
+if admin1:
+    logger.info(f"✅ ADMIN1 configured: {admin1}")
+if admin2:
+    logger.info(f"✅ ADMIN2 configured: {admin2}")
+
 if not ADMIN_IDS:
     logger.warning("No ADMIN, ADMIN1, ADMIN2 or fallback admin environment variables found. Admin commands will be inaccessible.")
 
