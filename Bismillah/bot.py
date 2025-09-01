@@ -137,38 +137,12 @@ except ImportError as e:
     logger.error(f"❌ Failed to import new admin system: {e}")
     ADMIN_SYSTEM_AVAILABLE = False
 
-    # Fallback to environment-based admin check
-    def get_admin_ids():
-        admin_ids = set()
-
-        # Check ADMIN1 and ADMIN2 from Replit Secrets
-        admin1 = os.getenv("ADMIN1", "").strip()
-        admin2 = os.getenv("ADMIN2", "").strip()
-
-        if admin1 and admin1.isdigit():
-            admin_ids.add(int(admin1))
-            logger.info(f"✅ ADMIN1 loaded: {admin1}")
-
-        if admin2 and admin2.isdigit():
-            admin_ids.add(int(admin2))
-            logger.info(f"✅ ADMIN2 loaded: {admin2}")
-
-        # Fallback to legacy ADMIN_USER_ID
-        legacy_admin = os.getenv("ADMIN_USER_ID", "").strip()
-        if legacy_admin and legacy_admin.isdigit():
-            admin_ids.add(int(legacy_admin))
-            logger.info(f"✅ Legacy ADMIN_USER_ID loaded: {legacy_admin}")
-
-        return list(admin_ids)
-
+    # Fallback to old system
     def is_admin(user_id):
-        try:
-            uid = int(user_id)
-            admin_ids = get_admin_ids()
-            return uid in admin_ids
-        except Exception:
-            return False
+        return False
 
+    def get_admin_ids():
+        return []
 
 # Get initial admin IDs for logging
 ADMIN_IDS = set(get_admin_ids()) if ADMIN_SYSTEM_AVAILABLE else set()
@@ -275,12 +249,7 @@ class TelegramBot:
         if ADMIN_SYSTEM_AVAILABLE:
             return is_admin(user_id)
         else:
-            # This fallback is only used if the new admin system fails to import
-            # In that case, ADMIN_SYSTEM_AVAILABLE is False, and is_admin() is defined as False
-            # However, to be safe, we can also check against the loaded ADMIN_IDS if the system is not available
-            # This might be redundant if the fallback get_admin_ids() is correctly implemented
-            return str(user_id) in self.admin_ids if not ADMIN_SYSTEM_AVAILABLE else False
-
+            return str(user_id) in self.admin_ids
 
     def register_user_supabase(self, user):
         """TODO: Register new user in database after setup"""
@@ -1102,7 +1071,7 @@ class TelegramBot:
             print(f"🔄 Market command initiated by user {user_id}")
 
             # Get market analysis using CoinAPI real-time data
-            print("Calling AI market sentiment analysis with CoinAPI...")
+            print("📊 Calling AI market sentiment analysis with CoinAPI...")
             analysis_result = self.ai.get_market_sentiment('id', self.crypto_api)
 
             if not analysis_result or len(analysis_result.strip()) < 50:
@@ -1468,11 +1437,11 @@ class TelegramBot:
         user_id = update.message.from_user.id
         # Use Supabase for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium
-            from app.users_repo import get_user_credits as sb_get_credits
+            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
             from app.users_repo import get_user_by_telegram_id
 
             is_premium = sb_is_premium(user_id)
+            credits = sb_get_credits(user_id)
 
             # Get user data from Supabase for accurate premium type detection
             user_data = get_user_by_telegram_id(user_id)
@@ -1489,7 +1458,7 @@ class TelegramBot:
         is_admin = self.is_admin(user_id)
 
         if is_admin:
-            message = f"""👑 **CryptoMentor AI - Credit Information**
+            message = f"""👑 **CryptoMentor AI Bot - Credit Information**
 
 👑 **Status**: **ADMIN**
 ♾️ **Credit**: **UNLIMITED**
@@ -1503,7 +1472,7 @@ class TelegramBot:
 Selamat mengelola CryptoMentor AI!"""
         elif is_premium:
             if is_lifetime:
-                message = f"""💳 **CryptoMentor AI - Credit Information**
+                message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
 ⭐ **Status**: **PREMIUM LIFETIME**
 ♾️ **Credit**: **UNLIMITED**
@@ -1535,7 +1504,7 @@ Terima kasih telah menjadi member lifetime premium!"""
                         print(f"Error parsing premium_until: {e}")
                         expiry_text = "Active"
 
-                message = f"""💳 **CryptoMentor AI - Credit Information**
+                message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
 ⭐ **Status**: **PREMIUM** ({expiry_text})
 ♾️ **Credit**: **UNLIMITED**
@@ -1547,7 +1516,7 @@ Terima kasih telah menjadi member lifetime premium!"""
 
 Terima kasih telah menjadi member premium!"""
         else:
-            message = f"""💳 **CryptoMentor AI - Credit Information**
+            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
 
 💰 **Credit tersisa**: **{credits}**
 
@@ -1576,6 +1545,166 @@ Terima kasih telah menjadi member premium!"""
 
 Gunakan credit dengan bijak!"""
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    # Auto Signals Admin Commands
+    async def auto_signals_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auto_signals_status command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        status = "🟢 RUNNING" if self.auto_signals.is_running else "🔴 STOPPED"
+        eligible_users = self.db.get_eligible_auto_signal_users()
+
+        message = f"""🎯 **Auto SnD Signals Status**
+
+📊 **Status**: {status}
+👥 **Eligible Users**: {len(eligible_users)} (Admin + Lifetime)
+⏰ **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
+🎯 **Target Coins**: {len(self.auto_signals.target_symbols)} altcoins
+📈 **Min Confidence**: {self.auto_signals.min_confidence}%
+🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S UTC') if self.auto_signals.last_scan_time > 0 else 'Never'}
+
+🔧 **Commands:**
+• `/enable_auto_signal_ai` - Start momentum signals scanner
+• `/disable_auto_signal_ai` - Stop momentum signals scanner
+
+💡 **Target**: Admin & Lifetime premium users only"""
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /enable_auto_signal_ai command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        if self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto SnD signals sudah berjalan.")
+            return
+
+        # Start auto signals
+        try:
+            # Update status in autosignal module
+            from app.autosignal import start_auto_signals
+            start_auto_signals()
+
+            asyncio.create_task(self.auto_signals.start_auto_scanner())
+            await update.message.reply_text(
+                f"✅ **Auto SnD Signals Enabled**\n\n"
+                f"🎯 Scanning {len(self.auto_signals.target_symbols)} altcoins\n"
+                f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
+                f"👥 For Admin & Lifetime users only\n\n"
+                f"📊 Next scan will start in approximately {self.auto_signals.scan_interval // 60} minutes...",
+                parse_mode='Markdown'
+            )
+            self.db.log_user_activity(user_id, "admin_enable_auto_signals", "Enabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to enable auto signals: {e}")
+            logger.error(f"Error enabling auto signals: {e}")
+
+
+    async def stop_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /disable_auto_signal_ai command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not self.auto_signals:
+            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
+            return
+
+        if not self.auto_signals.is_running:
+            await update.message.reply_text("⚠️ Auto SnD signals sudah berhenti.")
+            return
+
+        # Stop auto signals
+        try:
+            # Update status in autosignal module
+            from app.autosignal import stop_auto_signals
+            stop_auto_signals()
+
+            await self.auto_signals.stop_auto_scanner()
+            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
+            self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
+            logger.error(f"Error stopping auto signals: {e}")
+
+
+    # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
+    # I'll include the essential ones for functionality
+
+    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /portfolio command"""
+        user_id = update.message.from_user.id
+        portfolio = self.db.get_user_portfolio(user_id)
+
+        if not portfolio:
+            message = """💼 **Portfolio Anda kosong**
+
+Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
+Contoh: `/add_coin btc 0.5`
+
+Harga akan diambil real-time dari CoinAPI."""
+        else:
+            message = "💼 **Portfolio Anda (CoinAPI Real-time):**\n\n"
+            total_value = 0
+
+            for coin in portfolio:
+                symbol = coin['symbol']
+                amount = coin['amount']
+                price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
+
+                if price_data and 'error' not in price_data:
+                    current_price = price_data.get('price', 0)
+                    value = amount * current_price
+                    total_value += value
+
+                    price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
+                    value_format = f"${value:,.2f}"
+                    message += f"• {symbol}: {amount} koin ({price_format} = {value_format})\n"
+                else:
+                    message += f"• {symbol}: {amount} koin (Price unavailable)\n"
+
+            message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add_coin command"""
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Gunakan format: `/add_coin <symbol> <amount>`\nContoh: `/add_coin btc 0.5`")
+            return
+
+        user_id = update.message.from_user.id
+        symbol = context.args[0].upper()
+
+        try:
+            amount = float(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Amount harus berupa angka!")
+            return
+
+        # Add to portfolio
+        self.db.add_to_portfolio(user_id, symbol, amount)
+
+        message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari CoinAPI saat Anda cek `/portfolio`."
+        await update.message.reply_text(message)
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /subscribe command"""
@@ -2304,6 +2433,56 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             target_user_id = int(context.args[0])
 
+            # Revoke premium using normalized function
+            v = revoke_premium(target_user_id)
+
+            message = f"""✅ **Premium berhasil dicabut!**
+
+👤 **User ID**: {target_user_id}
+📊 **Status**: ❌ REVOKED
+
+🔍 **Verification from v_users:**
+• is_premium: {v.get('is_premium')}
+• is_lifetime: {v.get('is_lifetime')}
+• premium_active: {v.get('premium_active')}
+• premium_until: {v.get('premium_until')}
+
+🔄 **Database**: Updated in Supabase ✅"""
+
+            await safe_reply(update.effective_message, message)
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_revoke_premium",
+                f"Revoked premium for user {target_user_id}"
+            )
+
+        except Exception as e:
+            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
+            print(f"❌ Error in revoke_premium command: {e}")
+
+    async def remove_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command untuk remove premium user dengan Supabase (alias for revoke_premium)"""
+        from app.supabase_repo import revoke_premium
+        from app.safe_send import safe_reply
+
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            await safe_reply(update.effective_message, "❌ Akses ditolak. Command ini hanya untuk admin.")
+            return
+
+        if len(context.args) != 1 or not context.args[0].isdigit():
+            await safe_reply(update.effective_message,
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/remove_premium <user_id>`\n\n"
+                "**Example:** `/remove_premium 123456789`"
+            )
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+
             # Check if user exists first
             from app.users_repo import get_user_by_telegram_id
             user_data = get_user_by_telegram_id(target_user_id)
@@ -2323,14 +2502,14 @@ Gunakan `/subscribe` untuk upgrade!
             v = revoke_premium(target_user_id)
 
             premium_type = "LIFETIME" if current_lifetime else "TIMED"
-            message = f"""✅ **Premium berhasil dicabut!**
+            message = f"""✅ **Premium berhasil dihapus!**
 
 👤 **User ID**: {target_user_id}
 👤 **Name**: {user_data.get('first_name', 'Unknown')}
 📊 **Previous Status**: {premium_type} Premium
 📊 **New Status**: ❌ FREE USER
 
-🔍 **Verification from v_users:**
+🔍 **Verification:**
 • is_premium: {v.get('is_premium', False)}
 • is_lifetime: {v.get('is_lifetime', False)}
 • premium_active: {v.get('premium_active', False)}
@@ -2344,22 +2523,17 @@ Gunakan `/subscribe` untuk upgrade!
             # Log admin action with more detail
             self.db.log_user_activity(
                 user_id,
-                "admin_revoke_premium",
-                f"Revoked {premium_type} premium from user {target_user_id} ({user_data.get('first_name', 'Unknown')})"
+                "admin_remove_premium",
+                f"Removed {premium_type} premium from user {target_user_id} ({user_data.get('first_name', 'Unknown')})"
             )
 
-            print(f"✅ Admin {user_id} revoked premium from user {target_user_id}")
+            print(f"✅ Admin {user_id} removed premium from user {target_user_id}")
 
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal menghapus premium: {e}")
-            print(f"❌ Error in revoke_premium command: {e}")
+            print(f"❌ Error in remove_premium command: {e}")
             import traceback
             traceback.print_exc()
-
-    async def remove_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin command untuk remove premium user dengan Supabase (alias for revoke_premium)"""
-        # This command is an alias for revoke_premium, so we just call it.
-        await self.revoke_premium_command(update, context)
 
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
