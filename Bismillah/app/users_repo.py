@@ -50,24 +50,54 @@ def is_premium_active(tg_id: int) -> bool:
 def _ts_in_future(pu) -> bool:
     if not pu: return False
     s = str(pu).strip()
-    # normalisasi format supabase agar ISO 8601
+    
+    # Handle various Supabase timestamp formats
+    print(f"[DEBUG] Parsing premium_until: '{s}'")
+    
+    # Remove microseconds if present and normalize format
+    if "." in s and "+" in s:
+        # Format: 2025-09-20 10:43:48.485047+00
+        parts = s.split(".")
+        if len(parts) == 2:
+            microsec_part = parts[1]
+            if "+" in microsec_part:
+                timezone_part = "+" + microsec_part.split("+")[1]
+                s = parts[0] + timezone_part
+            elif "Z" in microsec_part:
+                s = parts[0] + "Z"
+    
+    # Normalize space to T
     if " " in s and "T" not in s:
-        s = s.replace(" ", "T", 1)   # 'YYYY-MM-DD HH:MM' -> 'YYYY-MM-DDTHH:MM'
+        s = s.replace(" ", "T", 1)
+    
+    # Handle timezone formats
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
-    if s.endswith("+00"):
+    elif s.endswith("+00"):
         s = s + ":00"
+    elif "+00:" in s and not s.endswith(":00"):
+        s = s + "0" if s.endswith(":0") else s
+    
     try:
+        print(f"[DEBUG] Normalized timestamp: '{s}'")
         dt = datetime.fromisoformat(s)
-    except Exception:
+    except Exception as e1:
+        print(f"[DEBUG] fromisoformat failed: {e1}")
         try:
-            from dateutil import parser  # pastikan ada di requirements
+            from dateutil import parser
             dt = parser.parse(str(pu))
-        except Exception:
+            print(f"[DEBUG] dateutil.parser succeeded")
+        except Exception as e2:
+            print(f"[DEBUG] dateutil.parser also failed: {e2}")
             return False
+    
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt > datetime.now(timezone.utc)
+    
+    now = datetime.now(timezone.utc)
+    is_future = dt > now
+    print(f"[DEBUG] premium_until: {dt}, now: {now}, is_future: {is_future}")
+    return is_future
 
 
 def get_user_by_telegram_id(telegram_id: int) -> Optional[Dict[str, Any]]:
@@ -97,51 +127,41 @@ def get_user_credits(telegram_id: int) -> int:
 
 
 def create_user_if_not_exists(telegram_id: int, username: str = None, first_name: str = None) -> bool:
-    """Create user in Supabase if not exists"""
+    """Create user in Supabase if not exists WITHOUT auto-assigning credits"""
     try:
-        from app.supabase_repo import ensure_user_exists
-
-        # Use the new ensure_user_exists function
-        ensure_user_exists(
-            tg_id=telegram_id,
-            username=username,
-            first_name=first_name
-        )
-        print(f"✅ User {telegram_id} ensured to exist in Supabase")
-        return True
+        from app.supabase_repo import ensure_user_exists_no_credit
+        
+        # Use the new function that doesn't mess with credits
+        user_data = ensure_user_exists_no_credit(telegram_id, username, first_name)
+        return bool(user_data)
 
     except Exception as e:
-        print(f"❌ Error ensuring user {telegram_id} exists: {e}")
-        # Fallback to old method
+        print(f"❌ Error creating/checking user {telegram_id}: {e}")
+        
+        # Fallback: manual creation without credits
         try:
             supabase = get_supabase_client()
-
+            
             # Check if user exists
             existing = supabase.table("users").select("telegram_id").eq("telegram_id", telegram_id).execute()
-
             if existing.data:
-                print(f"✅ User {telegram_id} already exists in Supabase")
+                print(f"✅ User {telegram_id} already exists")
                 return True
 
-            # Create new user
+            # Create new user with 0 credits (welcome credits only from /start)
             user_data = {
                 "telegram_id": telegram_id,
                 "username": (username or "").strip().lstrip("@").lower() or None,
-                "first_name": first_name or "Unknown",
-                "credits": 100,  # Default credits
+                "first_name": first_name or "New User",
+                "credits": 0,  # No auto-credits, only from /start welcome
                 "is_premium": False,
                 "is_lifetime": False,
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
 
             result = supabase.table("users").insert(user_data).execute()
-
-            if result.data:
-                print(f"✅ Created new user {telegram_id} in Supabase")
-                return True
-            else:
-                print(f"❌ Failed to create user {telegram_id} in Supabase")
-                return False
+            print(f"✅ Created new user {telegram_id} with 0 credits in Supabase")
+            return bool(result.data)
 
         except Exception as e2:
             print(f"❌ Fallback also failed for user {telegram_id}: {e2}")
@@ -241,11 +261,21 @@ def set_premium(telegram_id: int, lifetime: bool = False, days: int = None) -> b
         return False
 
 def revoke_premium(telegram_id: int) -> bool:
-    """Revoke premium status from user in Supabase"""
+    """Revoke premium status from user in Supabase with verification"""
     try:
         supabase = get_supabase_client()
 
-        # Reset premium status
+        # First check if user exists
+        existing = supabase.table("users").select("telegram_id, is_premium, is_lifetime").eq("telegram_id", telegram_id).execute()
+        if not existing.data:
+            print(f"User {telegram_id} not found for premium revocation")
+            return False
+
+        current_user = existing.data[0]
+        was_premium = current_user.get('is_premium', False)
+        was_lifetime = current_user.get('is_lifetime', False)
+
+        # Reset premium status completely
         update_data = {
             "is_premium": False,
             "is_lifetime": False,
@@ -256,24 +286,42 @@ def revoke_premium(telegram_id: int) -> bool:
         result = supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
 
         if result.data:
-            print(f"Revoked premium for user {telegram_id}")
+            premium_type = "lifetime" if was_lifetime else "timed"
+            print(f"✅ Revoked {premium_type} premium for user {telegram_id}")
+            
+            # Double-check the revocation worked
+            verification = supabase.table("users").select("is_premium, is_lifetime, premium_until").eq("telegram_id", telegram_id).execute()
+            if verification.data:
+                verified = verification.data[0]
+                if not verified.get('is_premium') and not verified.get('is_lifetime') and not verified.get('premium_until'):
+                    print(f"✅ Premium revocation verified for user {telegram_id}")
+                    return True
+                else:
+                    print(f"⚠️ Premium revocation incomplete for user {telegram_id}: {verified}")
+                    return False
+            
             return True
         else:
-            print(f"Failed to revoke premium for user {telegram_id}")
+            print(f"❌ Failed to revoke premium for user {telegram_id} - no data returned")
             return False
 
     except Exception as e:
-        print(f"Error revoking premium for user {telegram_id}: {e}")
+        print(f"❌ Error revoking premium for user {telegram_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def touch_user_from_update(update):
-    """Create/update user from Telegram update"""
+    """Create/update user from Telegram update WITHOUT auto-assigning credits"""
     if not update or not update.effective_user:
         return
 
     user = update.effective_user
-    create_user_if_not_exists(
-        telegram_id=user.id,
+    from app.supabase_repo import ensure_user_exists_no_credit
+    
+    # Use function that doesn't touch credits
+    ensure_user_exists_no_credit(
+        tg_id=user.id,
         username=user.username,
         first_name=user.first_name
     )
@@ -288,32 +336,36 @@ def get_credits(telegram_id: int) -> int:
         return 0
 
 def is_premium_active(telegram_id: int) -> bool:
-    """Check if user has active premium"""
+    """Check if user has active premium using improved logic"""
     try:
         user = get_user_by_telegram_id(telegram_id)
         if not user:
+            print(f"❌ User {telegram_id} not found for premium check")
             return False
 
+        print(f"🔍 Premium check for user {telegram_id}: {user}")
+
         if not user.get("is_premium", False):
+            print(f"❌ User {telegram_id} is_premium=False")
             return False
 
         if user.get("is_lifetime", False):
+            print(f"✅ User {telegram_id} has lifetime premium")
             return True
 
         premium_until = user.get("premium_until")
         if not premium_until:
-            return False
+            # If is_premium=True but no expiry, treat as lifetime for backward compatibility
+            print(f"✅ User {telegram_id} has premium without expiry (treating as active)")
+            return True
 
-        # Parse premium_until and check if still valid
-        if isinstance(premium_until, str):
-            premium_dt = datetime.fromisoformat(premium_until.replace('Z', '+00:00'))
-        else:
-            premium_dt = premium_until
-
-        return premium_dt > datetime.utcnow()
+        # Use the improved timestamp parsing from _ts_in_future
+        is_active = _ts_in_future(premium_until)
+        print(f"⏰ User {telegram_id} premium until: {premium_until}, active: {is_active}")
+        return is_active
 
     except Exception as e:
-        print(f"Error checking premium for user {telegram_id}: {e}")
+        print(f"❌ Error checking premium for user {telegram_id}: {e}")
         return False
 
 def debit_credits(telegram_id: int, amount: int) -> bool:

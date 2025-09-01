@@ -1,0 +1,196 @@
+🔧 PROMPT AI AGENT — Fix Premium 30d & “Credit tersisa: True”
+1) users_repo.py — jadikan DB sebagai sumber kebenaran (no parsing lokal)
+
+Tugas: Tambahkan/replace fungsi berikut agar cek premium membaca dari view v_users. Jika view gagal, baru fallback parser yang toleran.
+
+# users_repo.py
+from typing import Optional, Dict, Any
+from datetime import datetime, timezone
+from .supabase_conn import get_supabase_client
+
+def get_vuser_by_telegram_id(tg_id: int) -> Optional[Dict[str, Any]]:
+    s = get_supabase_client()
+    res = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
+def is_premium_active(tg_id: int) -> bool:
+    s = get_supabase_client()
+    # 1) Pakai view v_users.premium_active (sumber kebenaran)
+    try:
+        res = s.table("v_users").select("premium_active").eq("telegram_id", int(tg_id)).limit(1).execute()
+        if res.data:
+            return bool(res.data[0].get("premium_active"))
+    except Exception as e:
+        print("[is_premium_active] v_users failed ->", e)
+
+    # 2) Fallback langsung dari tabel 'users' + parser toleran
+    try:
+        r = s.table("users").select("is_premium,is_lifetime,premium_until")\
+                .eq("telegram_id", int(tg_id)).limit(1).execute().data
+        if not r: 
+            return False
+        row = r[0]
+        if row.get("is_lifetime"): 
+            return True
+        if not row.get("is_premium"): 
+            return False
+        return _ts_in_future(row.get("premium_until"))
+    except Exception as e:
+        print("[is_premium_active] users fallback failed ->", e)
+        return False
+
+def _ts_in_future(pu) -> bool:
+    if not pu: return False
+    s = str(pu).strip()
+    # normalisasi format supabase agar ISO 8601
+    if " " in s and "T" not in s:
+        s = s.replace(" ", "T", 1)   # 'YYYY-MM-DD HH:MM' -> 'YYYY-MM-DDTHH:MM'
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    if s.endswith("+00"):
+        s = s + ":00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        try:
+            from dateutil import parser  # pastikan ada di requirements
+            dt = parser.parse(str(pu))
+        except Exception:
+            return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt > datetime.now(timezone.utc)
+
+
+Jika belum ada, tambahkan ke requirements.txt:
+python-dateutil>=2.8
+
+2) supabase_repo.py — normalisasi durasi untuk /setpremium <tg_id> 30d
+
+Tugas: Pastikan setter premium mengubah "30d", "30", "2m", "lifetime" menjadi parameter valid untuk RPC ('days'|'months'|'lifetime' + integer).
+
+# supabase_repo.py
+from typing import Tuple, Optional, Dict, Any
+from supabase import create_client, Client
+import os
+
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+def _client() -> Client:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def _normalize_duration(token: str) -> Tuple[str, int]:
+    t = (token or "").strip().lower()
+    if t == "lifetime": return ("lifetime", 0)
+    if t.isdigit():     return ("days", int(t))
+    if t.endswith("d") and t[:-1].isdigit(): return ("days", int(t[:-1]))
+    if t.endswith(("m","mo","mon","month","months")):
+        n = "".join(ch for ch in t if ch.isdigit())
+        if n.isdigit(): return ("months", int(n))
+    raise ValueError("Invalid duration. Use lifetime | <days>d | <days> | <months>m")
+
+def ensure_user_exists(tg_id: int) -> Dict[str, Any]:
+    s = _client()
+    # upsert minimal
+    row = {"telegram_id": int(tg_id)}
+    s.table("users").upsert(row, on_conflict="telegram_id").execute()
+    r = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute()
+    return r.data[0] if r.data else row
+
+def set_premium_normalized(tg_id: int, duration_token: str) -> Dict[str, Any]:
+    s = _client()
+    dtype, dval = _normalize_duration(duration_token)
+    s.rpc("set_premium", {
+        "p_telegram_id": int(tg_id),
+        "p_duration_value": int(dval),
+        "p_duration_type": dtype,
+    }).execute()
+    # verifikasi via view (punya premium_active)
+    v = s.table("v_users").select("*").eq("telegram_id", int(tg_id)).limit(1).execute().data
+    if not v: raise RuntimeError("Premium updated but v_users not found")
+    return v[0]
+
+3) credits_guard.py (atau tempat kamu memotong kredit) — perbaiki variabel yang ditampilkan
+
+Tugas: Pastikan yang ditampilkan adalah remaining (angka), bukan ok (boolean). Premium aktif bypass debit.
+
+# credits_guard.py
+from typing import Tuple
+from app.users_repo import is_premium_active, get_vuser_by_telegram_id
+from app.supabase_repo import set_premium_normalized  # opsional kalau dipakai
+
+def require_credits(tg_id: int, cost: int) -> Tuple[bool, int, str]:
+    # Premium aktif: tidak didebit
+    if is_premium_active(tg_id):
+        row = get_vuser_by_telegram_id(tg_id) or {}
+        remain = int(row.get("credits") or 0)
+        return True, remain, "✅ Premium aktif — kredit tidak terpakai."
+    # Non-premium: ambil saldo & debit sesuai implementasi kamu
+    # ---- contoh sederhana (ganti dengan RPC debit_credits jika punya) ----
+    from app.supabase_conn import get_supabase_client
+    s = get_supabase_client()
+    user = s.table("users").select("credits").eq("telegram_id", int(tg_id)).limit(1).execute().data
+    cur = int((user[0] if user else {}).get("credits") or 0)
+    if cur < cost:
+        return False, cur, f"❌ Kredit tidak cukup. Sisa: {cur}, biaya: {cost}. Upgrade ke premium untuk unlimited access."
+    newv = cur - cost
+    s.table("users").update({"credits": newv}).eq("telegram_id", int(tg_id)).execute()
+    return True, newv, f"✅ {cost} kredit terpakai. Sisa: {newv}."
+
+
+Penting (bagian yang sering salah):
+Di handler yang memanggil guard, jangan tulis f"Credit tersisa: {ok}".
+Gunakan pola ini:
+
+ok, remaining, msg = require_credits(user_id, cost=60)
+if not ok:
+    await message.answer(msg)   # akan berisi sisa angka dengan benar
+    return
+await message.answer(f"💳 Credit tersisa: {remaining} (biaya: -{60} credit)")
+
+4) Router admin — pastikan pakai /setpremium <tg_id> 30d>
+# admin_premium.py (handler ringkas)
+from aiogram import Router, types
+import os
+from app.supabase_repo import ensure_user_exists, set_premium_normalized
+
+router = Router()
+
+def _is_admin(uid:int)->bool:
+    raw = ",".join([os.getenv("ADMIN_IDS",""), os.getenv("ADMIN1",""), os.getenv("ADMIN2","")])
+    ids = {int(t) for t in raw.replace(";",",").replace(" ","").split(",") if t.isdigit()}
+    return uid in ids
+
+@router.message(commands={"setpremium"})
+async def setprem(m: types.Message):
+    if not _is_admin(m.from_user.id): 
+        return await m.answer("❌ Admin only.")
+    p=(m.text or "").split()
+    if len(p)<3: 
+        return await m.answer("Usage: /setpremium <tg_id> <lifetime|<days>d|<days>|<months>m>")
+    tg_id=int(p[1]); dur=p[2]
+    ensure_user_exists(tg_id)
+    v = set_premium_normalized(tg_id, dur)
+    await m.answer(
+        "✅ Premium updated\n"
+        f"active={v.get('premium_active')} lifetime={v.get('is_lifetime')} until={v.get('premium_until')}"
+    )
+
+5) Uji cepat
+
+/setpremium <id> 30d → cek v_users.premium_active = true dan premium_until future.
+
+Jalankan fitur berbiaya → balasan “Premium aktif — kredit tidak terpakai.” dan tidak ada debit.
+
+Pastikan teks kredit menggunakan remaining: 💳 Credit tersisa: 40 (biaya: -60 credit), bukan True/False.
+
+/setpremium <id> lifetime tetap OK.
+
+Dengan patch di atas:
+
+Premium 30d sekarang selalu dianggap premium oleh bot (karena cek langsung ke v_users.premium_active).
+
+Bug tampilan Credit tersisa: True hilang karena variabel yang dipakai adalah remaining (int), bukan ok (bool).

@@ -40,3 +40,30 @@ def check_credits_balance(tg_id: int) -> Tuple[bool, int]:
     user = s.table("users").select("credits").eq("telegram_id", int(tg_id)).limit(1).execute().data
     credits = int((user[0] if user else {}).get("credits") or 0)
     return False, credits
+from typing import Tuple
+from app.users_repo import is_premium_active
+from app.supabase_repo import ensure_user_exists_no_credit, get_credits, debit_credits_rpc
+
+def require_credits(tg_id: int, cost: int, username: str = None, first: str = None, last: str = None) -> Tuple[bool, int, str]:
+    """
+    - Pastikan row user ada TANPA mengubah credits.
+    - Premium aktif: bypass debit.
+    - Non-premium: debit via RPC (atomic), tidak pernah reset ke 100.
+    Returns: (allowed, remaining, message)
+    """
+    # Pastikan user exists TANPA mengubah credits
+    ensure_user_exists_no_credit(tg_id, username, first, last)
+
+    # Check premium status - jika premium, tidak debit credits
+    if is_premium_active(tg_id):
+        remaining = get_credits(tg_id)  # hanya untuk display
+        return True, remaining, "✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"
+
+    # Non-premium: check credits dan debit atomically
+    current = get_credits(tg_id)
+    if current < cost:
+        return False, current, f"❌ **Kredit tidak cukup**\n💳 Sisa: **{current}** | Biaya: **{cost}**\n\n💡 Gunakan `/credits` atau upgrade premium"
+
+    # Debit credits via RPC (atomic operation)
+    remaining = debit_credits_rpc(tg_id, cost)
+    return True, remaining, f"💳 **Credit terpakai**: {cost} | **Sisa**: {remaining}"

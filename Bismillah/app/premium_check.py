@@ -35,15 +35,36 @@ def is_premium_active(tid: int) -> bool:
             print(f"✅ User {tid} has premium without expiry (treating as active)")
             return True
 
-        # Parse premium_until timestamp
+        # Parse premium_until timestamp with better handling
         try:
+            print(f"🔍 Raw premium_until: '{premium_until}' (type: {type(premium_until)})")
+            
             if isinstance(premium_until, str):
-                # Handle ISO format with timezone
-                if premium_until.endswith('Z'):
-                    premium_until = premium_until[:-1] + '+00:00'
-                elif '+' not in premium_until and 'Z' not in premium_until:
-                    premium_until = premium_until + '+00:00'
-                premium_dt = datetime.fromisoformat(premium_until)
+                s = premium_until.strip()
+                
+                # Handle Supabase format: 2025-09-20 10:43:48.485047+00
+                if "." in s and "+" in s:
+                    parts = s.split(".")
+                    if len(parts) == 2:
+                        microsec_part = parts[1]
+                        if "+" in microsec_part:
+                            timezone_part = "+" + microsec_part.split("+")[1]
+                            s = parts[0] + timezone_part
+                
+                # Normalize space to T for ISO format
+                if " " in s and "T" not in s:
+                    s = s.replace(" ", "T", 1)
+                
+                # Handle timezone formats
+                if s.endswith('Z'):
+                    s = s[:-1] + '+00:00'
+                elif s.endswith('+00'):
+                    s = s + ':00'
+                elif '+' not in s and 'Z' not in s:
+                    s = s + '+00:00'
+                
+                print(f"🔍 Normalized premium_until: '{s}'")
+                premium_dt = datetime.fromisoformat(s)
             else:
                 premium_dt = premium_until
 
@@ -58,8 +79,20 @@ def is_premium_active(tid: int) -> bool:
             return is_active
             
         except Exception as e:
-            print(f"❌ Error parsing premium_until for user {tid}: {e}")
-            return False
+            print(f"❌ Error parsing premium_until for user {tid}: {e} - Raw: '{premium_until}'")
+            # Try one more fallback approach
+            try:
+                from dateutil import parser
+                premium_dt = parser.parse(str(premium_until))
+                if premium_dt.tzinfo is None:
+                    premium_dt = premium_dt.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                is_active = premium_dt > now
+                print(f"⏰ User {tid} premium until (fallback): {premium_dt}, active: {is_active}")
+                return is_active
+            except Exception as e2:
+                print(f"❌ Fallback parsing also failed for user {tid}: {e2}")
+                return False
 
     except Exception as e:
         print(f"❌ Error checking premium status for user {tid}: {e}")
