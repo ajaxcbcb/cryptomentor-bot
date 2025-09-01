@@ -6,16 +6,6 @@ def get_admin_ids():
     """Get admin IDs from environment variables"""
     admin_ids = set()
     
-    # Primary admin secrets
-    admin1 = os.getenv("ADMIN1", "").strip()
-    admin2 = os.getenv("ADMIN2", "").strip()
-    
-    if admin1 and admin1.isdigit():
-        admin_ids.add(int(admin1))
-        
-    if admin2 and admin2.isdigit():
-        admin_ids.add(int(admin2))
-    
     # Get ADMIN_IDS if available
     admin_ids_str = os.getenv("ADMIN_IDS", "")
     if admin_ids_str:
@@ -24,8 +14,8 @@ def get_admin_ids():
             if aid.isdigit():
                 admin_ids.add(int(aid))
     
-    # Fallback to individual ADMIN3-ADMIN9
-    for i in range(3, 10):
+    # Fallback to individual ADMIN1, ADMIN2, etc.
+    for i in range(1, 10):
         admin_id = os.getenv(f"ADMIN{i}")
         if admin_id and admin_id.strip().isdigit():
             admin_ids.add(int(admin_id.strip()))
