@@ -137,15 +137,49 @@ except ImportError as e:
     logger.error(f"❌ Failed to import new admin system: {e}")
     ADMIN_SYSTEM_AVAILABLE = False
 
-    # Fallback to old system
-    def is_admin(user_id):
-        return False
-
+    # Fallback to environment-based admin check
     def get_admin_ids():
-        return []
+        admin_ids = set()
+
+        # Check ADMIN1 and ADMIN2 from Replit Secrets
+        admin1 = os.getenv("ADMIN1", "").strip()
+        admin2 = os.getenv("ADMIN2", "").strip()
+
+        if admin1 and admin1.isdigit():
+            admin_ids.add(int(admin1))
+            logger.info(f"✅ ADMIN1 loaded: {admin1}")
+
+        if admin2 and admin2.isdigit():
+            admin_ids.add(int(admin2))
+            logger.info(f"✅ ADMIN2 loaded: {admin2}")
+
+        # Fallback to legacy ADMIN_USER_ID
+        legacy_admin = os.getenv("ADMIN_USER_ID", "").strip()
+        if legacy_admin and legacy_admin.isdigit():
+            admin_ids.add(int(legacy_admin))
+            logger.info(f"✅ Legacy ADMIN_USER_ID loaded: {legacy_admin}")
+
+        return list(admin_ids)
+
+    def is_admin(user_id):
+        try:
+            uid = int(user_id)
+            admin_ids = get_admin_ids()
+            return uid in admin_ids
+        except Exception:
+            return False
+
 
 # Get initial admin IDs for logging
 ADMIN_IDS = set(get_admin_ids()) if ADMIN_SYSTEM_AVAILABLE else set()
+
+# Log admin configuration
+admin1 = os.getenv("ADMIN1", "").strip()
+admin2 = os.getenv("ADMIN2", "").strip()
+if admin1:
+    logger.info(f"✅ ADMIN1 configured: {admin1}")
+if admin2:
+    logger.info(f"✅ ADMIN2 configured: {admin2}")
 
 if not ADMIN_IDS:
     logger.warning("No ADMIN, ADMIN1, ADMIN2 or fallback admin environment variables found. Admin commands will be inaccessible.")
@@ -241,7 +275,12 @@ class TelegramBot:
         if ADMIN_SYSTEM_AVAILABLE:
             return is_admin(user_id)
         else:
-            return str(user_id) in self.admin_ids
+            # This fallback is only used if the new admin system fails to import
+            # In that case, ADMIN_SYSTEM_AVAILABLE is False, and is_admin() is defined as False
+            # However, to be safe, we can also check against the loaded ADMIN_IDS if the system is not available
+            # This might be redundant if the fallback get_admin_ids() is correctly implemented
+            return str(user_id) in self.admin_ids if not ADMIN_SYSTEM_AVAILABLE else False
+
 
     def register_user_supabase(self, user):
         """TODO: Register new user in database after setup"""
@@ -458,19 +497,102 @@ class TelegramBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command with enhanced user persistence"""
         from app.chat_store import remember_chat
-        from app.users_repo import create_user_if_not_exists
+        from app.users_repo import create_user_if_not_exists, get_user_credits, set_credits
 
         user = update.effective_user
         print(f"🎯 /start command received from user {user.id if user else 'Unknown'}")
         logger.info(f"Start command from user {user.id}")
 
-        # Create user in Supabase if not exists
+        # Handle referral code from /start parameter
+        referred_by = None
+        referral_type = 'free'  # default
+
+        if context.args:
+            referral_code = context.args[0].strip()
+            print(f"🔗 Referral code detected: {referral_code}")
+
+            # Find referrer by code
+            try:
+                from app.supabase_conn import get_supabase_client
+                s = get_supabase_client()
+
+                # Check for free referral code
+                free_ref = s.table("users").select("telegram_id").eq("referral_code", referral_code).limit(1).execute()
+                if free_ref.data:
+                    referred_by = free_ref.data[0]['telegram_id']
+                    referral_type = 'free'
+                    print(f"✅ Found free referrer: {referred_by}")
+                else:
+                    # Check for premium referral code
+                    premium_ref = s.table("users").select("telegram_id").eq("premium_referral_code", referral_code).limit(1).execute()
+                    if premium_ref.data:
+                        referred_by = premium_ref.data[0]['telegram_id']
+                        referral_type = 'premium'
+                        print(f"✅ Found premium referrer: {referred_by}")
+                    else:
+                        print(f"⚠️ Invalid referral code: {referral_code}")
+            except Exception as e:
+                print(f"❌ Error checking referral code: {e}")
+
+        # Create user in Supabase with welcome credits (only for /start)
         if user:
-            create_user_if_not_exists(
-                telegram_id=user.id,
+            from app.supabase_repo import upsert_user_with_welcome
+
+            # Use welcome function that only gives credits to new users
+            user_data = upsert_user_with_welcome(
+                tg_id=user.id,
                 username=user.username,
-                first_name=user.first_name
+                first=user.first_name,
+                last=user.last_name,
+                welcome=100
             )
+
+            is_new_user = user_data.get('is_new', False)
+            current_credits = user_data.get('credits', 0)
+
+            if is_new_user:
+                print(f"✅ NEW USER: {user.id} welcomed with 100 credits")
+
+                # Process referral bonus for new users only
+                if referred_by:
+                    try:
+                        s = get_supabase_client()
+
+                        # Update new user with referrer info
+                        s.table("users").update({
+                            "referred_by": referred_by,
+                            "referral_type": referral_type
+                        }).eq("telegram_id", user.id).execute()
+
+                        if referral_type == 'free':
+                            # Give 10 credits to referrer
+                            s.rpc("add_credits", {
+                                "p_telegram_id": referred_by,
+                                "p_amount": 10
+                            }).execute()
+
+                            print(f"✅ Gave 10 credits to free referrer {referred_by}")
+
+                            # Send notification to referrer
+                            try:
+                                await self.application.bot.send_message(
+                                    chat_id=referred_by,
+                                    text=f"🎉 **Referral Bonus!**\n\n"
+                                         f"✅ +10 credits dari referral {user.first_name}!\n"
+                                         f"💡 Gunakan `/referral` untuk link Anda.",
+                                    parse_mode='Markdown'
+                                )
+                            except Exception as dm_error:
+                                print(f"⚠️ Could not send referral notification to {referred_by}: {dm_error}")
+
+                        elif referral_type == 'premium':
+                            print(f"💎 Premium referral logged for {referred_by}, reward pending subscription")
+
+                    except Exception as ref_error:
+                        print(f"❌ Error processing referral: {ref_error}")
+
+            else:
+                print(f"✅ RETURNING USER: {user.id} has {current_credits} credits")
 
         # Remember chat consent
         if user and update.effective_chat:
@@ -892,7 +1014,7 @@ class TelegramBot:
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        # Auto-upsert user to Supabase
+        # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
         # Check if user needs restart
@@ -904,10 +1026,11 @@ class TelegramBot:
             return
 
         user_id = update.message.from_user.id
+        user = update.message.from_user
         symbol = context.args[0].upper()
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 20)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
+        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
@@ -951,17 +1074,18 @@ class TelegramBot:
         from app.credits_guard import require_credits
 
         user_id = update.effective_user.id
+        user = update.effective_user
         message = update.effective_message
 
-        # Auto-upsert user
+        # Auto-upsert user (NO credits change)
         touch_user_from_update(update)
 
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 20)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
+        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for market command - {guard_message}")
@@ -978,7 +1102,7 @@ class TelegramBot:
             print(f"🔄 Market command initiated by user {user_id}")
 
             # Get market analysis using CoinAPI real-time data
-            print("📊 Calling AI market sentiment analysis with CoinAPI...")
+            print("Calling AI market sentiment analysis with CoinAPI...")
             analysis_result = self.ai.get_market_sentiment('id', self.crypto_api)
 
             if not analysis_result or len(analysis_result.strip()) < 50:
@@ -1016,12 +1140,13 @@ class TelegramBot:
         from app.credits_guard import require_credits
 
         user_id = update.message.from_user.id
+        user = update.message.from_user
 
-        # Auto-upsert user to Supabase
+        # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION
-        allowed, remaining, guard_message = require_credits(user_id, 60)
+        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 60)
+        allowed, remaining, guard_message = require_credits(user_id, 60, user.username, user.first_name, user.last_name)
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
@@ -1343,18 +1468,28 @@ class TelegramBot:
         user_id = update.message.from_user.id
         # Use Supabase for premium checks
         try:
-            from app.premium_check import is_premium as sb_is_premium, get_user_credits as sb_get_credits
+            from app.premium_check import is_premium as sb_is_premium
+            from app.users_repo import get_user_credits as sb_get_credits
+            from app.users_repo import get_user_by_telegram_id
+
             is_premium = sb_is_premium(user_id)
-            credits = sb_get_credits(user_id)
+
+            # Get user data from Supabase for accurate premium type detection
+            user_data = get_user_by_telegram_id(user_id)
+            is_lifetime = user_data and user_data.get('is_lifetime', False) if user_data else False
+            premium_until = user_data.get('premium_until') if user_data else None
+
         except Exception as e:
             print(f"⚠️ Supabase premium check failed, using fallback: {e}")
             is_premium = False  # Default to free if Supabase fails
             credits = 0
+            is_lifetime = False
+            premium_until = None
 
         is_admin = self.is_admin(user_id)
 
         if is_admin:
-            message = f"""👑 **CryptoMentor AI Bot - Credit Information**
+            message = f"""👑 **CryptoMentor AI - Credit Information**
 
 👑 **Status**: **ADMIN**
 ♾️ **Credit**: **UNLIMITED**
@@ -1367,23 +1502,52 @@ class TelegramBot:
 
 Selamat mengelola CryptoMentor AI!"""
         elif is_premium:
-            # Check if lifetime premium
-            user_data = self.db.get_user(user_id)
-            is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
+            if is_lifetime:
+                message = f"""💳 **CryptoMentor AI - Credit Information**
 
-            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
-
-⭐ **Status**: **PREMIUM {'LIFETIME' if is_lifetime else ''}**
+⭐ **Status**: **PREMIUM LIFETIME**
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
 • Unlimited analisis CoinAPI + SnD
-• {'Auto SnD signals (Lifetime only)' if is_lifetime else 'Priority support'}
+• Auto SnD signals (Lifetime only)
 • Priority support
+
+Terima kasih telah menjadi member lifetime premium!"""
+            else:
+                # Timed premium - show expiry date
+                expiry_text = "Active"
+                if premium_until:
+                    try:
+                        from datetime import datetime
+                        if isinstance(premium_until, str):
+                            # Handle various timestamp formats
+                            s = premium_until.replace(' ', 'T', 1) if ' ' in premium_until else premium_until
+                            if s.endswith('Z'):
+                                s = s[:-1] + '+00:00'
+                            elif '+' not in s and 'Z' not in s:
+                                s = s + '+00:00'
+                            premium_dt = datetime.fromisoformat(s)
+                        else:
+                            premium_dt = premium_until
+                        expiry_text = f"sampai {premium_dt.strftime('%d %B %Y')}"
+                    except Exception as e:
+                        print(f"Error parsing premium_until: {e}")
+                        expiry_text = "Active"
+
+                message = f"""💳 **CryptoMentor AI - Credit Information**
+
+⭐ **Status**: **PREMIUM** ({expiry_text})
+♾️ **Credit**: **UNLIMITED**
+
+🚀 **Fitur Premium:**
+• Unlimited analisis CoinAPI + SnD
+• Priority support
+• No credit limits
 
 Terima kasih telah menjadi member premium!"""
         else:
-            message = f"""💳 **CryptoMentor AI Bot - Credit Information**
+            message = f"""💳 **CryptoMentor AI - Credit Information**
 
 💰 **Credit tersisa**: **{credits}**
 
@@ -1413,166 +1577,6 @@ Terima kasih telah menjadi member premium!"""
 Gunakan credit dengan bijak!"""
         await update.message.reply_text(message, parse_mode='Markdown')
 
-    # Auto Signals Admin Commands
-    async def auto_signals_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /auto_signals_status command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.auto_signals:
-            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
-            return
-
-        status = "🟢 RUNNING" if self.auto_signals.is_running else "🔴 STOPPED"
-        eligible_users = self.db.get_eligible_auto_signal_users()
-
-        message = f"""🎯 **Auto SnD Signals Status**
-
-📊 **Status**: {status}
-👥 **Eligible Users**: {len(eligible_users)} (Admin + Lifetime)
-⏰ **Scan Interval**: {self.auto_signals.scan_interval // 60} minutes
-🎯 **Target Coins**: {len(self.auto_signals.target_symbols)} altcoins
-📈 **Min Confidence**: {self.auto_signals.min_confidence}%
-🕐 **Last Scan**: {datetime.fromtimestamp(self.auto_signals.last_scan_time).strftime('%H:%M:%S UTC') if self.auto_signals.last_scan_time > 0 else 'Never'}
-
-🔧 **Commands:**
-• `/enable_auto_signal_ai` - Start momentum signals scanner
-• `/disable_auto_signal_ai` - Stop momentum signals scanner
-
-💡 **Target**: Admin & Lifetime premium users only"""
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /enable_auto_signal_ai command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.auto_signals:
-            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
-            return
-
-        if self.auto_signals.is_running:
-            await update.message.reply_text("⚠️ Auto SnD signals sudah berjalan.")
-            return
-
-        # Start auto signals
-        try:
-            # Update status in autosignal module
-            from app.autosignal import start_auto_signals
-            start_auto_signals()
-
-            asyncio.create_task(self.auto_signals.start_auto_scanner())
-            await update.message.reply_text(
-                f"✅ **Auto SnD Signals Enabled**\n\n"
-                f"🎯 Scanning {len(self.auto_signals.target_symbols)} altcoins\n"
-                f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
-                f"👥 For Admin & Lifetime users only\n\n"
-                f"📊 Next scan will start in approximately {self.auto_signals.scan_interval // 60} minutes...",
-                parse_mode='Markdown'
-            )
-            self.db.log_user_activity(user_id, "admin_enable_auto_signals", "Enabled Auto SnD Signals")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Failed to enable auto signals: {e}")
-            logger.error(f"Error enabling auto signals: {e}")
-
-
-    async def stop_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /disable_auto_signal_ai command - Admin only"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if not self.auto_signals:
-            await update.message.reply_text("❌ Auto signals system tidak tersedia.")
-            return
-
-        if not self.auto_signals.is_running:
-            await update.message.reply_text("⚠️ Auto SnD signals sudah berhenti.")
-            return
-
-        # Stop auto signals
-        try:
-            # Update status in autosignal module
-            from app.autosignal import stop_auto_signals
-            stop_auto_signals()
-
-            await self.auto_signals.stop_auto_scanner()
-            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
-            self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
-            logger.error(f"Error stopping auto signals: {e}")
-
-
-    # Rest of the existing methods (portfolio, subscribe, referral, admin commands, etc.)
-    # I'll include the essential ones for functionality
-
-    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /portfolio command"""
-        user_id = update.message.from_user.id
-        portfolio = self.db.get_user_portfolio(user_id)
-
-        if not portfolio:
-            message = """💼 **Portfolio Anda kosong**
-
-Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
-Contoh: `/add_coin btc 0.5`
-
-Harga akan diambil real-time dari CoinAPI."""
-        else:
-            message = "💼 **Portfolio Anda (CoinAPI Real-time):**\n\n"
-            total_value = 0
-
-            for coin in portfolio:
-                symbol = coin['symbol']
-                amount = coin['amount']
-                price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=True)
-
-                if price_data and 'error' not in price_data:
-                    current_price = price_data.get('price', 0)
-                    value = amount * current_price
-                    total_value += value
-
-                    price_format = f"${current_price:.4f}" if current_price < 100 else f"${current_price:,.2f}"
-                    value_format = f"${value:,.2f}"
-                    message += f"• {symbol}: {amount} koin ({price_format} = {value_format})\n"
-                else:
-                    message += f"• {symbol}: {amount} koin (Price unavailable)\n"
-
-            message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
-
-        await update.message.reply_text(message, parse_mode='Markdown')
-
-    async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /add_coin command"""
-        if len(context.args) < 2:
-            await update.message.reply_text("❌ Gunakan format: `/add_coin <symbol> <amount>`\nContoh: `/add_coin btc 0.5`")
-            return
-
-        user_id = update.message.from_user.id
-        symbol = context.args[0].upper()
-
-        try:
-            amount = float(context.args[1])
-        except ValueError:
-            await update.message.reply_text("❌ Amount harus berupa angka!")
-            return
-
-        # Add to portfolio
-        self.db.add_to_portfolio(user_id, symbol, amount)
-
-        message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari CoinAPI saat Anda cek `/portfolio`."
-        await update.message.reply_text(message)
-
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /subscribe command"""
         user_id = update.message.from_user.id
@@ -1580,17 +1584,50 @@ Harga akan diambil real-time dari CoinAPI."""
         # Use Supabase for premium checks
         try:
             from app.premium_check import is_premium as sb_is_premium
+            from app.users_repo import get_user_by_telegram_id
+
             is_premium = sb_is_premium(user_id)
+
+            # Get accurate premium type from Supabase
+            user_data = get_user_by_telegram_id(user_id)
+            is_lifetime = user_data and user_data.get('is_lifetime', False) if user_data else False
+            premium_until = user_data.get('premium_until') if user_data else None
+
         except Exception as e:
             print(f"⚠️ Supabase premium check failed, using fallback: {e}")
             is_premium = False  # Default to free if Supabase fails
-
-        user_data = self.db.get_user(user_id)
-        is_lifetime = user_data and user_data.get('subscription_end') is None if user_data else False
+            is_lifetime = False
+            premium_until = None
 
         if is_premium:
-            premium_type = "LIFETIME" if is_lifetime else "PREMIUM"
-            auto_signals_status = "✅ Auto SnD Signals Access" if is_lifetime else "❌ Auto Signals (Lifetime Only)"
+            if is_lifetime:
+                premium_type = "LIFETIME"
+                auto_signals_status = "✅ Auto SnD Signals Access"
+                expiry_info = "• Akses selamanya tanpa batas waktu"
+            else:
+                premium_type = "PREMIUM"
+                auto_signals_status = "❌ Auto Signals (Lifetime Only)"
+
+                # Show expiry date for timed premium
+                if premium_until:
+                    try:
+                        from datetime import datetime
+                        if isinstance(premium_until, str):
+                            # Handle various timestamp formats
+                            s = premium_until.replace(' ', 'T', 1) if ' ' in premium_until else premium_until
+                            if s.endswith('Z'):
+                                s = s[:-1] + '+00:00'
+                            elif '+' not in s and 'Z' not in s:
+                                s = s + '+00:00'
+                            premium_dt = datetime.fromisoformat(s)
+                        else:
+                            premium_dt = premium_until
+                        expiry_info = f"• Berlaku sampai: {premium_dt.strftime('%d %B %Y - %H:%M WIB')}"
+                    except Exception as e:
+                        print(f"Error parsing premium_until: {e}")
+                        expiry_info = "• Premium aktif"
+                else:
+                    expiry_info = "• Premium aktif"
 
             message = f"""⭐ **Status {premium_type} Aktif**
 
@@ -1601,6 +1638,9 @@ Harga akan diambil real-time dari CoinAPI."""
 • 📊 Data real-time CoinAPI tanpa batas
 • {auto_signals_status}
 • 🛡️ Support premium
+
+📅 **Detail Langganan:**
+{expiry_info}
 
 ✨ **Terima kasih telah menjadi {premium_type} Member!**
 Nikmati semua fitur tanpa batasan credit."""
@@ -1679,29 +1719,65 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             print(f"Error getting bot info: {e}")
             bot_username = "CryptoMentorAI_bot"  # Fallback username
 
-        # Get referral codes
-        referral_codes = self.db.get_user_referral_codes(user_id)
-        if not referral_codes:
+        # Get or create referral codes
+        try:
+            from app.supabase_conn import get_supabase_client
+            s = get_supabase_client()
+
+            # Get user's referral codes
+            user_data = s.table("users").select("referral_code, premium_referral_code").eq("telegram_id", user_id).limit(1).execute()
+
+            if user_data.data:
+                user_record = user_data.data[0]
+                free_code = user_record.get('referral_code')
+                premium_code = user_record.get('premium_referral_code')
+
+                # Generate codes if missing
+                if not free_code or not premium_code:
+                    import random, string
+                    if not free_code:
+                        free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                    if not premium_code:
+                        premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+
+                    # Update user with new codes
+                    s.table("users").update({
+                        "referral_code": free_code,
+                        "premium_referral_code": premium_code
+                    }).eq("telegram_id", user_id).execute()
+            else:
+                await update.message.reply_text("❌ User not found. Please use /start first.")
+                return
+
+        except Exception as e:
+            print(f"Error getting referral codes: {e}")
             await update.message.reply_text("❌ Error getting referral codes. Please contact support.")
             return
 
-        free_code = referral_codes['free_referral_code']
-        premium_code = referral_codes['premium_referral_code']
-
         # Get free referral statistics
         try:
-            self.db.cursor.execute("""
-                SELECT COUNT(*) FROM users WHERE referred_by = ?
-            """, (user_id,))
-            total_free_referrals = self.db.cursor.fetchone()[0]
+            s = get_supabase_client()
+            free_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).execute()
+            total_free_referrals = len(free_refs.data) if free_refs.data else 0
             credits_earned = total_free_referrals * 10  # 10 credits per referral
         except Exception as e:
             print(f"Error getting free referral stats: {e}")
             total_free_referrals = 0
             credits_earned = 0
 
-        # Get premium referral statistics
-        premium_stats = self.db.get_premium_referral_stats(user_id)
+        # Get premium referral statistics (simplified for now)
+        try:
+            premium_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+            premium_referrals = len(premium_refs.data) if premium_refs.data else 0
+            premium_earnings = premium_referrals * 10000  # Rp 10,000 per premium referral
+            premium_stats = {
+                'total_referrals': premium_referrals,
+                'total_earnings': premium_earnings,
+                'recent_referrals': []
+            }
+        except Exception as e:
+            print(f"Error getting premium referral stats: {e}")
+            premium_stats = {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
 
         message = f"""🎁 **Program Referral CryptoMentor (CoinAPI Edition)**
 
@@ -1737,12 +1813,14 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             # Show recent premium referrals
             if premium_stats['recent_referrals']:
                 message += "📈 **Recent Premium Referrals:**\n"
-                for ref in premium_stats['recent_referrals'][:3]:
-                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
-                    subscription_type = ref[2]
-                    earnings = ref[3]
-                    date = ref[4][:10]  # Just date part
-                    message += f"• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})\n"
+                for ref in premium_stats['recent_referrals']:
+                    # Assuming ref is a dictionary with keys like 'telegram_id', 'first_name', 'created_at'
+                    referred_name = ref.get('first_name', 'User')
+                    referred_name = referred_name[:15] + "..." if len(referred_name) > 15 else referred_name
+                    # subscription_type = ref.get('subscription_type', 'N/A') # Assuming this key exists if needed
+                    earnings = ref.get('earnings', 10000) # Default to 10k if not available
+                    date = ref.get('created_at', '')[:10] if ref.get('created_at') else ''
+                    message += f"• {referred_name} - Rp {earnings:,} ({date})\n"
                 message += "\n"
         else:
             message += f"""💎 **Ingin Earning Uang Asli?**
@@ -1970,7 +2048,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 👥 User Management
 • /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium
+• /remove_premium <user_id> - Remove premium status
+• /revoke_premium <user_id> - Alias for remove_premium
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user info
 • /check_premium <user_id> - Check premium status
@@ -1983,6 +2062,7 @@ Gunakan `/subscribe` untuk upgrade!
 • /sb_status - Supabase connection status
 • /db_status - Database health check
 • /recovery_stats - System statistics
+• /combined_stats - Combined user stats (SQLite + Supabase)
 • /restart - Restart bot
 
 📢 Broadcasting
@@ -2018,7 +2098,8 @@ Gunakan `/subscribe` untuk upgrade!
 
 📋 Core Admin Commands
 • /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium
+• /remove_premium <user_id> - Remove premium status
+• /revoke_premium <user_id> - Alias for remove_premium
 • /grant_credits <user_id> <amount> - Grant credits
 • /check_user_status <user_id> - Check user status
 • /broadcast <message> - Broadcast to all users
@@ -2213,7 +2294,7 @@ Gunakan `/subscribe` untuk upgrade!
             return
 
         if len(context.args) != 1 or not context.args[0].isdigit():
-            await safe_reply(update.effective_message, 
+            await safe_reply(update.effective_message,
                 "❌ **Format salah!**\n\n"
                 "Gunakan: `/revoke_premium <user_id>`\n\n"
                 "**Example:** `/revoke_premium 123456789`"
@@ -2223,34 +2304,62 @@ Gunakan `/subscribe` untuk upgrade!
         try:
             target_user_id = int(context.args[0])
 
+            # Check if user exists first
+            from app.users_repo import get_user_by_telegram_id
+            user_data = get_user_by_telegram_id(target_user_id)
+            if not user_data:
+                await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
+                return
+
+            # Get current premium status for logging
+            current_premium = user_data.get('is_premium', False)
+            current_lifetime = user_data.get('is_lifetime', False)
+
+            if not current_premium:
+                await safe_reply(update.effective_message, f"⚠️ User {target_user_id} sudah bukan premium user.")
+                return
+
             # Revoke premium using normalized function
             v = revoke_premium(target_user_id)
 
+            premium_type = "LIFETIME" if current_lifetime else "TIMED"
             message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User ID**: {target_user_id}
-📊 **Status**: ❌ REVOKED
+👤 **Name**: {user_data.get('first_name', 'Unknown')}
+📊 **Previous Status**: {premium_type} Premium
+📊 **New Status**: ❌ FREE USER
 
 🔍 **Verification from v_users:**
-• is_premium: {v.get('is_premium')}
-• is_lifetime: {v.get('is_lifetime')}
-• premium_active: {v.get('premium_active')}
-• premium_until: {v.get('premium_until')}
+• is_premium: {v.get('is_premium', False)}
+• is_lifetime: {v.get('is_lifetime', False)}
+• premium_active: {v.get('premium_active', False)}
+• premium_until: {v.get('premium_until', 'None')}
 
-🔄 **Database**: Updated in Supabase ✅"""
+🔄 **Database**: Updated in Supabase ✅
+⚠️ **Note**: User akan kembali ke free tier dengan batasan credit normal."""
 
             await safe_reply(update.effective_message, message)
 
-            # Log admin action
+            # Log admin action with more detail
             self.db.log_user_activity(
                 user_id,
                 "admin_revoke_premium",
-                f"Revoked premium for user {target_user_id}"
+                f"Revoked {premium_type} premium from user {target_user_id} ({user_data.get('first_name', 'Unknown')})"
             )
 
+            print(f"✅ Admin {user_id} revoked premium from user {target_user_id}")
+
         except Exception as e:
-            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
+            await safe_reply(update.effective_message, f"❌ Gagal menghapus premium: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def remove_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command untuk remove premium user dengan Supabase (alias for revoke_premium)"""
+        # This command is an alias for revoke_premium, so we just call it.
+        await self.revoke_premium_command(update, context)
 
     async def fix_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /fix_all_credits command"""
@@ -2363,6 +2472,39 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def combined_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /combined_stats command - Show combined user statistics from both databases"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        try:
+            from app.combined_stats import format_user_stats_summary
+
+            # Get formatted summary
+            summary = format_user_stats_summary()
+
+            await update.message.reply_text(
+                f"🤖 **CryptoMentor AI - Combined User Statistics**\n\n{summary}\n\n⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}",
+                parse_mode='Markdown'
+            )
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_combined_stats",
+                "Viewed combined user statistics from both databases"
+            )
+
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ **Error getting combined stats!**\n\n**Error**: {str(e)[:200]}...",
+                parse_mode='Markdown'
+            )
+            print(f"Error in combined_stats_command: {e}")
+
     async def check_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /check_admin command"""
         user_id = update.message.from_user.id
@@ -2406,93 +2548,22 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         sys.exit(0)
 
     async def refresh_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /refresh_credits command - Manual weekly refresh to 100 credits"""
+        """Handle /refresh_credits command - DISABLED to prevent daily resets"""
         user_id = update.message.from_user.id
 
         if not self.is_admin(user_id):
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
-        await update.message.reply_text("🔄 Starting manual credit refresh to 100 credits for all free users...")
-
-        try:
-            # Use Supabase to refresh credits directly
-            from app.supabase_conn import get_supabase_client
-            from app.users_repo import is_premium_active
-
-            s = get_supabase_client()
-
-            # Get all users
-            result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
-
-            if not result.data:
-                await update.message.reply_text("❌ No users found in database")
-                return
-
-            all_users = result.data
-            free_users = []
-
-            # Filter free users (non-premium)
-            for user in all_users:
-                tg_id = user.get('telegram_id')
-                if not tg_id:
-                    continue
-
-                # Check if user is premium
-                if not is_premium_active(tg_id):
-                    free_users.append(user)
-
-            if not free_users:
-                await update.message.reply_text("ℹ️ No free users found to refresh")
-                return
-
-            # Update credits for all free users to 100
-            updated_count = 0
-            for user in free_users:
-                telegram_id = user.get('telegram_id')
-                try:
-                    update_result = s.table("users").update({
-                        "credits": 100
-                    }).eq("telegram_id", telegram_id).execute()
-
-                    if update_result.data:
-                        updated_count += 1
-
-                except Exception as e:
-                    print(f"❌ Error updating user {telegram_id}: {e}")
-                    continue
-
-            # Calculate next refresh date
-            now = datetime.now()
-            days_until_monday = (7 - now.weekday()) % 7
-            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
-                days_until_monday = 7
-            next_refresh = now + timedelta(days=days_until_monday)
-            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # Format next refresh with date and day
-            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
-
-            await update.message.reply_text(
-                f"✅ **Manual Credit Refresh Completed!**\n\n"
-                f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
-                f"💳 **Credits Set**: 100 credits per user\n"
-                f"💰 **Total Credits Given**: {updated_count * 100:,}\n"
-                f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                f"📅 **Next auto refresh**: {next_refresh_str}",
-                parse_mode='Markdown'
-            )
-
-        except Exception as e:
-            await update.message.reply_text(
-                f"❌ **Credit Refresh Failed**\n\n"
-                f"Error: {str(e)[:200]}...",
-                parse_mode='Markdown'
-            )
-            print(f"❌ Error in refresh_credits_command: {e}")
-
-        # Log admin action
-        self.db.log_user_activity(user_id, "admin_manual_refresh", f"Manual credit refresh: Set {updated_count} free users to 100 credits")
+        await update.message.reply_text(
+            "⚠️ **Credit Refresh Command DISABLED**\n\n"
+            "❌ This command has been disabled to prevent daily credit resets.\n\n"
+            "💡 **Alternative commands:**\n"
+            "• `/set_all_credits <amount>` - Set specific amount for all free users\n"
+            "• `/grant_credits <user_id> <amount>` - Add credits to specific user\n\n"
+            "🔧 **Why disabled?** To fix the issue where credits were being reset daily instead of being preserved.",
+            parse_mode='Markdown'
+        )
 
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /premium_earnings command"""
@@ -2517,8 +2588,21 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             return
 
         try:
-            # Get premium referral earnings
-            premium_stats = self.db.get_premium_referral_stats(user_id)
+            # Get premium referral earnings from Supabase
+            from app.supabase_conn import get_supabase_client
+            s = get_supabase_client()
+
+            # Count premium referrals
+            premium_refs = s.table("users").select("telegram_id, first_name, created_at").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+
+            total_referrals = len(premium_refs.data) if premium_refs.data else 0
+            total_earnings = total_referrals * 10000  # Rp 10,000 per premium referral
+
+            premium_stats = {
+                'total_referrals': total_referrals,
+                'total_earnings': total_earnings,
+                'recent_referrals': premium_refs.data[:5] if premium_refs.data else []
+            }
 
             message = f"""💎 **Premium Earnings Dashboard**
 
@@ -2529,12 +2613,13 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 📊 **Recent Premium Referrals:**"""
 
             if premium_stats['recent_referrals']:
-                for ref in premium_stats['recent_referrals'][:5]:
-                    referred_name = ref[1][:15] + "..." if len(ref[1]) > 15 else ref[1]
-                    subscription_type = ref[2]
-                    earnings = ref[3]
-                    date = ref[4][:10]
-                    message += f"\n• {referred_name} ({subscription_type}) - Rp {earnings:,} ({date})"
+                for ref in premium_stats['recent_referrals']:
+                    referred_name = ref.get('first_name', 'User')
+                    referred_name = referred_name[:15] + "..." if len(referred_name) > 15 else referred_name
+                    # subscription_type = ref.get('subscription_type', 'N/A') # Assuming this key exists if needed
+                    earnings = ref.get('earnings', 10000) # Default to 10k if not available
+                    date = ref.get('created_at', '')[:10] if ref.get('created_at') else ''
+                    message += f"\n• {referred_name} - Rp {earnings:,} ({date})"
             else:
                 message += "\n• Belum ada referral premium"
 
@@ -2701,12 +2786,55 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
         # Start broadcast
         self.broadcast_in_progress = True
-        all_users = self.db.get_all_users()
 
-        await update.message.reply_text(f"📢 Memulai broadcast ke {len(all_users)} users...")
+        # Get users from both local DB and Supabase
+        local_users = self.db.get_all_users()
+
+        # Get users from Supabase
+        supabase_users = []
+        try:
+            from app.supabase_repo import get_supabase_client
+            s = get_supabase_client()
+            result = s.table("users").select("telegram_id, first_name, username").execute()
+            if result.data:
+                supabase_users = [{"user_id": user["telegram_id"], "first_name": user.get("first_name", "User")} for user in result.data]
+                print(f"📊 Found {len(supabase_users)} users in Supabase for broadcast")
+        except Exception as e:
+            print(f"⚠️ Could not get Supabase users for broadcast: {e}")
+
+        # Combine and deduplicate users
+        all_user_ids = set()
+        combined_users = []
+
+        # Add local users
+        for user in local_users:
+            user_id_target = user.get('user_id')
+            if user_id_target and user_id_target not in all_user_ids:
+                all_user_ids.add(user_id_target)
+                combined_users.append(user)
+
+        # Add Supabase users (skip duplicates)
+        for user in supabase_users:
+            user_id_target = user.get('user_id')
+            if user_id_target and user_id_target not in all_user_ids:
+                all_user_ids.add(user_id_target)
+                combined_users.append(user)
+
+        local_count = len(local_users)
+        supabase_count = len(supabase_users)
+        total_unique = len(combined_users)
+
+        await update.message.reply_text(
+            f"📢 Memulai broadcast...\n\n"
+            f"👥 Local DB: {local_count} users\n"
+            f"🗄️ Supabase: {supabase_count} users\n"
+            f"🎯 Total Unique: {total_unique} users"
+        )
 
         success_count = 0
-        for user_data in all_users:
+        failed_count = 0
+
+        for user_data in combined_users:
             user_id_target = user_data.get('user_id')
             if not user_id_target:
                 continue
@@ -2733,13 +2861,24 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
             except Exception as e:
                 print(f"Failed to send broadcast to user {user_id_target}: {e}")
+                failed_count += 1
                 continue
 
         # Cleanup
         self.pending_broadcast = None
         self.broadcast_in_progress = False
 
-        await update.message.reply_text(f"✅ Broadcast selesai! Berhasil dikirim ke {success_count}/{len(all_users)} users.")
+        await update.message.reply_text(
+            f"✅ **Broadcast Selesai!**\n\n"
+            f"📊 **Statistik:**\n"
+            f"• Total Target: {total_unique} users\n"
+            f"• Berhasil: {success_count} users\n"
+            f"• Gagal: {failed_count} users\n\n"
+            f"🗄️ **Sumber:**\n"
+            f"• Local DB: {local_count} users\n"
+            f"• Supabase: {supabase_count} users",
+            parse_mode='Markdown'
+        )
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /cancel_broadcast command"""
@@ -3264,7 +3403,6 @@ ADMIN2 = [optional_second_admin_id]
                                 premium_dt = datetime.fromisoformat(premium_until)
                             else:
                                 premium_dt = premium_until
-
                             premium_until_str = premium_dt.strftime('%d %B %Y - %H:%M WIB')
                             premium_details = f"• Berlaku sampai: {premium_until_str}\n• Unlimited access sampai expiry"
                         except Exception as e:
@@ -3371,7 +3509,7 @@ ADMIN2 = [optional_second_admin_id]
                     free_users.append(user)
 
             if not free_users:
-                await update.message.reply_text("ℹ️ No free users found")
+                await update.message.reply_text("ℹ️ No free users found to refresh")
                 return
 
             # Update credits for all free users
@@ -3452,7 +3590,7 @@ ADMIN2 = [optional_second_admin_id]
 
 🔍 **Raw Data**:
 • is_premium: {user_data.get('is_premium')}
-• is_lifetime: {user_data.get('is_lifetime')}  
+• is_lifetime: {user_data.get('is_lifetime')}
 • premium_until: {user_data.get('premium_until')}
 • credits: {user_data.get('credits')}
 
@@ -3471,7 +3609,7 @@ ADMIN2 = [optional_second_admin_id]
     async def whois_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /whois command to check user status from v_users"""
         from app.routers.admin_premium import cmd_whois
-        
+
         # Delegate to the router function
         await cmd_whois(update, context)
 
@@ -3508,6 +3646,7 @@ ADMIN2 = [optional_second_admin_id]
         # Admin commands
         self.application.add_handler(CommandHandler("admin", self.admin_command))
         self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command)) # Added remove_premium command
         self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
         self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
         self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
@@ -3517,6 +3656,7 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
         self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
         self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+        self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
         self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
         self.application.add_handler(CommandHandler("restart", self.restart_command))
         self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))

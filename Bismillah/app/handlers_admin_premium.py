@@ -95,17 +95,26 @@ async def cmd_revoke_premium(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return await safe_reply(msg, f"❌ User {tid} tidak ditemukan")
 
             # Revoke premium using repo function
-            revoke_premium(tid)
+            success = revoke_premium(tid)
 
-            # Verify revocation
-            updated_user = get_user_by_telegram_id(tid)
-            if updated_user and not updated_user.get("is_premium"):
-                return await safe_reply(msg, f"✅ Premium REVOKED untuk user {tid}")
+            if success:
+                # Verify revocation
+                updated_user = get_user_by_telegram_id(tid)
+                if updated_user and not updated_user.get("is_premium"):
+                    return await safe_reply(msg, f"✅ Premium REVOKED untuk user {tid}")
+                else:
+                    return await safe_reply(msg, f"❌ Revocation verification failed untuk user {tid}")
             else:
                 return await safe_reply(msg, f"❌ Gagal revoke premium untuk user {tid}")
 
     except Exception as e:
         return await safe_reply(msg, f"❌ Error revoke premium: {str(e)}")
+
+@admin_guard  
+async def cmd_remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /remove_premium command (alias for revoke_premium)"""
+    # Just call the revoke_premium handler
+    await cmd_revoke_premium(update, context)
 
 @admin_guard
 async def cmd_grant_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):

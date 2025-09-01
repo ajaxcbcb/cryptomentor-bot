@@ -6,6 +6,8 @@ from typing import List, Set
 # Kunci env yang didukung (urutan prioritas):
 ENV_KEYS = [
     "ADMIN",          # ← utama (bisa 1 atau banyak)
+    "ADMIN1",         # ← admin utama
+    "ADMIN2",         # ← admin kedua (super admin)
     "ADMINS",
     "ADMIN_IDS",
     "ADMIN_ID",
