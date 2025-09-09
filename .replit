@@ -51,3 +51,6 @@ args = "sleep 2"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd Bismillah && python main.py"
+
+[agent]
+expertMode = true
