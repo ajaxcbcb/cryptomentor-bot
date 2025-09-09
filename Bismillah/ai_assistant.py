@@ -356,7 +356,7 @@ class AIAssistant:
                 if ema_50 and ema_200 and current_price:
                     # Calculate EMA separation percentage
                     ema_separation = abs(ema_50 - ema_200) / ema_200 * 100
-                    
+
                     if ema_50 > ema_200:  # Bullish alignment
                         if current_price > ema_50:  # Price above both EMAs
                             tf_score = min(35, 25 + (ema_separation * 2))
@@ -398,7 +398,7 @@ class AIAssistant:
             if futures_data and futures_data.get('success'):
                 # Try to extract futures data properly
                 data = futures_data.get('data', futures_data)
-                
+
                 # Open Interest
                 oi = self._normalize_data(data, ['open_interest', 'oi', 'openInterest', 'total'])
                 if oi and oi > 1000000:  # Minimum OI threshold
@@ -425,7 +425,7 @@ class AIAssistant:
                         pass
 
             total_score = tf_score + indicator_score + liquidity_score + freshness_score
-            
+
             # Apply quality gates
             final_score = min(total_score, 95)  # Cap at 95% max
             if final_score < 30:  # Minimum threshold
@@ -1027,16 +1027,16 @@ class AIAssistant:
             # Use the same confidence calculation as analyze command
             confidence_data = self._calculate_confidence_score(primary_indicators, {}, futures_data)
             base_confidence = confidence_data['total']
-            
+
             # Primary timeframe indicators
             ema_50 = primary_indicators.get('ema_50', 0)
             ema_200 = primary_indicators.get('ema_200', 0)
             rsi = primary_indicators.get('rsi', 50)
             macd = primary_indicators.get('macd_histogram', 0)
-            
+
             # Determine direction based on technical analysis
             direction = 'NEUTRAL'
-            
+
             if ema_50 and ema_200 and current_price:
                 if ema_50 > ema_200:  # Bullish trend
                     if current_price > ema_50 and rsi < 75:  # Price above EMAs, not overbought
@@ -1048,17 +1048,17 @@ class AIAssistant:
                         direction = 'SHORT'
                     elif rsi > 65:  # Overbought in bearish trend
                         direction = 'SHORT'
-            
+
             # Higher timeframe confirmation bonus
             htf_confirmation = 'NEUTRAL'
             if higher_tf_indicators:
                 htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
                 htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
-                
+
                 if htf_ema_50 and htf_ema_200:
                     htf_bullish = htf_ema_50 > htf_ema_200
                     primary_bullish = ema_50 > ema_200 if ema_50 and ema_200 else False
-                    
+
                     if htf_bullish == primary_bullish:
                         htf_confirmation = 'CONFIRMED'
                         base_confidence += 10  # Bonus for timeframe alignment
@@ -1071,7 +1071,7 @@ class AIAssistant:
             if snd_data and snd_data.get('success'):
                 supply_1 = snd_data.get('Supply 1', current_price * 1.02)
                 demand_1 = snd_data.get('Demand 1', current_price * 0.98)
-                
+
                 if current_price <= demand_1 * 1.005 and direction == 'LONG':
                     snd_confirmation = 'SUPPORT'
                     base_confidence += 8
@@ -1097,7 +1097,7 @@ class AIAssistant:
                 if recent_volumes and len(recent_volumes) >= 3:
                     avg_volume = sum(recent_volumes[-3:]) / 3
                     current_volume = recent_volumes[-1]
-                    if current_volume > avg_volume * 1.5:
+                    if current_volume > avg_volume * 1.2:
                         volume_trend = 'High'
                     elif current_volume < avg_volume * 0.7:
                         volume_trend = 'Low'
@@ -1106,7 +1106,7 @@ class AIAssistant:
 
             # Final confidence capping
             final_confidence = max(30, min(base_confidence, 95))
-            
+
             return {
                 'direction': direction,
                 'confidence': final_confidence,
@@ -1117,7 +1117,7 @@ class AIAssistant:
                 'volume_trend': volume_trend,
                 'breakdown': confidence_data['breakdown']
             }
-            
+
         except Exception as e:
             return {
                 'direction': 'NEUTRAL',
@@ -1133,7 +1133,7 @@ class AIAssistant:
         try:
             atr = indicators.get('atr', current_price * 0.02)
             direction = signal_data['direction']
-            
+
             if direction == 'LONG':
                 entry = current_price * 0.999
                 stop_loss = current_price - (atr * 2.5)
@@ -1156,12 +1156,12 @@ class AIAssistant:
                     'rr_ratio': 0,
                     'risk_percentage': 2.5
                 }
-                
+
             # Calculate risk/reward ratio
             risk = abs(entry - stop_loss)
             reward = abs(tp2 - entry)
             rr_ratio = reward / risk if risk > 0 else 0
-            
+
             return {
                 'entry': entry,
                 'stop_loss': stop_loss,
@@ -1171,7 +1171,7 @@ class AIAssistant:
                 'rr_ratio': rr_ratio,
                 'risk_percentage': 2.5
             }
-            
+
         except Exception as e:
             return {
                 'entry': current_price,
@@ -1215,14 +1215,14 @@ class AIAssistant:
         """Generate advanced trading insights - Helper function"""
         try:
             insights = []
-            
+
             if confidence >= 80:
                 insights.append("• High probability setup dengan multiple confirmations")
             elif confidence >= 70:
                 insights.append("• Setup trading solid dengan konfirmasi cukup")
             else:
                 insights.append("• Setup berisiko, gunakan position size kecil")
-                
+
             rr_ratio = trading_levels.get('rr_ratio', 0)
             if rr_ratio > 2:
                 insights.append("• Risk/Reward ratio menguntungkan untuk swing trading")
@@ -1230,15 +1230,15 @@ class AIAssistant:
                 insights.append("• Risk/Reward ratio acceptable untuk day trading")
             else:
                 insights.append("• Risk/Reward ratio kurang ideal, pertimbangkan skip")
-                
+
             direction = signal_data.get('direction', 'NEUTRAL')
             if direction != 'NEUTRAL':
                 insights.append(f"• Bias market mendukung posisi {direction}")
             else:
                 insights.append("• Market dalam kondisi sideways, tunggu breakout")
-                
+
             return "\n".join(insights)
-            
+
         except Exception as e:
             return "• Analisis insight temporarily unavailable"
 
@@ -1247,13 +1247,13 @@ class AIAssistant:
         try:
             # Filter signals with confidence >= 75%
             filtered = [s for s in all_signals if s.get('confidence', 0) >= 75]
-            
+
             # Sort by confidence (highest first)
             filtered.sort(key=lambda x: x.get('confidence', 0), reverse=True)
-            
+
             # Take top 10 signals to avoid spam
             return filtered[:10]
-            
+
         except Exception as e:
             return []
 
@@ -1402,13 +1402,13 @@ class AIAssistant:
         """Get comprehensive market sentiment analysis - Non-async function"""
         try:
             current_time = self._get_wib_time()
-            
+
             # Get global market metrics
             global_metrics = self.get_cmc_global_metrics()
-            
+
             if not global_metrics.get('success'):
                 return self._get_basic_market_fallback()
-                
+
             # Extract key metrics
             total_market_cap = global_metrics.get('total_market_cap', 0)
             market_cap_change = global_metrics.get('market_cap_change_24h', 0)
@@ -1461,7 +1461,7 @@ class AIAssistant:
 🔄 **Update Frequency**: Real-time market data refresh"""
 
             return analysis
-            
+
         except Exception as e:
             return self._get_basic_market_fallback()
 
@@ -1469,7 +1469,7 @@ class AIAssistant:
         """Get trading recommendations based on market conditions - Helper function"""
         try:
             recommendations = []
-            
+
             if market_change > 2:
                 recommendations.append("• 🚀 Consider long positions pada major coins")
                 recommendations.append("• 📈 Altcoins berpotensi follow BTC momentum")
@@ -1482,14 +1482,14 @@ class AIAssistant:
             else:
                 recommendations.append("• 🕐 Wait and see approach")
                 recommendations.append("• 📊 Focus on technical analysis untuk entry points")
-                
+
             if btc_dominance > 55:
                 recommendations.append("• 👑 BTC dominance tinggi, focus pada BTC trades")
             elif btc_dominance < 45:
                 recommendations.append("• 🌈 Altseason potential, consider altcoin positions")
-                
+
             return "\n".join(recommendations)
-            
+
         except:
             return "• Analisis rekomendasi temporarily unavailable"
 
@@ -2790,3 +2790,10 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
     async def generate_futures_signals_enhanced(self, language='id', crypto_api=None, query_args=None):
         """Enhanced futures signals wrapper"""
         return await self.generate_futures_signals(language, crypto_api, query_args)
+```🔬 TECHNICAL ANALYSIS ({timeframe}):
+• EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
+• EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
+• RSI(14): {rsi_value:.1f} ({rsi_condition})
+• MACD: {macd_value:.4f} ({macd_condition})
+• ATR: ${primary_indicators.get('atr', 0):,.4f}
+• Volume Trend: {signal_data.get('volume_trend', 'Normal')}
