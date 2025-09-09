@@ -339,75 +339,120 @@ class AIAssistant:
             return "N/A"
 
     def _calculate_confidence_score(self, technical_data, market_data, futures_data):
-        """Calculate confidence score with breakdown"""
+        """Calculate confidence score with enhanced unified logic"""
         try:
-            # Initialize scores
+            # Initialize scores - start from 0 for fair scoring
             tf_score = 0  # Multi-timeframe alignment (35%)
             indicator_score = 0  # Indicator consensus (30%)
             liquidity_score = 0  # Futures metrics (20%)
             freshness_score = 15  # Data freshness (15%) - assume good
 
-            # Multi-timeframe alignment (35 points max)
+            # Multi-timeframe alignment (35 points max) - Enhanced logic
             if technical_data:
                 ema_50 = self._normalize_data(technical_data, ['ema_50', 'EMA50', 'ema50'])
                 ema_200 = self._normalize_data(technical_data, ['ema_200', 'EMA200', 'ema200'])
+                current_price = self._normalize_data(technical_data, ['current_price', 'price'])
 
-                if ema_50 and ema_200:
+                if ema_50 and ema_200 and current_price:
+                    # Calculate EMA separation percentage
+                    ema_separation = abs(ema_50 - ema_200) / ema_200 * 100
+                    
                     if ema_50 > ema_200:  # Bullish alignment
-                        tf_score = 35
+                        if current_price > ema_50:  # Price above both EMAs
+                            tf_score = min(35, 25 + (ema_separation * 2))
+                        else:
+                            tf_score = 20  # Bullish EMAs but price below
                     elif ema_50 < ema_200:  # Bearish alignment
-                        tf_score = 25
+                        if current_price < ema_50:  # Price below both EMAs
+                            tf_score = min(35, 25 + (ema_separation * 2))
+                        else:
+                            tf_score = 20  # Bearish EMAs but price above
                     else:
-                        tf_score = 15
+                        tf_score = 10  # EMAs too close
 
-            # Indicator consensus (30 points max)
+            # Enhanced indicator consensus (30 points max)
             if technical_data:
                 rsi = self._normalize_data(technical_data, ['rsi', 'RSI'])
                 macd = self._normalize_data(technical_data, ['macd_histogram', 'macd', 'MACD'])
 
+                # RSI scoring with trend context
                 if rsi:
-                    if 40 <= rsi <= 60:  # Normal range
+                    if 35 <= rsi <= 65:  # Healthy range
                         indicator_score += 15
-                    elif 30 <= rsi <= 70:  # Acceptable range
+                    elif 25 <= rsi <= 75:  # Acceptable range
                         indicator_score += 10
+                    elif rsi < 25 or rsi > 75:  # Extreme levels
+                        indicator_score += 5  # Lower confidence in extremes
 
-                if macd:
-                    if abs(macd) > 0.001:  # Strong MACD signal
+                # MACD scoring with strength consideration
+                if macd is not None:
+                    macd_strength = abs(macd)
+                    if macd_strength > 0.01:  # Strong MACD signal
                         indicator_score += 15
+                    elif macd_strength > 0.001:  # Moderate signal
+                        indicator_score += 10
                     else:
-                        indicator_score += 5
+                        indicator_score += 3  # Weak signal
 
-            # Liquidity/Futures metrics (20 points max)
-            if futures_data:
-                oi = self._normalize_data(futures_data, ['open_interest', 'oi', 'openInterest'])
-                funding = self._normalize_data(futures_data, ['funding_rate', 'funding', 'fundingRate'])
-
-                if oi and oi > 0:
+            # Enhanced liquidity/Futures metrics (20 points max)
+            if futures_data and futures_data.get('success'):
+                # Try to extract futures data properly
+                data = futures_data.get('data', futures_data)
+                
+                # Open Interest
+                oi = self._normalize_data(data, ['open_interest', 'oi', 'openInterest', 'total'])
+                if oi and oi > 1000000:  # Minimum OI threshold
                     liquidity_score += 10
 
-                if funding and abs(funding) < 0.1:  # Normal funding rate
-                    liquidity_score += 10
+                # Funding Rate
+                funding = self._normalize_data(data, ['funding_rate', 'funding', 'fundingRate', 'current_rate'])
+                if funding is not None:
+                    if abs(funding) < 0.01:  # Normal funding rate (-1% to +1%)
+                        liquidity_score += 10
+                    elif abs(funding) < 0.05:  # Moderate funding rate
+                        liquidity_score += 5
+
+            # Volume confirmation bonus
+            if technical_data:
+                recent_volumes = technical_data.get('recent_volumes', [])
+                if recent_volumes and len(recent_volumes) >= 3:
+                    try:
+                        avg_volume = sum(recent_volumes[-3:]) / 3
+                        current_volume = recent_volumes[-1]
+                        if current_volume > avg_volume * 1.2:  # 20% above average
+                            freshness_score += 5  # Volume confirmation bonus
+                    except:
+                        pass
 
             total_score = tf_score + indicator_score + liquidity_score + freshness_score
+            
+            # Apply quality gates
+            final_score = min(total_score, 95)  # Cap at 95% max
+            if final_score < 30:  # Minimum threshold
+                final_score = max(final_score, 30)
 
             return {
-                'total': min(total_score, 100),
+                'total': final_score,
                 'breakdown': {
                     'timeframe': tf_score,
                     'indicators': indicator_score,
                     'liquidity': liquidity_score,
                     'freshness': freshness_score
+                },
+                'quality_gates': {
+                    'min_threshold_applied': final_score >= 30,
+                    'max_cap_applied': total_score > 95
                 }
             }
 
         except Exception as e:
             return {
-                'total': 50,
+                'total': 45,  # Conservative fallback
                 'breakdown': {
                     'timeframe': 0,
                     'indicators': 0,
                     'liquidity': 0,
-                    'freshness': 0
+                    'freshness': 15
                 },
                 'error': str(e)
             }
@@ -977,11 +1022,11 @@ class AIAssistant:
             return self._error_fallback(symbol, f"enhanced futures analysis: {str(e)[:50]}")
 
     def _generate_enhanced_trading_signal(self, primary_indicators, higher_tf_indicators, futures_data, current_price, snd_data):
-        """Generate enhanced trading signal with multiple timeframe confirmation - Helper function"""
+        """Generate enhanced trading signal using unified confidence calculation"""
         try:
-            # Basic signal logic with enhanced features
-            confidence = 0
-            direction = 'NEUTRAL'
+            # Use the same confidence calculation as analyze command
+            confidence_data = self._calculate_confidence_score(primary_indicators, {}, futures_data)
+            base_confidence = confidence_data['total']
             
             # Primary timeframe indicators
             ema_50 = primary_indicators.get('ema_50', 0)
@@ -989,54 +1034,97 @@ class AIAssistant:
             rsi = primary_indicators.get('rsi', 50)
             macd = primary_indicators.get('macd_histogram', 0)
             
-            # Trend determination
-            if ema_50 > ema_200:
-                confidence += 30
-                if rsi < 70:
-                    confidence += 15
-                if macd > 0:
-                    confidence += 15
-                direction = 'LONG'
-            elif ema_50 < ema_200:
-                confidence += 30
-                if rsi > 30:
-                    confidence += 15
-                if macd < 0:
-                    confidence += 15
-                direction = 'SHORT'
-            else:
-                confidence += 10
-                
-            # Higher timeframe confirmation
+            # Determine direction based on technical analysis
+            direction = 'NEUTRAL'
+            
+            if ema_50 and ema_200 and current_price:
+                if ema_50 > ema_200:  # Bullish trend
+                    if current_price > ema_50 and rsi < 75:  # Price above EMAs, not overbought
+                        direction = 'LONG'
+                    elif rsi < 35:  # Oversold in bullish trend
+                        direction = 'LONG'
+                elif ema_50 < ema_200:  # Bearish trend
+                    if current_price < ema_50 and rsi > 25:  # Price below EMAs, not oversold
+                        direction = 'SHORT'
+                    elif rsi > 65:  # Overbought in bearish trend
+                        direction = 'SHORT'
+            
+            # Higher timeframe confirmation bonus
+            htf_confirmation = 'NEUTRAL'
             if higher_tf_indicators:
                 htf_ema_50 = higher_tf_indicators.get('ema_50', 0)
                 htf_ema_200 = higher_tf_indicators.get('ema_200', 0)
-                if htf_ema_50 > htf_ema_200 and direction == 'LONG':
-                    confidence += 20
-                elif htf_ema_50 < htf_ema_200 and direction == 'SHORT':
-                    confidence += 20
+                
+                if htf_ema_50 and htf_ema_200:
+                    htf_bullish = htf_ema_50 > htf_ema_200
+                    primary_bullish = ema_50 > ema_200 if ema_50 and ema_200 else False
                     
-            # Futures data confirmation
-            if futures_data and futures_data.get('success'):
-                funding_rate = futures_data.get('funding_rate', 0)
-                if abs(funding_rate) < 0.01:  # Normal funding
-                    confidence += 10
-                    
+                    if htf_bullish == primary_bullish:
+                        htf_confirmation = 'CONFIRMED'
+                        base_confidence += 10  # Bonus for timeframe alignment
+                    else:
+                        htf_confirmation = 'DIVERGENT'
+                        base_confidence -= 5   # Penalty for divergence
+
+            # Supply & Demand confirmation
+            snd_confirmation = 'NEUTRAL'
+            if snd_data and snd_data.get('success'):
+                supply_1 = snd_data.get('Supply 1', current_price * 1.02)
+                demand_1 = snd_data.get('Demand 1', current_price * 0.98)
+                
+                if current_price <= demand_1 * 1.005 and direction == 'LONG':
+                    snd_confirmation = 'SUPPORT'
+                    base_confidence += 8
+                elif current_price >= supply_1 * 0.995 and direction == 'SHORT':
+                    snd_confirmation = 'RESISTANCE'
+                    base_confidence += 8
+
+            # Strategy determination
+            if base_confidence >= 80:
+                strategy = 'High Confidence Multi-TF'
+                time_horizon = '2-8 hours'
+            elif base_confidence >= 65:
+                strategy = 'Multi-Timeframe Analysis'
+                time_horizon = '4-12 hours'
+            else:
+                strategy = 'Wait for Better Setup'
+                time_horizon = '12-24 hours'
+
+            # Volume trend analysis
+            volume_trend = 'Normal'
+            try:
+                recent_volumes = primary_indicators.get('recent_volumes', [])
+                if recent_volumes and len(recent_volumes) >= 3:
+                    avg_volume = sum(recent_volumes[-3:]) / 3
+                    current_volume = recent_volumes[-1]
+                    if current_volume > avg_volume * 1.5:
+                        volume_trend = 'High'
+                    elif current_volume < avg_volume * 0.7:
+                        volume_trend = 'Low'
+            except:
+                pass
+
+            # Final confidence capping
+            final_confidence = max(30, min(base_confidence, 95))
+            
             return {
                 'direction': direction,
-                'confidence': min(confidence, 100),
-                'strategy': 'Multi-Timeframe Analysis',
-                'time_horizon': '4-24 hours',
-                'mtf_confirmation': 'Strong' if confidence > 80 else 'Partial',
-                'volume_trend': 'Normal'
+                'confidence': final_confidence,
+                'strategy': strategy,
+                'time_horizon': time_horizon,
+                'mtf_confirmation': htf_confirmation,
+                'snd_confirmation': snd_confirmation,
+                'volume_trend': volume_trend,
+                'breakdown': confidence_data['breakdown']
             }
             
         except Exception as e:
             return {
                 'direction': 'NEUTRAL',
-                'confidence': 50,
-                'strategy': 'Basic Analysis',
-                'time_horizon': '4-24 hours',
+                'confidence': 45,
+                'strategy': 'Error Recovery',
+                'time_horizon': '24+ hours',
+                'mtf_confirmation': 'UNKNOWN',
                 'error': str(e)
             }
 
