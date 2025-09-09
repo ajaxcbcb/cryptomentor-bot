@@ -743,13 +743,22 @@ class AIAssistant:
 
 """
 
-            # Add enhanced S&D zones
+            # Add enhanced S&D zones as ranges
+            supply_1_low = enhanced_snd_zones.get('supply_1_low', current_price * 1.02)
+            supply_1_high = enhanced_snd_zones.get('supply_1_high', current_price * 1.03)
+            supply_2_low = enhanced_snd_zones.get('supply_2_low', current_price * 1.045)
+            supply_2_high = enhanced_snd_zones.get('supply_2_high', current_price * 1.055)
+            demand_1_low = enhanced_snd_zones.get('demand_1_low', current_price * 0.97)
+            demand_1_high = enhanced_snd_zones.get('demand_1_high', current_price * 0.98)
+            demand_2_low = enhanced_snd_zones.get('demand_2_low', current_price * 0.945)
+            demand_2_high = enhanced_snd_zones.get('demand_2_high', current_price * 0.955)
+
             analysis += f"""
 🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
-• 🔴 Supply Zone 1: ${enhanced_snd_zones.get('supply_1', current_price * 1.02):,.6f} ({((enhanced_snd_zones.get('supply_1', current_price * 1.02)/current_price-1)*100):+.1f}%)
-• 🔴 Supply Zone 2: ${enhanced_snd_zones.get('supply_2', current_price * 1.04):,.6f} ({((enhanced_snd_zones.get('supply_2', current_price * 1.04)/current_price-1)*100):+.1f}%)
-• 🟢 Demand Zone 1: ${enhanced_snd_zones.get('demand_1', current_price * 0.98):,.6f} ({((enhanced_snd_zones.get('demand_1', current_price * 0.98)/current_price-1)*100):+.1f}%)
-• 🟢 Demand Zone 2: ${enhanced_snd_zones.get('demand_2', current_price * 0.96):,.6f} ({((enhanced_snd_zones.get('demand_2', current_price * 0.96)/current_price-1)*100):+.1f}%)
+• 🔴 Supply Zone 1: ${supply_1_low:,.6f} - ${supply_1_high:,.6f} ({((supply_1_low/current_price-1)*100):+.1f}% to {((supply_1_high/current_price-1)*100):+.1f}%)
+• 🔴 Supply Zone 2: ${supply_2_low:,.6f} - ${supply_2_high:,.6f} ({((supply_2_low/current_price-1)*100):+.1f}% to {((supply_2_high/current_price-1)*100):+.1f}%)
+• 🟢 Demand Zone 1: ${demand_1_low:,.6f} - ${demand_1_high:,.6f} ({((demand_1_low/current_price-1)*100):+.1f}% to {((demand_1_high/current_price-1)*100):+.1f}%)
+• 🟢 Demand Zone 2: ${demand_2_low:,.6f} - ${demand_2_high:,.6f} ({((demand_2_low/current_price-1)*100):+.1f}% to {((demand_2_high/current_price-1)*100):+.1f}%)
 • 📍 Current Position: {enhanced_snd_zones.get('position', 'Between zones')}
 • 💪 Zone Strength: {enhanced_snd_zones.get('strength', 'Medium')}"""
 
@@ -1621,7 +1630,7 @@ class AIAssistant:
             }
 
     def _get_enhanced_supply_demand_zones(self, symbol, current_price, indicators, crypto_api):
-        """Get enhanced supply and demand zones with multiple levels"""
+        """Get enhanced supply and demand zones with multiple levels as ranges"""
         try:
             # Get basic SnD data
             basic_snd = self._get_supply_demand_zones(symbol, current_price, crypto_api)
@@ -1631,27 +1640,36 @@ class AIAssistant:
             ema_50 = indicators.get('ema_50', current_price)
             ema_200 = indicators.get('ema_200', current_price)
 
-            # Calculate multiple resistance and support levels
-            # Supply zones (resistance levels)
-            supply_1 = max(basic_snd.get('supply_1', current_price * 1.02), ema_50 * 1.015)
-            supply_2 = supply_1 + (atr * 2)
+            # Calculate supply zones as ranges (resistance areas)
+            supply_1_center = max(basic_snd.get('supply_1', current_price * 1.02), ema_50 * 1.015)
+            supply_1_low = supply_1_center - (atr * 0.5)
+            supply_1_high = supply_1_center + (atr * 0.5)
+            
+            supply_2_center = supply_1_center + (atr * 2)
+            supply_2_low = supply_2_center - (atr * 0.5)
+            supply_2_high = supply_2_center + (atr * 0.5)
 
-            # Demand zones (support levels)  
-            demand_1 = min(basic_snd.get('demand_1', current_price * 0.98), ema_50 * 0.985)
-            demand_2 = demand_1 - (atr * 2)
+            # Calculate demand zones as ranges (support areas)
+            demand_1_center = min(basic_snd.get('demand_1', current_price * 0.98), ema_50 * 0.985)
+            demand_1_low = demand_1_center - (atr * 0.5)
+            demand_1_high = demand_1_center + (atr * 0.5)
+            
+            demand_2_center = demand_1_center - (atr * 2)
+            demand_2_low = demand_2_center - (atr * 0.5)
+            demand_2_high = demand_2_center + (atr * 0.5)
 
             # Determine current position relative to zones
-            if current_price > supply_1:
+            if current_price > supply_1_low:
                 position = "Above Supply Zone 1 - Strong Bullish Momentum"
                 strength = "Strong"
-            elif current_price > demand_1:
+            elif current_price > demand_1_high:
                 if current_price > ema_50:
                     position = "Between Zones - Bullish Bias"
                     strength = "Medium"
                 else:
                     position = "Between Zones - Bearish Bias"  
                     strength = "Medium"
-            elif current_price < demand_2:
+            elif current_price < demand_2_high:
                 position = "Below Demand Zone 2 - Strong Bearish Momentum"
                 strength = "Strong"
             else:
@@ -1659,22 +1677,31 @@ class AIAssistant:
                 strength = "Medium"
 
             return {
-                'supply_1': supply_1,
-                'supply_2': supply_2,
-                'demand_1': demand_1,
-                'demand_2': demand_2,
+                'supply_1_low': supply_1_low,
+                'supply_1_high': supply_1_high,
+                'supply_2_low': supply_2_low,
+                'supply_2_high': supply_2_high,
+                'demand_1_low': demand_1_low,
+                'demand_1_high': demand_1_high,
+                'demand_2_low': demand_2_low,
+                'demand_2_high': demand_2_high,
                 'position': position,
                 'strength': strength,
                 'atr_based': True
             }
 
         except Exception as e:
-            # Fallback to basic calculation
+            # Fallback to basic calculation with ranges
+            atr_fallback = current_price * 0.02
             return {
-                'supply_1': current_price * 1.025,
-                'supply_2': current_price * 1.05,
-                'demand_1': current_price * 0.975,
-                'demand_2': current_price * 0.95,
+                'supply_1_low': current_price * 1.020,
+                'supply_1_high': current_price * 1.030,
+                'supply_2_low': current_price * 1.045,
+                'supply_2_high': current_price * 1.055,
+                'demand_1_low': current_price * 0.970,
+                'demand_1_high': current_price * 0.980,
+                'demand_2_low': current_price * 0.945,
+                'demand_2_high': current_price * 0.955,
                 'position': 'Enhanced SnD analysis unavailable',
                 'strength': 'Unknown',
                 'error': str(e)
