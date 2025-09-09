@@ -2010,7 +2010,7 @@ class AIAssistant:
                 'tp2': levels['tp2'],
                 'rr': f"{levels.get('rr_ratio', 2.0):.1f}:1",
                 'primary_trend': primary_trend,
-                'structure': signal_data['direction'],
+                'structure': direction,
                 'reason': reason
             }
 
@@ -2032,7 +2032,7 @@ class AIAssistant:
         try:
             # Base confidence calculation
             confidence_calc = self._calculate_confidence_score(primary_indicators, {}, futures_data)
-            base_confidence = confidence_calc['total']
+            base_confidence = confidence_data['total']
 
             # Enhanced signal logic
             ema_50 = primary_indicators.get('ema_50', 0)
@@ -2469,7 +2469,7 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
                 confidence = 90
                 trend = "Strong Uptrend"
             elif market_cap_change > 1:
-                sentiment = "📈 BULLISH"
+                sentiment = "📈BULLISH"
                 confidence = 80
                 trend = "Bullish Momentum"
             elif market_cap_change > -1:
@@ -2788,10 +2788,3 @@ Coba `/analyze btc` untuk analisis komprehensif!"""
     async def generate_futures_signals_enhanced(self, language='id', crypto_api=None, query_args=None):
         """Enhanced futures signals wrapper"""
         return await self.generate_futures_signals(language, crypto_api, query_args)
-```🔬 TECHNICAL ANALYSIS ({timeframe}):
-• EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
-• EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
-• RSI(14): {rsi_value:.1f} ({rsi_condition})
-• MACD: {macd_value:.4f} ({macd_condition})
-• ATR: ${primary_indicators.get('atr', 0):,.4f}
-• Volume Trend: {signal_data.get('volume_trend', 'Normal')}
