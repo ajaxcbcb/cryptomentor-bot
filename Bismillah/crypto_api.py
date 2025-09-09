@@ -34,36 +34,40 @@ class CryptoAPI:
             # We'll prioritize Binance for price data instead
 
             # 2. Try Binance Spot
-            binance_spot_price = get_price(symbol=symbol_normalized, market_type='spot')
-            if binance_spot_price.get('success'):
+            try:
+                binance_spot_price = get_price(symbol=symbol_normalized, futures=False)
                 return {
                     'symbol': symbol_normalized,
-                    'price': binance_spot_price.get('price', 0),
-                    'change_24h': binance_spot_price.get('price_change_percent', 0),
-                    'change_7d': 0, # Not directly available in this call, placeholder
-                    'volume_24h': binance_spot_price.get('volume', 0),
-                    'market_cap': 0, # Not directly available in this call, placeholder
-                    'rank': 0, # Not directly available in this call, placeholder
+                    'price': binance_spot_price,
+                    'change_24h': 0, # Not directly available from this call
+                    'change_7d': 0, # Not directly available from this call  
+                    'volume_24h': 0, # Not directly available from this call
+                    'market_cap': 0, # Not directly available from this call
+                    'rank': 0, # Not directly available from this call
                     'source': 'Binance Spot',
                     'timestamp': datetime.now().isoformat(),
                     'success': True
                 }
+            except Exception:
+                pass
 
             # 3. Try Binance Futures (USDT-M)
-            binance_futures_price = get_price(symbol=symbol_normalized, market_type='futures')
-            if binance_futures_price.get('success'):
+            try:
+                binance_futures_price = get_price(symbol=symbol_normalized, futures=True)
                 return {
                     'symbol': symbol_normalized,
-                    'price': binance_futures_price.get('price', 0),
-                    'change_24h': binance_futures_price.get('price_change_percent', 0),
-                    'change_7d': 0, # Placeholder
-                    'volume_24h': binance_futures_price.get('volume', 0),
-                    'market_cap': 0, # Placeholder
-                    'rank': 0, # Placeholder
+                    'price': binance_futures_price,
+                    'change_24h': 0, # Not directly available from this call
+                    'change_7d': 0, # Not directly available from this call
+                    'volume_24h': 0, # Not directly available from this call
+                    'market_cap': 0, # Not directly available from this call
+                    'rank': 0, # Not directly available from this call
                     'source': 'Binance Futures',
                     'timestamp': datetime.now().isoformat(),
                     'success': True
                 }
+            except Exception:
+                pass
 
             # 4. Try CoinAPI (as a last resort or for specific data not covered)
             coinapi_spot_price = get_price_spot(symbol_normalized)
@@ -133,7 +137,7 @@ class CryptoAPI:
         try:
             # Assuming a specific function exists in binance_provider for futures data like funding rate
             # This is a placeholder, the actual implementation depends on binance_provider capabilities
-            futures_data = get_price(symbol=symbol, market_type='futures') # Re-using get_price for futures data
+            futures_data = get_price(symbol=symbol, futures=True) # Re-using get_price for futures data
             
             if futures_data.get('success'):
                 # The structure of futures_data needs to be inspected to extract funding rate correctly.
@@ -159,7 +163,7 @@ class CryptoAPI:
         """
         try:
             # Similar to funding rate, this requires a specific call to the Binance Futures provider
-            futures_data = get_price(symbol=symbol, market_type='futures') # Re-using get_price for futures data
+            futures_data = get_price(symbol=symbol, futures=True) # Re-using get_price for futures data
 
             if futures_data.get('success'):
                 # Assuming 'open_interest' is available. Structure needs verification.
@@ -186,7 +190,7 @@ class CryptoAPI:
             # This data is typically provided by specific data providers for sentiment analysis.
             # Assuming the new `binance_provider` might expose this or a similar metric.
             # Placeholder implementation:
-            futures_data = get_price(symbol=symbol, market_type='futures') # Re-using get_price for futures data
+            futures_data = get_price(symbol=symbol, futures=True) # Re-using get_price for futures data
 
             if futures_data.get('success'):
                  # Assuming 'long_short_ratio' or similar is available
@@ -213,7 +217,7 @@ class CryptoAPI:
         Mendapatkan data futures dari Binance untuk compatibility
         """
         try:
-            futures_data = get_price(symbol=symbol, market_type='futures')
+            futures_data = get_price(symbol=symbol, futures=True)
 
             if futures_data.get('success'):
                 # Extract key metrics for compatibility
@@ -246,10 +250,10 @@ class CryptoAPI:
         """
         try:
             # This is a conceptual placeholder. You'll need specific calls for each data point.
-            ticker_data = get_price(symbol=symbol, market_type='futures')
-            open_interest_data = get_price(symbol=symbol, market_type='futures') # Placeholder, assuming a specific call for OI
-            long_short_data = get_price(symbol=symbol, market_type='futures') # Placeholder, assuming a specific call for LS ratio
-            funding_rate_data = get_price(symbol=symbol, market_type='futures') # Placeholder, assuming a specific call for funding rate
+            ticker_data = get_price(symbol=symbol, futures=True)
+            open_interest_data = get_price(symbol=symbol, futures=True) # Placeholder, assuming a specific call for OI
+            long_short_data = get_price(symbol=symbol, futures=True) # Placeholder, assuming a specific call for LS ratio
+            funding_rate_data = get_price(symbol=symbol, futures=True) # Placeholder, assuming a specific call for funding rate
 
             if ticker_data.get('success'): # Assuming success implies data is available
                 result = {
@@ -335,15 +339,17 @@ class CryptoAPI:
 
         try:
             # Test Binance Spot
-            binance_spot_test = get_price(symbol='BTCUSDT', market_type='spot')
-            results['Binance Spot'] = {'success': binance_spot_test.get('success', False), 'error': binance_spot_test.get('error')}
+            binance_spot_test = get_price(symbol='BTCUSDT', futures=False)
+            success = isinstance(binance_spot_test, (int, float)) and binance_spot_test > 0
+            results['Binance Spot'] = {'success': success, 'error': None if success else 'Invalid price returned'}
         except Exception as e:
             results['Binance Spot'] = {'success': False, 'error': str(e)}
 
         try:
             # Test Binance Futures
-            binance_futures_test = get_price(symbol='BTCUSDT', market_type='futures')
-            results['Binance Futures'] = {'success': binance_futures_test.get('success', False), 'error': binance_futures_test.get('error')}
+            binance_futures_test = get_price(symbol='BTCUSDT', futures=True)
+            success = isinstance(binance_futures_test, (int, float)) and binance_futures_test > 0
+            results['Binance Futures'] = {'success': success, 'error': None if success else 'Invalid price returned'}
         except Exception as e:
             results['Binance Futures'] = {'success': False, 'error': str(e)}
             
