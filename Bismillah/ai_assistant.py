@@ -741,15 +741,6 @@ class AIAssistant:
 🎯 **Strategy**: {signal_data.get('strategy', 'Technical Analysis')}
 ⚡ **Time Horizon**: {signal_data.get('time_horizon', '4-24 hours')}
 
-💰 **DETAILED TRADING SETUP:**
-• Entry: ${trading_levels['entry']:,.6f}
-• Stop Loss: ${trading_levels['stop_loss']:,.6f}
-• TP1 (50%): ${trading_levels['tp1']:,.6f}
-• TP2 (30%): ${trading_levels['tp2']:,.6f} 
-• TP3 (20%): ${trading_levels['tp3']:,.6f}
-• Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
-• Max Risk: {trading_levels['risk_percentage']:.1f}% per position
-
 """
 
             # Add enhanced S&D zones
