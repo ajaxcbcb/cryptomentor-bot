@@ -490,27 +490,32 @@ class AIAssistant:
         return "\n".join(recommendations)
     
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None) -> str:
-        """Get futures analysis with SnD for specific timeframe"""
+        """Get futures trading signals with SnD for specific timeframe"""
         try:
-            # Get current price
+            # Get current price and market data
             price_data = {}
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                futures_data = crypto_api.get_futures_data(symbol)
             
             current_price = price_data.get('price', 0) if 'error' not in price_data else 0
             change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
             
-            # Get SnD zones
+            if current_price <= 0:
+                return f"❌ Tidak dapat mengambil data harga {symbol}"
+            
+            # Get advanced SnD zones with volume analysis
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
             
-            # Generate futures-specific signals
-            futures_signals = self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
+            # Generate professional futures signals
+            futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
             
             # Format timeframe display
             tf_display = {
-                '15m': '15 Menit', '30m': '30 Menit', '1h': '1 Jam',
-                '4h': '4 Jam', '1d': '1 Hari', '1w': '1 Minggu'
-            }.get(timeframe, timeframe)
+                '15m': '15M', '30m': '30M', '1h': '1H',
+                '4h': '4H', '1d': '1D', '1w': '1W'
+            }.get(timeframe, timeframe.upper())
             
             # Price formatting
             if current_price < 1:
@@ -520,54 +525,84 @@ class AIAssistant:
             else:
                 price_format = f"${current_price:,.2f}"
             
-            analysis = f"""🎯 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({tf_display})**
+            # Volume formatting
+            if volume_24h > 1000000000:
+                volume_format = f"${volume_24h/1000000000:.2f}B"
+            elif volume_24h > 1000000:
+                volume_format = f"${volume_24h/1000000:.1f}M"
+            else:
+                volume_format = f"${volume_24h:,.0f}"
+            
+            # Signal strength indicator
+            confidence = futures_signals['confidence']
+            if confidence >= 80:
+                signal_strength = "🔥 STRONG SIGNAL"
+                strength_emoji = "🟢"
+            elif confidence >= 65:
+                signal_strength = "⚡ GOOD SIGNAL"
+                strength_emoji = "🟡"
+            else:
+                signal_strength = "⚠️ WEAK SIGNAL"
+                strength_emoji = "🟠"
+            
+            # Market structure analysis
+            market_structure = self._analyze_market_structure(current_price, snd_zones, change_24h)
+            
+            analysis = f"""🚨 **FUTURES TRADING SIGNAL - {symbol}/{tf_display}**
 
-📊 **Current Market Data:**
-• **Price**: {price_format}
-• **24h Change**: {change_24h:+.2f}%
-• **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+{strength_emoji} **{signal_strength}**
+📊 **Price**: {price_format} ({change_24h:+.2f}%)
+💹 **Volume**: {volume_format}
+🕐 **Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 
-🎯 **SUPPLY & DEMAND ZONES ({tf_display}):**
-• 🔴 **Supply Zone 1**: ${snd_zones['supply_1_low']:,.6f} \\- ${snd_zones['supply_1_high']:,.6f}
-• 🔴 **Supply Zone 2**: ${snd_zones['supply_2_low']:,.6f} \\- ${snd_zones['supply_2_high']:,.6f}
-• 🟢 **Demand Zone 1**: ${snd_zones['demand_1_low']:,.6f} \\- ${snd_zones['demand_1_high']:,.6f}
-• 🟢 **Demand Zone 2**: ${snd_zones['demand_2_low']:,.6f} \\- ${snd_zones['demand_2_high']:,.6f}
-
-📈 **FUTURES TRADING SETUP:**
+🎯 **TRADING SETUP:**
 • **Direction**: {futures_signals['direction']} {futures_signals['emoji']}
-• **Entry Price**: ${futures_signals['entry']:,.6f}
-• **Take Profit 1**: ${futures_signals['tp1']:,.6f} \\(50%\\)
-• **Take Profit 2**: ${futures_signals['tp2']:,.6f} \\(30%\\)
-• **Take Profit 3**: ${futures_signals['tp3']:,.6f} \\(20%\\)
+• **Entry**: ${futures_signals['entry']:,.6f}
+• **TP1** (50%): ${futures_signals['tp1']:,.6f}
+• **TP2** (30%): ${futures_signals['tp2']:,.6f}
+• **TP3** (20%): ${futures_signals['tp3']:,.6f}
 • **Stop Loss**: ${futures_signals['sl']:,.6f}
 • **Risk/Reward**: {futures_signals['rr']:.1f}:1
 
-🎯 **CONFIDENCE & STRATEGY:**
-• **Confidence Level**: {futures_signals['confidence']:.1f}%
-• **Strategy**: {futures_signals['strategy']}
-• **Timeframe**: {tf_display} analysis
-• **Position Size**: Max 2\\-3% portfolio
+📊 **CONFIDENCE LEVEL**: {confidence:.1f}%
+📈 **Strategy**: {futures_signals['strategy']}
+⏰ **Timeframe**: {tf_display} ({futures_signals['time_horizon']})
 
-⚡ **EXECUTION PLAN:**
-• 🎯 Wait for price action confirmation at SnD zones
-• 📊 Enter position with proper risk management
-• 💰 Scale out profits at multiple TP levels
-• 🛡️ Move SL to breakeven after TP1 hit
+🏗️ **MARKET STRUCTURE:**
+{market_structure}
 
-⚠️ **RISK MANAGEMENT:**
-• Never risk more than 1\\-2% per trade
-• Use proper position sizing
-• Monitor for SnD zone invalidation
-• Exit if price closes outside zones
+🎯 **KEY SnD LEVELS:**
+• 🔴 **Resistance 1**: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
+• 🔴 **Resistance 2**: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
+• 🟢 **Support 1**: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
+• 🟢 **Support 2**: ${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}
 
-📡 **Data**: CoinAPI Real\\-time \\+ SnD Algorithm
-🕐 **Valid**: Next 4\\-24 hours \\({tf_display} timeframe\\)"""
+⚡ **EXECUTION RULES:**
+• Enter ONLY with volume confirmation
+• Scale in at SnD zone boundaries
+• Move SL to breakeven after TP1
+• Exit 50% at TP1, 30% at TP2, 20% at TP3
+
+💰 **POSITION SIZING:**
+• Risk per trade: 1-2% of capital max
+• Leverage: {futures_signals.get('leverage_rec', '3-5x')} recommended
+• Account for slippage and fees
+
+⚠️ **RISK WARNINGS:**
+• Futures trading involves high risk
+• Only trade with risk capital
+• Market conditions can change rapidly
+• Always use stop losses
+
+📡 **Signal Source**: CoinAPI + SnD Algorithm
+🔄 **Valid Duration**: {futures_signals['validity']}
+📊 **Update Frequency**: Every {timeframe} candle close"""
             
             return analysis
             
         except Exception as e:
-            print(f"Error in futures analysis: {e}")
-            return f"❌ Error dalam analisis futures {symbol} {timeframe}: {str(e)[:100]}..."
+            print(f"Error in futures signals: {e}")
+            return f"❌ Error dalam futures signals {symbol} {timeframe}: {str(e)[:100]}..."
     
     def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict) -> Dict:
         """Generate futures-specific trading signals"""
@@ -636,6 +671,199 @@ class AIAssistant:
             'confidence': final_confidence,
             'strategy': strategy
         }
+    
+    def _generate_advanced_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float) -> Dict:
+        """Generate advanced futures trading signals with volume analysis"""
+        try:
+            # Get basic signals first
+            basic_signals = self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
+            
+            # Enhanced signal calculation with volume
+            supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
+            demand_1_mid = (snd_zones['demand_1_low'] + snd_zones['demand_1_high']) / 2
+            
+            # Volume analysis
+            if volume_24h > 500000000:  # High volume
+                volume_multiplier = 1.2
+                volume_strength = "High Volume"
+            elif volume_24h > 100000000:  # Medium volume
+                volume_multiplier = 1.0
+                volume_strength = "Medium Volume"
+            else:  # Low volume
+                volume_multiplier = 0.8
+                volume_strength = "Low Volume"
+            
+            # Position relative to SnD zones with volume consideration
+            distance_to_supply = abs(current_price - supply_1_mid) / current_price * 100
+            distance_to_demand = abs(current_price - demand_1_mid) / current_price * 100
+            
+            # Enhanced direction logic
+            if current_price <= demand_1_mid and distance_to_demand < 2:
+                direction = "LONG"
+                emoji = "🟢"
+                entry = current_price * 0.999  # Slight below current
+                tp1 = supply_1_mid
+                tp2 = snd_zones['supply_1_high']
+                tp3 = snd_zones['supply_2_low']
+                sl = snd_zones['demand_1_low']
+                strategy = "SnD Demand Zone Long"
+                base_confidence = 80
+                
+            elif current_price >= supply_1_mid and distance_to_supply < 2:
+                direction = "SHORT"
+                emoji = "🔴"
+                entry = current_price * 1.001  # Slight above current
+                tp1 = demand_1_mid
+                tp2 = snd_zones['demand_1_low']
+                tp3 = snd_zones['demand_2_high']
+                sl = snd_zones['supply_1_high']
+                strategy = "SnD Supply Zone Short"
+                base_confidence = 80
+                
+            elif current_price < supply_1_mid and current_price > demand_1_mid:
+                # Between zones - momentum strategy
+                if current_price > (supply_1_mid + demand_1_mid) / 2:
+                    # Upper half - potential breakout long
+                    direction = "LONG"
+                    emoji = "🟢"
+                    entry = current_price
+                    tp1 = supply_1_mid
+                    tp2 = snd_zones['supply_1_high']
+                    tp3 = snd_zones['supply_2_low']
+                    sl = demand_1_mid
+                    strategy = "Breakout Long"
+                    base_confidence = 65
+                else:
+                    # Lower half - potential breakdown short
+                    direction = "SHORT"
+                    emoji = "🔴"
+                    entry = current_price
+                    tp1 = demand_1_mid
+                    tp2 = snd_zones['demand_1_low']
+                    tp3 = snd_zones['demand_2_high']
+                    sl = supply_1_mid
+                    strategy = "Breakdown Short"
+                    base_confidence = 65
+            else:
+                direction = "WAIT"
+                emoji = "⏳"
+                entry = current_price
+                tp1 = supply_1_mid if current_price < supply_1_mid else demand_1_mid
+                tp2 = tp1 * 1.02
+                tp3 = tp1 * 1.03
+                sl = current_price * 0.98
+                strategy = "Wait for Clear Setup"
+                base_confidence = 40
+            
+            # Calculate risk/reward ratio
+            try:
+                risk = abs(entry - sl)
+                reward = abs(tp1 - entry)
+                rr_ratio = reward / risk if risk > 0 else 1.0
+            except:
+                rr_ratio = 1.0
+            
+            # Confidence adjustments
+            timeframe_multiplier = {
+                '15m': 0.9, '30m': 0.95, '1h': 1.0,
+                '4h': 1.1, '1d': 1.2, '1w': 1.3
+            }.get(timeframe, 1.0)
+            
+            # RR ratio bonus
+            rr_bonus = min(1.1, 1.0 + (rr_ratio - 1.0) * 0.1) if rr_ratio > 1 else 0.9
+            
+            final_confidence = min(95, base_confidence * volume_multiplier * timeframe_multiplier * rr_bonus)
+            
+            # Leverage recommendation based on confidence and timeframe
+            if final_confidence >= 80 and timeframe in ['4h', '1d']:
+                leverage_rec = "5-10x"
+            elif final_confidence >= 70:
+                leverage_rec = "3-5x"
+            elif final_confidence >= 60:
+                leverage_rec = "2-3x"
+            else:
+                leverage_rec = "1-2x"
+            
+            # Validity duration
+            validity_hours = {
+                '15m': '2-4 hours', '30m': '4-8 hours', '1h': '8-12 hours',
+                '4h': '1-2 days', '1d': '3-5 days', '1w': '1-2 weeks'
+            }.get(timeframe, '4-12 hours')
+            
+            # Time horizon
+            time_horizon = {
+                '15m': 'Scalping (15-60 min)', '30m': 'Short-term (1-4 hours)', '1h': 'Intraday (4-12 hours)',
+                '4h': 'Swing (1-3 days)', '1d': 'Position (3-7 days)', '1w': 'Long-term (1-4 weeks)'
+            }.get(timeframe, 'Medium-term')
+            
+            return {
+                'direction': direction,
+                'emoji': emoji,
+                'entry': entry,
+                'tp1': tp1,
+                'tp2': tp2,
+                'tp3': tp3,
+                'sl': sl,
+                'rr': rr_ratio,
+                'confidence': final_confidence,
+                'strategy': strategy,
+                'leverage_rec': leverage_rec,
+                'validity': validity_hours,
+                'time_horizon': time_horizon,
+                'volume_strength': volume_strength,
+                'distance_to_supply': distance_to_supply,
+                'distance_to_demand': distance_to_demand
+            }
+            
+        except Exception as e:
+            # Fallback to basic signals
+            return self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
+    
+    def _analyze_market_structure(self, current_price: float, snd_zones: Dict, change_24h: float) -> str:
+        """Analyze market structure for futures trading"""
+        try:
+            supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
+            demand_1_mid = (snd_zones['demand_1_low'] + snd_zones['demand_1_high']) / 2
+            
+            # Position analysis
+            if current_price > supply_1_mid:
+                position = "Above resistance"
+                bias = "Bullish structure"
+            elif current_price < demand_1_mid:
+                position = "Below support"
+                bias = "Bearish structure"
+            else:
+                position = "In range"
+                bias = "Neutral structure"
+            
+            # Momentum analysis
+            if change_24h > 5:
+                momentum = "Strong bullish momentum"
+            elif change_24h > 2:
+                momentum = "Moderate bullish momentum"
+            elif change_24h > -2:
+                momentum = "Sideways momentum"
+            elif change_24h > -5:
+                momentum = "Moderate bearish momentum"
+            else:
+                momentum = "Strong bearish momentum"
+            
+            # Zone strength
+            zone_width = abs(supply_1_mid - demand_1_mid) / current_price * 100
+            if zone_width < 1:
+                zone_strength = "Tight ranges (high precision)"
+            elif zone_width < 3:
+                zone_strength = "Normal ranges"
+            else:
+                zone_strength = "Wide ranges (lower precision)"
+            
+            return f"""• **Position**: {position}
+• **Bias**: {bias}
+• **Momentum**: {momentum}
+• **Zone Strength**: {zone_strength}"""
+            
+        except Exception as e:
+            return "• **Structure**: Analysis unavailable"
     
     async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None) -> str:
         """Generate multiple futures signals for top cryptocurrencies"""
@@ -747,77 +975,130 @@ class AIAssistant:
             return f"❌ Error generating futures signals: {str(e)[:100]}..."
     
     def get_market_sentiment(self, language: str = 'id', crypto_api=None) -> str:
-        """Get overall market sentiment analysis"""
+        """Get comprehensive market overview and sentiment analysis"""
         try:
             # Get data for major cryptocurrencies
-            major_cryptos = ['BTC', 'ETH', 'SOL', 'ADA']
+            major_cryptos = ['BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX']
             market_data = []
             
             total_volume = 0
             total_change = 0
+            total_market_cap = 0
             
             for symbol in major_cryptos:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
+                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        price = price_data.get('price', 0)
+                        change_24h = price_data.get('change_24h', 0)
+                        volume_24h = price_data.get('volume_24h', 0)
+                        market_cap = price_data.get('market_cap', 0) or (price * 1000000)  # Fallback estimation
+                        
                         market_data.append({
                             'symbol': symbol,
-                            'price': price_data.get('price', 0),
-                            'change_24h': price_data.get('change_24h', 0),
-                            'volume_24h': price_data.get('volume_24h', 0)
+                            'price': price,
+                            'change_24h': change_24h,
+                            'volume_24h': volume_24h,
+                            'market_cap': market_cap
                         })
-                        total_volume += price_data.get('volume_24h', 0)
-                        total_change += price_data.get('change_24h', 0)
+                        total_volume += volume_24h
+                        total_change += change_24h
+                        total_market_cap += market_cap
             
             if not market_data:
                 return "❌ Tidak dapat mengambil data pasar saat ini."
             
-            # Calculate market sentiment
+            # Calculate comprehensive market metrics
             avg_change = total_change / len(market_data)
             sentiment_score = 50 + (avg_change * 2)
             sentiment_score = max(0, min(100, sentiment_score))
             
-            if sentiment_score > 70:
-                sentiment_status = "Very Bullish 🚀"
+            # Market sentiment classification
+            if sentiment_score > 75:
+                sentiment_status = "Extremely Bullish 🚀🚀"
                 sentiment_emoji = "🟢"
+                market_phase = "Bull Run"
             elif sentiment_score > 60:
                 sentiment_status = "Bullish 📈"
                 sentiment_emoji = "🟢"
-            elif sentiment_score > 40:
+                market_phase = "Bull Market"
+            elif sentiment_score > 55:
+                sentiment_status = "Slightly Bullish 📊"
+                sentiment_emoji = "🟡"
+                market_phase = "Bullish Consolidation"
+            elif sentiment_score > 45:
                 sentiment_status = "Neutral ⚖️"
                 sentiment_emoji = "🟡"
-            elif sentiment_score > 30:
+                market_phase = "Sideways Market"
+            elif sentiment_score > 40:
+                sentiment_status = "Slightly Bearish 📉"
+                sentiment_emoji = "🟠"
+                market_phase = "Bearish Consolidation"
+            elif sentiment_score > 25:
                 sentiment_status = "Bearish 📉"
                 sentiment_emoji = "🔴"
+                market_phase = "Bear Market"
             else:
-                sentiment_status = "Very Bearish 💥"
+                sentiment_status = "Extremely Bearish 💥"
                 sentiment_emoji = "🔴"
+                market_phase = "Bear Market Crash"
             
-            # Format volume
-            if total_volume > 1000000000:
-                volume_format = f"${total_volume/1000000000:.2f}B"
-            elif total_volume > 1000000:
-                volume_format = f"${total_volume/1000000:.1f}M"
+            # Format large numbers
+            def format_large_number(num):
+                if num > 1000000000000:  # Trillion
+                    return f"${num/1000000000000:.2f}T"
+                elif num > 1000000000:  # Billion
+                    return f"${num/1000000000:.2f}B"
+                elif num > 1000000:  # Million
+                    return f"${num/1000000:.1f}M"
+                else:
+                    return f"${num:,.0f}"
+            
+            # Count gainers vs losers
+            gainers = sum(1 for data in market_data if data['change_24h'] > 0)
+            losers = len(market_data) - gainers
+            
+            # Fear & Greed Index simulation
+            if sentiment_score > 75:
+                fear_greed = "Extreme Greed"
+                fg_emoji = "🤑"
+            elif sentiment_score > 60:
+                fear_greed = "Greed"
+                fg_emoji = "😍"
+            elif sentiment_score > 45:
+                fear_greed = "Neutral"
+                fg_emoji = "😐"
+            elif sentiment_score > 30:
+                fear_greed = "Fear"
+                fg_emoji = "😰"
             else:
-                volume_format = f"${total_volume:,.0f}"
+                fear_greed = "Extreme Fear"
+                fg_emoji = "😱"
             
-            analysis = f"""🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
+            analysis = f"""🌍 **GLOBAL CRYPTO MARKET OVERVIEW**
 
-{sentiment_emoji} **Sentimen Pasar**: {sentiment_status}
-📊 **Skor Sentimen**: {sentiment_score:.1f}/100
+{sentiment_emoji} **Market Sentiment**: {sentiment_status}
+📊 **Sentiment Score**: {sentiment_score:.1f}/100
+🎭 **Fear & Greed**: {fear_greed} {fg_emoji}
+📈 **Market Phase**: {market_phase}
 
-📈 **Data Agregat:**
-• **Rata-rata Perubahan 24j**: {avg_change:+.2f}%
-• **Total Volume**: {volume_format}
-• **Coin Dianalisis**: {len(market_data)} major cryptos
+💰 **MARKET STATISTICS:**
+• **Total Market Cap**: {format_large_number(total_market_cap)}
+• **24h Volume**: {format_large_number(total_volume)}
+• **Average Change**: {avg_change:+.2f}%
+• **Gainers**: {gainers} | **Losers**: {losers}
 
-💰 **Breakdown Per Coin:**"""
+📊 **TOP CRYPTOCURRENCIES:**"""
             
-            for data in market_data:
+            # Sort by market cap for better display
+            market_data.sort(key=lambda x: x['market_cap'], reverse=True)
+            
+            for i, data in enumerate(market_data[:6], 1):  # Show top 6
                 symbol = data['symbol']
                 price = data['price']
                 change = data['change_24h']
                 volume = data['volume_24h']
+                market_cap = data['market_cap']
                 
                 # Format price
                 if price < 1:
@@ -827,46 +1108,119 @@ class AIAssistant:
                 else:
                     price_format = f"${price:,.2f}"
                 
-                # Format volume
-                if volume > 1000000000:
-                    vol_format = f"${volume/1000000000:.1f}B"
-                elif volume > 1000000:
-                    vol_format = f"${volume/1000000:.0f}M"
-                else:
-                    vol_format = f"${volume:,.0f}"
-                
                 change_emoji = "📈" if change >= 0 else "📉"
+                change_color = "🟢" if change >= 0 else "🔴"
                 
                 analysis += f"""
-• **{symbol}**: {price_format} ({change:+.2f}% {change_emoji}) - Vol: {vol_format}"""
+{i}. **{symbol}** {change_color}
+   💰 Price: {price_format} ({change:+.2f}% {change_emoji})
+   📊 MCap: {format_large_number(market_cap)}
+   💹 Vol: {format_large_number(volume)}"""
             
-            # Add market recommendations
-            if sentiment_score > 60:
-                recommendations = """
-💡 **Rekomendasi Pasar:**
-• ✅ Market kondusif untuk long positions
-• 🎯 Focus pada momentum trading
-• 📊 Monitor untuk profit taking opportunities"""
-            elif sentiment_score < 40:
-                recommendations = """
-💡 **Rekomendasi Pasar:**
-• ❌ Hati-hati dengan long positions
+            # Market analysis & recommendations
+            if avg_change > 5:
+                market_analysis = """
+🔥 **MARKET ANALYSIS:**
+• Strong bullish momentum across major cryptos
+• High volume indicates institutional interest
+• Breakout potential from key resistance levels
+• FOMO sentiment building in retail"""
+                
+                trading_rec = """
+💡 **TRADING RECOMMENDATIONS:**
+• ✅ Consider long positions on pullbacks
+• 🎯 Focus on momentum coins with volume
+• 📊 Take profits incrementally on pumps
+• ⚠️ Watch for overextension signals"""
+                
+            elif avg_change > 2:
+                market_analysis = """
+📈 **MARKET ANALYSIS:**
+• Moderate bullish sentiment prevailing
+• Selective buying in quality projects
+• Technical levels holding as support
+• Gradual accumulation phase"""
+                
+                trading_rec = """
+💡 **TRADING RECOMMENDATIONS:**
+• ✅ Gradual position building recommended
+• 🎯 Focus on fundamental strong coins
+• 📊 DCA strategy effective in this phase
+• 🛡️ Use proper risk management"""
+                
+            elif avg_change > -2:
+                market_analysis = """
+⚖️ **MARKET ANALYSIS:**
+• Consolidation phase with mixed signals
+• Traders waiting for clear direction
+• Range-bound trading dominant
+• Low volatility environment"""
+                
+                trading_rec = """
+💡 **TRADING RECOMMENDATIONS:**
+• ⏳ Wait for clearer market direction
+• 📊 Range trading opportunities available
+• 🎯 Focus on swing trading setups
+• 💰 Build cash position for next move"""
+                
+            elif avg_change > -5:
+                market_analysis = """
+📉 **MARKET ANALYSIS:**
+• Bearish pressure building across market
+• Profit taking and risk-off sentiment
+• Support levels being tested
+• Uncertainty in market direction"""
+                
+                trading_rec = """
+💡 **TRADING RECOMMENDATIONS:**
+• ❌ Avoid new long positions
 • 🎯 Consider short opportunities
-• 🛡️ Increase cash position untuk safety"""
+• 🛡️ Increase cash allocation
+• 📊 Wait for oversold bounces"""
+                
             else:
-                recommendations = """
-💡 **Rekomendasi Pasar:**
-• ⏳ Tunggu konfirmasi arah yang jelas
-• 📊 Focus pada range trading
-• 🎯 Cari setup dengan R:R tinggi"""
+                market_analysis = """
+💥 **MARKET ANALYSIS:**
+• Strong bearish sentiment dominating
+• Panic selling and liquidations
+• Major support levels breaking
+• Risk-off environment prevailing"""
+                
+                trading_rec = """
+💡 **TRADING RECOMMENDATIONS:**
+• 🛑 Avoid catching falling knives
+• 💰 Build cash for bottom opportunities
+• 📊 Wait for capitulation signals
+• 🎯 DCA only for long-term holdings"""
             
-            analysis += recommendations
+            analysis += market_analysis + trading_rec
+            
+            # Market timing and cycles
+            current_hour = datetime.now().hour
+            if 14 <= current_hour <= 22:  # US trading hours
+                market_hours = "🇺🇸 US Market Hours - High Activity"
+            elif 8 <= current_hour <= 16:  # European hours
+                market_hours = "🇪🇺 European Hours - Moderate Activity"
+            elif 0 <= current_hour <= 8:  # Asian hours
+                market_hours = "🌏 Asian Hours - Lower Activity"
+            else:
+                market_hours = "🌃 Off-peak Hours"
             
             analysis += f"""
 
-📡 **Data Source**: CoinAPI Real-time Market Data
-🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
-🔄 **Refresh**: Gunakan `/market` untuk data terbaru"""
+⏰ **MARKET TIMING:**
+• {market_hours}
+• Best for: {"Scalping & Day Trading" if 14 <= current_hour <= 22 else "Swing Trading Setup" if 8 <= current_hour <= 16 else "Position Planning"}
+
+🔄 **NEXT CATALYSTS:**
+• 📊 Weekly close sentiment
+• 📰 Macro economic events
+• 🏛️ Regulatory announcements
+• 📈 Technical level breaks
+
+📡 **Data**: CoinAPI Real-time + Market Analysis
+🕐 **Updated**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔄 **Refresh**: Use `/market` for latest data"""
             
             return analysis
             
