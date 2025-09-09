@@ -930,15 +930,13 @@ class AIAssistant:
 • Risk/Reward: {trading_levels['rr_ratio']:.1f}:1
 • Max Risk: {trading_levels['risk_percentage']:.1f}% per position
 
-```
-🔬 TECHNICAL ANALYSIS ({timeframe}):
+🔬 **TECHNICAL ANALYSIS ({timeframe}):**
 • EMA50: ${primary_indicators.get('ema_50', 0):,.4f}
 • EMA200: ${primary_indicators.get('ema_200', 0):,.4f}
 • RSI(14): {rsi_value:.1f} ({rsi_condition})
 • MACD: {macd_value:.4f} ({macd_condition})
 • ATR: ${primary_indicators.get('atr', 0):,.4f}
 • Volume Trend: {signal_data.get('volume_trend', 'Normal')}
-```
 
 🎯 **SUPPLY & DEMAND ZONES**:"""
 
