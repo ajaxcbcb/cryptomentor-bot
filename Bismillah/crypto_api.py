@@ -29,22 +29,9 @@ class CryptoAPI:
         try:
             symbol_normalized = normalize_symbol(symbol) # Normalize symbol for various APIs
 
-            # 1. Try CoinMarketCap
-            cmc_price = get_global_stats(symbols=[symbol_normalized])
-            if cmc_price.get('success') and symbol_normalized in cmc_price.get('coins', {}):
-                coin_data = cmc_price['coins'][symbol_normalized]
-                return {
-                    'symbol': symbol_normalized,
-                    'price': coin_data.get('price', 0),
-                    'change_24h': coin_data.get('percent_change_24h', 0),
-                    'change_7d': coin_data.get('percent_change_7d', 0),
-                    'volume_24h': coin_data.get('volume_24h', 0),
-                    'market_cap': coin_data.get('market_cap', 0),
-                    'rank': coin_data.get('cmc_rank', 0),
-                    'source': 'CoinMarketCap',
-                    'timestamp': datetime.now().isoformat(),
-                    'success': True
-                }
+            # 1. Try CoinMarketCap global stats (note: this doesn't provide individual coin prices)
+            # Skip CMC for individual prices since get_global_stats doesn't support symbols parameter
+            # We'll prioritize Binance for price data instead
 
             # 2. Try Binance Spot
             binance_spot_price = get_price(symbol=symbol_normalized, market_type='spot')
@@ -127,9 +114,13 @@ class CryptoAPI:
         Assuming `get_global_stats` can handle a list and returns a similar format.
         """
         try:
-            # Assuming get_global_stats can handle a list of symbols
-            price_data = get_global_stats(symbols=symbols) 
-            return price_data
+            # Get multiple prices using Binance provider since CMC get_global_stats doesn't support symbols
+            results = {}
+            for symbol in symbols:
+                price_data = self.get_crypto_price(symbol)
+                if price_data.get('success'):
+                    results[symbol] = price_data
+            return {'success': True, 'data': results}
 
         except Exception as e:
             logging.error(f"Error in get_multiple_prices: {e}")
@@ -296,8 +287,14 @@ class CryptoAPI:
         Mendapatkan overview pasar dari CoinMarketCap
         """
         try:
-            # Assuming get_global_stats provides market overview data
-            return get_global_stats()
+            # Get market overview from CMC global stats
+            global_data = get_global_stats()
+            return {
+                'success': True,
+                'global_metrics': global_data,
+                'timestamp': datetime.now().isoformat(),
+                'source': 'CoinMarketCap'
+            }
 
         except Exception as e:
             logging.error(f"Error getting market overview: {e}")
@@ -308,9 +305,14 @@ class CryptoAPI:
         Mendapatkan informasi detail crypto dari CoinMarketCap
         """
         try:
-            # Assuming get_global_stats or another function in cmc_provider provides coin-specific info
-            # This might need a dedicated function like `get_coin_info` in cmc_provider
-            return get_global_stats(symbols=[symbol]) # Placeholder: adapt if a specific function exists
+            # CMC get_global_stats doesn't provide individual coin info
+            # Return basic info with a note that detailed info isn't available
+            return {
+                'error': 'Detailed coin info not available in current CMC provider',
+                'symbol': symbol,
+                'success': False,
+                'note': 'Use get_crypto_price for basic price data'
+            }
 
         except Exception as e:
             logging.error(f"Error getting crypto info for {symbol}: {e}")
@@ -325,7 +327,9 @@ class CryptoAPI:
         try:
             # Test CoinMarketCap
             cmc_test = get_global_stats()
-            results['CoinMarketCap'] = {'success': cmc_test.get('success', False), 'error': cmc_test.get('error')}
+            # CMC get_global_stats returns data directly, so check if it has expected fields
+            success = bool(cmc_test.get('total_market_cap_usd') or cmc_test.get('btc_dominance'))
+            results['CoinMarketCap'] = {'success': success, 'error': None if success else 'No valid data returned'}
         except Exception as e:
             results['CoinMarketCap'] = {'success': False, 'error': str(e)}
 
