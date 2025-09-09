@@ -1832,7 +1832,8 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with dual system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        # Use Supabase for premium checks
+        
+        # Use Supabase for premium checks with better error handling
         try:
             from app.premium_check import is_premium as sb_is_premium
             is_premium = sb_is_premium(user_id)
@@ -1848,10 +1849,18 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             print(f"Error getting bot info: {e}")
             bot_username = "CryptoMentorAI_bot"  # Fallback username
 
-        # Get or create referral codes
+        # Initialize referral codes
+        free_code = None
+        premium_code = None
+
+        # Try Supabase first, fallback to local DB
         try:
             from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
+
+            # Ensure user exists in Supabase first
+            from app.users_repo import touch_user_from_update
+            touch_user_from_update(update)
 
             # Get user's referral codes
             user_data = s.table("users").select("referral_code, premium_referral_code").eq("telegram_id", user_id).limit(1).execute()
@@ -1865,48 +1874,120 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 if not free_code or not premium_code:
                     import random, string
                     if not free_code:
-                        free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                        # Ensure unique code
+                        while True:
+                            free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                            # Check if code already exists
+                            existing = s.table("users").select("telegram_id").eq("referral_code", free_code).limit(1).execute()
+                            if not existing.data:
+                                break
+                    
                     if not premium_code:
-                        premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                        # Ensure unique code
+                        while True:
+                            premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                            # Check if code already exists
+                            existing = s.table("users").select("telegram_id").eq("premium_referral_code", premium_code).limit(1).execute()
+                            if not existing.data:
+                                break
 
                     # Update user with new codes
-                    s.table("users").update({
+                    update_result = s.table("users").update({
                         "referral_code": free_code,
                         "premium_referral_code": premium_code
                     }).eq("telegram_id", user_id).execute()
+                    
+                    if not update_result.data:
+                        print(f"⚠️ Failed to update referral codes for user {user_id}")
             else:
-                await update.message.reply_text("❌ User not found. Please use /start first.")
-                return
+                # User not found in Supabase, create with codes
+                import random, string
+                free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                
+                # This should be handled by touch_user_from_update, but let's be safe
+                print(f"⚠️ User {user_id} not found in Supabase during referral command")
 
         except Exception as e:
-            print(f"Error getting referral codes: {e}")
-            await update.message.reply_text("❌ Error getting referral codes. Please contact support.")
+            print(f"❌ Supabase error in referral command: {e}")
+            # Fallback to local database
+            try:
+                user_data = self.db.get_user(user_id)
+                if user_data:
+                    free_code = user_data.get('referral_code')
+                    premium_code = user_data.get('premium_referral_code')
+                    
+                    # Generate codes if missing
+                    if not free_code or not premium_code:
+                        import random, string
+                        if not free_code:
+                            free_code = f"REF{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                        if not premium_code:
+                            premium_code = f"PREP{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
+                        
+                        # Update local database
+                        self.db.cursor.execute("""
+                            UPDATE users 
+                            SET referral_code = COALESCE(referral_code, ?),
+                                premium_referral_code = COALESCE(premium_referral_code, ?)
+                            WHERE telegram_id = ?
+                        """, (free_code, premium_code, user_id))
+                        self.db.conn.commit()
+                else:
+                    await update.message.reply_text("❌ User tidak ditemukan. Silakan gunakan /start terlebih dahulu.")
+                    return
+            except Exception as local_e:
+                print(f"❌ Local DB error in referral command: {local_e}")
+                await update.message.reply_text("❌ Terjadi kesalahan sistem. Silakan coba lagi atau hubungi admin.")
+                return
+
+        # Ensure we have codes
+        if not free_code or not premium_code:
+            await update.message.reply_text("❌ Gagal mendapatkan kode referral. Silakan coba lagi atau hubungi admin.")
             return
 
-        # Get free referral statistics
+        # Get free referral statistics with better error handling
+        total_free_referrals = 0
+        credits_earned = 0
+        premium_stats = {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
+        
         try:
+            from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
+            
+            # Get free referrals
             free_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).execute()
             total_free_referrals = len(free_refs.data) if free_refs.data else 0
             credits_earned = total_free_referrals * 10  # 10 credits per referral
-        except Exception as e:
-            print(f"Error getting free referral stats: {e}")
-            total_free_referrals = 0
-            credits_earned = 0
-
-        # Get premium referral statistics (simplified for now)
-        try:
-            premium_refs = s.table("users").select("telegram_id").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+            
+            # Get premium referrals
+            premium_refs = s.table("users").select("telegram_id, first_name, created_at").eq("referred_by", user_id).eq("referral_type", "premium").execute()
             premium_referrals = len(premium_refs.data) if premium_refs.data else 0
             premium_earnings = premium_referrals * 10000  # Rp 10,000 per premium referral
+            
             premium_stats = {
                 'total_referrals': premium_referrals,
                 'total_earnings': premium_earnings,
-                'recent_referrals': []
+                'recent_referrals': premium_refs.data[:5] if premium_refs.data else []
             }
+            
         except Exception as e:
-            print(f"Error getting premium referral stats: {e}")
-            premium_stats = {'total_referrals': 0, 'total_earnings': 0, 'recent_referrals': []}
+            print(f"❌ Error getting referral statistics from Supabase: {e}")
+            # Try fallback to local database
+            try:
+                # Get local referral stats if available
+                local_refs = self.db.cursor.execute("""
+                    SELECT COUNT(*) FROM users WHERE referred_by = ?
+                """, (user_id,)).fetchone()
+                
+                total_free_referrals = local_refs[0] if local_refs else 0
+                credits_earned = total_free_referrals * 10
+                
+                print(f"✅ Using local DB referral stats: {total_free_referrals} referrals")
+                
+            except Exception as local_e:
+                print(f"❌ Local DB referral stats also failed: {local_e}")
+                # Use default values (already set above)
 
         message = f"""🎁 **Program Referral CryptoMentor (CoinAPI Edition)**
 
