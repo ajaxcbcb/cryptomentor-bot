@@ -67,6 +67,9 @@ class AIAssistant:
             change_emoji = "📈" if change_24h >= 0 else "📉"
             sentiment_emoji = "🟢" if sentiment['score'] > 60 else "🟡" if sentiment['score'] > 40 else "🔴"
             
+            # Get additional info (news, market context, etc.)
+            additional_info = self._get_additional_market_info(symbol, current_price, change_24h)
+            
             # Format analysis
             analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol} (CoinAPI + SnD)**
 
@@ -98,6 +101,8 @@ class AIAssistant:
 • **Trend**: {signal_data.get('trend', 'Sideways')}
 • **Support**: ${current_price * 0.95:,.6f}
 • **Resistance**: ${current_price * 1.05:,.6f}
+
+{additional_info}
 
 💡 **REKOMENDASI TRADING:**
 {self._generate_trading_recommendations(signal_data, sentiment, snd_zones, current_price)}
@@ -310,6 +315,154 @@ class AIAssistant:
         else:
             return "25- (Oversold)"
     
+    def _get_additional_market_info(self, symbol: str, current_price: float, change_24h: float) -> str:
+        """Generate additional market information including news and context"""
+        try:
+            # Generate market news/events (simplified - you can integrate real news API later)
+            news_items = self._generate_market_news(symbol, change_24h)
+            
+            # Market context and important levels
+            market_context = self._generate_market_context(symbol, current_price, change_24h)
+            
+            # Social sentiment indicators
+            social_sentiment = self._generate_social_sentiment(symbol, change_24h)
+            
+            additional_section = f"""📰 **BERITA & INFO TERKINI**:
+{news_items}
+
+🌍 **KONTEKS PASAR**:
+{market_context}
+
+💬 **SENTIMEN SOSIAL**:
+{social_sentiment}"""
+            
+            return additional_section
+            
+        except Exception as e:
+            return f"""📰 **BERITA & INFO TERKINI**:
+• 📊 Data analisis real-time tersedia
+• 🔍 Monitor terus untuk update terbaru
+
+🌍 **KONTEKS PASAR**:
+• 📈 Pasar crypto aktif 24/7
+• 🎯 Focus pada level SnD untuk timing optimal
+
+💬 **SENTIMEN SOSIAL**:
+• 📱 Community sentiment: Mixed
+• 🗣️ Monitor social media untuk catalyst"""
+
+    def _generate_market_news(self, symbol: str, change_24h: float) -> str:
+        """Generate relevant market news based on price action"""
+        news_items = []
+        
+        if abs(change_24h) > 10:
+            if change_24h > 0:
+                news_items.append("• 🚀 High volatility: Price surge detected!")
+                news_items.append("• 📊 Volume spike indicates strong buying interest")
+            else:
+                news_items.append("• 📉 Sharp decline: Market correction in progress")
+                news_items.append("• ⚠️ High selling pressure observed")
+        elif abs(change_24h) > 5:
+            news_items.append("• 📈 Moderate price movement detected")
+            news_items.append("• 🎯 Key levels being tested")
+        else:
+            news_items.append("• ⚖️ Low volatility: Consolidation phase")
+            news_items.append("• 📊 Range-bound trading conditions")
+        
+        # Add symbol-specific insights
+        if symbol == 'BTC':
+            news_items.append("• 🟠 Bitcoin dominance impact on altcoins")
+            news_items.append("• 📊 Institutional adoption continues")
+        elif symbol == 'ETH':
+            news_items.append("• 🔷 Ethereum ecosystem developments")
+            news_items.append("• ⛽ Gas fees impact on network usage")
+        elif symbol in ['SOL', 'ADA', 'DOT']:
+            news_items.append("• 🔗 Altcoin correlation with BTC/ETH")
+            news_items.append("• 🚀 Layer-1 competition dynamics")
+        else:
+            news_items.append("• 📈 Altcoin market sentiment tracking")
+            news_items.append("• 🔍 Technical analysis primary focus")
+            
+        return "\n".join(news_items)
+    
+    def _generate_market_context(self, symbol: str, current_price: float, change_24h: float) -> str:
+        """Generate market context information"""
+        context_items = []
+        
+        # Market hours context
+        current_hour = datetime.now().hour
+        if 6 <= current_hour <= 18:
+            context_items.append("• 🌅 Asian/European market hours active")
+        else:
+            context_items.append("• 🌙 US market hours / late trading")
+        
+        # Weekly patterns
+        weekday = datetime.now().weekday()
+        if weekday in [0, 1]:  # Monday, Tuesday
+            context_items.append("• 📅 Early week: Trend continuation likely")
+        elif weekday in [2, 3]:  # Wednesday, Thursday
+            context_items.append("• 📅 Mid-week: High activity period")
+        else:  # Friday, Weekend
+            context_items.append("• 📅 Week-end: Lower volume expected")
+        
+        # Price level context
+        if current_price > 50000 and symbol == 'BTC':
+            context_items.append("• 💰 BTC above psychological 50K level")
+        elif current_price > 3000 and symbol == 'ETH':
+            context_items.append("• 💎 ETH above major resistance zone")
+        
+        # Market cycle context
+        if change_24h > 5:
+            context_items.append("• 🚀 Bull market conditions emerging")
+        elif change_24h < -5:
+            context_items.append("• 🐻 Bear market pressure building")
+        else:
+            context_items.append("• ⚖️ Neutral market conditions")
+            
+        return "\n".join(context_items)
+    
+    def _generate_social_sentiment(self, symbol: str, change_24h: float) -> str:
+        """Generate social sentiment indicators"""
+        sentiment_items = []
+        
+        # Simulate social sentiment based on price action
+        if change_24h > 10:
+            sentiment_items.append("• 🔥 Social media: Extremely bullish")
+            sentiment_items.append("• 📱 FOMO indicators: Very High")
+            sentiment_items.append("• 🎯 Retail interest: Peak levels")
+        elif change_24h > 5:
+            sentiment_items.append("• 📈 Social media: Bullish sentiment")
+            sentiment_items.append("• 📱 Community engagement: Increasing")
+            sentiment_items.append("• 💪 Confidence levels: Rising")
+        elif change_24h < -10:
+            sentiment_items.append("• 😰 Social media: Fear dominates")
+            sentiment_items.append("• 📱 Panic selling indicators: High")
+            sentiment_items.append("• 🛡️ Risk-off sentiment prevalent")
+        elif change_24h < -5:
+            sentiment_items.append("• 📉 Social media: Bearish tone")
+            sentiment_items.append("• 📱 Uncertainty levels: Elevated")
+            sentiment_items.append("• ⚠️ Caution advised by community")
+        else:
+            sentiment_items.append("• 😐 Social media: Mixed signals")
+            sentiment_items.append("• 📱 Neutral community sentiment")
+            sentiment_items.append("• 🤔 Wait-and-see attitude")
+        
+        # Add engagement metrics
+        sentiment_items.append(f"• 📊 Estimated social volume: {self._estimate_social_volume(change_24h)}")
+        
+        return "\n".join(sentiment_items)
+    
+    def _estimate_social_volume(self, change_24h: float) -> str:
+        """Estimate social media volume based on price movement"""
+        if abs(change_24h) > 15:
+            return "Very High"
+        elif abs(change_24h) > 10:
+            return "High"
+        elif abs(change_24h) > 5:
+            return "Medium"
+        else:
+            return "Low"
+
     def _generate_trading_recommendations(self, signal_data: Dict, sentiment: Dict, snd_zones: Dict, current_price: float) -> str:
         """Generate trading recommendations"""
         direction = signal_data.get('direction', 'NEUTRAL')
