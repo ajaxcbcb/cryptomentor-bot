@@ -772,9 +772,6 @@ class AIAssistant:
                     else:
                         vol_str = f"${volume:,.0f}"
                     
-                    # Cap score at 100 maximum
-                    score = min(100, score)
-                    
                     # Grade system based on score
                     if score >= 90:
                         grade = "🏆 PREMIUM"
@@ -817,8 +814,7 @@ class AIAssistant:
                     recommendations += f"""
 • **{i}. {symbol}** {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
   Score: {score:.0f}/100 - {grade_desc}
-  Strategy: {strategy}
-  Horizon: {time_horizon}"""
+  Strategy: {strategy}"""
 
             # Add enhanced insights
             recommendations += f"""
