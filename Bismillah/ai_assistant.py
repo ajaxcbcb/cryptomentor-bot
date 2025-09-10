@@ -1203,8 +1203,8 @@ class AIAssistant:
             direction = "SHORT"
             emoji = "🔴"
             entry = supply_1_mid
-            tp1 = demand_1_mid                    # TP1: First target
-            tp2 = snd_zones['demand_1_low']       # TP2: Second target (lower)
+            tp1 = demand_1_mid                    # TP1: First target (lower price for SHORT)
+            tp2 = snd_zones['demand_1_low']       # TP2: Second target (even lower)
             tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest)
             sl = snd_zones['supply_2_low']
             confidence = 75
@@ -1350,9 +1350,9 @@ class AIAssistant:
                 direction = "SHORT"
                 emoji = "🔴"
                 entry = current_price * 1.0005  # Optimal entry
-                tp1 = demand_1_mid                    # TP1: First target (higher price)
-                tp2 = snd_zones['demand_1_low']       # TP2: Second target (lower price)  
-                tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest price)
+                tp1 = demand_1_mid                    # TP1: First target (lower price for SHORT)
+                tp2 = snd_zones['demand_1_low']       # TP2: Second target (even lower)  
+                tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest)
                 sl = snd_zones['supply_1_high']
                 strategy = "SnD Supply Zone Reversal"
                 base_confidence = 85  # High confidence for zone reversal
@@ -1372,12 +1372,12 @@ class AIAssistant:
                     sl = demand_1_mid
                     strategy = "Range Breakout Long"
                     base_confidence = 75
-                elif position_in_range < 0.3:  # Lower 30% of range
+                elif position_in_range < 0.3:  # Lower 30% of range - expecting further breakdown
                     direction = "SHORT"
                     emoji = "🔴"
                     entry = current_price * 1.001
-                    tp1 = demand_1_mid                    # TP1: First target
-                    tp2 = snd_zones['demand_1_low']       # TP2: Second target (lower)
+                    tp1 = demand_1_mid                    # TP1: First target (lower price)
+                    tp2 = snd_zones['demand_1_low']       # TP2: Second target (even lower)
                     tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest)
                     sl = supply_1_mid
                     strategy = "Range Breakdown Short"
@@ -1683,6 +1683,8 @@ class AIAssistant:
             if top_signals:
                 signals_text += f"""🚨 **HIGH-CONFIDENCE SIGNALS DETECTED** ({len(top_signals)}/25 coins)
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 """
                 for i, signal_data in enumerate(top_signals, 1):
                     signal = signal_data['signals']
@@ -1701,54 +1703,114 @@ class AIAssistant:
 
                     # Volume formatting
                     if volume_24h > 1000000000:
-                        volume_format = f"${volume_24h/1000000000:.1f}B"
-                    elif volume_24h > 1000000:
-                        volume_format = f"${volume_24h/1000000:.0f}M"
+                        volume_format = f"${volume_24h/1000000000:.1f}B 🔥"
+                    elif volume_24h > 500000000:
+                        volume_format = f"${volume_24h/1000000:.0f}M ⚡"
                     else:
-                        volume_format = f"${volume_24h:,.0f}"
+                        volume_format = f"${volume_24h/1000000:.0f}M 📊"
 
-                    # Confidence visual indicator
-                    if signal['confidence'] >= 85:
+                    # Enhanced confidence visual indicator with bars
+                    confidence_val = signal['confidence']
+                    if confidence_val >= 90:
+                        conf_indicator = "🏆 ULTRA PREMIUM"
+                        conf_bar = "🟢🟢🟢🟢🟢"
+                    elif confidence_val >= 85:
                         conf_indicator = "🔥 PREMIUM"
-                    elif signal['confidence'] >= 75:
+                        conf_bar = "🟢🟢🟢🟢⚪"
+                    elif confidence_val >= 75:
                         conf_indicator = "⭐ STRONG"
-                    elif signal['confidence'] >= 70:
+                        conf_bar = "🟢🟢🟢⚪⚪"
+                    elif confidence_val >= 70:
                         conf_indicator = "📊 GOOD"
+                        conf_bar = "🟢🟢⚪⚪⚪"
                     else:
                         conf_indicator = "💡 DECENT"
+                        conf_bar = "🟢⚪⚪⚪⚪"
 
-                    signals_text += f"""🎯 **{i}. {symbol} SIGNAL** {conf_indicator}
+                    # Direction with clear action
+                    direction = signal['direction']
+                    if direction == "LONG":
+                        action_text = "🚀 **BUY SIGNAL**"
+                        direction_emoji = "📈"
+                    elif direction == "SHORT":
+                        action_text = "📉 **SELL SIGNAL**"
+                        direction_emoji = "📉"
+                    else:
+                        action_text = "⏳ **WAIT SIGNAL**"
+                        direction_emoji = "⚖️"
 
-• **Direction**: {signal['direction']} {signal['emoji']}
-• **Confidence**: {signal['confidence']:.1f}%
-• **Current**: {price_format} ({change_24h:+.1f}%)
-• **Volume 24h**: {volume_format}
-• **Entry**: ${signal['entry']:,.6f}
-• **TP1**: ${signal['tp1']:,.6f} (50%)
-• **TP2**: ${signal['tp2']:,.6f} (30%)
-• **TP3**: ${signal['tp3']:,.6f} (20%)
-• **SL**: ${signal['sl']:,.6f}
-• **R:R**: {signal['rr']:.1f}:1
+                    # Calculate potential profit %
+                    entry_price = signal['entry']
+                    tp1_price = signal['tp1']
+                    if direction == "LONG":
+                        profit_pct = ((tp1_price - entry_price) / entry_price * 100)
+                    elif direction == "SHORT":
+                        profit_pct = ((entry_price - tp1_price) / entry_price * 100)
+                    else:
+                        profit_pct = 0
+
+                    signals_text += f"""🎯 **{i}. {symbol}** {action_text}
+
+{conf_indicator} • **{confidence_val:.1f}%** {conf_bar}
+
+📊 **MARKET DATA:**
+• **Current Price**: {price_format} ({change_24h:+.1f}%) {direction_emoji}
+• **24h Volume**: {volume_format}
+• **Potential Profit**: +{profit_pct:.1f}% to TP1
+
+🎯 **TRADING SETUP:**
+• **Direction**: {direction} {signal['emoji']}
+• **Entry**: `${entry_price:,.6f}`
+• **Take Profits**:
+  └─ **TP1** (50%): `${signal['tp1']:,.6f}` 
+  └─ **TP2** (30%): `${signal['tp2']:,.6f}`
+  └─ **TP3** (20%): `${signal['tp3']:,.6f}`
+• **Stop Loss**: `${signal['sl']:,.6f}`
+• **Risk/Reward**: {signal['rr']:.1f}:1
+
+⚡ **EXECUTION:**
 • **Strategy**: {signal['strategy']}
-• **Timeframe**: {signal.get('time_horizon', '4-24 hours')}
+• **Time Horizon**: {signal.get('time_horizon', '4-24 hours')}
+• **Position Size**: {self._calculate_position_size(confidence_val)} of portfolio
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 """
 
-                signals_text += f"""📋 **SCAN SUMMARY:**
+                # Calculate signal metrics
+                premium_signals = len([s for s in top_signals if s['signals']['confidence'] >= 85])
+                strong_signals = len([s for s in top_signals if s['signals']['confidence'] >= 75])
+                long_signals = len([s for s in top_signals if s['signals']['direction'] == "LONG"])
+                short_signals = len([s for s in top_signals if s['signals']['direction'] == "SHORT"])
+                avg_confidence = sum([s['signals']['confidence'] for s in top_signals]) / len(top_signals)
 
+                signals_text += f"""📋 **COMPREHENSIVE SCAN SUMMARY**
+
+🔍 **SCAN METRICS:**
 • **Total Scanned**: {total_scanned} cryptocurrencies
 • **Signals Found**: {len(top_signals)} high-confidence setups
 • **Success Rate**: {len(top_signals)/total_scanned*100:.1f}%
-• **Quality Filter**: 65%+ confidence minimum
-• **Top Tier**: {len([s for s in top_signals if s['signals']['confidence'] >= 85])} premium signals (85%+)
+• **Average Confidence**: {avg_confidence:.1f}%
+
+📊 **SIGNAL BREAKDOWN:**
+• 🏆 **Premium** (85%+): {premium_signals} signals
+• ⭐ **Strong** (75%+): {strong_signals} signals  
+• 🚀 **Long Signals**: {long_signals}
+• 📉 **Short Signals**: {short_signals}
+• ⚖️ **Wait Signals**: {len(top_signals) - long_signals - short_signals}
 
 ⚠️ **ENHANCED TRADING RULES:**
-• Higher confidence = larger position size
-• Premium signals (85%+): Up to 3% position
-• Strong signals (75%+): Up to 2% position  
-• Good signals (65%+): Up to 1% position
-• Always scale out at multiple TPs
+🎯 **Position Sizing by Confidence:**
+• **90%+ (Ultra Premium)**: Up to 3% position
+• **85%+ (Premium)**: Up to 2.5% position  
+• **75%+ (Strong)**: Up to 2% position
+• **65%+ (Good)**: Up to 1.5% position
+
+📈 **Execution Strategy:**
+• Always scale out at multiple TPs (50%/30%/20%)
 • Move SL to breakeven after TP1 hits
+• Higher timeframes = larger position sizes
+• Watch volume confirmation on entries
 
 """
             else:
