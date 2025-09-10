@@ -69,7 +69,7 @@ class AIAssistant:
             # Get additional info (news, market context, etc.)
             additional_info = self._get_additional_market_info(symbol, current_price, change_24h)
 
-            # Format analysis
+            # Format analysis with proper spacing
             analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol} (CoinAPI + SnD)**
 
 💰 **Data Harga Real-time:**
@@ -680,6 +680,7 @@ class AIAssistant:
             analysis = f"""🚨 **FUTURES TRADING SIGNAL - {symbol}/{tf_display}**
 
 {strength_emoji} **{signal_strength}**
+
 📊 **Price**: {price_format} ({change_24h:+.2f}%)
 💹 **Volume**: {volume_format}
 🕐 **Time**: {datetime.now().strftime('%H:%M:%S WIB')}
@@ -693,6 +694,7 @@ class AIAssistant:
 • **TP3** (20%): ${futures_signals['tp3']:,.6f}
 • **Stop Loss**: ${futures_signals['sl']:,.6f}
 • **Risk/Reward**: {futures_signals['rr']:.1f}:1
+
 📈 **Strategy**: {futures_signals['strategy']}
 ⏰ **Timeframe**: {tf_display} ({futures_signals['time_horizon']})
 
@@ -1128,11 +1130,11 @@ class AIAssistant:
                     elif arg_upper in ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
                         symbols = [arg_upper]
 
-            signals_text = f"""🎯 **FUTURES SIGNALS DASHBOARD \\({timeframe.upper()}\\)**
+            signals_text = f"""🎯 **FUTURES SIGNALS DASHBOARD ({timeframe.upper()})**
 
 📊 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 ⚡ **Timeframe**: {timeframe.upper()} charts
-🔍 **Method**: Supply & Demand \\+ CoinAPI Real\\-time
+🔍 **Method**: Supply & Demand + CoinAPI Real-time
 
 """
 
@@ -1167,13 +1169,14 @@ class AIAssistant:
                         price_format = f"${current_price:,.2f}"
 
                     signals_text += f"""🔥 **{symbol} SIGNAL #{signal_count}**
+
 • **Direction**: {futures_signals['direction']} {futures_signals['emoji']}
 • **Confidence**: {futures_signals['confidence']:.1f}%
 • **Current**: {price_format}
 • **Entry**: ${futures_signals['entry']:,.6f}
-• **TP1**: ${futures_signals['tp1']:,.6f} \\(50%\\)
-• **TP2**: ${futures_signals['tp2']:,.6f} \\(30%\\)
-• **TP3**: ${futures_signals['tp3']:,.6f} \\(20%\\)
+• **TP1**: ${futures_signals['tp1']:,.6f} (50%)
+• **TP2**: ${futures_signals['tp2']:,.6f} (30%)
+• **TP3**: ${futures_signals['tp3']:,.6f} (20%)
 • **SL**: ${futures_signals['sl']:,.6f}
 • **R:R**: {futures_signals['rr']:.1f}:1
 
@@ -1184,7 +1187,7 @@ class AIAssistant:
                     continue
 
             if signal_count == 0:
-                signals_text += """⚠️ **No High\\-Quality Signals Available**
+                signals_text += """⚠️ **No High-Quality Signals Available**
 
 📊 **Reasons:**
 • Low market volatility
@@ -1192,16 +1195,17 @@ class AIAssistant:
 • Insufficient confidence levels
 
 💡 **Recommendations:**
-• Check back in 30\\-60 minutes
+• Check back in 30-60 minutes
 • Use `/futures btc` for specific analysis
 • Monitor for breakout confirmations
 
 """
             else:
                 signals_text += f"""📋 **SUMMARY:**
+
 • **Total Signals**: {signal_count}
-• **Quality Filter**: 60%\\+ confidence only
-• **Risk Management**: Max 2\\% per position
+• **Quality Filter**: 60%+ confidence only
+• **Risk Management**: Max 2% per position
 
 ⚠️ **TRADING RULES:**
 • Wait for SnD zone confirmation
@@ -1211,9 +1215,9 @@ class AIAssistant:
 
 """
 
-            signals_text += f"""📡 **Data Sources**: CoinAPI \\+ Internal SnD Algorithm
-🔄 **Refresh**: Every 15\\-30 minutes for new setups
-⏰ **Valid**: Next 4\\-24 hours \\({timeframe.upper()} analysis\\)"""
+            signals_text += f"""📡 **Data Sources**: CoinAPI + Internal SnD Algorithm
+🔄 **Refresh**: Every 15-30 minutes for new setups
+⏰ **Valid**: Next 4-24 hours ({timeframe.upper()} analysis)"""
 
             return signals_text
 
