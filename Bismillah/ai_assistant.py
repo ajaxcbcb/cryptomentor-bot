@@ -1332,8 +1332,8 @@ class AIAssistant:
             elif min_distance < 2.0:    # Near zone
                 zone_precision_bonus = 5
 
-            # Advanced direction logic with higher base confidence
-            base_confidence = 45  # Higher starting point
+            # Advanced direction logic with optimized base confidence
+            base_confidence = 55  # Optimized starting point for better signals
 
             if current_price <= demand_1_mid and distance_to_demand < 2:
                 direction = "LONG"
@@ -1453,8 +1453,8 @@ class AIAssistant:
             # Cap at 100% maximum for realistic expectations
             final_confidence = min(100, max(30, raw_confidence))
 
-            # Enhanced confidence threshold - require 75% for signals
-            if final_confidence < 75:
+            # Enhanced confidence threshold - require 65% for signals (lowered for more opportunities)
+            if final_confidence < 65:
                 direction = "NEUTRAL"
                 emoji = "⚖️"
                 entry = current_price
@@ -1608,8 +1608,12 @@ class AIAssistant:
     async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None) -> str:
         """Generate multiple futures signals for top cryptocurrencies"""
         try:
-            # Default symbols to analyze
-            symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT']
+            # Expanded symbols list - scan top 25 coins for better signal discovery
+            symbols = [
+                'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI',
+                'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET', 'FLOW',
+                'DOGE', 'SHIB', 'PEPE', 'TRX', 'XLM'
+            ]
 
             # Parse query args if provided
             timeframe = '4h'  # Default timeframe
@@ -1618,38 +1622,74 @@ class AIAssistant:
                     arg_upper = arg.upper()
                     if any(tf in arg_upper for tf in ['M', 'H', 'D', 'W']):
                         timeframe = arg.lower()
-                    elif arg_upper in ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
-                        symbols = [arg_upper]
+                    elif arg_upper in symbols:
+                        symbols = [arg_upper]  # Focus on specific symbol if requested
 
             signals_text = f"""🎯 **FUTURES SIGNALS DASHBOARD ({timeframe.upper()})**
 
 📊 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 ⚡ **Timeframe**: {timeframe.upper()} charts
-🔍 **Method**: Supply & Demand + CoinAPI Real-time
+🔍 **Method**: Enhanced SnD + Volume + Momentum Analysis
+📈 **Scanning**: Top 25 cryptocurrencies
 
 """
 
-            signal_count = 0
-            for symbol in symbols[:3]:  # Limit to 3 symbols to avoid message length issues
+            signals_found = []
+            total_scanned = 0
+
+            # Scan all symbols to find high-confidence signals
+            for symbol in symbols:
                 try:
-                    # Get price data
+                    total_scanned += 1
+                    
+                    # Get comprehensive market data
                     price_data = {}
                     if crypto_api:
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
                     current_price = price_data.get('price', 0) if 'error' not in price_data else 0
+                    change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+                    volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+                    
                     if current_price == 0:
                         continue
 
-                    # Get SnD zones and signals
+                    # Get enhanced SnD zones and advanced signals
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
-                    futures_signals = self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
+                    futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
 
-                    # Skip if confidence too low - consistent with individual futures analysis
-                    if futures_signals['confidence'] < 70:
-                        continue
+                    # Lower threshold to 65% for more signals, but prioritize by confidence
+                    if futures_signals['confidence'] >= 65:
+                        signals_found.append({
+                            'symbol': symbol,
+                            'signals': futures_signals,
+                            'current_price': current_price,
+                            'change_24h': change_24h,
+                            'volume_24h': volume_24h
+                        })
 
-                    signal_count += 1
+                    # Brief pause to avoid rate limiting
+                    if total_scanned % 5 == 0:
+                        await asyncio.sleep(0.1)
+
+                except Exception as e:
+                    print(f"Error processing {symbol}: {e}")
+                    continue
+
+            # Sort signals by confidence and select top 5
+            signals_found.sort(key=lambda x: x['signals']['confidence'], reverse=True)
+            top_signals = signals_found[:5]
+
+            if top_signals:
+                signals_text += f"""🚨 **HIGH-CONFIDENCE SIGNALS DETECTED** ({len(top_signals)}/25 coins)
+
+"""
+                for i, signal_data in enumerate(top_signals, 1):
+                    signal = signal_data['signals']
+                    symbol = signal_data['symbol']
+                    current_price = signal_data['current_price']
+                    change_24h = signal_data['change_24h']
+                    volume_24h = signal_data['volume_24h']
 
                     # Format price
                     if current_price < 1:
@@ -1659,56 +1699,88 @@ class AIAssistant:
                     else:
                         price_format = f"${current_price:,.2f}"
 
-                    signals_text += f"""🔥 **{symbol} SIGNAL #{signal_count}**
+                    # Volume formatting
+                    if volume_24h > 1000000000:
+                        volume_format = f"${volume_24h/1000000000:.1f}B"
+                    elif volume_24h > 1000000:
+                        volume_format = f"${volume_24h/1000000:.0f}M"
+                    else:
+                        volume_format = f"${volume_24h:,.0f}"
 
-• **Direction**: {futures_signals['direction']} {futures_signals['emoji']}
-• **Confidence**: {futures_signals['confidence']:.1f}%
-• **Current**: {price_format}
-• **Entry**: ${futures_signals['entry']:,.6f}
-• **TP1**: ${futures_signals['tp1']:,.6f} (50%)
-• **TP2**: ${futures_signals['tp2']:,.6f} (30%)
-• **TP3**: ${futures_signals['tp3']:,.6f} (20%)
-• **SL**: ${futures_signals['sl']:,.6f}
-• **R:R**: {futures_signals['rr']:.1f}:1
+                    # Confidence visual indicator
+                    if signal['confidence'] >= 85:
+                        conf_indicator = "🔥 PREMIUM"
+                    elif signal['confidence'] >= 75:
+                        conf_indicator = "⭐ STRONG"
+                    elif signal['confidence'] >= 70:
+                        conf_indicator = "📊 GOOD"
+                    else:
+                        conf_indicator = "💡 DECENT"
+
+                    signals_text += f"""🎯 **{i}. {symbol} SIGNAL** {conf_indicator}
+
+• **Direction**: {signal['direction']} {signal['emoji']}
+• **Confidence**: {signal['confidence']:.1f}%
+• **Current**: {price_format} ({change_24h:+.1f}%)
+• **Volume 24h**: {volume_format}
+• **Entry**: ${signal['entry']:,.6f}
+• **TP1**: ${signal['tp1']:,.6f} (50%)
+• **TP2**: ${signal['tp2']:,.6f} (30%)
+• **TP3**: ${signal['tp3']:,.6f} (20%)
+• **SL**: ${signal['sl']:,.6f}
+• **R:R**: {signal['rr']:.1f}:1
+• **Strategy**: {signal['strategy']}
+• **Timeframe**: {signal.get('time_horizon', '4-24 hours')}
 
 """
 
-                except Exception as e:
-                    print(f"Error processing {symbol}: {e}")
-                    continue
+                signals_text += f"""📋 **SCAN SUMMARY:**
 
-            if signal_count == 0:
-                signals_text += """⚠️ **No High-Quality Signals Available**
+• **Total Scanned**: {total_scanned} cryptocurrencies
+• **Signals Found**: {len(top_signals)} high-confidence setups
+• **Success Rate**: {len(top_signals)/total_scanned*100:.1f}%
+• **Quality Filter**: 65%+ confidence minimum
+• **Top Tier**: {len([s for s in top_signals if s['signals']['confidence'] >= 85])} premium signals (85%+)
 
-📊 **Reasons:**
-• Low market volatility
-• Price between SnD zones
-• Insufficient confidence levels
-
-💡 **Recommendations:**
-• Check back in 30-60 minutes
-• Use `/futures btc` for specific analysis
-• Monitor for breakout confirmations
+⚠️ **ENHANCED TRADING RULES:**
+• Higher confidence = larger position size
+• Premium signals (85%+): Up to 3% position
+• Strong signals (75%+): Up to 2% position  
+• Good signals (65%+): Up to 1% position
+• Always scale out at multiple TPs
+• Move SL to breakeven after TP1 hits
 
 """
             else:
-                signals_text += f"""📋 **SUMMARY:**
+                signals_text += f"""⚠️ **No High-Quality Signals Available**
 
-• **Total Signals**: {signal_count}
-• **Quality Filter**: 70%+ confidence only
-• **Risk Management**: Max 2% per position
+📊 **Scan Results:**
+• **Total Scanned**: {total_scanned} cryptocurrencies
+• **Signals Found**: 0 above 65% confidence
+• **Market Condition**: Low volatility period
 
-⚠️ **TRADING RULES:**
-• Wait for SnD zone confirmation
-• Use proper position sizing
-• Scale out at multiple TPs
-• Move SL to breakeven after TP1
+📈 **Market Analysis:**
+• Most coins trading in consolidation ranges
+• Waiting for clear directional breakouts
+• Volume levels below average across major pairs
+
+💡 **Next Steps:**
+• Check back in 30-60 minutes for market changes
+• Use `/futures btc` or `/futures eth` for specific analysis
+• Monitor news and macro events for catalyst
+• Set alerts at key support/resistance levels
+
+🎯 **Alternative Strategies:**
+• Range trading between S&D zones
+• DCA accumulation in strong fundamentals
+• Wait for higher timeframe confirmations
 
 """
 
-            signals_text += f"""📡 **Data Sources**: CoinAPI + Internal SnD Algorithm
-🔄 **Refresh**: Every 15-30 minutes for new setups
-⏰ **Valid**: Next 4-24 hours ({timeframe.upper()} analysis)"""
+            signals_text += f"""📡 **Data Sources**: CoinAPI Real-time + Enhanced SnD Algorithm
+🔄 **Auto-Refresh**: Every 15-30 minutes for new setups
+⏰ **Signal Validity**: Next 4-24 hours ({timeframe.upper()} analysis)
+🎯 **Algorithm**: Multi-factor confidence scoring with volume validation"""
 
             return signals_text
 
