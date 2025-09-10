@@ -617,6 +617,7 @@ class AIAssistant:
                     symbol = coin['symbol']
                     change = coin['change_24h']
                     price = coin['price']
+                    volume = coin['volume_24h']
                     
                     if price < 1:
                         price_str = f"${price:.6f}"
@@ -625,9 +626,19 @@ class AIAssistant:
                     else:
                         price_str = f"${price:,.2f}"
                     
+                    # Enhanced strategy based on performance level
+                    if change > 10:
+                        strategy = "STRONG breakout - Take partial profits, trail stops"
+                    elif change > 7:
+                        strategy = "Momentum continuation - Enter on 3-5% pullback"
+                    elif change > 5:
+                        strategy = "Trend following - Scale in gradually"
+                    else:
+                        strategy = "Moderate momentum - Wait for volume confirmation"
+                    
                     recommendations += f"""
 • **{i}. {symbol}** 🚀 {price_str} (+{change:.1f}%)
-  └─ Strategy: Momentum continuation, watch for pullbacks"""
+  └─ Strategy: {strategy}"""
 
             elif avg_change < -2:  # Bear market
                 recommendations += """
@@ -637,6 +648,7 @@ class AIAssistant:
                     symbol = coin['symbol']
                     change = coin['change_24h']
                     price = coin['price']
+                    volume = coin['volume_24h']
                     
                     if price < 1:
                         price_str = f"${price:.6f}"
@@ -645,9 +657,25 @@ class AIAssistant:
                     else:
                         price_str = f"${price:,.2f}"
                     
+                    # Enhanced strategy based on decline severity
+                    if change < -15:
+                        strategy = "MAJOR oversold - Small DCA, wait for capitulation end"
+                    elif change < -10:
+                        strategy = "Heavy correction - DCA 25% now, 75% on further drop"
+                    elif change < -7:
+                        strategy = "Oversold bounce - 50% position, scale remainder"
+                    elif change < -5:
+                        strategy = "Minor dip - Good accumulation opportunity"
+                    else:
+                        strategy = "Slight weakness - Monitor for support hold"
+                    
+                    # Volume consideration for oversold
+                    if volume > 1500000000:  # High volume selling
+                        strategy += " + High volume selloff - be cautious"
+                    
                     recommendations += f"""
 • **{i}. {symbol}** 📉 {price_str} ({change:.1f}%)
-  └─ Strategy: DCA on support levels, long-term accumulation"""
+  └─ Strategy: {strategy}"""
 
             else:  # Neutral market
                 recommendations += """
@@ -691,7 +719,26 @@ class AIAssistant:
                     else:
                         vol_str = f"${volume:,.0f}"
                     
-                    strategy = "Range trading" if abs(change) < 2 else "Momentum play" if change > 0 else "Support bounce"
+                    # Intelligent strategy based on actual performance and volume
+                    if change > 2:
+                        strategy = "Momentum continuation - Buy strength"
+                    elif change > 0.5:
+                        strategy = "Gradual accumulation - DCA approach"
+                    elif change > -0.5:
+                        strategy = "Range trading - Support/resistance"
+                    elif change > -2:
+                        strategy = "Support bounce - Wait for confirmation"
+                    else:
+                        strategy = "Oversold recovery - Careful DCA"
+                    
+                    # Volume-based adjustment
+                    if volume > 2000000000:  # High volume
+                        if change > 0:
+                            strategy += " + High volume breakout"
+                        else:
+                            strategy += " + High volume selloff caution"
+                    elif volume < 500000000:  # Low volume
+                        strategy += " + Low liquidity - reduce size"
                     
                     recommendations += f"""
 • **{i}. {symbol}** 📊 {price_str} ({change:+.1f}%) Vol: {vol_str}
