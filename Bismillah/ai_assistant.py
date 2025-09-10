@@ -772,6 +772,9 @@ class AIAssistant:
                     else:
                         vol_str = f"${volume:,.0f}"
                     
+                    # Cap score at 100 maximum
+                    score = min(100, score)
+                    
                     # Grade system based on score
                     if score >= 90:
                         grade = "🏆 PREMIUM"
@@ -808,13 +811,8 @@ class AIAssistant:
                     else:
                         strategy = "RANGE TRADING - Support/resistance levels"
                     
-                    # Time horizon based on volatility and fundamentals
-                    if symbol in ['BTC', 'ETH']:
-                        time_horizon = "LONG-TERM HOLD (6M+)"
-                    elif abs(change) > 5:
-                        time_horizon = "SHORT-TERM TRADE (1-4W)"
-                    else:
-                        time_horizon = "MEDIUM-TERM (1-3M)"
+                    # Time horizon - 24 hours for daily reset system
+                    time_horizon = "24H HOLD/TRADE (Daily Reset)"
                     
                     recommendations += f"""
 • **{i}. {symbol}** {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
