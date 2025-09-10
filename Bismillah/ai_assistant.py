@@ -1091,33 +1091,40 @@ class AIAssistant:
             # Quick action summary
             quick_summary = self._generate_quick_action_summary(futures_signals, confidence, symbol)
 
-            # Simple but elegant design
-            analysis = f"""🎯 **{symbol} FUTURES SIGNAL** | {tf_display} | {confidence:.0f}% {confidence_bar}
+            # Mobile-optimized vertical design
+            analysis = f"""🎯 **{symbol} FUTURES** {tf_display}
+{confidence_bar} **{confidence:.0f}%**
 
-💰 **Price**: {price_format} ({change_24h:+.2f}%) | 📈 **Volume**: {volume_format}
+💰 **{price_format}** ({change_24h:+.2f}%)
+📈 **Vol**: {volume_format}
 
-**🎯 SIGNAL**: {direction_display}
-**📍 Entry**: `${futures_signals['entry']:,.6f}`
-**🎯 TP1**: `${futures_signals['tp1']:,.6f}` | **TP2**: `${futures_signals['tp2']:,.6f}` | **TP3**: `${futures_signals['tp3']:,.6f}`
-**🛡️ Stop**: `${futures_signals['sl']:,.6f}` | **📊 R:R**: {rr_status}
+🎯 **{direction_display}**
+📍 **Entry**: `${futures_signals['entry']:,.6f}`
+🎯 **TP1**: `${futures_signals['tp1']:,.6f}`
+🎯 **TP2**: `${futures_signals['tp2']:,.6f}`
+🎯 **TP3**: `${futures_signals['tp3']:,.6f}`
+🛡️ **Stop**: `${futures_signals['sl']:,.6f}`
+📊 **R:R**: {rr_status}
 
-**💡 QUICK ACTION:**
+💡 **ACTION**:
 {quick_summary}
 
-**⚡ STRATEGY**: {action_advice}
+⚡ **STRATEGY**:
+{action_advice}
 
-**🗺️ KEY LEVELS:**
-🔴 **Resistance**: `${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}`
-🟢 **Support**: `${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}`
+🗺️ **LEVELS**:
+🔴 `${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}`
+🟢 `${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}`
 
-**⚙️ EXECUTION:**
-• **Position**: {self._calculate_position_size(confidence)} portfolio | **Leverage**: {futures_signals.get('leverage_rec', '3-5x')} max
-• **Validity**: {futures_signals['validity']} | **Update**: Every {timeframe}
+⚙️ **SETUP**:
+• **Size**: {self._calculate_position_size(confidence)} portfolio
+• **Leverage**: {futures_signals.get('leverage_rec', '3-5x')} max
+• **Valid**: {futures_signals['validity']}
 
-⚠️ **Risk Warning**: Use stop loss! Only trade with risk capital.
-💡 **Details**: `/analyze {symbol}` for comprehensive analysis
+⚠️ **Risk**: Use stop loss!
+💡 `/analyze {symbol}` for details
 
-🕐 **{datetime.now().strftime('%H:%M WIB')}** | 📡 **CoinAPI + S&D v2.0**"""
+🕐 **{datetime.now().strftime('%H:%M WIB')}**"""
 
             return analysis
 
@@ -1581,12 +1588,11 @@ class AIAssistant:
                     elif arg_upper in symbols:
                         symbols = [arg_upper]  # Focus on specific symbol if requested
 
-            signals_text = f"""🎯 **FUTURES SIGNALS DASHBOARD ({timeframe.upper()})**
+            signals_text = f"""🎯 **FUTURES SIGNALS** ({timeframe.upper()})
 
-📊 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
-⚡ **Timeframe**: {timeframe.upper()} charts
-🔍 **Method**: Enhanced SnD + Volume + Momentum Analysis
-📈 **Scanning**: Top 25 cryptocurrencies
+📊 **{datetime.now().strftime('%H:%M WIB')}**
+⚡ **TF**: {timeframe.upper()} | 🔍 **SnD + Volume**
+📈 **Scan**: Top 25 coins
 
 """
 
@@ -1703,13 +1709,21 @@ class AIAssistant:
                     else:
                         profit_pct = 0
 
-                    signals_text += f"""**{i}. {symbol}** {action_icon} **{direction}** | {conf_indicator} {confidence_val:.0f}% {conf_bar}
+                    signals_text += f"""**{i}. {symbol}** {action_icon} **{direction}**
+{conf_bar} **{confidence_val:.0f}%** {conf_indicator}
 
-💰 **Price**: {price_format} ({change_24h:+.1f}%) | 📈 **Vol**: {volume_format} | 🎯 **Profit**: +{profit_pct:.1f}%
+💰 **{price_format}** ({change_24h:+.1f}%)
+📈 **Vol**: {volume_format}
+🎯 **Profit**: +{profit_pct:.1f}%
 
-**📍 Setup**: Entry `${entry_price:,.6f}` → TP1 `${signal['tp1']:,.6f}` → SL `${signal['sl']:,.6f}` | R:R {signal['rr']:.1f}:1
-**⚡ Strategy**: {signal['strategy']} | **⏰ Horizon**: {signal.get('time_horizon', '4-24h')}
-**💡 Position**: {self._calculate_position_size(confidence_val)} portfolio
+📍 **Entry**: `${entry_price:,.6f}`
+🎯 **TP1**: `${signal['tp1']:,.6f}`
+🛡️ **SL**: `${signal['sl']:,.6f}`
+📊 **R:R**: {signal['rr']:.1f}:1
+
+⚡ **{signal['strategy']}**
+⏰ **{signal.get('time_horizon', '4-24h')}**
+💡 **Size**: {self._calculate_position_size(confidence_val)}
 
 """
 
@@ -1719,34 +1733,39 @@ class AIAssistant:
                 short_signals = len([s for s in top_signals if s['signals']['direction'] == "SHORT"])
                 avg_confidence = sum([s['signals']['confidence'] for s in top_signals]) / len(top_signals)
 
-                signals_text += f"""📊 **SCAN SUMMARY**: {total_scanned} coins scanned → {len(top_signals)} signals found ({len(top_signals)/total_scanned*100:.1f}% success)
-📈 **Market**: {long_signals} LONG | {short_signals} SHORT | Avg confidence {avg_confidence:.0f}% | {premium_signals} premium (85%+)
+                signals_text += f"""📊 **SUMMARY**:
+• **Scanned**: {total_scanned} coins
+• **Found**: {len(top_signals)} signals ({len(top_signals)/total_scanned*100:.1f}%)
+• **Market**: {long_signals} LONG | {short_signals} SHORT
+• **Avg**: {avg_confidence:.0f}% | Premium: {premium_signals}
 
-⚠️ **TRADING RULES**:
-• **Position sizing**: 1-3% per trade based on confidence
-• **Risk management**: Always use stop loss, scale out at TPs
-• **Timeframe**: Signals valid for {timeframe.upper()} candle periods
-• **Execution**: Volume confirmation required on entries
+⚠️ **RULES**:
+• **Size**: 1-3% per trade
+• **Risk**: Always use stop loss
+• **Valid**: {timeframe.upper()} periods
+• **Entry**: Volume confirmation required
 
 """
             else:
-                signals_text += f"""⚠️ **No High-Quality Signals Available**
+                signals_text += f"""⚠️ **NO SIGNALS**
 
-📊 **Scan Results**: {total_scanned} coins scanned, 0 signals above 65% confidence
-📈 **Market Status**: Low volatility, consolidation phase, waiting for breakouts
+📊 **Scanned**: {total_scanned} coins
+📈 **Found**: 0 signals (65%+ threshold)
+💤 **Status**: Low volatility, consolidation
 
-💡 **Next Steps**:
-• Check back in 30-60 minutes for new opportunities  
-• Use `/futures btc` or `/futures eth` for specific coin analysis
-• Monitor key support/resistance levels for breakouts
-• Consider range trading strategies in current conditions
+💡 **NEXT**:
+• Check back in 30-60 min
+• Use `/futures btc` for specific analysis
+• Monitor key levels for breakouts
+• Consider range trading
 
 """
 
-            signals_text += f"""📡 **Sources**: CoinAPI + Enhanced S&D Algorithm | 🔄 **Refresh**: Every 15-30min
-⏰ **Validity**: 4-24 hours ({timeframe.upper()}) | 🎯 **Algorithm**: Multi-factor confidence + volume validation
+            signals_text += f"""📡 **CoinAPI + S&D Algorithm**
+🔄 **Refresh**: Every 15-30min
+⏰ **Valid**: 4-24h ({timeframe.upper()})
 
-✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
+✅ **Premium aktif** - Unlimited access"""
 
             return signals_text
 
