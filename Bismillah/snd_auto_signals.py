@@ -19,11 +19,11 @@ class SnDAutoSignals:
         self.is_running = False
         self.last_scan_time = 0
 
-        # Target cryptocurrencies for auto signals (excluding problematic Binance symbols)
+        # Target symbols - optimized to 25 major cryptocurrencies for faster scanning
         self.target_symbols = [
-            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'SHIB', 'DOT',
-            'LINK', 'TRX', 'MATIC', 'LTC', 'BCH', 'NEAR', 'UNI', 'APT',
-            'ATOM', 'FIL', 'ETC', 'ALGO', 'VET', 'MANA', 'SAND'
+            'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI',
+            'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET', 'FLOW',
+            'DOGE', 'SHIB', 'PEPE', 'TRX', 'XLM'
         ]
 
         # Anti-spam system
@@ -120,7 +120,7 @@ class SnDAutoSignals:
                     'risk_reward': signal['rr_ratio'],
                     'current_price': signal.get('current_price', 0),
                     'trend': signal['trend'],
-                    'market_structure': signal['structure'] + '_bias',
+                    'market_structure': signal['market_structure'] + '_bias',
                     'risk_level': 'medium',
                     'timeframe': '1h',
                     'scan_time': datetime.now().strftime('%H:%M:%S'),
@@ -201,10 +201,13 @@ class SnDAutoSignals:
                 print("❌ No eligible users found for auto signals")
                 return
 
-            print(f"📤 Sending {len(signals)} signals to {len(eligible_users)} eligible users")
+            # Limit to top 3 signals as per user request
+            signals_to_send = signals[:3]
+
+            print(f"📤 Sending {len(signals_to_send)} signals to {len(eligible_users)} eligible users")
 
             # Format signals message with better handling
-            signals_message = self._format_signals_message(signals)
+            signals_message = self._format_signals_message(signals_to_send)
 
             success_count = 0
             for user_data in eligible_users:
@@ -243,7 +246,7 @@ class SnDAutoSignals:
 
             # Log the broadcast
             try:
-                self.db.log_auto_signals_broadcast(len(signals), success_count, len(eligible_users))
+                self.db.log_auto_signals_broadcast(len(signals_to_send), success_count, len(eligible_users))
             except:
                 pass  # Don't fail if logging fails
 
@@ -261,7 +264,7 @@ class SnDAutoSignals:
 
 """
 
-        for i, signal in enumerate(signals[:5], 1):  # Limit to top 5 signals
+        for i, signal in enumerate(signals, 1):  # Limit to top 3 signals
             direction_emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
             confidence_emoji = "🔥" if signal['confidence'] >= 85 else "⭐" if signal['confidence'] >= 75 else "💡"
 
@@ -295,40 +298,40 @@ class SnDAutoSignals:
         try:
             import os
             from app.supabase_conn import sb_list_users
-            
+
             # Get admin IDs from environment
             eligible_users = []
-            
+
             # Add admin users
             for i in range(1, 10):
                 env_key = f'ADMIN{i}'
                 admin_id_str = (os.getenv(env_key) or "").strip()
-                
+
                 # Fallback to old naming format
                 if not admin_id_str and i <= 2:
                     fallback_key = f'ADMIN{i}_USER_ID' if i > 1 else 'ADMIN_USER_ID'
                     admin_id_str = (os.getenv(fallback_key) or "").strip()
-                
+
                 if admin_id_str and admin_id_str.lower() != "none" and admin_id_str.isdigit():
                     eligible_users.append(int(admin_id_str))
-            
+
             # Get lifetime premium users from Supabase
             lifetime_users = sb_list_users({
                 "is_premium": "eq.true",
-                "banned": "eq.false", 
+                "banned": "eq.false",
                 "premium_until": "is.null",
                 "select": "telegram_id"
             })
-            
+
             # Add lifetime users
             for user in lifetime_users:
                 user_id = user.get("telegram_id")
                 if user_id and user_id not in eligible_users:
                     eligible_users.append(user_id)
-            
+
             print(f"📊 Eligible users found: {len(eligible_users)} (Admins + Lifetime from Supabase)")
             return eligible_users
-            
+
         except Exception as e:
             print(f"❌ Error getting eligible users from Supabase: {e}")
             return []
@@ -657,7 +660,7 @@ class SnDAutoSignals:
         signal['confidence'] = max(30, min(95, signal['confidence']))
 
         # Adjust entry for slightly better price if not already set
-        if is_in_support and signal['entry_price'] == current_price:
+        if is_near_support and signal['entry_price'] == current_price:
             signal['entry_price'] = current_price * 0.995
         elif is_near_resistance and signal['entry_price'] == current_price:
             signal['entry_price'] = current_price * 1.005
@@ -745,7 +748,7 @@ class SnDAutoSignals:
             if signal_data['direction'] == 'NEUTRAL':
                 return None
 
-            # Trading levels calculation matching AI assistant logic  
+            # Trading levels calculation matching AI assistant logic
             trading_levels = self.ai._calculate_advanced_trading_levels(
                 current_price, signal_data, primary_indicators, {}
             )
