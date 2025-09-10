@@ -1046,23 +1046,33 @@ class AIAssistant:
             else:
                 volume_format = f"${volume_24h/1000000:.1f}M 💤"
 
-            # Dynamic signal strength with action recommendations
+            # Enhanced visual confidence system with detailed bars
             confidence = futures_signals['confidence']
-            if confidence >= 85:
-                signal_status = "🎯 **PREMIUM SIGNAL** - EXECUTE NOW!"
+            
+            # Generate confidence bar based on percentage
+            if confidence >= 90:
                 confidence_bar = "🟢🟢🟢🟢🟢"
-                action_advice = "✅ **Action**: Strong conviction trade - Full position recommended"
-            elif confidence >= 75:
-                signal_status = "⚡ **STRONG SIGNAL** - Good Entry"
+                signal_status = "🎯 **ULTRA PREMIUM** - EXECUTE NOW!"
+                action_advice = "✅ **Action**: Maximum conviction trade - Full position"
+            elif confidence >= 80:
                 confidence_bar = "🟢🟢🟢🟢⚪"
-                action_advice = "✅ **Action**: High probability trade - 70-80% position"
-            elif confidence >= 65:
-                signal_status = "📊 **DECENT SIGNAL** - Careful Entry"
+                signal_status = "🔥 **PREMIUM SIGNAL** - Strong Entry"
+                action_advice = "✅ **Action**: High conviction trade - 80% position"
+            elif confidence >= 70:
                 confidence_bar = "🟢🟢🟢⚪⚪"
-                action_advice = "⚠️ **Action**: Medium risk trade - 50% position max"
+                signal_status = "⭐ **STRONG SIGNAL** - Good Entry"
+                action_advice = "✅ **Action**: Good probability trade - 60-70% position"
+            elif confidence >= 60:
+                confidence_bar = "🟢🟢⚪⚪⚪"
+                signal_status = "📊 **DECENT SIGNAL** - Careful Entry"
+                action_advice = "⚠️ **Action**: Medium risk trade - 40-50% position"
+            elif confidence >= 50:
+                confidence_bar = "🟢⚪⚪⚪⚪"
+                signal_status = "💡 **WEAK SIGNAL** - Very Careful"
+                action_advice = "⚠️ **Action**: Low confidence - 20-30% position max"
             else:
-                signal_status = "⏳ **WAIT SIGNAL** - Low Confidence"
-                confidence_bar = "🟡🟡⚪⚪⚪"
+                confidence_bar = "🟡🟡🟡⚪⚪"
+                signal_status = "⏳ **NO SIGNAL** - Wait"
                 action_advice = "🛑 **Action**: Wait for better setup - Paper trade only"
 
             # Direction with clear entry strategy
@@ -1091,9 +1101,11 @@ class AIAssistant:
             # Quick action summary
             quick_summary = self._generate_quick_action_summary(futures_signals, confidence, symbol)
 
-            # Mobile-optimized vertical design
+            # Mobile-optimized vertical design with enhanced confidence display
             analysis = f"""🎯 **{symbol} FUTURES** {tf_display}
-{confidence_bar} **{confidence:.0f}%**
+
+**Confidence**: {confidence_bar} **{confidence:.0f}%**
+{signal_status}
 
 💰 **{price_format}** ({change_24h:+.2f}%)
 📈 **Vol**: {volume_format}
