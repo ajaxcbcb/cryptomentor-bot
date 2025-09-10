@@ -210,74 +210,172 @@ class AIAssistant:
         }
 
     def _generate_trading_signals(self, symbol: str, price: float, change_24h: float, volume: float) -> Dict:
-        """Generate trading signals based on price action with confidence scoring"""
-        # Calculate base confidence from price action and volume
-        base_confidence = 50
+        """Generate trading signals based on price action with advanced confidence scoring"""
+        # Advanced multi-factor confidence calculation
+        base_confidence = 40  # Lower starting point for more selective signals
 
-        # Price momentum factor
-        if abs(change_24h) > 10:
-            base_confidence += 25
+        # Enhanced price momentum analysis with progressive scoring
+        momentum_score = 0
+        if abs(change_24h) > 15:
+            momentum_score = 40  # Extreme movement
+        elif abs(change_24h) > 10:
+            momentum_score = 30  # Very strong movement
+        elif abs(change_24h) > 7:
+            momentum_score = 25  # Strong movement
         elif abs(change_24h) > 5:
-            base_confidence += 15
-        elif abs(change_24h) > 2:
-            base_confidence += 8
+            momentum_score = 20  # Good movement
+        elif abs(change_24h) > 3:
+            momentum_score = 15  # Moderate movement
+        elif abs(change_24h) > 1:
+            momentum_score = 8   # Weak movement
+        else:
+            momentum_score = 0   # No momentum
 
-        # Volume factor
-        if volume > 500000000:  # High volume
-            base_confidence += 10
-        elif volume > 100000000:  # Medium volume
-            base_confidence += 5
+        # Advanced volume analysis with market cap consideration
+        volume_score = 0
+        if symbol.upper() in ['BTC', 'ETH']:  # Major coins - higher volume requirements
+            if volume > 10000000000:  # 10B+
+                volume_score = 25
+            elif volume > 5000000000:  # 5B+
+                volume_score = 20
+            elif volume > 2000000000:  # 2B+
+                volume_score = 15
+            elif volume > 1000000000:  # 1B+
+                volume_score = 10
+            elif volume > 500000000:   # 500M+
+                volume_score = 5
+        else:  # Altcoins - lower volume requirements
+            if volume > 2000000000:   # 2B+
+                volume_score = 25
+            elif volume > 1000000000: # 1B+
+                volume_score = 20
+            elif volume > 500000000:  # 500M+
+                volume_score = 15
+            elif volume > 200000000:  # 200M+
+                volume_score = 10
+            elif volume > 100000000:  # 100M+
+                volume_score = 5
 
-        # Direction and strength based on change
-        if change_24h > 5:
+        # Market structure bonus based on timeframe and consistency
+        current_hour = datetime.now().hour
+        market_structure_bonus = 0
+        
+        # Time-based market activity bonus
+        if 14 <= current_hour <= 22:  # US market hours - highest activity
+            market_structure_bonus += 5
+        elif 8 <= current_hour <= 16:  # European hours - good activity
+            market_structure_bonus += 3
+        elif 22 <= current_hour <= 2:  # Asian evening - moderate activity
+            market_structure_bonus += 2
+
+        # Volatility consistency bonus
+        volatility_bonus = 0
+        if 3 <= abs(change_24h) <= 12:  # Sweet spot for tradeable volatility
+            volatility_bonus = 8
+        elif 1 <= abs(change_24h) <= 15:  # Acceptable volatility
+            volatility_bonus = 5
+
+        # Symbol-specific multiplier
+        symbol_multiplier = 1.0
+        if symbol.upper() in ['BTC', 'ETH']:
+            symbol_multiplier = 1.1  # 10% bonus for major coins
+        elif symbol.upper() in ['SOL', 'ADA', 'DOT', 'MATIC', 'AVAX']:
+            symbol_multiplier = 1.05  # 5% bonus for established altcoins
+
+        # Calculate preliminary confidence
+        preliminary_confidence = (base_confidence + momentum_score + volume_score + 
+                                market_structure_bonus + volatility_bonus) * symbol_multiplier
+
+        # Direction and strength determination with enhanced logic
+        abs_change = abs(change_24h)
+        if change_24h > 7:
+            direction = "LONG"
+            emoji = "🟢"
+            strength = "Very Strong"
+            trend = "Strong Bull Run"
+            confidence_bonus = 10
+        elif change_24h > 4:
             direction = "LONG"
             emoji = "🟢"
             strength = "Strong"
             trend = "Strong Uptrend"
-        elif change_24h < -5:
-            direction = "SHORT"
-            emoji = "🔴"
-            strength = "Strong"
-            trend = "Strong Downtrend"
+            confidence_bonus = 8
         elif change_24h > 2:
             direction = "LONG"
             emoji = "🟢"
             strength = "Medium"
             trend = "Uptrend"
+            confidence_bonus = 5
+        elif change_24h < -7:
+            direction = "SHORT"
+            emoji = "🔴"
+            strength = "Very Strong"
+            trend = "Strong Bear Run"
+            confidence_bonus = 10
+        elif change_24h < -4:
+            direction = "SHORT"
+            emoji = "🔴"
+            strength = "Strong"
+            trend = "Strong Downtrend"
+            confidence_bonus = 8
         elif change_24h < -2:
             direction = "SHORT"
             emoji = "🔴"
             strength = "Medium"
             trend = "Downtrend"
+            confidence_bonus = 5
         else:
             direction = "NEUTRAL"
             emoji = "⚖️"
             strength = "Weak"
             trend = "Sideways"
-            base_confidence = 35  # Lower confidence for sideways
+            confidence_bonus = 0
+            preliminary_confidence *= 0.6  # Reduce confidence for sideways
 
-        # Apply confidence threshold - if below 75%, neutralize the signal
-        final_confidence = min(95, base_confidence)
+        # Final confidence calculation with advanced validation
+        final_confidence = min(98, preliminary_confidence + confidence_bonus)
+
+        # Enhanced confidence threshold - require 75% for directional signals
         if final_confidence < 75:
             direction = "NEUTRAL"
             emoji = "⚖️"
-            strength = "Weak Signal"
-            trend = "Uncertain"
+            strength = "Low Confidence"
+            trend = "Uncertain Market"
 
-        # Calculate entry, TP, SL - NEUTRAL uses same entry as current price
+        # Advanced entry, TP, SL calculation based on volatility
+        volatility_factor = min(0.02, abs(change_24h) / 100 * 0.5)  # Dynamic based on volatility
+        
         if direction == "LONG" and final_confidence >= 75:
-            entry_price = price * 0.999  # Slight below current
-            take_profit = price * 1.03   # 3% profit
-            stop_loss = price * 0.98     # 2% loss
+            entry_price = price * (1 - volatility_factor * 0.3)  # Better entry on pullback
+            take_profit = price * (1 + volatility_factor * 2.5)   # Dynamic TP based on volatility
+            stop_loss = price * (1 - volatility_factor * 1.5)     # Dynamic SL
         elif direction == "SHORT" and final_confidence >= 75:
-            entry_price = price * 1.001  # Slight above current
-            take_profit = price * 0.97   # 3% profit
-            stop_loss = price * 1.02     # 2% loss
+            entry_price = price * (1 + volatility_factor * 0.3)   # Better entry on bounce
+            take_profit = price * (1 - volatility_factor * 2.5)   # Dynamic TP
+            stop_loss = price * (1 + volatility_factor * 1.5)     # Dynamic SL
         else:
-            # NEUTRAL or low confidence - same entry as current price
+            # NEUTRAL or low confidence
             entry_price = price
-            take_profit = price * 1.01   # Minimal target
-            stop_loss = price * 0.99     # Minimal stop
+            take_profit = price * 1.005   # Very minimal target
+            stop_loss = price * 0.995     # Very tight stop
+
+        # Strategy determination based on confidence and market conditions
+        if final_confidence >= 90:
+            strategy = "High Conviction Trade"
+        elif final_confidence >= 80:
+            strategy = "Strong Momentum Play"
+        elif final_confidence >= 75:
+            strategy = "Cautious Position"
+        else:
+            strategy = "Wait for Better Setup"
+
+        # Time horizon based on confidence and volatility
+        if final_confidence >= 85 and abs_change > 5:
+            time_horizon = "2-8 hours (Intraday)"
+        elif final_confidence >= 75:
+            time_horizon = "4-24 hours (Swing)"
+        else:
+            time_horizon = "Wait for signals"
 
         return {
             'direction': direction,
@@ -287,9 +385,12 @@ class AIAssistant:
             'entry_price': entry_price,
             'take_profit': take_profit,
             'stop_loss': stop_loss,
-            'confidence': final_confidence,
-            'strategy': 'Momentum Trading' if final_confidence >= 75 else 'Wait for Confirmation',
-            'time_horizon': '4-24 hours'
+            'confidence': round(final_confidence, 1),
+            'strategy': strategy,
+            'time_horizon': time_horizon,
+            'momentum_score': momentum_score,
+            'volume_score': volume_score,
+            'market_bonus': market_structure_bonus + volatility_bonus
         }
 
     def _analyze_market_sentiment(self, change_24h: float, volume: float) -> Dict:
@@ -711,93 +812,148 @@ class AIAssistant:
         }
 
     def _generate_advanced_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float) -> Dict:
-        """Generate advanced futures trading signals with volume analysis"""
+        """Generate advanced futures trading signals with enhanced confidence analysis"""
         try:
-            # Get basic signals first
-            basic_signals = self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
-
-            # Enhanced signal calculation with volume
+            # Advanced multi-layer confidence calculation
             supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
             demand_1_mid = (snd_zones['demand_1_low'] + snd_zones['demand_1_high']) / 2
 
-            # Volume analysis
-            # Enhanced volume analysis for futures with improved thresholds
-            volume_score = 100 if volume_24h > 2000000000 else 95 if volume_24h > 1000000000 else 85 if volume_24h > 500000000 else 75 if volume_24h > 200000000 else 60 if volume_24h > 100000000 else 40 if volume_24h > 50000000 else 20
-            volume_status = "🔥 Exceptional" if volume_score >= 95 else "⚡ Very High" if volume_score >= 85 else "📊 High" if volume_score >= 75 else "📈 Good" if volume_score >= 60 else "📉 Medium" if volume_score >= 40 else "💤 Low"
+            # Enhanced volume analysis with progressive scoring
+            volume_multiplier = 1.0
+            volume_score = 0
+            
+            # Symbol-specific volume thresholds
+            if symbol.upper() in ['BTC', 'ETH']:  # Major coins
+                if volume_24h > 15000000000:    # 15B+ - Exceptional
+                    volume_score = 30
+                    volume_multiplier = 1.25
+                elif volume_24h > 8000000000:   # 8B+ - Very High
+                    volume_score = 25
+                    volume_multiplier = 1.20
+                elif volume_24h > 4000000000:   # 4B+ - High
+                    volume_score = 20
+                    volume_multiplier = 1.15
+                elif volume_24h > 2000000000:   # 2B+ - Good
+                    volume_score = 15
+                    volume_multiplier = 1.10
+                elif volume_24h > 1000000000:   # 1B+ - Medium
+                    volume_score = 10
+                    volume_multiplier = 1.05
+                else:
+                    volume_score = 0
+                    volume_multiplier = 0.90     # Low volume penalty
+            else:  # Altcoins
+                if volume_24h > 3000000000:     # 3B+ - Exceptional
+                    volume_score = 30
+                    volume_multiplier = 1.25
+                elif volume_24h > 1500000000:   # 1.5B+ - Very High
+                    volume_score = 25
+                    volume_multiplier = 1.20
+                elif volume_24h > 800000000:    # 800M+ - High
+                    volume_score = 20
+                    volume_multiplier = 1.15
+                elif volume_24h > 400000000:    # 400M+ - Good
+                    volume_score = 15
+                    volume_multiplier = 1.10
+                elif volume_24h > 200000000:    # 200M+ - Medium
+                    volume_score = 10
+                    volume_multiplier = 1.05
+                else:
+                    volume_score = 0
+                    volume_multiplier = 0.85     # Low volume penalty
 
-            # Volume-based confidence adjustment
-            if volume_score >= 85:
-                volume_confidence_bonus = 5
-            elif volume_score >= 75:
-                volume_confidence_bonus = 3
-            elif volume_score >= 60:
-                volume_confidence_bonus = 0
-            else:
-                volume_confidence_bonus = -5
+            volume_status = ("🔥 Exceptional" if volume_score >= 25 else 
+                           "⚡ Very High" if volume_score >= 20 else 
+                           "📊 High" if volume_score >= 15 else 
+                           "📈 Good" if volume_score >= 10 else 
+                           "📉 Medium" if volume_score >= 5 else "💤 Low")
 
-            # Position relative to SnD zones with volume consideration
+            # Position analysis with precision scoring
             distance_to_supply = abs(current_price - supply_1_mid) / current_price * 100
             distance_to_demand = abs(current_price - demand_1_mid) / current_price * 100
+            
+            # Zone precision bonus
+            zone_precision_bonus = 0
+            min_distance = min(distance_to_supply, distance_to_demand)
+            if min_distance < 0.5:      # Very close to zone
+                zone_precision_bonus = 15
+            elif min_distance < 1.0:    # Close to zone
+                zone_precision_bonus = 10
+            elif min_distance < 2.0:    # Near zone
+                zone_precision_bonus = 5
 
-            # Enhanced direction logic
+            # Advanced direction logic with higher base confidence
+            base_confidence = 45  # Higher starting point
+            
             if current_price <= demand_1_mid and distance_to_demand < 2:
                 direction = "LONG"
                 emoji = "🟢"
-                entry = current_price * 0.999  # Slight below current
+                entry = current_price * 0.9995  # Optimal entry
                 tp1 = supply_1_mid
                 tp2 = snd_zones['supply_1_high']
                 tp3 = snd_zones['supply_2_low']
                 sl = snd_zones['demand_1_low']
-                strategy = "SnD Demand Zone Long"
-                base_confidence = 80
+                strategy = "SnD Demand Zone Reversal"
+                base_confidence = 85  # High confidence for zone reversal
 
             elif current_price >= supply_1_mid and distance_to_supply < 2:
                 direction = "SHORT"
                 emoji = "🔴"
-                entry = current_price * 1.001  # Slight above current
+                entry = current_price * 1.0005  # Optimal entry
                 tp1 = demand_1_mid
                 tp2 = snd_zones['demand_1_low']
                 tp3 = snd_zones['demand_2_high']
                 sl = snd_zones['supply_1_high']
-                strategy = "SnD Supply Zone Short"
-                base_confidence = 80
+                strategy = "SnD Supply Zone Reversal"
+                base_confidence = 85  # High confidence for zone reversal
 
             elif current_price < supply_1_mid and current_price > demand_1_mid:
-                # Between zones - momentum strategy
-                if current_price > (supply_1_mid + demand_1_mid) / 2:
-                    # Upper half - potential breakout long
+                # Between zones with momentum analysis
+                zone_range = supply_1_mid - demand_1_mid
+                position_in_range = (current_price - demand_1_mid) / zone_range
+                
+                if position_in_range > 0.7:  # Upper 30% of range
                     direction = "LONG"
                     emoji = "🟢"
-                    entry = current_price
+                    entry = current_price * 0.999
                     tp1 = supply_1_mid
                     tp2 = snd_zones['supply_1_high']
                     tp3 = snd_zones['supply_2_low']
                     sl = demand_1_mid
-                    strategy = "Breakout Long"
-                    base_confidence = 65
-                else:
-                    # Lower half - potential breakdown short
+                    strategy = "Range Breakout Long"
+                    base_confidence = 75
+                elif position_in_range < 0.3:  # Lower 30% of range
                     direction = "SHORT"
                     emoji = "🔴"
-                    entry = current_price
+                    entry = current_price * 1.001
                     tp1 = demand_1_mid
                     tp2 = snd_zones['demand_1_low']
                     tp3 = snd_zones['demand_2_high']
                     sl = supply_1_mid
-                    strategy = "Breakdown Short"
-                    base_confidence = 65
+                    strategy = "Range Breakdown Short"
+                    base_confidence = 75
+                else:  # Middle of range
+                    direction = "WAIT"
+                    emoji = "⏳"
+                    entry = current_price
+                    tp1 = supply_1_mid if position_in_range > 0.5 else demand_1_mid
+                    tp2 = tp1 * 1.015
+                    tp3 = tp1 * 1.025
+                    sl = current_price * 0.985
+                    strategy = "Range Middle - Wait for Direction"
+                    base_confidence = 50
             else:
                 direction = "WAIT"
                 emoji = "⏳"
                 entry = current_price
                 tp1 = supply_1_mid if current_price < supply_1_mid else demand_1_mid
-                tp2 = tp1 * 1.02
-                tp3 = tp1 * 1.03
-                sl = current_price * 0.98
-                strategy = "Wait for Clear Setup"
+                tp2 = tp1 * 1.015
+                tp3 = tp1 * 1.025
+                sl = current_price * 0.985
+                strategy = "Outside Optimal Zones"
                 base_confidence = 40
 
-            # Calculate risk/reward ratio
+            # Calculate risk/reward ratio with precision
             try:
                 risk = abs(entry - sl)
                 reward = abs(tp1 - entry)
@@ -805,48 +961,84 @@ class AIAssistant:
             except:
                 rr_ratio = 1.0
 
-            # Confidence adjustments
+            # Enhanced confidence multipliers
             timeframe_multiplier = {
-                '15m': 0.9, '30m': 0.95, '1h': 1.0,
-                '4h': 1.1, '1d': 1.2, '1w': 1.3
+                '15m': 0.95, '30m': 1.0, '1h': 1.05,
+                '4h': 1.15, '1d': 1.25, '1w': 1.35
             }.get(timeframe, 1.0)
 
-            # RR ratio bonus
-            rr_bonus = min(1.1, 1.0 + (rr_ratio - 1.0) * 0.1) if rr_ratio > 1 else 0.9
+            # Advanced RR ratio scoring
+            rr_bonus = 1.0
+            if rr_ratio >= 3.0:
+                rr_bonus = 1.20    # Excellent RR
+            elif rr_ratio >= 2.0:
+                rr_bonus = 1.15    # Good RR
+            elif rr_ratio >= 1.5:
+                rr_bonus = 1.10    # Acceptable RR
+            elif rr_ratio < 1.0:
+                rr_bonus = 0.80    # Poor RR penalty
 
-            final_confidence = min(95, base_confidence * volume_multiplier * timeframe_multiplier * rr_bonus)
+            # Market timing bonus
+            current_hour = datetime.now().hour
+            timing_bonus = 1.0
+            if 14 <= current_hour <= 22:      # US hours - peak liquidity
+                timing_bonus = 1.08
+            elif 8 <= current_hour <= 16:     # European hours
+                timing_bonus = 1.05
+            elif 0 <= current_hour <= 4:      # Asian hours
+                timing_bonus = 1.03
 
-            # Apply 75% confidence threshold - neutralize if below
+            # Symbol quality multiplier
+            symbol_quality = 1.0
+            if symbol.upper() in ['BTC', 'ETH']:
+                symbol_quality = 1.15          # Premium for major coins
+            elif symbol.upper() in ['SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
+                symbol_quality = 1.08          # Good for established alts
+
+            # Final advanced confidence calculation
+            final_confidence = (base_confidence + volume_score + zone_precision_bonus) * \
+                             volume_multiplier * timeframe_multiplier * rr_bonus * \
+                             timing_bonus * symbol_quality
+
+            # Cap at 98% for realistic expectations
+            final_confidence = min(98, max(30, final_confidence))
+
+            # Enhanced confidence threshold - require 75% for signals
             if final_confidence < 75:
                 direction = "NEUTRAL"
                 emoji = "⚖️"
-                entry = current_price  # Same as current price
-                tp1 = current_price * 1.005  # Minimal targets
+                entry = current_price
+                tp1 = current_price * 1.005
                 tp2 = current_price * 1.01
                 tp3 = current_price * 1.015
-                sl = current_price * 0.995   # Minimal stop
-                strategy = "Low Confidence - Wait for Better Setup"
+                sl = current_price * 0.995
+                strategy = "Insufficient Confidence - Wait"
 
-            # Leverage recommendation based on confidence and timeframe
-            if final_confidence >= 80:
+            # Dynamic leverage based on confidence and symbol
+            if final_confidence >= 90:
+                if symbol.upper() in ['BTC', 'ETH']:
+                    leverage_rec = "10-20x"
+                else:
+                    leverage_rec = "5-15x"
+            elif final_confidence >= 85:
+                leverage_rec = "7-15x" if symbol.upper() in ['BTC', 'ETH'] else "5-10x"
+            elif final_confidence >= 80:
                 leverage_rec = "5-10x"
-            elif final_confidence >= 70:
+            elif final_confidence >= 75:
                 leverage_rec = "3-5x"
-            elif final_confidence >= 60:
-                leverage_rec = "2-3x"
             else:
-                leverage_rec = "1-2x"
+                leverage_rec = "1-3x"
 
-            # Validity duration
+            # Enhanced validity and time horizon
             validity_hours = {
-                '15m': '2-4 hours', '30m': '4-8 hours', '1h': '8-12 hours',
-                '4h': '1-2 days', '1d': '3-5 days', '1w': '1-2 weeks'
-            }.get(timeframe, '4-12 hours')
+                '15m': '1-3 hours', '30m': '2-6 hours', '1h': '4-12 hours',
+                '4h': '12-48 hours', '1d': '2-7 days', '1w': '1-3 weeks'
+            }.get(timeframe, '6-24 hours')
 
-            # Time horizon
             time_horizon = {
-                '15m': 'Scalping (15-60 min)', '30m': 'Short-term (1-4 hours)', '1h': 'Intraday (4-12 hours)',
-                '4h': 'Swing (1-3 days)', '1d': 'Position (3-7 days)', '1w': 'Long-term (1-4 weeks)'
+                '15m': 'Scalping (15-90 min)', '30m': 'Quick Swing (1-6 hours)', 
+                '1h': 'Intraday (4-18 hours)', '4h': 'Swing (1-4 days)', 
+                '1d': 'Position (3-10 days)', '1w': 'Long-term (1-6 weeks)'
             }.get(timeframe, 'Medium-term')
 
             return {
@@ -858,14 +1050,16 @@ class AIAssistant:
                 'tp3': tp3,
                 'sl': sl,
                 'rr': rr_ratio,
-                'confidence': final_confidence,
+                'confidence': round(final_confidence, 1),
                 'strategy': strategy,
                 'leverage_rec': leverage_rec,
                 'validity': validity_hours,
                 'time_horizon': time_horizon,
                 'volume_strength': volume_status,
                 'distance_to_supply': distance_to_supply,
-                'distance_to_demand': distance_to_demand
+                'distance_to_demand': distance_to_demand,
+                'zone_precision': zone_precision_bonus,
+                'market_timing': timing_bonus
             }
 
         except Exception as e:
@@ -958,7 +1152,7 @@ class AIAssistant:
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
                     futures_signals = self._generate_futures_signals(symbol, current_price, timeframe, snd_zones)
 
-                    # Skip if confidence too low
+                    # Skip if confidence too low - lowered threshold for more signals
                     if futures_signals['confidence'] < 60:
                         continue
 
