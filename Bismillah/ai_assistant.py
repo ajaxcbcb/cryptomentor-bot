@@ -286,6 +286,9 @@ class AIAssistant:
         preliminary_confidence = (base_confidence + momentum_score + volume_score +
                                 market_structure_bonus + volatility_bonus) * symbol_multiplier
 
+        # Cap at 100% for realistic expectations
+        final_confidence = min(100, max(30, preliminary_confidence))
+
         # Direction and strength determination with enhanced logic
         abs_change = abs(change_24h)
         if change_24h > 7:
@@ -333,7 +336,7 @@ class AIAssistant:
             preliminary_confidence *= 0.6  # Reduce confidence for sideways
 
         # Final confidence calculation with advanced validation
-        final_confidence = min(98, preliminary_confidence + confidence_bonus)
+        final_confidence = min(100, preliminary_confidence + confidence_bonus)
 
         # Enhanced confidence threshold - require 75% for directional signals
         if final_confidence < 75:
@@ -828,12 +831,6 @@ class AIAssistant:
 • Selection updates every 24 hours at 00:00 UTC
 • Real-time price tracking via CoinAPI
 • Strategy adjustments based on market conditions
-
-🎯 **PORTFOLIO ALLOCATION GUIDE:**
-• 50-60% in Pick #1 (Usually BTC/ETH - Blue chip)
-• 25-30% in Pick #2 (Established altcoin)
-• 15-20% in Pick #3 (Growth opportunity)
-• Keep 10-15% cash for dip buying
 
 ⚡ **QUICK PICKS STRATEGY:**
 • Focus on top 3 highest-scoring coins only
@@ -1359,12 +1356,12 @@ class AIAssistant:
                 symbol_quality = 1.08          # Good for established alts
 
             # Final advanced confidence calculation
-            final_confidence = (base_confidence + volume_score + zone_precision_bonus) * \
+            raw_confidence = (base_confidence + volume_score + zone_precision_bonus) * \
                              volume_multiplier * timeframe_multiplier * rr_bonus * \
                              timing_bonus * symbol_quality
 
-            # Cap at 98% for realistic expectations
-            final_confidence = min(98, max(30, final_confidence))
+            # Cap at 100% maximum for realistic expectations
+            final_confidence = min(100, max(30, raw_confidence))
 
             # Enhanced confidence threshold - require 75% for signals
             if final_confidence < 75:
