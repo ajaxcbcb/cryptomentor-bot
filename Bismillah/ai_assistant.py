@@ -1074,8 +1074,8 @@ class AIAssistant:
                 direction_display = "📉 **SHORT** (SELL/JUAL)"
                 strategy_tip = "📉 **Tip**: Sell on bounces, target support levels"
             else:
-                direction_display = "⏳ **WAIT** (TUNGGU)"
-                strategy_tip = "⏳ **Tip**: Monitor key levels for breakout confirmation"
+                direction_display = "⚠️ **NO SIGNAL** (JANGAN TRADE)"
+                strategy_tip = "⚠️ **Tip**: Confidence too low - Wait for better setup"
 
             # Risk/Reward visualization
             rr_ratio = futures_signals['rr']
@@ -1416,16 +1416,17 @@ class AIAssistant:
             # Cap at 100% maximum for realistic expectations
             final_confidence = min(100, max(30, raw_confidence))
 
-            # Enhanced confidence threshold - require 65% for signals (lowered for more opportunities)
+            # Enhanced confidence threshold - require 65% for directional signals
             if final_confidence < 65:
                 direction = "NEUTRAL"
                 emoji = "⚖️"
+                # Neutralize all prices to prevent user entry
                 entry = current_price
-                tp1 = current_price * 1.005   # Minimal upside for neutral
-                tp2 = current_price * 1.01
-                tp3 = current_price * 1.015
-                sl = current_price * 0.995
-                strategy = "Insufficient Confidence - Wait"
+                tp1 = current_price      # Same as entry to prevent execution
+                tp2 = current_price      # Same as entry to prevent execution
+                tp3 = current_price      # Same as entry to prevent execution
+                sl = current_price       # Same as entry to prevent execution
+                strategy = "Low Confidence - No Trade Recommended"
 
             # Dynamic leverage based on confidence and symbol
             if final_confidence >= 90:
@@ -1533,9 +1534,10 @@ class AIAssistant:
         tp1 = futures_signals.get('tp1', 0)
 
         if confidence < 65:
-            return """🛑 **WAIT**: Low confidence signal
-📚 **Advice**: Study charts, wait for better setup
-⏰ **Action**: Set alerts at key levels"""
+            return """🛑 **NO TRADE**: Confidence too low
+📚 **Advice**: Wait for stronger signal (65%+)
+⏰ **Action**: Monitor for better conditions
+❌ **Warning**: All levels neutralized to prevent entry"""
 
         if direction == "LONG":
             return f"""🚀 **BUY PLAN**:
@@ -1620,8 +1622,8 @@ class AIAssistant:
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
                     futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
 
-                    # Lower threshold to 65% for more signals, but prioritize by confidence
-                    if futures_signals['confidence'] >= 65:
+                    # Only include signals with confidence >= 65% AND directional (LONG/SHORT)
+                    if futures_signals['confidence'] >= 65 and futures_signals['direction'] in ['LONG', 'SHORT']:
                         signals_found.append({
                             'symbol': symbol,
                             'signals': futures_signals,
@@ -1687,7 +1689,7 @@ class AIAssistant:
                         conf_indicator = "💡 DECENT"
                         conf_bar = "🟢⚪⚪⚪⚪"
 
-                    # Direction with clear action
+                    # Direction with clear action - only show LONG/SHORT for valid signals
                     direction = signal['direction']
                     if direction == "LONG":
                         action_icon = "🚀"
@@ -1696,8 +1698,8 @@ class AIAssistant:
                         action_icon = "📉"
                         direction_emoji = "📉"
                     else:
-                        action_icon = "⏳"
-                        direction_emoji = "⚖️"
+                        # Skip neutral signals in the list - they shouldn't appear here
+                        continue
 
                     # Calculate potential profit %
                     entry_price = signal['entry']
