@@ -680,8 +680,8 @@ class AIAssistant:
             else:  # Neutral market
                 recommendations += """
 
-⚖️ **TOP 5 COIN FOR HOLD & TRADES (RESET EVERY 24H):**"""
-                # Advanced coin selection algorithm - scan top performers
+⚖️ **TOP 50 COINS FOR HOLD & TRADES (RESET EVERY 24H):**"""
+                # Advanced coin selection algorithm - scan top 50 performers including memecoins
                 # Score coins based on multiple factors: volume, stability, momentum, fundamentals
                 coin_scores = []
                 
@@ -750,7 +750,10 @@ class AIAssistant:
                 # Sort by score and get top 5
                 top_5_coins = sorted(coin_scores, key=lambda x: x['score'], reverse=True)[:5]
                 
-                for i, item in enumerate(top_5_coins, 1):
+                # Expand to top 50 coins instead of just 5
+                top_50_coins = sorted(coin_scores, key=lambda x: x['score'], reverse=True)[:50]
+                
+                for i, item in enumerate(top_50_coins, 1):
                     coin = item['coin']
                     score = item['score']
                     symbol = coin['symbol']
@@ -818,16 +821,16 @@ class AIAssistant:
                     
                     recommendations += f"""
 • **{i}. {symbol}** {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
-  ├─ Score: {score:.0f}/100 - {grade_desc}
-  ├─ Strategy: {strategy}
-  └─ Horizon: {time_horizon}"""
+  Score: {score:.0f}/100 - {grade_desc}
+  Strategy: {strategy}
+  Horizon: {time_horizon}"""
 
             # Add enhanced insights
             recommendations += f"""
 
 📊 **MARKET INSIGHTS:**
-• Analysis based on Top {len(market_data)} cryptocurrencies
-• Selection criteria: Volume + Stability + Momentum + Fundamentals
+• Analysis based on Top {len(market_data)} cryptocurrencies including memecoins
+• Selection criteria: Volume + Stability + Momentum + Fundamentals + Memecoin potential
 • BTC Dominance: {btc_dominance:.1f}% - {"Focus on BTC/ETH" if btc_dominance > 55 else "Altcoin opportunities" if btc_dominance < 45 else "Balanced approach"}
 
 ⏰ **RESET SCHEDULE:**
@@ -836,10 +839,17 @@ class AIAssistant:
 • Strategy adjustments based on market conditions
 
 🎯 **PORTFOLIO ALLOCATION GUIDE:**
-• 40-50% in Top 2 picks (usually BTC/ETH)
-• 30-35% in picks 3-4 (established alts)
-• 15-20% in pick 5 (opportunity play)
-• Keep 10-15% cash for dip buying"""
+• 30-40% in Top 5 picks (Blue chips: BTC/ETH/SOL)
+• 25-30% in picks 6-15 (Established altcoins)
+• 15-20% in picks 16-35 (Growth opportunities)
+• 10-15% in picks 36-50 (High risk/reward including memecoins)
+• Keep 10-15% cash for dip buying
+
+🚨 **MEMECOIN WARNING:**
+• Memecoins (DOGE, SHIB, PEPE, etc.) are high-risk investments
+• Only allocate small portions (1-3% max per memecoin)
+• Extreme volatility - can gain/lose 50%+ in hours
+• Monitor social sentiment and news closely"""
 
             return recommendations
             
@@ -1589,8 +1599,14 @@ class AIAssistant:
     def get_market_sentiment(self, language: str = 'id', crypto_api=None) -> str:
         """Get comprehensive market overview and sentiment analysis in the requested format"""
         try:
-            # Get data for major cryptocurrencies
-            major_cryptos = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
+            # Get data for top 50 cryptocurrencies including memecoins
+            major_cryptos = [
+                'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI',
+                'LINK', 'LTC', 'BCH', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET',
+                'FLOW', 'SAND', 'MANA', 'CHZ', 'ENJ', 'BAT', 'ZIL', 'HOT', 'ONT', 'ICX',
+                'DOGE', 'SHIB', 'PEPE', 'FLOKI', 'BONK', 'WIF', 'MEME', 'BABYDOGE', 'ELON', 'SAFEMOON',
+                'XLM', 'TRX', 'EOS', 'THETA', 'FIL', 'HBAR', 'XTZ', 'EGLD', 'KLAY', 'RUNE'
+            ]
             market_data = []
             
             total_volume = 0
