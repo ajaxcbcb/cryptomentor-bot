@@ -1091,77 +1091,33 @@ class AIAssistant:
             # Quick action summary
             quick_summary = self._generate_quick_action_summary(futures_signals, confidence, symbol)
 
-            analysis = f"""🎯 **FUTURES SIGNAL - {symbol}**
-{tf_display}
+            # Simple but elegant design
+            analysis = f"""🎯 **{symbol} FUTURES SIGNAL** | {tf_display} | {confidence:.0f}% {confidence_bar}
 
-{signal_status}
-**Confidence**: {confidence:.0f}% {confidence_bar}
+💰 **Price**: {price_format} ({change_24h:+.2f}%) | 📈 **Volume**: {volume_format}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **MARKET SNAPSHOT**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 **Price**: {price_format} ({change_24h:+.2f}%)
-📈 **Volume**: {volume_format}
-🕐 **Time**: {datetime.now().strftime('%H:%M WIB')}
+**🎯 SIGNAL**: {direction_display}
+**📍 Entry**: `${futures_signals['entry']:,.6f}`
+**🎯 TP1**: `${futures_signals['tp1']:,.6f}` | **TP2**: `${futures_signals['tp2']:,.6f}` | **TP3**: `${futures_signals['tp3']:,.6f}`
+**🛡️ Stop**: `${futures_signals['sl']:,.6f}` | **📊 R:R**: {rr_status}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **TRADING SETUP**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-**Direction**: {direction_display}
-**Entry Price**: `${futures_signals['entry']:,.6f}`
-
-**🎯 Take Profits:**
-• **TP1** (50%): `${futures_signals['tp1']:,.6f}` 
-• **TP2** (30%): `${futures_signals['tp2']:,.6f}`
-• **TP3** (20%): `${futures_signals['tp3']:,.6f}`
-
-**🛡️ Stop Loss**: `${futures_signals['sl']:,.6f}`
-**📊 Risk/Reward**: {rr_status}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 **QUICK ACTION GUIDE**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**💡 QUICK ACTION:**
 {quick_summary}
 
-{action_advice}
-{strategy_tip}
+**⚡ STRATEGY**: {action_advice}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🗺️ **KEY LEVELS (S&D ZONES)**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔴 **Resistance 1**: `${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}`
-🔴 **Resistance 2**: `${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}`
-🟢 **Support 1**: `${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}`
-🟢 **Support 2**: `${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}`
+**🗺️ KEY LEVELS:**
+🔴 **Resistance**: `${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}`
+🟢 **Support**: `${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}`
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ **EXECUTION PLAN**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-**1. Entry Strategy:**
-• Wait for price near entry level
-• Confirm with volume spike (20%+ above average)
-• Use limit orders for better fills
+**⚙️ EXECUTION:**
+• **Position**: {self._calculate_position_size(confidence)} portfolio | **Leverage**: {futures_signals.get('leverage_rec', '3-5x')} max
+• **Validity**: {futures_signals['validity']} | **Update**: Every {timeframe}
 
-**2. Risk Management:**
-• Position Size: **{self._calculate_position_size(confidence)}** of portfolio
-• Leverage: **{futures_signals.get('leverage_rec', '3-5x')}** max
-• Stop Loss: **MANDATORY** - No exceptions!
+⚠️ **Risk Warning**: Use stop loss! Only trade with risk capital.
+💡 **Details**: `/analyze {symbol}` for comprehensive analysis
 
-**3. Exit Strategy:**
-• Take 50% profit at TP1 → Move SL to breakeven
-• Take 30% profit at TP2 → Trail stop loss
-• Let 20% run to TP3 → Trail aggressively
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ **IMPORTANT NOTES**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• **Validity**: Next **{futures_signals['validity']}**
-• **Update**: Every {timeframe} candle close
-• **Source**: CoinAPI + S&D Algorithm v2.0
-
-🚨 **Risk Warning**: Futures trading is high-risk. Only trade with money you can afford to lose!
-
-💡 **Need Help?** Use `/analyze {symbol}` for detailed analysis"""
+🕐 **{datetime.now().strftime('%H:%M WIB')}** | 📡 **CoinAPI + S&D v2.0**"""
 
             return analysis
 
@@ -1681,9 +1637,7 @@ class AIAssistant:
             top_signals = signals_found[:5]
 
             if top_signals:
-                signals_text += f"""🚨 **HIGH-CONFIDENCE SIGNALS DETECTED** ({len(top_signals)}/25 coins)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                signals_text += f"""🚨 **{len(top_signals)} HIGH-CONFIDENCE SIGNALS FOUND**
 
 """
                 for i, signal_data in enumerate(top_signals, 1):
@@ -1703,16 +1657,16 @@ class AIAssistant:
 
                     # Volume formatting
                     if volume_24h > 1000000000:
-                        volume_format = f"${volume_24h/1000000000:.1f}B 🔥"
+                        volume_format = f"${volume_24h/1000000000:.1f}B"
                     elif volume_24h > 500000000:
-                        volume_format = f"${volume_24h/1000000:.0f}M ⚡"
+                        volume_format = f"${volume_24h/1000000:.0f}M"
                     else:
-                        volume_format = f"${volume_24h/1000000:.0f}M 📊"
+                        volume_format = f"${volume_24h/1000000:.0f}M"
 
                     # Enhanced confidence visual indicator with bars
                     confidence_val = signal['confidence']
                     if confidence_val >= 90:
-                        conf_indicator = "🏆 ULTRA PREMIUM"
+                        conf_indicator = "🏆 ULTRA"
                         conf_bar = "🟢🟢🟢🟢🟢"
                     elif confidence_val >= 85:
                         conf_indicator = "🔥 PREMIUM"
@@ -1730,13 +1684,13 @@ class AIAssistant:
                     # Direction with clear action
                     direction = signal['direction']
                     if direction == "LONG":
-                        action_text = "🚀 **BUY SIGNAL**"
+                        action_icon = "🚀"
                         direction_emoji = "📈"
                     elif direction == "SHORT":
-                        action_text = "📉 **SELL SIGNAL**"
+                        action_icon = "📉"
                         direction_emoji = "📉"
                     else:
-                        action_text = "⏳ **WAIT SIGNAL**"
+                        action_icon = "⏳"
                         direction_emoji = "⚖️"
 
                     # Calculate potential profit %
@@ -1749,100 +1703,50 @@ class AIAssistant:
                     else:
                         profit_pct = 0
 
-                    signals_text += f"""🎯 **{i}. {symbol}** {action_text}
+                    signals_text += f"""**{i}. {symbol}** {action_icon} **{direction}** | {conf_indicator} {confidence_val:.0f}% {conf_bar}
 
-{conf_indicator} • **{confidence_val:.1f}%** {conf_bar}
+💰 **Price**: {price_format} ({change_24h:+.1f}%) | 📈 **Vol**: {volume_format} | 🎯 **Profit**: +{profit_pct:.1f}%
 
-📊 **MARKET DATA:**
-• **Current Price**: {price_format} ({change_24h:+.1f}%) {direction_emoji}
-• **24h Volume**: {volume_format}
-• **Potential Profit**: +{profit_pct:.1f}% to TP1
-
-🎯 **TRADING SETUP:**
-• **Direction**: {direction} {signal['emoji']}
-• **Entry**: `${entry_price:,.6f}`
-• **Take Profits**:
-  └─ **TP1** (50%): `${signal['tp1']:,.6f}` 
-  └─ **TP2** (30%): `${signal['tp2']:,.6f}`
-  └─ **TP3** (20%): `${signal['tp3']:,.6f}`
-• **Stop Loss**: `${signal['sl']:,.6f}`
-• **Risk/Reward**: {signal['rr']:.1f}:1
-
-⚡ **EXECUTION:**
-• **Strategy**: {signal['strategy']}
-• **Time Horizon**: {signal.get('time_horizon', '4-24 hours')}
-• **Position Size**: {self._calculate_position_size(confidence_val)} of portfolio
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**📍 Setup**: Entry `${entry_price:,.6f}` → TP1 `${signal['tp1']:,.6f}` → SL `${signal['sl']:,.6f}` | R:R {signal['rr']:.1f}:1
+**⚡ Strategy**: {signal['strategy']} | **⏰ Horizon**: {signal.get('time_horizon', '4-24h')}
+**💡 Position**: {self._calculate_position_size(confidence_val)} portfolio
 
 """
 
                 # Calculate signal metrics
                 premium_signals = len([s for s in top_signals if s['signals']['confidence'] >= 85])
-                strong_signals = len([s for s in top_signals if s['signals']['confidence'] >= 75])
                 long_signals = len([s for s in top_signals if s['signals']['direction'] == "LONG"])
                 short_signals = len([s for s in top_signals if s['signals']['direction'] == "SHORT"])
                 avg_confidence = sum([s['signals']['confidence'] for s in top_signals]) / len(top_signals)
 
-                signals_text += f"""📋 **COMPREHENSIVE SCAN SUMMARY**
+                signals_text += f"""📊 **SCAN SUMMARY**: {total_scanned} coins scanned → {len(top_signals)} signals found ({len(top_signals)/total_scanned*100:.1f}% success)
+📈 **Market**: {long_signals} LONG | {short_signals} SHORT | Avg confidence {avg_confidence:.0f}% | {premium_signals} premium (85%+)
 
-🔍 **SCAN METRICS:**
-• **Total Scanned**: {total_scanned} cryptocurrencies
-• **Signals Found**: {len(top_signals)} high-confidence setups
-• **Success Rate**: {len(top_signals)/total_scanned*100:.1f}%
-• **Average Confidence**: {avg_confidence:.1f}%
-
-📊 **SIGNAL BREAKDOWN:**
-• 🏆 **Premium** (85%+): {premium_signals} signals
-• ⭐ **Strong** (75%+): {strong_signals} signals  
-• 🚀 **Long Signals**: {long_signals}
-• 📉 **Short Signals**: {short_signals}
-• ⚖️ **Wait Signals**: {len(top_signals) - long_signals - short_signals}
-
-⚠️ **ENHANCED TRADING RULES:**
-🎯 **Position Sizing by Confidence:**
-• **90%+ (Ultra Premium)**: Up to 3% position
-• **85%+ (Premium)**: Up to 2.5% position  
-• **75%+ (Strong)**: Up to 2% position
-• **65%+ (Good)**: Up to 1.5% position
-
-📈 **Execution Strategy:**
-• Always scale out at multiple TPs (50%/30%/20%)
-• Move SL to breakeven after TP1 hits
-• Higher timeframes = larger position sizes
-• Watch volume confirmation on entries
+⚠️ **TRADING RULES**:
+• **Position sizing**: 1-3% per trade based on confidence
+• **Risk management**: Always use stop loss, scale out at TPs
+• **Timeframe**: Signals valid for {timeframe.upper()} candle periods
+• **Execution**: Volume confirmation required on entries
 
 """
             else:
                 signals_text += f"""⚠️ **No High-Quality Signals Available**
 
-📊 **Scan Results:**
-• **Total Scanned**: {total_scanned} cryptocurrencies
-• **Signals Found**: 0 above 65% confidence
-• **Market Condition**: Low volatility period
+📊 **Scan Results**: {total_scanned} coins scanned, 0 signals above 65% confidence
+📈 **Market Status**: Low volatility, consolidation phase, waiting for breakouts
 
-📈 **Market Analysis:**
-• Most coins trading in consolidation ranges
-• Waiting for clear directional breakouts
-• Volume levels below average across major pairs
-
-💡 **Next Steps:**
-• Check back in 30-60 minutes for market changes
-• Use `/futures btc` or `/futures eth` for specific analysis
-• Monitor news and macro events for catalyst
-• Set alerts at key support/resistance levels
-
-🎯 **Alternative Strategies:**
-• Range trading between S&D zones
-• DCA accumulation in strong fundamentals
-• Wait for higher timeframe confirmations
+💡 **Next Steps**:
+• Check back in 30-60 minutes for new opportunities  
+• Use `/futures btc` or `/futures eth` for specific coin analysis
+• Monitor key support/resistance levels for breakouts
+• Consider range trading strategies in current conditions
 
 """
 
-            signals_text += f"""📡 **Data Sources**: CoinAPI Real-time + Enhanced SnD Algorithm
-🔄 **Auto-Refresh**: Every 15-30 minutes for new setups
-⏰ **Signal Validity**: Next 4-24 hours ({timeframe.upper()} analysis)
-🎯 **Algorithm**: Multi-factor confidence scoring with volume validation"""
+            signals_text += f"""📡 **Sources**: CoinAPI + Enhanced S&D Algorithm | 🔄 **Refresh**: Every 15-30min
+⏰ **Validity**: 4-24 hours ({timeframe.upper()}) | 🎯 **Algorithm**: Multi-factor confidence + volume validation
+
+✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
 
             return signals_text
 
