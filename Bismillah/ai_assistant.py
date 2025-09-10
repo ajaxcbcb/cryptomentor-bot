@@ -409,7 +409,31 @@ class AIAssistant:
         else:  # Low volume
             confidence_multiplier = 0.8
 
-        final_score = max(0, min(100, base_score * confidence_multiplier))
+        # Enhanced confidence calculation
+        confidence = 50 + abs(change_24h) * 3  # Base confidence on market movement
+        confidence = min(100, max(30, confidence))
+
+        # Global sentiment determination
+        if change_24h > 3:
+            global_sentiment = "🚀 BULLISH"
+            sentiment_emoji = "🚀"
+        elif change_24h > 1:
+            global_sentiment = "📈 POSITIVE"
+            sentiment_emoji = "📈"
+        elif change_24h > -1:
+            global_sentiment = "😐 NEUTRAL"
+            sentiment_emoji = "😐"
+        elif change_24h > -3:
+            global_sentiment = "📉 NEGATIVE"
+            sentiment_emoji = "📉"
+        else:
+            global_sentiment = "💥 BEARISH"
+            sentiment_emoji = "💥"
+        
+        # Adjust base score with volume multiplier before capping
+        adjusted_base_score = base_score * confidence_multiplier
+        final_score = max(0, min(100, adjusted_base_score))
+
 
         if final_score > 70:
             status = "Very Bullish"
@@ -1643,7 +1667,7 @@ class AIAssistant:
 
             # Enhanced confidence calculation
             confidence = 50 + abs(avg_change) * 3  # Base confidence on market movement
-            confidence = min(95, max(30, confidence))
+            confidence = min(100, max(30, confidence))
 
             # Global sentiment determination
             if avg_change > 3:
@@ -2013,7 +2037,7 @@ Maaf, saya belum memiliki informasi spesifik untuk pertanyaan ini.
 
 📚 **Untuk analisis mendalam, gunakan:**
 • `/analyze btc` - Analisis komprehensif Bitcoin
-• `/futures eth` - Sinyal trading Ethereum
+• `/futures btc` - Sinyal trading Bitcoin
 • `/market` - Overview pasar crypto
 
 Atau ajukan pertanyaan yang lebih spesifik tentang cryptocurrency dan trading!"""
