@@ -1,5 +1,6 @@
 import os
 import logging
+import requests
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import time # Added import for time module
@@ -42,42 +43,99 @@ class CryptoAPI:
             data = None
             source = 'Unknown'
 
-            # 1. Try Binance Spot
+            # 1. Try Binance Spot with 24hr ticker for change data
             try:
-                binance_spot_data = get_price(symbol=symbol_normalized, futures=False)
-                if isinstance(binance_spot_data, (int, float)) and binance_spot_data > 0:
-                    data = {
-                        'price': binance_spot_data,
-                        'change_24h': 0, # Not directly available from this call
-                        'change_7d': 0, # Not directly available from this call
-                        'volume_24h': 0, # Placeholder, will be fetched separately or estimated
-                        'market_cap': 0, # Not directly available from this call
-                        'rank': 0, # Not directly available from this call
-                        'source': 'Binance Spot',
-                        'timestamp': datetime.now().isoformat(),
-                        'success': True
-                    }
-                    source = 'Binance Spot'
+                # Get detailed ticker data for 24h change and volume
+                import requests
+                ticker_response = requests.get(
+                    'https://api.binance.com/api/v3/ticker/24hr',
+                    params={'symbol': symbol_normalized},
+                    timeout=10
+                )
+                
+                if ticker_response.status_code == 200:
+                    ticker_data = ticker_response.json()
+                    price = float(ticker_data.get('lastPrice', 0))
+                    change_24h = float(ticker_data.get('priceChangePercent', 0))
+                    volume_24h = float(ticker_data.get('volume', 0)) * price  # Convert to USDT volume
+                    
+                    if price > 0:
+                        data = {
+                            'price': price,
+                            'change_24h': change_24h,
+                            'change_7d': 0, # Not available from 24hr ticker
+                            'volume_24h': volume_24h,
+                            'market_cap': 0, # Not directly available from this call
+                            'rank': 0, # Not directly available from this call
+                            'source': 'Binance Spot',
+                            'timestamp': datetime.now().isoformat(),
+                            'success': True
+                        }
+                        source = 'Binance Spot'
+                else:
+                    # Fallback to simple price call if ticker fails
+                    binance_spot_data = get_price(symbol=symbol_normalized, futures=False)
+                    if isinstance(binance_spot_data, (int, float)) and binance_spot_data > 0:
+                        data = {
+                            'price': binance_spot_data,
+                            'change_24h': 0, # Not directly available from this call
+                            'change_7d': 0, # Not directly available from this call
+                            'volume_24h': 0, # Placeholder, will be fetched separately or estimated
+                            'market_cap': 0, # Not directly available from this call
+                            'rank': 0, # Not directly available from this call
+                            'source': 'Binance Spot',
+                            'timestamp': datetime.now().isoformat(),
+                            'success': True
+                        }
+                        source = 'Binance Spot'
             except Exception:
                 pass # Continue to next provider if Binance Spot fails
 
             # 2. Try Binance Futures (USDT-M) if Spot failed
             if data is None:
                 try:
-                    binance_futures_data = get_price(symbol=symbol_normalized, futures=True)
-                    if isinstance(binance_futures_data, (int, float)) and binance_futures_data > 0:
-                        data = {
-                            'price': binance_futures_data,
-                            'change_24h': 0, # Not directly available from this call
-                            'change_7d': 0, # Not directly available from this call
-                            'volume_24h': 0, # Placeholder
-                            'market_cap': 0, # Not directly available from this call
-                            'rank': 0, # Not directly available from this call
-                            'source': 'Binance Futures',
-                            'timestamp': datetime.now().isoformat(),
-                            'success': True
-                        }
-                        source = 'Binance Futures'
+                    # Get detailed futures ticker data for 24h change and volume
+                    ticker_response = requests.get(
+                        'https://fapi.binance.com/fapi/v1/ticker/24hr',
+                        params={'symbol': symbol_normalized},
+                        timeout=10
+                    )
+                    
+                    if ticker_response.status_code == 200:
+                        ticker_data = ticker_response.json()
+                        price = float(ticker_data.get('lastPrice', 0))
+                        change_24h = float(ticker_data.get('priceChangePercent', 0))
+                        volume_24h = float(ticker_data.get('quoteVolume', 0))  # USDT volume for futures
+                        
+                        if price > 0:
+                            data = {
+                                'price': price,
+                                'change_24h': change_24h,
+                                'change_7d': 0, # Not available from 24hr ticker
+                                'volume_24h': volume_24h,
+                                'market_cap': 0, # Not directly available from this call
+                                'rank': 0, # Not directly available from this call
+                                'source': 'Binance Futures',
+                                'timestamp': datetime.now().isoformat(),
+                                'success': True
+                            }
+                            source = 'Binance Futures'
+                    else:
+                        # Fallback to simple price call if ticker fails
+                        binance_futures_data = get_price(symbol=symbol_normalized, futures=True)
+                        if isinstance(binance_futures_data, (int, float)) and binance_futures_data > 0:
+                            data = {
+                                'price': binance_futures_data,
+                                'change_24h': 0, # Not directly available from this call
+                                'change_7d': 0, # Not directly available from this call
+                                'volume_24h': 0, # Placeholder
+                                'market_cap': 0, # Not directly available from this call
+                                'rank': 0, # Not directly available from this call
+                                'source': 'Binance Futures',
+                                'timestamp': datetime.now().isoformat(),
+                                'success': True
+                            }
+                            source = 'Binance Futures'
                 except Exception:
                     pass # Continue to next provider if Binance Futures fails
 
@@ -131,34 +189,18 @@ class CryptoAPI:
                 }
 
             # ---- Volume Data Enhancement ----
-            # Get volume data
-            volume_24h = 0
+            # Get volume data - now mostly handled by ticker API calls above
+            volume_24h = data.get('volume_24h', 0)
+            
             try:
-                # Try multiple volume sources for better accuracy
-                if 'volume_24h' in data: # If already fetched and present
-                    volume_24h = float(data['volume_24h'])
-                elif source == 'Binance Spot' or source == 'Binance Futures':
-                    # Fetch volume specifically if not in initial response (though get_price should return it)
-                    # This part might need adjustment based on the actual `get_price` response structure
-                    # For now, assuming get_price might not always return volume, or we want to be explicit
-                    # Re-calling get_price to ensure we get volume if available
-                    # Note: This could be inefficient if get_price already fetched it.
-                    # A better approach is to parse the actual response from get_price more thoroughly.
-                    # Let's assume for now we need to get it from a different call if not present.
-                    # For simplicity, if price is available, we'll try to get volume from it.
-                    # If `get_price` returns a dict with volume, it would be handled here.
-                    # If it's a simple float, we can't get volume.
-                    # Let's assume get_price returns dicts for Binance calls
-                    if isinstance(binance_spot_data, dict) and 'volume' in binance_spot_data:
-                        volume_24h = float(binance_spot_data['volume'])
-                    elif isinstance(binance_futures_data, dict) and 'volume' in binance_futures_data:
-                        volume_24h = float(binance_futures_data['volume'])
-                elif 'quote' in data and 'USD' in data['quote']:
-                    volume_24h = float(data['quote']['USD'].get('volume_24h', 0))
-                elif 'volume' in data: # General check for 'volume' key
-                    volume_24h = float(data['volume'])
-                elif 'total_volume' in data: # General check for 'total_volume' key
-                    volume_24h = float(data['total_volume'])
+                # If volume is still zero, try additional fallback methods
+                if volume_24h == 0:
+                    if 'quote' in data and 'USD' in data['quote']:
+                        volume_24h = float(data['quote']['USD'].get('volume_24h', 0))
+                    elif 'volume' in data: # General check for 'volume' key
+                        volume_24h = float(data['volume'])
+                    elif 'total_volume' in data: # General check for 'total_volume' key
+                        volume_24h = float(data['total_volume'])
 
                 # If still zero, estimate based on market cap and activity
                 if volume_24h == 0 and 'price' in data and data['price'] > 0:
