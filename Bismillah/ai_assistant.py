@@ -259,7 +259,7 @@ class AIAssistant:
         # Market structure bonus based on timeframe and consistency
         current_hour = datetime.now().hour
         market_structure_bonus = 0
-        
+
         # Time-based market activity bonus
         if 14 <= current_hour <= 22:  # US market hours - highest activity
             market_structure_bonus += 5
@@ -283,7 +283,7 @@ class AIAssistant:
             symbol_multiplier = 1.05  # 5% bonus for established altcoins
 
         # Calculate preliminary confidence
-        preliminary_confidence = (base_confidence + momentum_score + volume_score + 
+        preliminary_confidence = (base_confidence + momentum_score + volume_score +
                                 market_structure_bonus + volatility_bonus) * symbol_multiplier
 
         # Direction and strength determination with enhanced logic
@@ -344,7 +344,7 @@ class AIAssistant:
 
         # Advanced entry, TP, SL calculation based on volatility
         volatility_factor = min(0.02, abs(change_24h) / 100 * 0.5)  # Dynamic based on volatility
-        
+
         if direction == "LONG" and final_confidence >= 75:
             entry_price = price * (1 - volatility_factor * 0.3)  # Better entry on pullback
             take_profit = price * (1 + volatility_factor * 2.5)   # Dynamic TP based on volatility
@@ -468,7 +468,7 @@ class AIAssistant:
             return additional_section
 
         except Exception as e:
-            return f"""📰 **BERITA & INFO TERKINI**:
+            return """📰 **BERITA & INFO TERKINI**:
 • 📊 Data analisis real-time tersedia
 • 🔍 Monitor terus untuk update terbaru
 
@@ -598,12 +598,12 @@ class AIAssistant:
             # Sort coins by performance and analyze patterns
             sorted_by_performance = sorted(market_data, key=lambda x: x['change_24h'], reverse=True)
             sorted_by_volume = sorted(market_data, key=lambda x: x['volume_24h'], reverse=True)
-            
+
             # Categorize coins
             hot_performers = [coin for coin in sorted_by_performance if coin['change_24h'] > 5]
             stable_performers = [coin for coin in market_data if 1 <= coin['change_24h'] <= 5]
             oversold_candidates = [coin for coin in sorted_by_performance if coin['change_24h'] < -3]
-            
+
             recommendations = """
 
 🏆 **RECOMMENDED COINS TO WATCH:**"""
@@ -618,14 +618,14 @@ class AIAssistant:
                     change = coin['change_24h']
                     price = coin['price']
                     volume = coin['volume_24h']
-                    
+
                     if price < 1:
                         price_str = f"${price:.6f}"
                     elif price < 100:
                         price_str = f"${price:.4f}"
                     else:
                         price_str = f"${price:,.2f}"
-                    
+
                     # Enhanced strategy based on performance level
                     if change > 10:
                         strategy = "STRONG breakout - Take partial profits, trail stops"
@@ -635,7 +635,7 @@ class AIAssistant:
                         strategy = "Trend following - Scale in gradually"
                     else:
                         strategy = "Moderate momentum - Wait for volume confirmation"
-                    
+
                     recommendations += f"""
 • **{i}. {symbol}** 🚀 {price_str} (+{change:.1f}%)
   └─ Strategy: {strategy}"""
@@ -649,14 +649,14 @@ class AIAssistant:
                     change = coin['change_24h']
                     price = coin['price']
                     volume = coin['volume_24h']
-                    
+
                     if price < 1:
                         price_str = f"${price:.6f}"
                     elif price < 100:
                         price_str = f"${price:.4f}"
                     else:
                         price_str = f"${price:,.2f}"
-                    
+
                     # Enhanced strategy based on decline severity
                     if change < -15:
                         strategy = "MAJOR oversold - Small DCA, wait for capitulation end"
@@ -668,11 +668,11 @@ class AIAssistant:
                         strategy = "Minor dip - Good accumulation opportunity"
                     else:
                         strategy = "Slight weakness - Monitor for support hold"
-                    
+
                     # Volume consideration for oversold
                     if volume > 1500000000:  # High volume selling
                         strategy += " + High volume selloff - be cautious"
-                    
+
                     recommendations += f"""
 • **{i}. {symbol}** 📉 {price_str} ({change:.1f}%)
   └─ Strategy: {strategy}"""
@@ -684,16 +684,16 @@ class AIAssistant:
                 # Advanced coin selection algorithm - scan top 25 performers
                 # Score coins based on multiple factors: volume, stability, momentum, fundamentals
                 coin_scores = []
-                
+
                 for coin in market_data:
                     symbol = coin['symbol']
                     change = coin['change_24h']
                     volume = coin['volume_24h']
                     price = coin['price']
-                    
+
                     # Base scoring algorithm
                     score = 50  # Base score
-                    
+
                     # Volume factor (liquidity is king)
                     if volume > 2000000000:  # 2B+
                         score += 25
@@ -705,7 +705,7 @@ class AIAssistant:
                         score += 10
                     elif volume > 100000000:  # 100M+
                         score += 5
-                    
+
                     # Stability factor (not too volatile, not too flat)
                     abs_change = abs(change)
                     if 1 <= abs_change <= 8:  # Sweet spot for trading
@@ -716,7 +716,7 @@ class AIAssistant:
                         score += 10
                     else:  # Too volatile or too flat
                         score += 0
-                    
+
                     # Momentum factor
                     if 0 < change <= 5:  # Positive but not overheated
                         score += 15
@@ -726,7 +726,7 @@ class AIAssistant:
                         score += 10
                     elif change > 10:  # Overheated
                         score += 5
-                    
+
                     # Blue chip bonus
                     if symbol in ['BTC', 'ETH']:
                         score += 15  # Always include majors
@@ -734,22 +734,22 @@ class AIAssistant:
                         score += 10  # Strong fundamentals
                     elif symbol in ['DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
                         score += 8   # Solid projects
-                    
+
                     # Price accessibility factor (for retail traders)
                     if 0.1 <= price <= 100:  # Sweet spot for retail
                         score += 5
                     elif price > 1000:  # Expensive for retail
                         score -= 5
-                    
+
                     coin_scores.append({
                         'coin': coin,
                         'score': score,
                         'symbol': symbol
                     })
-                
+
                 # Sort by score and get top 3 coins only (shorter message)
                 top_3_coins = sorted(coin_scores, key=lambda x: x['score'], reverse=True)[:3]
-                
+
                 for i, item in enumerate(top_3_coins, 1):
                     coin = item['coin']
                     score = item['score']
@@ -757,21 +757,21 @@ class AIAssistant:
                     change = coin['change_24h']
                     price = coin['price']
                     volume = coin['volume_24h']
-                    
+
                     if price < 1:
                         price_str = f"${price:.6f}"
                     elif price < 100:
                         price_str = f"${price:.4f}"
                     else:
                         price_str = f"${price:,.2f}"
-                    
+
                     if volume > 1000000000:
                         vol_str = f"${volume/1000000000:.1f}B"
                     elif volume > 1000000:
                         vol_str = f"${volume/1000000:.0f}M"
                     else:
                         vol_str = f"${volume:,.0f}"
-                    
+
                     # Grade system based on score
                     if score >= 90:
                         grade = "🏆 PREMIUM"
@@ -788,7 +788,7 @@ class AIAssistant:
                     else:
                         grade = "⚠️ RISKY"
                         grade_desc = "High risk"
-                    
+
                     # Advanced strategy based on multiple factors
                     if symbol in ['BTC', 'ETH']:
                         if change > 2:
@@ -807,14 +807,14 @@ class AIAssistant:
                         strategy = "CAREFUL DCA - Wait for bounce confirmation"
                     else:
                         strategy = "RANGE TRADING - Support/resistance levels"
-                    
+
                     # Time horizon - 24 hours for daily reset system
                     time_horizon = "24H HOLD/TRADE (Daily Reset)"
-                    
+
                     recommendations += f"""
-• **{i}. {symbol}** {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
-  Score: {score:.0f}/100 - {grade_desc}
-  Strategy: {strategy}"""
+• **{i}. {symbol}** {grade} **{price_str}** (**{change:+.1f}%**) Vol: **{vol_str}**
+  **Score**: {score:.0f}/100 - {grade_desc}
+  **Strategy**: {strategy}"""
 
             # Add enhanced insights
             recommendations += f"""
@@ -842,7 +842,7 @@ class AIAssistant:
 • Higher conviction trades"""
 
             return recommendations
-            
+
         except Exception as e:
             return """
 
@@ -860,7 +860,7 @@ class AIAssistant:
 
             # Analyze current market timing
             current_hour = datetime.now().hour
-            
+
             # Market timing analysis
             if 14 <= current_hour <= 22:  # US hours
                 market_session = "🇺🇸 US Market Active - High liquidity"
@@ -917,7 +917,7 @@ class AIAssistant:
 
             # Generate specific action items based on data
             high_volume_coins = [coin for coin in market_data if coin['volume_24h'] > 1000000000]
-            
+
             if high_volume_coins:
                 top_vol_coin = max(high_volume_coins, key=lambda x: x['volume_24h'])
                 entry_analysis += f"""
@@ -932,7 +932,7 @@ class AIAssistant:
             # Add major coins status
             btc_data = next((coin for coin in market_data if coin['symbol'] == 'BTC'), None)
             eth_data = next((coin for coin in market_data if coin['symbol'] == 'ETH'), None)
-            
+
             if btc_data:
                 btc_trend = "bullish" if btc_data['change_24h'] > 1 else "bearish" if btc_data['change_24h'] < -1 else "neutral"
                 entry_analysis += f"""
@@ -1062,7 +1062,7 @@ class AIAssistant:
 🏗️ **MARKET STRUCTURE:**
 {market_structure}
 
-🎯 **KEY SnD LEVELS:**
+🎯 **KEY SnDLEVELS:**
 • 🔴 **Resistance 1**: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
 • 🔴 **Resistance 2**: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
 • 🟢 **Support 1**: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
@@ -1184,7 +1184,7 @@ class AIAssistant:
             # Enhanced volume analysis with progressive scoring
             volume_multiplier = 1.0
             volume_score = 0
-            
+
             # Symbol-specific volume thresholds
             if symbol.upper() in ['BTC', 'ETH']:  # Major coins
                 if volume_24h > 15000000000:    # 15B+ - Exceptional
@@ -1225,16 +1225,16 @@ class AIAssistant:
                     volume_score = 0
                     volume_multiplier = 0.85     # Low volume penalty
 
-            volume_status = ("🔥 Exceptional" if volume_score >= 25 else 
-                           "⚡ Very High" if volume_score >= 20 else 
-                           "📊 High" if volume_score >= 15 else 
-                           "📈 Good" if volume_score >= 10 else 
+            volume_status = ("🔥 Exceptional" if volume_score >= 25 else
+                           "⚡ Very High" if volume_score >= 20 else
+                           "📊 High" if volume_score >= 15 else
+                           "📈 Good" if volume_score >= 10 else
                            "📉 Medium" if volume_score >= 5 else "💤 Low")
 
             # Position analysis with precision scoring
             distance_to_supply = abs(current_price - supply_1_mid) / current_price * 100
             distance_to_demand = abs(current_price - demand_1_mid) / current_price * 100
-            
+
             # Zone precision bonus
             zone_precision_bonus = 0
             min_distance = min(distance_to_supply, distance_to_demand)
@@ -1247,7 +1247,7 @@ class AIAssistant:
 
             # Advanced direction logic with higher base confidence
             base_confidence = 45  # Higher starting point
-            
+
             if current_price <= demand_1_mid and distance_to_demand < 2:
                 direction = "LONG"
                 emoji = "🟢"
@@ -1274,7 +1274,7 @@ class AIAssistant:
                 # Between zones with momentum analysis
                 zone_range = supply_1_mid - demand_1_mid
                 position_in_range = (current_price - demand_1_mid) / zone_range
-                
+
                 if position_in_range > 0.7:  # Upper 30% of range
                     direction = "LONG"
                     emoji = "🟢"
@@ -1399,8 +1399,8 @@ class AIAssistant:
             }.get(timeframe, '6-24 hours')
 
             time_horizon = {
-                '15m': 'Scalping (15-90 min)', '30m': 'Quick Swing (1-6 hours)', 
-                '1h': 'Intraday (4-18 hours)', '4h': 'Swing (1-4 days)', 
+                '15m': 'Scalping (15-90 min)', '30m': 'Quick Swing (1-6 hours)',
+                '1h': 'Intraday (4-18 hours)', '4h': 'Swing (1-4 days)',
                 '1d': 'Position (3-10 days)', '1w': 'Long-term (1-6 weeks)'
             }.get(timeframe, 'Medium-term')
 
@@ -1596,12 +1596,12 @@ class AIAssistant:
                 'DOGE', 'SHIB', 'PEPE', 'TRX', 'XLM'
             ]
             market_data = []
-            
+
             total_volume = 0
             total_change = 0
             total_market_cap = 0
             active_cryptos = 9515  # Simulated total
-            
+
             for symbol in major_cryptos:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
@@ -1610,7 +1610,7 @@ class AIAssistant:
                         change_24h = price_data.get('change_24h', 0)
                         volume_24h = price_data.get('volume_24h', 0)
                         market_cap = price_data.get('market_cap', 0)
-                        
+
                         # Fallback market cap estimation if not available
                         if not market_cap:
                             if symbol == 'BTC':
@@ -1619,7 +1619,7 @@ class AIAssistant:
                                 market_cap = price * 120300000  # ~120.3M ETH supply
                             else:
                                 market_cap = price * 1000000000  # Generic fallback
-                        
+
                         market_data.append({
                             'symbol': symbol,
                             'price': price,
@@ -1636,18 +1636,18 @@ class AIAssistant:
 
             # Calculate comprehensive market metrics
             avg_change = total_change / len(market_data)
-            
+
             # Calculate BTC and ETH dominance
             btc_data = next((d for d in market_data if d['symbol'] == 'BTC'), None)
             eth_data = next((d for d in market_data if d['symbol'] == 'ETH'), None)
-            
+
             btc_dominance = (btc_data['market_cap'] / total_market_cap * 100) if btc_data else 57.4
             eth_dominance = (eth_data['market_cap'] / total_market_cap * 100) if eth_data else 13.4
-            
+
             # Enhanced confidence calculation
             confidence = 50 + abs(avg_change) * 3  # Base confidence on market movement
             confidence = min(95, max(30, confidence))
-            
+
             # Global sentiment determination
             if avg_change > 3:
                 global_sentiment = "🚀 BULLISH"
@@ -1686,7 +1686,7 @@ class AIAssistant:
             # Fear & Greed Index
             fear_greed_value = 50 + (avg_change * 5)
             fear_greed_value = max(0, min(100, fear_greed_value))
-            
+
             if fear_greed_value > 75:
                 fear_greed = "🤑 Extreme Greed"
             elif fear_greed_value > 55:
@@ -1735,12 +1735,12 @@ class AIAssistant:
 
             # Sort by market cap and show top 5
             market_data.sort(key=lambda x: x['market_cap'], reverse=True)
-            
+
             for i, data in enumerate(market_data[:5], 1):
                 symbol = data['symbol']
                 price = data['price']
                 change = data['change_24h']
-                
+
                 # Format price
                 if price < 1:
                     price_format = f"${price:.6f}"
@@ -1748,7 +1748,7 @@ class AIAssistant:
                     price_format = f"${price:.4f}"
                 else:
                     price_format = f"${price:,.2f}"
-                
+
                 # Status emoji based on change
                 if change > 1:
                     status_emoji = "📈"
@@ -1765,7 +1765,7 @@ class AIAssistant:
                 else:
                     status_emoji = "📉"
                     status = "Bearish"
-                
+
                 analysis += f"\n{i}. **{symbol}** {status_emoji} {price_format} ({change:+.1f}%) - {status}"
 
             # Trading implications
@@ -1777,7 +1777,7 @@ class AIAssistant:
 • 🎯 Focus on breakout strategies
 • 🟢 Risk-on environment - Altcoins favorable
 • ⚠️ Watch for overextension signals"""
-                
+
                 opportunities = """
 
 🎯 **MARKET OPPORTUNITIES:**
@@ -1786,7 +1786,7 @@ class AIAssistant:
 • 🚀 Altcoin rotation plays
 • 🔄 Futures premium arbitrage
 • 📈 Options strategies (call spreads)"""
-                
+
                 risk_assessment = """
 
 ⚠️ **RISK ASSESSMENT:**
@@ -1796,7 +1796,7 @@ class AIAssistant:
 • 💡 Take profits incrementally
 • 📱 Monitor for reversal signals
 • ⏰ Set alerts for key resistance breaks"""
-                
+
             elif avg_change > -2:
                 implications = """
 
@@ -1805,7 +1805,7 @@ class AIAssistant:
 • 🎯 Focus on support/resistance levels
 • 🟠 BTC leading market - Trade major pairs (BTC, ETH)
 • ⚠️ Altcoins may underperform - Be selective"""
-                
+
                 opportunities = """
 
 🎯 **MARKET OPPORTUNITIES:**
@@ -1814,7 +1814,7 @@ class AIAssistant:
 • 🟠 Bitcoin maximalist strategy - Focus on BTC/ETH
 • 🔄 Cross-exchange arbitrage opportunities
 • 📈 Futures vs spot price discrepancies"""
-                
+
                 risk_assessment = """
 
 ⚠️ **RISK ASSESSMENT:**
@@ -1824,7 +1824,7 @@ class AIAssistant:
 • 💡 Paper trade strategies before live execution
 • 📱 Monitor news and regulatory developments
 • ⏰ Set alerts for key support/resistance breaks"""
-                
+
             else:
                 implications = """
 
@@ -1833,7 +1833,7 @@ class AIAssistant:
 • 🎯 Focus on breakdown levels
 • 🔴 Risk-off environment - Avoid altcoins
 • ⚠️ Cash preservation mode - Defensive positioning"""
-                
+
                 opportunities = """
 
 🎯 **MARKET OPPORTUNITIES:**
@@ -1842,7 +1842,7 @@ class AIAssistant:
 • 💰 Building cash for bottom opportunities
 • 🔄 Hedge existing long positions
 • 📈 DCA only in strongest fundamentals"""
-                
+
                 risk_assessment = """
 
 ⚠️ **RISK ASSESSMENT:**
@@ -1858,7 +1858,7 @@ class AIAssistant:
             # Enhanced coin recommendations and analysis
             coin_recommendations = self._generate_coin_recommendations(market_data, avg_change, btc_dominance)
             best_entry_analysis = self._generate_best_entry_analysis(market_data, global_sentiment)
-            
+
             analysis += coin_recommendations + best_entry_analysis
 
             # Key levels to watch
@@ -2006,7 +2006,7 @@ DeFi adalah sistem finansial yang dibangun di blockchain, tanpa intermediary tra
 
 Pertanyaan Anda: "{question[:100]}..."
 
-Maaf, saya belum memiliki informasi spesifik untuk pertanyaan ini. 
+Maaf, saya belum memiliki informasi spesifik untuk pertanyaan ini.
 
 💡 **Cobalah pertanyaan tentang:**
 • Bitcoin, Ethereum, atau crypto populer
