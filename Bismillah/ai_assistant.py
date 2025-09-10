@@ -1001,7 +1001,7 @@ class AIAssistant:
         return "\n".join(recommendations)
 
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None) -> str:
-        """Get futures trading signals with SnD for specific timeframe"""
+        """Get enhanced futures trading signals with improved UX"""
         try:
             # Get current price and market data
             price_data = {}
@@ -1014,107 +1014,173 @@ class AIAssistant:
             volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
 
             if current_price <= 0:
-                return f"❌ Tidak dapat mengambil data harga {symbol}"
+                return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/futures btc` atau `/futures eth`"
 
-            # Get advanced SnD zones with volume analysis
+            # Get advanced SnD zones and signals
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
-
-            # Generate professional futures signals
             futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
 
-            # Format timeframe display
+            # Enhanced timeframe display
             tf_display = {
-                '15m': '15M', '30m': '30M', '1h': '1H',
-                '4h': '4H', '1d': '1D', '1w': '1W'
-            }.get(timeframe, timeframe.upper())
+                '15m': '15M ⚡ Scalping', '30m': '30M 🔥 Quick', '1h': '1H 📈 Intraday',
+                '4h': '4H ⭐ Swing', '1d': '1D 💎 Position', '1w': '1W 🏛️ Long-term'
+            }.get(timeframe, f"{timeframe.upper()} Trading")
 
-            # Price formatting
-            if current_price < 1:
+            # Smart price formatting
+            if current_price < 0.01:
                 price_format = f"${current_price:.8f}"
+            elif current_price < 1:
+                price_format = f"${current_price:.6f}"
             elif current_price < 100:
                 price_format = f"${current_price:.4f}"
             else:
                 price_format = f"${current_price:,.2f}"
 
-            # Volume formatting
+            # Enhanced volume formatting
             if volume_24h > 1000000000:
-                volume_format = f"${volume_24h/1000000000:.2f}B"
-            elif volume_24h > 1000000:
-                volume_format = f"${volume_24h/1000000:.1f}M"
+                volume_format = f"${volume_24h/1000000000:.2f}B 🔥"
+            elif volume_24h > 500000000:
+                volume_format = f"${volume_24h/1000000:.0f}M ⚡"
+            elif volume_24h > 100000000:
+                volume_format = f"${volume_24h/1000000:.0f}M 📊"
             else:
-                volume_format = f"${volume_24h:,.0f}"
+                volume_format = f"${volume_24h/1000000:.1f}M 💤"
 
-            # Signal strength indicator
+            # Dynamic signal strength with action recommendations
             confidence = futures_signals['confidence']
-            if confidence >= 80:
-                signal_strength = "🔥 STRONG SIGNAL"
-                strength_emoji = "🟢"
+            if confidence >= 85:
+                signal_status = "🎯 **PREMIUM SIGNAL** - EXECUTE NOW!"
+                confidence_bar = "🟢🟢🟢🟢🟢"
+                action_advice = "✅ **Action**: Strong conviction trade - Full position recommended"
+            elif confidence >= 75:
+                signal_status = "⚡ **STRONG SIGNAL** - Good Entry"
+                confidence_bar = "🟢🟢🟢🟢⚪"
+                action_advice = "✅ **Action**: High probability trade - 70-80% position"
             elif confidence >= 65:
-                signal_strength = "⚡ GOOD SIGNAL"
-                strength_emoji = "🟡"
+                signal_status = "📊 **DECENT SIGNAL** - Careful Entry"
+                confidence_bar = "🟢🟢🟢⚪⚪"
+                action_advice = "⚠️ **Action**: Medium risk trade - 50% position max"
             else:
-                signal_strength = "⚠️ WEAK SIGNAL"
-                strength_emoji = "🟠"
+                signal_status = "⏳ **WAIT SIGNAL** - Low Confidence"
+                confidence_bar = "🟡🟡⚪⚪⚪"
+                action_advice = "🛑 **Action**: Wait for better setup - Paper trade only"
 
-            # Market structure analysis
-            market_structure = self._analyze_market_structure(current_price, snd_zones, change_24h)
+            # Direction with clear entry strategy
+            direction = futures_signals['direction']
+            if direction == "LONG":
+                direction_display = "🚀 **LONG** (BUY/BELI)"
+                strategy_tip = "📈 **Tip**: Buy on pullbacks, target resistance levels"
+            elif direction == "SHORT":
+                direction_display = "📉 **SHORT** (SELL/JUAL)"
+                strategy_tip = "📉 **Tip**: Sell on bounces, target support levels"
+            else:
+                direction_display = "⏳ **WAIT** (TUNGGU)"
+                strategy_tip = "⏳ **Tip**: Monitor key levels for breakout confirmation"
 
-            analysis = f"""🚨 **FUTURES TRADING SIGNAL - {symbol}/{tf_display}**
+            # Risk/Reward visualization
+            rr_ratio = futures_signals['rr']
+            if rr_ratio >= 3:
+                rr_status = f"🏆 **EXCELLENT** R:R {rr_ratio:.1f}:1"
+            elif rr_ratio >= 2:
+                rr_status = f"✅ **GOOD** R:R {rr_ratio:.1f}:1"
+            elif rr_ratio >= 1.5:
+                rr_status = f"⚠️ **FAIR** R:R {rr_ratio:.1f}:1"
+            else:
+                rr_status = f"❌ **POOR** R:R {rr_ratio:.1f}:1"
 
-{strength_emoji} **{signal_strength}**
+            # Quick action summary
+            quick_summary = self._generate_quick_action_summary(futures_signals, confidence, symbol)
 
-📊 **Price**: {price_format} ({change_24h:+.2f}%)
-💹 **Volume**: {volume_format}
-🕐 **Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+            analysis = f"""🎯 **FUTURES SIGNAL - {symbol}**
+{tf_display}
 
-🎯 **TRADING SETUP:**
-• **Direction**: {futures_signals['direction']} {futures_signals['emoji']}
-• **Confidence**: {confidence:.1f}%
-• **Entry**: ${futures_signals['entry']:,.6f}
-• **TP1** (50%): ${futures_signals['tp1']:,.6f}
-• **TP2** (30%): ${futures_signals['tp2']:,.6f}
-• **TP3** (20%): ${futures_signals['tp3']:,.6f}
-• **Stop Loss**: ${futures_signals['sl']:,.6f}
-• **Risk/Reward**: {futures_signals['rr']:.1f}:1
+{signal_status}
+**Confidence**: {confidence:.0f}% {confidence_bar}
 
-📈 **Strategy**: {futures_signals['strategy']}
-⏰ **Timeframe**: {tf_display} ({futures_signals['time_horizon']})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **MARKET SNAPSHOT**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 **Price**: {price_format} ({change_24h:+.2f}%)
+📈 **Volume**: {volume_format}
+🕐 **Time**: {datetime.now().strftime('%H:%M WIB')}
 
-🏗️ **MARKET STRUCTURE:**
-{market_structure}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 **TRADING SETUP**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Direction**: {direction_display}
+**Entry Price**: `${futures_signals['entry']:,.6f}`
 
-🎯 **KEY SnDLEVELS:**
-• 🔴 **Resistance 1**: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
-• 🔴 **Resistance 2**: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
-• 🟢 **Support 1**: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
-• 🟢 **Support 2**: ${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}
+**🎯 Take Profits:**
+• **TP1** (50%): `${futures_signals['tp1']:,.6f}` 
+• **TP2** (30%): `${futures_signals['tp2']:,.6f}`
+• **TP3** (20%): `${futures_signals['tp3']:,.6f}`
 
-⚡ **EXECUTION RULES:**
-• Enter ONLY with volume confirmation
-• Scale in at SnD zone boundaries
-• Move SL to breakeven after TP1
-• Exit 50% at TP1, 30% at TP2, 20% at TP3
+**🛡️ Stop Loss**: `${futures_signals['sl']:,.6f}`
+**📊 Risk/Reward**: {rr_status}
 
-💰 **POSITION SIZING:**
-• Risk per trade: 1-2% of capital max
-• Leverage: {futures_signals.get('leverage_rec', '3-5x')} recommended
-• Account for slippage and fees
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 **QUICK ACTION GUIDE**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{quick_summary}
 
-⚠️ **RISK WARNINGS:**
-• Futures trading involves high risk
-• Only trade with risk capital
-• Market conditions can change rapidly
-• Always use stop losses
+{action_advice}
+{strategy_tip}
 
-📡 **Signal Source**: CoinAPI + SnD Algorithm
-🔄 **Valid Duration**: {futures_signals['validity']}
-📊 **Update Frequency**: Every {timeframe} candle close"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗺️ **KEY LEVELS (S&D ZONES)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 **Resistance 1**: `${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}`
+🔴 **Resistance 2**: `${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}`
+🟢 **Support 1**: `${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}`
+🟢 **Support 2**: `${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}`
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ **EXECUTION PLAN**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**1. Entry Strategy:**
+• Wait for price near entry level
+• Confirm with volume spike (20%+ above average)
+• Use limit orders for better fills
+
+**2. Risk Management:**
+• Position Size: **{self._calculate_position_size(confidence)}** of portfolio
+• Leverage: **{futures_signals.get('leverage_rec', '3-5x')}** max
+• Stop Loss: **MANDATORY** - No exceptions!
+
+**3. Exit Strategy:**
+• Take 50% profit at TP1 → Move SL to breakeven
+• Take 30% profit at TP2 → Trail stop loss
+• Let 20% run to TP3 → Trail aggressively
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ **IMPORTANT NOTES**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• **Validity**: Next **{futures_signals['validity']}**
+• **Update**: Every {timeframe} candle close
+• **Source**: CoinAPI + S&D Algorithm v2.0
+
+🚨 **Risk Warning**: Futures trading is high-risk. Only trade with money you can afford to lose!
+
+💡 **Need Help?** Use `/analyze {symbol}` for detailed analysis"""
 
             return analysis
 
         except Exception as e:
             print(f"Error in futures signals: {e}")
-            return f"❌ Error dalam futures signals {symbol} {timeframe}: {str(e)[:100]}..."
+            return f"""❌ **FUTURES SIGNAL ERROR**
+
+**Symbol**: {symbol}
+**Timeframe**: {timeframe}
+**Error**: {str(e)[:100]}...
+
+💡 **Quick Fix:**
+• Try `/futures btc 4h` 
+• Use `/price {symbol}` to check data
+• Wait 30 seconds and retry
+
+🔧 **Alternative Commands:**
+• `/analyze {symbol}` - Comprehensive analysis
+• `/market` - Market overview"""
 
     def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict) -> Dict:
         """Generate futures-specific trading signals"""
@@ -1495,6 +1561,49 @@ class AIAssistant:
 
         except Exception as e:
             return "• **Structure**: Analysis unavailable"
+
+    def _generate_quick_action_summary(self, futures_signals: Dict, confidence: float, symbol: str) -> str:
+        """Generate a quick action summary for traders"""
+        direction = futures_signals.get('direction', 'WAIT')
+        entry = futures_signals.get('entry', 0)
+        sl = futures_signals.get('sl', 0)
+        tp1 = futures_signals.get('tp1', 0)
+        
+        if confidence < 65:
+            return """🛑 **WAIT**: Low confidence signal
+📚 **Advice**: Study charts, wait for better setup
+⏰ **Action**: Set alerts at key levels"""
+        
+        if direction == "LONG":
+            return f"""🚀 **BUY PLAN**:
+1️⃣ Set buy order at `${entry:,.6f}`
+2️⃣ Set stop loss at `${sl:,.6f}`
+3️⃣ Set take profit at `${tp1:,.6f}`
+4️⃣ Watch for volume confirmation"""
+        
+        elif direction == "SHORT":
+            return f"""📉 **SELL PLAN**:
+1️⃣ Set sell order at `${entry:,.6f}`
+2️⃣ Set stop loss at `${sl:,.6f}`
+3️⃣ Set take profit at `${tp1:,.6f}`
+4️⃣ Watch for volume confirmation"""
+        
+        else:
+            return f"""⏳ **MONITOR {symbol}**:
+📊 Watch key support/resistance levels
+📈 Wait for clear breakout direction
+🔔 Set price alerts for entry opportunities"""
+
+    def _calculate_position_size(self, confidence: float) -> str:
+        """Calculate recommended position size based on confidence"""
+        if confidence >= 85:
+            return "2-3%"
+        elif confidence >= 75:
+            return "1.5-2%"
+        elif confidence >= 65:
+            return "1-1.5%"
+        else:
+            return "0.5-1%"
 
     async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None) -> str:
         """Generate multiple futures signals for top cryptocurrencies"""
