@@ -680,26 +680,79 @@ class AIAssistant:
             else:  # Neutral market
                 recommendations += """
 
-⚖️ **BALANCED PORTFOLIO PICKS:**"""
-                # Mix of stable and high volume coins
-                balanced_picks = []
+⚖️ **TOP 5 COIN FOR HOLD & TRADES (RESET EVERY 24H):**"""
+                # Advanced coin selection algorithm - scan top performers
+                # Score coins based on multiple factors: volume, stability, momentum, fundamentals
+                coin_scores = []
                 
-                # Add top volume coins
-                for coin in sorted_by_volume[:2]:
-                    if coin not in balanced_picks:
-                        balanced_picks.append(coin)
-                
-                # Add stable performers
-                for coin in stable_performers[:2]:
-                    if coin not in balanced_picks and len(balanced_picks) < 3:
-                        balanced_picks.append(coin)
-                
-                # Fill with major coins if needed
                 for coin in market_data:
-                    if coin['symbol'] in ['BTC', 'ETH'] and coin not in balanced_picks and len(balanced_picks) < 3:
-                        balanced_picks.append(coin)
+                    symbol = coin['symbol']
+                    change = coin['change_24h']
+                    volume = coin['volume_24h']
+                    price = coin['price']
+                    
+                    # Base scoring algorithm
+                    score = 50  # Base score
+                    
+                    # Volume factor (liquidity is king)
+                    if volume > 2000000000:  # 2B+
+                        score += 25
+                    elif volume > 1000000000:  # 1B+
+                        score += 20
+                    elif volume > 500000000:  # 500M+
+                        score += 15
+                    elif volume > 200000000:  # 200M+
+                        score += 10
+                    elif volume > 100000000:  # 100M+
+                        score += 5
+                    
+                    # Stability factor (not too volatile, not too flat)
+                    abs_change = abs(change)
+                    if 1 <= abs_change <= 8:  # Sweet spot for trading
+                        score += 20
+                    elif 0.5 <= abs_change <= 12:  # Acceptable range
+                        score += 15
+                    elif abs_change <= 15:  # High vol but manageable
+                        score += 10
+                    else:  # Too volatile or too flat
+                        score += 0
+                    
+                    # Momentum factor
+                    if 0 < change <= 5:  # Positive but not overheated
+                        score += 15
+                    elif -3 <= change < 0:  # Slight correction, good buy opportunity
+                        score += 12
+                    elif 5 < change <= 10:  # Strong momentum
+                        score += 10
+                    elif change > 10:  # Overheated
+                        score += 5
+                    
+                    # Blue chip bonus
+                    if symbol in ['BTC', 'ETH']:
+                        score += 15  # Always include majors
+                    elif symbol in ['BNB', 'SOL', 'XRP', 'ADA']:
+                        score += 10  # Strong fundamentals
+                    elif symbol in ['DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
+                        score += 8   # Solid projects
+                    
+                    # Price accessibility factor (for retail traders)
+                    if 0.1 <= price <= 100:  # Sweet spot for retail
+                        score += 5
+                    elif price > 1000:  # Expensive for retail
+                        score -= 5
+                    
+                    coin_scores.append({
+                        'coin': coin,
+                        'score': score,
+                        'symbol': symbol
+                    })
                 
-                for i, coin in enumerate(balanced_picks[:3], 1):
+                # Sort by score and get top 5
+                top_5_coins = sorted(coin_scores, key=lambda x: x['score'], reverse=True)[:5]
+                
+                for i, item in enumerate(top_5_coins, 1):
+                    coin = item['coin']
+                    score = item['score']
                     symbol = coin['symbol']
                     change = coin['change_24h']
                     price = coin['price']
@@ -719,46 +772,74 @@ class AIAssistant:
                     else:
                         vol_str = f"${volume:,.0f}"
                     
-                    # Intelligent strategy based on actual performance and volume
-                    if change > 2:
-                        strategy = "Momentum continuation - Buy strength"
-                    elif change > 0.5:
-                        strategy = "Gradual accumulation - DCA approach"
-                    elif change > -0.5:
-                        strategy = "Range trading - Support/resistance"
-                    elif change > -2:
-                        strategy = "Support bounce - Wait for confirmation"
+                    # Grade system based on score
+                    if score >= 90:
+                        grade = "🏆 PREMIUM"
+                        grade_desc = "Top-tier pick"
+                    elif score >= 80:
+                        grade = "🥇 EXCELLENT"
+                        grade_desc = "High confidence"
+                    elif score >= 70:
+                        grade = "🥈 GOOD"
+                        grade_desc = "Solid choice"
+                    elif score >= 60:
+                        grade = "🥉 DECENT"
+                        grade_desc = "Fair option"
                     else:
-                        strategy = "Oversold recovery - Careful DCA"
+                        grade = "⚠️ RISKY"
+                        grade_desc = "High risk"
                     
-                    # Volume-based adjustment
-                    if volume > 2000000000:  # High volume
-                        if change > 0:
-                            strategy += " + High volume breakout"
+                    # Advanced strategy based on multiple factors
+                    if symbol in ['BTC', 'ETH']:
+                        if change > 2:
+                            strategy = "HOLD + DCA on dips - Blue chip momentum"
+                        elif change > -2:
+                            strategy = "ACCUMULATE gradually - Market leader stability"
                         else:
-                            strategy += " + High volume selloff caution"
-                    elif volume < 500000000:  # Low volume
-                        strategy += " + Low liquidity - reduce size"
+                            strategy = "BUY THE DIP - Major support levels"
+                    elif 2 < change <= 8 and volume > 1000000000:
+                        strategy = "TRADE momentum + HOLD core position"
+                    elif -3 <= change <= 2 and volume > 500000000:
+                        strategy = "DCA ACCUMULATION - Good entry zone"
+                    elif change > 8:
+                        strategy = "TAKE PROFITS - Overextended, wait pullback"
+                    elif change < -8:
+                        strategy = "CAREFUL DCA - Wait for bounce confirmation"
+                    else:
+                        strategy = "RANGE TRADING - Support/resistance levels"
+                    
+                    # Time horizon based on volatility and fundamentals
+                    if symbol in ['BTC', 'ETH']:
+                        time_horizon = "LONG-TERM HOLD (6M+)"
+                    elif abs(change) > 5:
+                        time_horizon = "SHORT-TERM TRADE (1-4W)"
+                    else:
+                        time_horizon = "MEDIUM-TERM (1-3M)"
                     
                     recommendations += f"""
-• **{i}. {symbol}** 📊 {price_str} ({change:+.1f}%) Vol: {vol_str}
-  └─ Strategy: {strategy}"""
+• **{i}. {symbol}** {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
+  ├─ Score: {score:.0f}/100 - {grade_desc}
+  ├─ Strategy: {strategy}
+  └─ Horizon: {time_horizon}"""
 
-            # Add BTC dominance based recommendations
-            if btc_dominance > 55:
-                recommendations += """
+            # Add enhanced insights
+            recommendations += f"""
 
-🟠 **BTC DOMINANCE INSIGHTS:**
-• High BTC dominance - Focus on BTC & major alts
-• Altcoin season may be delayed
-• Consider BTC pairs for trading"""
-            elif btc_dominance < 45:
-                recommendations += """
+📊 **MARKET INSIGHTS:**
+• Analysis based on Top {len(market_data)} cryptocurrencies
+• Selection criteria: Volume + Stability + Momentum + Fundamentals
+• BTC Dominance: {btc_dominance:.1f}% - {"Focus on BTC/ETH" if btc_dominance > 55 else "Altcoin opportunities" if btc_dominance < 45 else "Balanced approach"}
 
-🌈 **ALTCOIN SEASON SIGNALS:**
-• Low BTC dominance - Altcoins gaining strength
-• Look for quality altcoin opportunities
-• Diversification recommended"""
+⏰ **RESET SCHEDULE:**
+• Selection updates every 24 hours at 00:00 UTC
+• Real-time price tracking via CoinAPI
+• Strategy adjustments based on market conditions
+
+🎯 **PORTFOLIO ALLOCATION GUIDE:**
+• 40-50% in Top 2 picks (usually BTC/ETH)
+• 30-35% in picks 3-4 (established alts)
+• 15-20% in pick 5 (opportunity play)
+• Keep 10-15% cash for dip buying"""
 
             return recommendations
             
