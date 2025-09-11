@@ -375,7 +375,7 @@ class AIAssistant:
             take_profit = entry_price + reward_needed
 
         elif direction == "SHORT" and final_confidence >= 55:  # Lower threshold for honest signals
-            # Calculate stop loss first  
+            # Calculate stop loss first
             stop_distance = max(volatility_factor * 1.2, 0.015)  # Minimum 1.5% stop
             entry_price = price * (1 + volatility_factor * 0.2)  # Slight bounce entry
             stop_loss = entry_price * (1 + stop_distance)
@@ -1029,7 +1029,7 @@ class AIAssistant:
 
             # Get advanced SnD zones and signals
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
-            futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
+            futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
             # Enhanced timeframe display
             tf_display = {
@@ -1119,7 +1119,7 @@ class AIAssistant:
             if confidence >= 85:
                 confidence_level = "🔥 Very High"
             elif confidence >= 80:
-                confidence_level = "⚡ High" 
+                confidence_level = "⚡ High"
             elif confidence >= 75:
                 confidence_level = "📊 Good"
             elif confidence >= 70:
@@ -1239,7 +1239,7 @@ class AIAssistant:
 **Error**: {str(e)[:100]}...
 
 💡 **Quick Fix:**
-• Try `/futures btc` 
+• Try `/futures btc`
 • Use `/price {symbol}` to check data
 • Wait 30 seconds and retry
 
@@ -1247,7 +1247,7 @@ class AIAssistant:
 • `/analyze {symbol}` - Comprehensive analysis
 • `/market` - Market overview"""
 
-    def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float) -> Dict:
+    def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float, crypto_api=None) -> Dict:
         """Generate futures-specific trading signals"""
         # Calculate signals based on SnD zones and timeframe
         supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
@@ -1346,7 +1346,7 @@ class AIAssistant:
             'market_timing': 1.0
         }
 
-    def _generate_advanced_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float) -> Dict:
+    def _generate_advanced_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float, crypto_api=None) -> Dict:
         """Generate advanced futures trading signals with enhanced confidence analysis and proper R:R ratios"""
         try:
             # Advanced multi-layer confidence calculation with REAL-TIME data
@@ -1596,7 +1596,7 @@ class AIAssistant:
                     tp3_distance = current_price * tf_config['max_move']
 
                     tp1 = entry + tp1_distance
-                    tp2 = entry + tp2_distance  
+                    tp2 = entry + tp2_distance
                     tp3 = entry + tp3_distance
 
                 elif direction == "SHORT":
@@ -1681,7 +1681,7 @@ class AIAssistant:
 
             # More realistic confidence calculation - no extreme multiplications
             raw_confidence = base_confidence + (volume_score * 0.5) + (zone_precision_bonus * 0.8)
-            
+
             # Apply conservative multipliers
             adjusted_confidence = raw_confidence * timeframe_multiplier * rr_bonus * timing_bonus * symbol_quality * volume_multiplier
 
@@ -1698,7 +1698,7 @@ class AIAssistant:
 
             # Final realistic confidence - much more conservative cap at 88%
             final_confidence = min(88, max(35, adjusted_confidence * hash_variation * market_bonus))
-            
+
             # Add natural randomness to avoid always hitting the cap
             minute_variation = 0.96 + (datetime.now().minute % 8) / 100  # 0.96 to 1.04
             final_confidence = final_confidence * minute_variation
@@ -1900,7 +1900,7 @@ class AIAssistant:
         """Get position size recommendation based on timeframe"""
         timeframe_sizes = {
             '15m': '0.5-1% (High frequency)',
-            '30m': '0.8-1.5% (Active scalping)', 
+            '30m': '0.8-1.5% (Active scalping)',
             '1h': '1-2% (Intraday trading)',
             '4h': '1.5-2.5% (Swing trading)',
             '1d': '2-3% (Position trading)',
@@ -2054,7 +2054,7 @@ class AIAssistant:
             insights.append("• 🎪 Bullish momentum approach recommended")
             insights.append("• 💰 Excellent risk/reward ratio - High profit potential")
         elif direction == "SHORT":
-            insights.append("• 🎪 Bearish momentum approach recommended")  
+            insights.append("• 🎪 Bearish momentum approach recommended")
             insights.append("• 💰 Strong downside potential identified")
         else:
             insights.append("• ⏳ Wait for clearer directional signals")
@@ -2125,11 +2125,11 @@ class AIAssistant:
 
                     # Get enhanced SnD zones and advanced signals
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
-                    futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h)
+                    futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
                     # Realistic threshold - capture signals with 72%+ confidence
-                    if (futures_signals['confidence'] >= 72.0 and 
-                        futures_signals['direction'] in ['LONG', 'SHORT'] and 
+                    if (futures_signals['confidence'] >= 72.0 and
+                        futures_signals['direction'] in ['LONG', 'SHORT'] and
                         futures_signals['rr'] >= 1.5):
 
                         signals_found.append({
