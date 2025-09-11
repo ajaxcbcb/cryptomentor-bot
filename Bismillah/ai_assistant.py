@@ -1048,13 +1048,13 @@ class AIAssistant:
 
             # Enhanced visual confidence system with REAL dynamic calculation
             confidence = futures_signals['confidence']
-            
+
             # Generate confidence bar based on ACTUAL percentage (not hardcoded)
             filled_bars = int((confidence / 100) * 5)  # Convert to 5-bar system
             empty_bars = 5 - filled_bars
-            
+
             confidence_bar = "🟢" * filled_bars + "⚪" * empty_bars
-            
+
             # Dynamic signal status based on REAL confidence
             if confidence >= 90:
                 signal_status = "🎯 **ULTRA PREMIUM** - EXECUTE NOW!"
@@ -1103,7 +1103,7 @@ class AIAssistant:
 
             # Get technical indicators for professional analysis
             tech_indicators = self._calculate_professional_indicators(symbol, current_price, change_24h, snd_zones, crypto_api)
-            
+
             # Enhanced confidence display with more professional categorization
             if confidence >= 90:
                 confidence_level = "🔥 Extremely High"
@@ -1131,7 +1131,7 @@ class AIAssistant:
             tp1_allocation = "50%"
             tp2_allocation = "30%"
             tp3_allocation = "20%"
-            
+
             # Calculate percentage changes for targets
             if direction == "LONG":
                 tp1_pct = ((futures_signals['tp1'] - futures_signals['entry']) / futures_signals['entry'] * 100)
@@ -1154,7 +1154,7 @@ class AIAssistant:
 {signal_color} **TRADING SIGNAL**: {signal_direction}
 🔥 **Confidence**: {confidence:.1f}% ({confidence_level})
 🎯 **Strategy**: {futures_signals.get('strategy', 'Advanced SnD')}
-⚡️ **Time Horizon**: {futures_signals.get('time_horizon', '4-24 hours')}
+⚡ **Time Horizon**: {futures_signals.get('time_horizon', '4-24 hours')}
 
 💰 **DETAILED TRADING SETUP:**
 • Entry: {price_format if signal_direction == "WAIT" else f"${futures_signals['entry']:,.6f}"}
@@ -1224,7 +1224,7 @@ class AIAssistant:
 **Error**: {str(e)[:100]}...
 
 💡 **Quick Fix:**
-• Try `/futures btc 4h` 
+• Try `/futures btc` 
 • Use `/price {symbol}` to check data
 • Wait 30 seconds and retry
 
@@ -1340,7 +1340,7 @@ class AIAssistant:
 
             # Get real 24h change for dynamic calculation
             change_24h = price_data.get('change_24h', 0) if 'price_data' in locals() else 0
-            
+
             # Enhanced volume analysis with progressive scoring - REAL-TIME
             volume_multiplier = 1.0
             volume_score = 0
@@ -1406,7 +1406,7 @@ class AIAssistant:
                 zone_precision_bonus = 5
 
             # Advanced direction logic with DYNAMIC base confidence based on market conditions
-            
+
             # Get real price data for dynamic calculation - fix the missing variable issue
             try:
                 if crypto_api:
@@ -1416,11 +1416,11 @@ class AIAssistant:
                     change_24h = 0
             except:
                 change_24h = 0
-            
+
             # Calculate dynamic base confidence using multiple real-time factors
             price_momentum_score = min(25, abs(change_24h) * 3)  # Price movement contributes to confidence
             volatility_bonus = 0
-            
+
             # Volatility analysis for confidence adjustment
             if 2 <= abs(change_24h) <= 12:  # Sweet spot volatility
                 volatility_bonus = 15
@@ -1428,7 +1428,7 @@ class AIAssistant:
                 volatility_bonus = 10
             elif abs(change_24h) > 15:  # High volatility
                 volatility_bonus = 5
-                
+
             # Market timing factor
             current_hour = datetime.now().hour
             timing_score = 0
@@ -1438,7 +1438,7 @@ class AIAssistant:
                 timing_score = 5
             elif 0 <= current_hour <= 6:    # Asian session
                 timing_score = 3
-                
+
             # Symbol-specific momentum bonus based on current market data
             symbol_momentum_bonus = 0
             if symbol.upper() == 'BTC' and abs(change_24h) > 2:
@@ -1447,7 +1447,7 @@ class AIAssistant:
                 symbol_momentum_bonus = 8   # Ethereum strong move bonus
             elif symbol.upper() in ['SOL', 'ADA', 'DOT'] and abs(change_24h) > 5:
                 symbol_momentum_bonus = 12  # Altcoin breakout bonus
-                
+
             # Dynamic base confidence calculation with real market data
             base_confidence = 35 + price_momentum_score + volatility_bonus + timing_score + symbol_momentum_bonus
 
@@ -1498,16 +1498,38 @@ class AIAssistant:
                     sl = supply_1_mid
                     strategy = "Range Breakdown Short"
                     base_confidence = 75
-                else:  # Middle of range
-                    direction = "WAIT"
-                    emoji = "⏳"
-                    entry = current_price
-                    tp1 = supply_1_mid if position_in_range > 0.5 else demand_1_mid
-                    tp2 = tp1 * 1.015
-                    tp3 = tp1 * 1.025
-                    sl = current_price * 0.985
-                    strategy = "Range Middle - Wait for Direction"
-                    base_confidence = 50
+                else:  # Middle of range - use momentum to determine direction
+                    # Use momentum analysis for direction even in middle range
+                    if change_24h > 2:  # Strong bullish momentum
+                        direction = "LONG"
+                        emoji = "🟢"
+                        entry = current_price * 0.999
+                        tp1 = supply_1_mid
+                        tp2 = snd_zones['supply_1_high']
+                        tp3 = snd_zones['supply_2_low']
+                        sl = demand_1_mid
+                        strategy = "Momentum Long - Range Middle"
+                        base_confidence = 65
+                    elif change_24h < -2:  # Strong bearish momentum
+                        direction = "SHORT"
+                        emoji = "🔴"
+                        entry = current_price * 1.001
+                        tp1 = demand_1_mid
+                        tp2 = snd_zones['demand_1_low']
+                        tp3 = snd_zones['demand_2_low']
+                        sl = supply_1_mid
+                        strategy = "Momentum Short - Range Middle"
+                        base_confidence = 65
+                    else:  # Truly neutral - default to slight bullish bias for range middle
+                        direction = "LONG"
+                        emoji = "🟢"
+                        entry = current_price * 0.999
+                        tp1 = supply_1_mid
+                        tp2 = snd_zones['supply_1_high']
+                        tp3 = snd_zones['supply_2_low']
+                        sl = demand_1_mid
+                        strategy = "Range Middle Long Bias"
+                        base_confidence = 55
             else:
                 direction = "WAIT"
                 emoji = "⏳"
@@ -1570,7 +1592,7 @@ class AIAssistant:
             import hashlib
             symbol_hash = int(hashlib.md5(f"{symbol}{current_price:.2f}{volume_24h:.0f}".encode()).hexdigest()[:8], 16)
             hash_variation = 0.85 + (symbol_hash % 1000) / 3333.33  # Range: 0.85 to 1.15
-            
+
             # Apply market structure bonus for better signals with real data
             market_bonus = 1.0
             if symbol.upper() in ['BTC', 'ETH'] and abs(change_24h) > 3:
@@ -1579,10 +1601,10 @@ class AIAssistant:
                 market_bonus = 1.12  # SOL high volatility bonus
             elif symbol.upper() in ['ADA', 'DOT', 'MATIC'] and abs(change_24h) > 6:
                 market_bonus = 1.10  # Mid-cap altcoin breakout bonus
-            
+
             # Time-based variation for more realistic confidence
             time_variation = 0.95 + (datetime.now().minute % 20) / 100  # Small time-based variation
-            
+
             # Cap at 100% maximum for realistic expectations
             final_confidence = min(100, max(30, raw_confidence * hash_variation * market_bonus * time_variation))
 
@@ -1767,7 +1789,7 @@ class AIAssistant:
             # Calculate EMAs (simplified estimation)
             ema_50 = current_price * (1 + (change_24h / 100) * 0.5)  # Estimate based on recent movement
             ema_200 = current_price * (1 + (change_24h / 100) * 0.2)  # Slower EMA response
-            
+
             # Format EMAs properly
             if ema_50 < 1:
                 ema_50_str = f"${ema_50:.6f}"
@@ -1775,7 +1797,7 @@ class AIAssistant:
                 ema_50_str = f"${ema_50:.4f}"
             else:
                 ema_50_str = f"${ema_50:,.2f}"
-                
+
             if ema_200 < 1:
                 ema_200_str = f"${ema_200:.6f}"
             elif ema_200 < 100:
@@ -1786,7 +1808,7 @@ class AIAssistant:
             # Calculate RSI estimate
             rsi_base = 50 + (change_24h * 2)  # Rough RSI estimation
             rsi = max(0, min(100, rsi_base))
-            
+
             if rsi > 70:
                 rsi_status = "Overbought"
             elif rsi > 60:
@@ -1893,7 +1915,7 @@ class AIAssistant:
     def _generate_professional_insights(self, futures_signals: Dict, confidence: float, symbol: str, direction: str) -> str:
         """Generate professional trading insights"""
         insights = []
-        
+
         if confidence >= 90:
             insights.append("• 🔥 Extremely high probability setup - Consider larger position")
         elif confidence >= 85:
@@ -1914,7 +1936,7 @@ class AIAssistant:
             insights.append("• 📊 Current setup lacks sufficient conviction")
 
         insights.append("• 📈 Higher timeframe analysis supports this direction")
-        
+
         return "\n".join(insights)
 
     async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None) -> str:
@@ -1952,7 +1974,7 @@ class AIAssistant:
             for symbol in symbols:
                 try:
                     total_scanned += 1
-                    
+
                     # Get comprehensive market data
                     price_data = {}
                     if crypto_api:
@@ -1961,7 +1983,7 @@ class AIAssistant:
                     current_price = price_data.get('price', 0) if 'error' not in price_data else 0
                     change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
                     volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
-                    
+
                     if current_price == 0:
                         continue
 
@@ -2317,7 +2339,7 @@ class AIAssistant:
                 opportunities = """
 
 🎯 **MARKET OPPORTUNITIES:**
-• 🏃 Momentum trading on major breakouts
+• 🏃 Momentum trading on breakout strategies
 • ⚡ Long positions on pullbacks to support
 • 🚀 Altcoin rotation plays
 • 🔄 Futures premium arbitrage
