@@ -1477,10 +1477,10 @@ class AIAssistant:
 
             # IMPROVED base confidence calculation with better weighting
             base_confidence = 35 + (price_momentum_score * 1.2) + (volatility_bonus * 0.9) + (timing_score * 0.8) + (symbol_momentum_bonus * 1.0)
-            
+
             # Additional quality factors for better confidence
             quality_bonus = 0
-            
+
             # Major coin premium (BTC, ETH get higher base confidence)
             if symbol.upper() in ['BTC', 'ETH']:
                 quality_bonus += 12
@@ -1488,11 +1488,11 @@ class AIAssistant:
                 quality_bonus += 8
             elif symbol.upper() in ['UNI', 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT']:
                 quality_bonus += 5
-                
+
             # Market cap stability bonus
             if symbol.upper() in ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA']:
                 quality_bonus += 8  # Top 10 stability
-                
+
             base_confidence += quality_bonus
 
             # ENHANCED market position analysis with better confidence scoring
@@ -1505,14 +1505,14 @@ class AIAssistant:
                 tp3 = snd_zones['supply_2_low']
                 sl = snd_zones['demand_1_low']
                 strategy = "SnD Demand Zone Reversal"
-                
+
                 # IMPROVED confidence for perfect zone setups
                 zone_confidence_bonus = 30
                 if distance_to_demand < 0.5:  # Very close to demand zone
                     zone_confidence_bonus = 35
                 elif distance_to_demand < 1.0:  # Close to demand zone
                     zone_confidence_bonus = 32
-                    
+
                 base_confidence = min(88, base_confidence + zone_confidence_bonus)
 
             elif current_price >= supply_1_mid and distance_to_supply < 2:
@@ -1524,14 +1524,14 @@ class AIAssistant:
                 tp3 = snd_zones['demand_2_low']
                 sl = snd_zones['supply_1_high']
                 strategy = "SnD Supply Zone Reversal"
-                
+
                 # IMPROVED confidence for perfect zone setups
                 zone_confidence_bonus = 30
                 if distance_to_supply < 0.5:  # Very close to supply zone
                     zone_confidence_bonus = 35
                 elif distance_to_supply < 1.0:  # Close to supply zone
                     zone_confidence_bonus = 32
-                    
+
                 base_confidence = min(88, base_confidence + zone_confidence_bonus)
 
             elif current_price < supply_1_mid and current_price > demand_1_mid:
@@ -1705,7 +1705,7 @@ class AIAssistant:
             elif symbol.upper() in ['SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
                 symbol_quality = 1.03          # Very small bonus for established alts
 
-            # More realistic confidence calculation - no extreme multiplications
+            # Final confidence with controlled variation - cap at 90%
             raw_confidence = base_confidence + (volume_score * 0.5) + (zone_precision_bonus * 0.8)
 
             # Apply conservative multipliers
@@ -1713,13 +1713,13 @@ class AIAssistant:
 
             # IMPROVED variation algorithm with controlled randomness
             import random
-            
+
             # Create consistent but varied confidence using symbol characteristics
             symbol_hash = int(hashlib.md5(f"{symbol}".encode()).hexdigest()[:4], 16)
-            
+
             # More controlled variation range: 0.85 to 1.15 for better consistency
             hash_variation = 0.85 + (symbol_hash % 300) / 1000  # Range: 0.85 to 1.15
-            
+
             # Market condition multipliers - more predictable
             market_multiplier = 1.0
             if symbol.upper() in ['BTC', 'ETH'] and abs(change_24h) > 5:
@@ -1730,7 +1730,7 @@ class AIAssistant:
                 market_multiplier = 1.05  # 5% bonus for strong moves
             elif abs(change_24h) < 1:   # Weak movement
                 market_multiplier = 0.90  # 10% penalty for weak movement
-            
+
             # Volume impact - more predictable scaling
             volume_multiplier = 1.0
             if volume_24h > 3000000000:     # Very high volume
@@ -1741,7 +1741,7 @@ class AIAssistant:
                 volume_multiplier = 1.02
             elif volume_24h < 200000000:    # Low volume
                 volume_multiplier = 0.88
-            
+
             # Final confidence with controlled variation - cap at 90%
             preliminary_final = adjusted_confidence * hash_variation * market_multiplier * volume_multiplier
             final_confidence = min(90, max(40, preliminary_final))
@@ -2170,8 +2170,8 @@ class AIAssistant:
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
                     futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
-                    # IMPROVED threshold - capture signals with 58%+ confidence to match individual analysis
-                    if (futures_signals['confidence'] >= 58.0 and
+                    # IMPROVED threshold - capture signals with 65%+ confidence to match individual analysis
+                    if (futures_signals['confidence'] >= 65.0 and
                         futures_signals['direction'] in ['LONG', 'SHORT'] and
                         futures_signals['rr'] >= 1.5):
 
@@ -2218,7 +2218,7 @@ class AIAssistant:
             signals_text = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
 
 🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
-📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 58.0%)
+📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 65.0% - Quality Only)
 
 💰 **GLOBAL METRICS:**
 • Total Market Cap: {format_large_number(total_market_cap)}
@@ -2301,19 +2301,15 @@ class AIAssistant:
                 signals_text += f"""⚠️ **NO HIGH-CONFIDENCE SIGNALS**
 
 📊 **Scanned**: {total_scanned} coins
-📈 **Found**: 0 signals (58%+ threshold)
-💤 **Status**: Market consolidation
+📈 **Found**: 0 signals (65%+ threshold - Quality Only)
+💤 **Status**: Market consolidation or low confidence conditions
 
-💡 **RECOMMENDATIONS**:
-• Check back in 30-60 minutes
-• Use `/futures btc` for specific analysis
-• Monitor for breakout confirmations
-
-📡 **Data Sources**: CoinAPI + Internal SnD Algorithm
-🔄 **Refresh**: Every 15-30 minutes for new setups
-⏰ **Valid**: Next 4-24 hours (4H analysis)
-
-✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
+💡 **HONEST RECOMMENDATIONS**:
+• Market may not have clear trading opportunities right now
+• This is NORMAL - good signals are rare, not constant
+• Use `/futures btc` for specific analysis (may show 45-65% confidence)
+• Wait for genuine high-probability setups
+• Quality over quantity - better to wait than force trades"""
 
             return signals_text
 
