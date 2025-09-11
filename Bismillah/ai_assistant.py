@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Tuple
 import random
+import hashlib
 
 class AIAssistant:
     """AI Assistant for crypto analysis with CoinAPI integration"""
@@ -338,47 +339,57 @@ class AIAssistant:
         # Final confidence calculation with advanced validation
         final_confidence = min(100, preliminary_confidence + confidence_bonus)
 
-        # Enhanced confidence threshold - require 75% for directional signals
-        if final_confidence < 75:
+        # Honest confidence threshold - require 55% for directional signals (more realistic)
+        if final_confidence < 55:
             direction = "NEUTRAL"
             emoji = "⚖️"
             strength = "Low Confidence"
             trend = "Uncertain Market"
 
         # Advanced entry, TP, SL calculation based on volatility
-        volatility_factor = min(0.02, abs(change_24h) / 100 * 0.5)  # Dynamic based on volatility
+        volatility_factor = min(0.03, abs(change_24h) / 100 * 0.8)  # More dynamic volatility
 
-        if direction == "LONG" and final_confidence >= 75:
-            entry_price = price * (1 - volatility_factor * 0.3)  # Better entry on pullback
-            take_profit = price * (1 + volatility_factor * 2.5)   # Dynamic TP based on volatility
-            stop_loss = price * (1 - volatility_factor * 1.5)     # Dynamic SL
-        elif direction == "SHORT" and final_confidence >= 75:
-            entry_price = price * (1 + volatility_factor * 0.3)   # Better entry on bounce
-            take_profit = price * (1 - volatility_factor * 2.5)   # Dynamic TP (lower price)
-            stop_loss = price * (1 + volatility_factor * 1.5)     # Dynamic SL (higher price)
+        # Enhanced R:R calculation with minimum 1.8:1 requirement
+        volatility_factor = min(0.03, abs(change_24h) / 100 * 0.8)  # More dynamic volatility
+
+        # Calculate R:R based on market conditions and timeframe
+        base_rr_multiplier = 2.0  # Base 2:1 ratio
+        if abs(change_24h) > 10:  # High volatility = higher potential R:R
+            base_rr_multiplier = 4.0
+        elif abs(change_24h) > 7:
+            base_rr_multiplier = 3.5
+        elif abs(change_24h) > 5:
+            base_rr_multiplier = 3.0
+        elif abs(change_24h) > 3:
+            base_rr_multiplier = 2.5
+
+        if direction == "LONG" and final_confidence >= 55:  # Lower threshold for honest signals
+            # Calculate stop loss first
+            stop_distance = max(volatility_factor * 1.2, 0.015)  # Minimum 1.5% stop
+            entry_price = price * (1 - volatility_factor * 0.2)  # Slight pullback entry
+            stop_loss = entry_price * (1 - stop_distance)
+
+            # Calculate take profit based on R:R requirement
+            risk = abs(entry_price - stop_loss)
+            reward_needed = risk * base_rr_multiplier
+            take_profit = entry_price + reward_needed
+
+        elif direction == "SHORT" and final_confidence >= 55:  # Lower threshold for honest signals
+            # Calculate stop loss first  
+            stop_distance = max(volatility_factor * 1.2, 0.015)  # Minimum 1.5% stop
+            entry_price = price * (1 + volatility_factor * 0.2)  # Slight bounce entry
+            stop_loss = entry_price * (1 + stop_distance)
+
+            # Calculate take profit based on R:R requirement
+            risk = abs(stop_loss - entry_price)
+            reward_needed = risk * base_rr_multiplier
+            take_profit = entry_price - reward_needed
+
         else:
-            # NEUTRAL or low confidence
+            # NEUTRAL or very low confidence
             entry_price = price
             take_profit = price * 1.005   # Very minimal target
             stop_loss = price * 0.995     # Very tight stop
-
-        # Strategy determination based on confidence and market conditions
-        if final_confidence >= 90:
-            strategy = "High Conviction Trade"
-        elif final_confidence >= 80:
-            strategy = "Strong Momentum Play"
-        elif final_confidence >= 75:
-            strategy = "Cautious Position"
-        else:
-            strategy = "Wait for Better Setup"
-
-        # Time horizon based on confidence and volatility
-        if final_confidence >= 85 and abs_change > 5:
-            time_horizon = "2-8 hours (Intraday)"
-        elif final_confidence >= 75:
-            time_horizon = "4-24 hours (Swing)"
-        else:
-            time_horizon = "Wait for signals"
 
         return {
             'direction': direction,
@@ -389,8 +400,8 @@ class AIAssistant:
             'take_profit': take_profit,
             'stop_loss': stop_loss,
             'confidence': round(final_confidence, 1),
-            'strategy': strategy,
-            'time_horizon': time_horizon,
+            'strategy': 'Advanced R:R Strategy',
+            'time_horizon': 'Dynamic based on volatility',
             'momentum_score': momentum_score,
             'volume_score': volume_score,
             'market_bonus': market_structure_bonus + volatility_bonus
@@ -1232,7 +1243,7 @@ class AIAssistant:
 • `/analyze {symbol}` - Comprehensive analysis
 • `/market` - Market overview"""
 
-    def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict) -> Dict:
+    def _generate_futures_signals(self, symbol: str, current_price: float, timeframe: str, snd_zones: Dict, volume_24h: float) -> Dict:
         """Generate futures-specific trading signals"""
         # Calculate signals based on SnD zones and timeframe
         supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
@@ -1339,7 +1350,22 @@ class AIAssistant:
             demand_1_mid = (snd_zones['demand_1_low'] + snd_zones['demand_1_high']) / 2
 
             # Get real 24h change for dynamic calculation
-            change_24h = price_data.get('change_24h', 0) if 'price_data' in locals() else 0
+            change_24h = 0  # Initialize change_24h
+            try:
+                # Attempt to get price_data from the outer scope if available, otherwise fetch it
+                if 'price_data' not in locals():
+                    if crypto_api:
+                        price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                    else:
+                        price_data = {}
+                else:
+                    # If price_data is already available from get_futures_analysis, use it
+                    pass # price_data is already available
+
+                change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+            except Exception as e:
+                print(f"Error getting change_24h for {symbol}: {e}")
+                change_24h = 0 # Default to 0 if error
 
             # Timeframe-specific movement expectations for proper R:R calculation
             timeframe_multipliers = {
@@ -1350,7 +1376,7 @@ class AIAssistant:
                 '1d': {'min_move': 0.050, 'max_move': 0.120, 'volatility': 4.0},   # Position: 5-12%
                 '1w': {'min_move': 0.100, 'max_move': 0.250, 'volatility': 6.0}    # Long-term: 10-25%
             }
-            
+
             tf_config = timeframe_multipliers.get(timeframe, timeframe_multipliers['4h'])
 
             # Enhanced volume analysis with progressive scoring - REAL-TIME
@@ -1418,16 +1444,6 @@ class AIAssistant:
                 zone_precision_bonus = 5
 
             # Advanced direction logic with DYNAMIC base confidence based on market conditions
-
-            # Get real price data for dynamic calculation - fix the missing variable issue
-            try:
-                if crypto_api:
-                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-                else:
-                    change_24h = 0
-            except:
-                change_24h = 0
 
             # Calculate dynamic base confidence using multiple real-time factors
             price_momentum_score = min(25, abs(change_24h) * 3)  # Price movement contributes to confidence
@@ -1504,9 +1520,9 @@ class AIAssistant:
                     direction = "SHORT"
                     emoji = "🔴"
                     entry = current_price * 1.001
-                    tp1 = demand_1_mid                    # TP1: First target (lower price)
-                    tp2 = snd_zones['demand_1_low']       # TP2: Second target (even lower)
-                    tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest)
+                    tp1 = demand_1_mid
+                    tp2 = snd_zones['demand_1_low']
+                    tp3 = snd_zones['demand_2_low']
                     sl = supply_1_mid
                     strategy = "Range Breakdown Short"
                     base_confidence = 75
@@ -1561,39 +1577,39 @@ class AIAssistant:
                     atr_stop = current_price * (tf_config['min_move'] * 0.8)  # Tighter stop
                     zone_stop = abs(current_price - demand_1_mid) * 1.2       # Zone-based stop
                     sl = current_price - max(atr_stop, zone_stop)
-                    
+
                     # Calculate targets with proper R:R ratios
                     risk = abs(entry - sl)
-                    
+
                     # Ensure minimum 1.5:1 R:R ratio
                     min_reward = risk * 1.5
-                    
+
                     # Timeframe-specific target calculation
                     tp1_distance = max(min_reward, current_price * tf_config['min_move'])
                     tp2_distance = current_price * (tf_config['min_move'] * 1.8)
                     tp3_distance = current_price * tf_config['max_move']
-                    
+
                     tp1 = entry + tp1_distance
                     tp2 = entry + tp2_distance  
                     tp3 = entry + tp3_distance
-                    
+
                 elif direction == "SHORT":
                     # Dynamic stop loss calculation for SHORT positions
                     atr_stop = current_price * (tf_config['min_move'] * 0.8)  # Tighter stop
                     zone_stop = abs(current_price - supply_1_mid) * 1.2       # Zone-based stop
                     sl = current_price + max(atr_stop, zone_stop)
-                    
+
                     # Calculate targets with proper R:R ratios
                     risk = abs(sl - entry)
-                    
+
                     # Ensure minimum 1.5:1 R:R ratio
                     min_reward = risk * 1.5
-                    
+
                     # Timeframe-specific target calculation
                     tp1_distance = max(min_reward, current_price * tf_config['min_move'])
                     tp2_distance = current_price * (tf_config['min_move'] * 1.8)
                     tp3_distance = current_price * tf_config['max_move']
-                    
+
                     tp1 = entry - tp1_distance
                     tp2 = entry - tp2_distance
                     tp3 = entry - tp3_distance
@@ -1603,13 +1619,13 @@ class AIAssistant:
                     tp1 = current_price * 1.005
                     tp2 = current_price * 1.01
                     tp3 = current_price * 1.015
-                
+
                 # Final R:R calculation
                 if direction in ["LONG", "SHORT"]:
                     risk = abs(entry - sl)
                     reward = abs(tp1 - entry)
                     rr_ratio = reward / risk if risk > 0 else 1.0
-                    
+
                     # Enforce minimum 1.5:1 R:R ratio - reject signals below this
                     if rr_ratio < 1.5:
                         direction = "NEUTRAL"
@@ -1618,7 +1634,7 @@ class AIAssistant:
                         base_confidence = 30  # Low confidence for poor R:R
                 else:
                     rr_ratio = 1.0
-                    
+
             except Exception as e:
                 print(f"R:R calculation error: {e}")
                 rr_ratio = 1.0
@@ -1663,7 +1679,6 @@ class AIAssistant:
                              timing_bonus * symbol_quality
 
             # Add symbol-specific hash-based variation to ensure consistent but different values per symbol
-            import hashlib
             symbol_hash = int(hashlib.md5(f"{symbol}{current_price:.2f}{volume_24h:.0f}".encode()).hexdigest()[:8], 16)
             hash_variation = 0.85 + (symbol_hash % 1000) / 3333.33  # Range: 0.85 to 1.15
 
@@ -1682,8 +1697,8 @@ class AIAssistant:
             # Cap at 95% maximum for realistic expectations (never 100% certain)
             final_confidence = min(95, max(30, raw_confidence * hash_variation * market_bonus * time_variation))
 
-            # Enhanced confidence threshold - require 65% for directional signals
-            if final_confidence < 65:
+            # Honest confidence threshold - require 55% for directional signals (more realistic)
+            if final_confidence < 55:
                 direction = "NEUTRAL"
                 emoji = "⚖️"
                 # Neutralize all prices to prevent user entry
@@ -1730,7 +1745,7 @@ class AIAssistant:
                 '1d': 'Daily Trend',
                 '1w': 'Weekly Macro'
             }
-            
+
             if strategy == "SnD Demand Zone Reversal":
                 strategy = f"{strategy_mapping.get(timeframe, 'SnD')} - Demand Reversal"
             elif strategy == "SnD Supply Zone Reversal":
@@ -2057,7 +2072,7 @@ class AIAssistant:
             # Parse query args for timeframe (default 4h)
             timeframe = '4h'
             valid_timeframes = ['15m', '30m', '1h', '4h', '1d', '1w']
-            
+
             if query_args:
                 for arg in query_args:
                     arg_lower = arg.lower()
@@ -2076,7 +2091,7 @@ class AIAssistant:
             for symbol in symbols:
                 try:
                     total_scanned += 1
-                    
+
                     # Get comprehensive market data
                     price_data = {}
                     if crypto_api:
@@ -2098,7 +2113,7 @@ class AIAssistant:
                         'volume_24h': volume_24h,
                         'market_cap': market_cap if market_cap else current_price * 1000000000
                     })
-                    
+
                     total_volume += volume_24h
                     total_change += change_24h
                     total_market_cap += (market_cap if market_cap else current_price * 1000000000)
@@ -2111,7 +2126,7 @@ class AIAssistant:
                     if (futures_signals['confidence'] >= 75.0 and 
                         futures_signals['direction'] in ['LONG', 'SHORT'] and 
                         futures_signals['rr'] >= 1.5):
-                        
+
                         signals_found.append({
                             'symbol': symbol,
                             'signals': futures_signals,
@@ -2131,7 +2146,7 @@ class AIAssistant:
             # Calculate global metrics
             avg_change = total_change / len(market_data) if market_data else 0
             active_cryptos = 9543
-            
+
             # Calculate dominance
             btc_data = next((d for d in market_data if d['symbol'] == 'BTC'), None)
             eth_data = next((d for d in market_data if d['symbol'] == 'ETH'), None)
@@ -2174,7 +2189,7 @@ class AIAssistant:
                     symbol = signal_data['symbol']
                     current_price = signal_data['current_price']
                     change_24h = signal_data['change_24h']
-                    
+
                     direction = signal['direction']
                     confidence = signal['confidence']
                     entry = signal['entry']
@@ -2182,7 +2197,7 @@ class AIAssistant:
                     tp1 = signal['tp1']
                     tp2 = signal['tp2']
                     rr = signal['rr']
-                    
+
                     # Direction icon and bias
                     if direction == "LONG":
                         direction_icon = "🟢"
@@ -2190,7 +2205,7 @@ class AIAssistant:
                     else:
                         direction_icon = "🔴"
                         structure_bias = "SHORT Bias"
-                    
+
                     # Format prices based on value
                     def format_signal_price(price):
                         if price < 1:
@@ -2199,7 +2214,7 @@ class AIAssistant:
                             return f"${price:.2f}"
                         else:
                             return f"${price:.2f}"
-                    
+
                     # Trend determination
                     if abs(change_24h) > 5:
                         trend_status = "Strong Bullish" if change_24h > 0 else "Strong Bearish"
