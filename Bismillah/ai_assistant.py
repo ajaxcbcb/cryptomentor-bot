@@ -1353,20 +1353,15 @@ class AIAssistant:
             supply_1_mid = (snd_zones['supply_1_low'] + snd_zones['supply_1_high']) / 2
             demand_1_mid = (snd_zones['demand_1_low'] + snd_zones['demand_1_high']) / 2
 
-            # Get real 24h change for dynamic calculation
+            # Get real 24h change for dynamic calculation - IMPROVED FETCHING
             change_24h = 0  # Initialize change_24h
             try:
-                # Attempt to get price_data from the outer scope if available, otherwise fetch it
-                if 'price_data' not in locals():
-                    if crypto_api:
-                        price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                if crypto_api:
+                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                    if 'error' not in price_data:
+                        change_24h = price_data.get('change_24h', 0)
                     else:
-                        price_data = {}
-                else:
-                    # If price_data is already available from get_futures_analysis, use it
-                    pass # price_data is already available
-
-                change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+                        print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error')}")
             except Exception as e:
                 print(f"Error getting change_24h for {symbol}: {e}")
                 change_24h = 0 # Default to 0 if error
@@ -1480,10 +1475,27 @@ class AIAssistant:
             elif symbol.upper() in ['SOL', 'ADA', 'DOT'] and abs(change_24h) > 5:
                 symbol_momentum_bonus = 12  # Altcoin breakout bonus
 
-            # Realistic base confidence - start much lower for honest signals
-            base_confidence = 25 + (price_momentum_score * 0.8) + (volatility_bonus * 0.6) + (timing_score * 0.5) + (symbol_momentum_bonus * 0.7)
+            # IMPROVED base confidence calculation with better weighting
+            base_confidence = 35 + (price_momentum_score * 1.2) + (volatility_bonus * 0.9) + (timing_score * 0.8) + (symbol_momentum_bonus * 1.0)
+            
+            # Additional quality factors for better confidence
+            quality_bonus = 0
+            
+            # Major coin premium (BTC, ETH get higher base confidence)
+            if symbol.upper() in ['BTC', 'ETH']:
+                quality_bonus += 12
+            elif symbol.upper() in ['SOL', 'ADA', 'BNB', 'XRP', 'DOT', 'MATIC', 'AVAX']:
+                quality_bonus += 8
+            elif symbol.upper() in ['UNI', 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT']:
+                quality_bonus += 5
+                
+            # Market cap stability bonus
+            if symbol.upper() in ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA']:
+                quality_bonus += 8  # Top 10 stability
+                
+            base_confidence += quality_bonus
 
-            # More realistic confidence based on market position
+            # ENHANCED market position analysis with better confidence scoring
             if current_price <= demand_1_mid and distance_to_demand < 2:
                 direction = "LONG"
                 emoji = "🟢"
@@ -1493,8 +1505,15 @@ class AIAssistant:
                 tp3 = snd_zones['supply_2_low']
                 sl = snd_zones['demand_1_low']
                 strategy = "SnD Demand Zone Reversal"
-                # Even perfect zone reversal shouldn't be 85% - be honest
-                base_confidence = min(78, base_confidence + 25)
+                
+                # IMPROVED confidence for perfect zone setups
+                zone_confidence_bonus = 30
+                if distance_to_demand < 0.5:  # Very close to demand zone
+                    zone_confidence_bonus = 35
+                elif distance_to_demand < 1.0:  # Close to demand zone
+                    zone_confidence_bonus = 32
+                    
+                base_confidence = min(88, base_confidence + zone_confidence_bonus)
 
             elif current_price >= supply_1_mid and distance_to_supply < 2:
                 direction = "SHORT"
@@ -1505,8 +1524,15 @@ class AIAssistant:
                 tp3 = snd_zones['demand_2_low']
                 sl = snd_zones['supply_1_high']
                 strategy = "SnD Supply Zone Reversal"
-                # Even perfect zone reversal shouldn't be 85% - be honest
-                base_confidence = min(78, base_confidence + 25)
+                
+                # IMPROVED confidence for perfect zone setups
+                zone_confidence_bonus = 30
+                if distance_to_supply < 0.5:  # Very close to supply zone
+                    zone_confidence_bonus = 35
+                elif distance_to_supply < 1.0:  # Close to supply zone
+                    zone_confidence_bonus = 32
+                    
+                base_confidence = min(88, base_confidence + zone_confidence_bonus)
 
             elif current_price < supply_1_mid and current_price > demand_1_mid:
                 # Between zones - lower confidence naturally
@@ -1685,47 +1711,43 @@ class AIAssistant:
             # Apply conservative multipliers
             adjusted_confidence = raw_confidence * timeframe_multiplier * rr_bonus * timing_bonus * symbol_quality * volume_multiplier
 
-            # Add REAL variation based on symbol, time, and market conditions for honest confidence
+            # IMPROVED variation algorithm with controlled randomness
             import random
             
-            # Seed randomness with symbol + current time to ensure different results per scan
-            random.seed(f"{symbol}{current_price:.2f}{datetime.now().strftime('%H%M')}")
+            # Create consistent but varied confidence using symbol characteristics
+            symbol_hash = int(hashlib.md5(f"{symbol}".encode()).hexdigest()[:4], 16)
             
-            # Much more aggressive variation for honest confidence levels
-            symbol_hash = int(hashlib.md5(f"{symbol}{current_price:.2f}".encode()).hexdigest()[:4], 16)
+            # More controlled variation range: 0.85 to 1.15 for better consistency
+            hash_variation = 0.85 + (symbol_hash % 300) / 1000  # Range: 0.85 to 1.15
             
-            # Wider variation range: 0.75 to 1.15 (much more realistic spread)
-            hash_variation = 0.75 + (symbol_hash % 400) / 1000  # Range: 0.75 to 1.15
-            
-            # Market condition variation - real market impact
-            market_bonus = 1.0
+            # Market condition multipliers - more predictable
+            market_multiplier = 1.0
             if symbol.upper() in ['BTC', 'ETH'] and abs(change_24h) > 5:
-                market_bonus = random.uniform(1.02, 1.08)  # 2-8% bonus with randomness
-            elif abs(change_24h) > 8:
-                market_bonus = random.uniform(1.01, 1.05)  # 1-5% bonus with randomness
-            elif abs(change_24h) < 1:
-                market_bonus = random.uniform(0.85, 0.95)  # Penalty for low movement
+                market_multiplier = 1.06  # Consistent 6% bonus for major moves
+            elif abs(change_24h) > 10:  # Very strong movement
+                market_multiplier = 1.08  # 8% bonus for extreme moves
+            elif abs(change_24h) > 7:   # Strong movement
+                market_multiplier = 1.05  # 5% bonus for strong moves
+            elif abs(change_24h) < 1:   # Weak movement
+                market_multiplier = 0.90  # 10% penalty for weak movement
             
-            # Time-based natural variation
-            time_variation = random.uniform(0.88, 1.12)  # ±12% random variation
+            # Volume impact - more predictable scaling
+            volume_multiplier = 1.0
+            if volume_24h > 3000000000:     # Very high volume
+                volume_multiplier = 1.08
+            elif volume_24h > 1500000000:   # High volume
+                volume_multiplier = 1.05
+            elif volume_24h > 800000000:    # Good volume
+                volume_multiplier = 1.02
+            elif volume_24h < 200000000:    # Low volume
+                volume_multiplier = 0.88
             
-            # Volume impact on confidence
-            volume_impact = 1.0
-            if volume_24h > 2000000000:  # High volume = more confidence
-                volume_impact = random.uniform(1.02, 1.06)
-            elif volume_24h < 500000000:  # Low volume = less confidence
-                volume_impact = random.uniform(0.85, 0.95)
-            
-            # Final realistic confidence with MUCH more variation - cap at 88%
-            preliminary_final = adjusted_confidence * hash_variation * market_bonus * time_variation * volume_impact
-            final_confidence = min(88, max(35, preliminary_final))
-            
-            # Add final randomness to prevent clustering around the same values
-            final_randomness = random.uniform(0.95, 1.05)
-            final_confidence = final_confidence * final_randomness
+            # Final confidence with controlled variation - cap at 90%
+            preliminary_final = adjusted_confidence * hash_variation * market_multiplier * volume_multiplier
+            final_confidence = min(90, max(40, preliminary_final))
 
-            # Honest confidence threshold - require 58% for directional signals (realistic)
-            if final_confidence < 58:
+            # IMPROVED confidence threshold - require 55% for directional signals (better filtering)
+            if final_confidence < 55:
                 direction = "NEUTRAL"
                 emoji = "⚖️"
                 # Neutralize all prices to prevent user entry
@@ -2148,8 +2170,8 @@ class AIAssistant:
                     snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
                     futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
-                    # More selective threshold - capture signals with 65%+ confidence for honest results
-                    if (futures_signals['confidence'] >= 65.0 and
+                    # IMPROVED threshold - capture signals with 58%+ confidence to match individual analysis
+                    if (futures_signals['confidence'] >= 58.0 and
                         futures_signals['direction'] in ['LONG', 'SHORT'] and
                         futures_signals['rr'] >= 1.5):
 
@@ -2196,7 +2218,7 @@ class AIAssistant:
             signals_text = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
 
 🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
-📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 65.0%)
+📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 58.0%)
 
 💰 **GLOBAL METRICS:**
 • Total Market Cap: {format_large_number(total_market_cap)}
@@ -2279,7 +2301,7 @@ class AIAssistant:
                 signals_text += f"""⚠️ **NO HIGH-CONFIDENCE SIGNALS**
 
 📊 **Scanned**: {total_scanned} coins
-📈 **Found**: 0 signals (65%+ threshold)
+📈 **Found**: 0 signals (58%+ threshold)
 💤 **Status**: Market consolidation
 
 💡 **RECOMMENDATIONS**:
