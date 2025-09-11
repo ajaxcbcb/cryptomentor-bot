@@ -286,8 +286,8 @@ class AIAssistant:
         preliminary_confidence = (base_confidence + momentum_score + volume_score +
                                 market_structure_bonus + volatility_bonus) * symbol_multiplier
 
-        # Cap at 100% for realistic expectations
-        final_confidence = min(100, max(30, preliminary_confidence))
+        # Cap at 95% for realistic expectations (never 100% certain)
+        final_confidence = min(95, max(30, preliminary_confidence))
 
         # Direction and strength determination with enhanced logic
         abs_change = abs(change_24h)
@@ -411,7 +411,7 @@ class AIAssistant:
 
         # Enhanced confidence calculation
         confidence = 50 + abs(change_24h) * 3  # Base confidence on market movement
-        confidence = min(100, max(30, confidence))
+        confidence = min(95, max(30, confidence))
 
         # Global sentiment determination
         if change_24h > 3:
@@ -432,7 +432,7 @@ class AIAssistant:
 
         # Adjust base score with volume multiplier before capping
         adjusted_base_score = base_score * confidence_multiplier
-        final_score = max(0, min(100, adjusted_base_score))
+        final_score = max(0, min(95, adjusted_base_score))
 
 
         if final_score > 70:
@@ -1058,7 +1058,7 @@ class AIAssistant:
             # Dynamic signal status based on REAL confidence
             if confidence >= 90:
                 signal_status = "🎯 **ULTRA PREMIUM** - EXECUTE NOW!"
-                action_advice = "✅ **Action**: Maximum conviction trade - Full position"
+                action_advice = "✅ **Action**: Maximum conviction trade - Full position (Max 95%)"
             elif confidence >= 85:
                 signal_status = "🔥 **PREMIUM SIGNAL** - Strong Entry"
                 action_advice = "✅ **Action**: High conviction trade - 80% position"
@@ -1104,7 +1104,7 @@ class AIAssistant:
             # Get technical indicators for professional analysis
             tech_indicators = self._calculate_professional_indicators(symbol, current_price, change_24h, snd_zones, crypto_api)
 
-            # Enhanced confidence display with more professional categorization
+            # Enhanced confidence display with more professional categorization (max 95%)
             if confidence >= 90:
                 confidence_level = "🔥 Extremely High"
             elif confidence >= 85:
@@ -1679,8 +1679,8 @@ class AIAssistant:
             # Time-based variation for more realistic confidence
             time_variation = 0.95 + (datetime.now().minute % 20) / 100  # Small time-based variation
 
-            # Cap at 100% maximum for realistic expectations
-            final_confidence = min(100, max(30, raw_confidence * hash_variation * market_bonus * time_variation))
+            # Cap at 95% maximum for realistic expectations (never 100% certain)
+            final_confidence = min(95, max(30, raw_confidence * hash_variation * market_bonus * time_variation))
 
             # Enhanced confidence threshold - require 65% for directional signals
             if final_confidence < 65:
@@ -2022,7 +2022,7 @@ class AIAssistant:
         insights = []
 
         if confidence >= 90:
-            insights.append("• 🔥 Extremely high probability setup - Consider larger position")
+            insights.append("• 🔥 Extremely high probability setup (Max 95%) - Consider larger position")
         elif confidence >= 85:
             insights.append("• ⚡️ Strong confluence of multiple signals")
         elif confidence >= 75:
