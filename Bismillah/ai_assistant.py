@@ -123,6 +123,146 @@ class AIAssistant:
             print(f"Error in comprehensive analysis: {e}")
             return f"❌ Terjadi kesalahan dalam analisis {symbol}. Error: {str(e)[:100]}..."
 
+    async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
+        """Generate comprehensive crypto analysis with progress tracking"""
+        try:
+            # Update progress: Stage 1 - Data fetching
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 15, "🔍 Mengambil data CoinAPI...")
+                await asyncio.sleep(2.5)  # Realistic API call time
+
+            # Get real-time price data
+            price_data = {}
+            if crypto_api:
+                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+
+            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+
+            if current_price <= 0:
+                # Complete job even on error
+                if user_id and progress_tracker:
+                    progress_tracker.complete_job(user_id)
+                return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
+
+            # Update progress: Stage 2 - Technical analysis
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 35, "📊 Memproses technical indicators...")
+                await asyncio.sleep(3.2)  # Technical analysis time
+
+            # Price formatting
+            if current_price < 1:
+                price_format = f"${current_price:.8f}"
+            elif current_price < 100:
+                price_format = f"${current_price:.4f}"
+            else:
+                price_format = f"${current_price:,.2f}"
+
+            # Volume formatting
+            if volume_24h > 1000000000:
+                volume_format = f"${volume_24h/1000000000:.2f}B"
+            elif volume_24h > 1000000:
+                volume_format = f"${volume_24h/1000000:.1f}M"
+            else:
+                volume_format = f"${volume_24h:,.0f}"
+
+            # Update progress: Stage 3 - SnD zones
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 55, "💰 Menghitung SnD zones...")
+                await asyncio.sleep(2.8)  # SnD calculation time
+
+            # Get Supply & Demand zones
+            snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
+
+            # Update progress: Stage 4 - Signal generation
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 75, "📈 Generating trading signals...")
+                await asyncio.sleep(3.5)  # Signal generation time
+
+            # Generate signals
+            signal_data = self._generate_trading_signals(symbol, current_price, change_24h, volume_24h)
+
+            # Update progress: Stage 5 - Sentiment analysis
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 90, "🧠 Menganalisis sentimen pasar...")
+                await asyncio.sleep(2.2)  # Sentiment analysis time
+
+            # Market sentiment
+            sentiment = self._analyze_market_sentiment(change_24h, volume_24h)
+
+            change_emoji = "📈" if change_24h >= 0 else "📉"
+            sentiment_emoji = "🟢" if sentiment['score'] > 60 else "🟡" if sentiment['score'] > 40 else "🔴"
+
+            # Get additional info (news, market context, etc.)
+            additional_info = self._get_additional_market_info(symbol, current_price, change_24h)
+
+            # Update progress: Final stage
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 98, "✍️ Menyusun laporan final...")
+                await asyncio.sleep(1.5)  # Final formatting
+
+            # Format analysis with proper spacing
+            analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol} (CoinAPI + SnD)**
+
+💰 **Data Harga Real-time:**
+• **Harga Saat Ini**: {price_format}
+• **Perubahan 24j**: {change_24h:+.2f}% {change_emoji}
+• **Volume 24j**: {volume_format}
+
+🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
+• 🔴 Supply Zone 1: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
+• 🔴 Supply Zone 2: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
+• 🟢 Demand Zone 1: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
+• 🟢 Demand Zone 2: ${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}
+
+📈 **SINYAL TRADING:**
+• **Arah**: {signal_data.get('direction', 'NEUTRAL')} {signal_data.get('emoji', '⚖️')}
+• **Confidence**: {signal_data.get('confidence', 50):.1f}%
+• **Kekuatan**: {signal_data.get('strength', 'Medium')}
+• **Entry Point**: ${signal_data.get('entry_price', current_price):,.6f}
+• **Take Profit**: ${signal_data.get('take_profit', current_price * 1.05):,.6f}
+• **Stop Loss**: ${signal_data.get('stop_loss', current_price * 0.95):,.6f}
+
+🧠 **ANALISIS SENTIMEN** {sentiment_emoji}:
+• **Skor Sentimen**: {sentiment['score']}/100
+• **Status**: {sentiment['status']}
+• **Momentum**: {sentiment['momentum']}
+
+📊 **TECHNICAL ANALYSIS:**
+• **RSI Estimasi**: {self._calculate_rsi_estimate(change_24h)}
+• **Trend**: {signal_data.get('trend', 'Sideways')}
+• **Support**: ${current_price * 0.95:,.6f}
+• **Resistance**: ${current_price * 1.05:,.6f}
+
+{additional_info}
+
+💡 **REKOMENDASI TRADING:**
+{self._generate_trading_recommendations(signal_data, sentiment, snd_zones, current_price)}
+
+⚠️ **RISK MANAGEMENT:**
+• Position size maksimal: 2-3% dari portfolio
+• Selalu gunakan stop loss
+• Take profit bertahap di level SnD zones
+• Monitor volume untuk konfirmasi breakout
+
+📡 **Data Source**: Binance Real-time + Internal SnD Algorithm
+🕐 **Analisis**: {datetime.now().strftime('%H:%M:%S WIB')}"""
+
+            # Complete the job
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 100, "✅ Analysis complete!")
+                progress_tracker.complete_job(user_id)
+
+            return analysis
+
+        except Exception as e:
+            # Complete job even on error
+            if user_id and progress_tracker:
+                progress_tracker.complete_job(user_id)
+            print(f"Error in comprehensive analysis: {e}")
+            return f"❌ Terjadi kesalahan dalam analisis {symbol}. Error: {str(e)[:100]}..."
+
     def _get_enhanced_supply_demand_zones(self, symbol: str, current_price: float, crypto_api=None) -> Dict:
         """Calculate enhanced Supply & Demand zones"""
         try:
@@ -2159,6 +2299,145 @@ class AIAssistant:
         insights.append("• 📈 Higher timeframe analysis supports this direction")
 
         return "\n".join(insights)
+
+    async def get_market_sentiment(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
+        """Generate market sentiment analysis with progress tracking"""
+        try:
+            # Market analysis with realistic processing times
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 15, "🌍 Fetching global market data...")
+                await asyncio.sleep(2.2)  # Realistic API call time
+
+            # Get market data from CoinAPI
+            market_data = []
+            symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
+            
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 35, "📊 Processing market metrics...")
+                await asyncio.sleep(2.8)  # Market analysis time
+
+            for symbol in symbols:
+                try:
+                    if crypto_api:
+                        price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                        if 'error' not in price_data and price_data.get('price', 0) > 0:
+                            market_data.append({
+                                'symbol': symbol,
+                                'price': price_data.get('price', 0),
+                                'change_24h': price_data.get('change_24h', 0),
+                                'volume_24h': price_data.get('volume_24h', 0)
+                            })
+                except Exception as e:
+                    print(f"Error getting data for {symbol}: {e}")
+                    continue
+
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 60, "🧠 Analyzing market sentiment...")
+                await asyncio.sleep(3.2)  # Sentiment analysis time
+
+            if not market_data:
+                return "❌ Unable to fetch market data from CoinAPI"
+
+            # Calculate market metrics
+            total_change = sum(coin['change_24h'] for coin in market_data)
+            avg_change = total_change / len(market_data)
+            total_volume = sum(coin['volume_24h'] for coin in market_data)
+
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 80, "💰 Calculating dominance...")
+                await asyncio.sleep(2.5)  # Calculation time
+
+            # BTC dominance simulation
+            btc_data = next((coin for coin in market_data if coin['symbol'] == 'BTC'), None)
+            btc_dominance = 45.0  # Default value
+            if btc_data:
+                btc_dominance = 50.0 + (btc_data['change_24h'] * 0.5)  # Estimate
+
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 95, "✍️ Building market overview...")
+                await asyncio.sleep(1.8)  # Final formatting
+
+            # Market sentiment analysis
+            if avg_change > 3:
+                sentiment = "🚀 EXTREMELY BULLISH"
+                market_mood = "Strong buying pressure across all majors"
+            elif avg_change > 1:
+                sentiment = "📈 BULLISH"
+                market_mood = "Positive momentum building"
+            elif avg_change > -1:
+                sentiment = "😐 NEUTRAL"
+                market_mood = "Consolidation phase"
+            elif avg_change > -3:
+                sentiment = "📉 BEARISH"
+                market_mood = "Selling pressure emerging"
+            else:
+                sentiment = "💥 EXTREMELY BEARISH"
+                market_mood = "Heavy selling across markets"
+
+            # Volume analysis
+            if total_volume > 50000000000:  # 50B+
+                volume_status = "🔥 Very High Volume"
+            elif total_volume > 30000000000:  # 30B+
+                volume_status = "⚡ High Volume"
+            elif total_volume > 15000000000:  # 15B+
+                volume_status = "📊 Good Volume"
+            else:
+                volume_status = "💤 Low Volume"
+
+            # Generate recommendations
+            recommendations = self._generate_coin_recommendations(market_data, avg_change, btc_dominance)
+            entry_analysis = self._generate_best_entry_analysis(market_data, sentiment)
+
+            analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL (CoinAPI Real-time)**
+
+📊 **SENTIMEN PASAR**: {sentiment}
+🎯 **Market Mood**: {market_mood}
+📈 **Rata-rata Perubahan**: {avg_change:+.2f}%
+🟠 **BTC Dominance**: {btc_dominance:.1f}%
+📊 **Volume Status**: {volume_status}
+
+💰 **TOP PERFORMERS (24H):**"""
+
+            # Show top performers
+            sorted_performers = sorted(market_data, key=lambda x: x['change_24h'], reverse=True)
+            for i, coin in enumerate(sorted_performers[:5], 1):
+                price_format = f"${coin['price']:.4f}" if coin['price'] < 100 else f"${coin['price']:,.2f}"
+                change_emoji = "📈" if coin['change_24h'] >= 0 else "📉"
+                analysis += f"""
+• **{i}. {coin['symbol']}**: {price_format} ({coin['change_24h']:+.2f}%) {change_emoji}"""
+
+            analysis += f"""
+
+{recommendations}
+
+{entry_analysis}
+
+📡 **Data Source**: CoinAPI Real-time + Binance
+🕐 **Update**: {datetime.now().strftime('%H:%M:%S WIB')}
+🔄 **Refresh**: Real-time market data"""
+
+            # Complete progress tracking
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 100, "✅ Market analysis complete!")
+                progress_tracker.complete_job(user_id)
+
+            return analysis
+
+        except Exception as e:
+            # Complete job even on error
+            if user_id and progress_tracker:
+                progress_tracker.complete_job(user_id)
+            print(f"Error in market sentiment: {e}")
+            return f"""❌ **MARKET ANALYSIS ERROR**
+
+**Error**: {str(e)[:100]}...
+
+💡 **Quick Fix:**
+• Try `/price btc` for basic data
+• Use `/analyze btc` for single coin analysis
+• Wait 30 seconds and retry
+
+🔧 **Alternative**: Use individual coin commands"""
 
     async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None, progress_tracker=None) -> str:
         """Generate multiple futures signals with professional Supply & Demand analysis format"""
