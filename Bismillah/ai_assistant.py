@@ -1408,15 +1408,14 @@ class AIAssistant:
 
             analysis = signal_display
 
-```
-🔬 TECHNICAL ANALYSIS ({timeframe.upper()}):
+            analysis += f"""
+🔬 **TECHNICAL ANALYSIS ({timeframe.upper()}):**
 • EMA50: {tech_indicators['ema_50']}
 • EMA200: {tech_indicators['ema_200']}
 • RSI(14): {tech_indicators['rsi']} ({tech_indicators['rsi_status']})
 • MACD: {tech_indicators['macd']} ({tech_indicators['macd_status']})
 • ATR: {tech_indicators['atr']}
-• Volume Trend: {tech_indicators['volume_trend']}
-```
+• Volume Trend: {tech_indicators['volume_trend']}"""
 
 🎯 **SUPPLY & DEMAND ZONES**:
 • 🔴 Supply Zone 1: ${snd_zones['supply_1_low']:,.6f} (+{((snd_zones['supply_1_low']/current_price-1)*100):+.1f}%)
