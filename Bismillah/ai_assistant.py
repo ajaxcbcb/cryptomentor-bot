@@ -2629,9 +2629,52 @@ class AIAssistant:
         """Get AI response for general crypto questions"""
         try:
             # Simple AI responses for common crypto questions
-            question_lower = question.lower()
+            question_lower = question.lower().strip()
 
-            if any(word in question_lower for word in ['bitcoin', 'btc']):
+            # Enhanced keyword detection for crypto-related questions
+            crypto_keywords = ['crypto', 'cryptocurrency', 'mata uang digital', 'blockchain', 'digital currency']
+            bitcoin_keywords = ['bitcoin', 'btc']
+            ethereum_keywords = ['ethereum', 'eth']
+            defi_keywords = ['defi', 'decentralized finance', 'keuangan terdesentralisasi']
+            trading_keywords = ['trading', 'strategy', 'teknikal', 'analisis', 'investasi', 'strategi']
+
+            # Check for general crypto questions
+            if any(word in question_lower for word in crypto_keywords):
+                return """🪙 **Cryptocurrency - Pengenalan**
+
+Cryptocurrency adalah mata uang digital yang menggunakan teknologi blockchain untuk keamanan dan transparansi.
+
+💡 **Konsep Dasar:**
+• Digital currency yang terdesentralisasi
+• Tidak dikontrol oleh bank sentral
+• Menggunakan kriptografi untuk keamanan
+• Transaksi tercatat di blockchain
+
+🔝 **Top Cryptocurrencies:**
+• Bitcoin (BTC) - Digital gold
+• Ethereum (ETH) - Smart contracts platform
+• Binance Coin (BNB) - Exchange token
+• Solana (SOL) - High-speed blockchain
+
+📊 **Cara Memulai:**
+• Pelajari dasar-dasar blockchain
+• Pilih exchange terpercaya
+• Mulai dengan amount kecil
+• Diversifikasi portfolio
+
+⚠️ **Risiko yang Perlu Diketahui:**
+• Volatilitas tinggi
+• Risiko regulasi
+• Keamanan wallet
+• Market manipulation
+
+💰 **Tips Investment:**
+• DYOR (Do Your Own Research)
+• Jangan invest lebih dari yang mampu hilang
+• DCA (Dollar Cost Averaging)
+• Hold untuk long-term"""
+
+            elif any(word in question_lower for word in bitcoin_keywords):
                 return """🟠 **Bitcoin (BTC) - Info**
 
 Bitcoin adalah cryptocurrency pertama dan terbesar di dunia, diciptakan oleh Satoshi Nakamoto pada 2009.
@@ -2651,7 +2694,7 @@ Bitcoin adalah cryptocurrency pertama dan terbesar di dunia, diciptakan oleh Sat
 💰 **Investment Perspective:**
 Bitcoin sering dianggap sebagai "digital gold" dan hedge against inflation."""
 
-            elif any(word in question_lower for word in ['ethereum', 'eth']):
+            elif any(word in question_lower for word in ethereum_keywords):
                 return """🔷 **Ethereum (ETH) - Info**
 
 Ethereum adalah platform blockchain yang mendukung smart contracts dan DeFi ecosystem.
@@ -2671,7 +2714,7 @@ Ethereum adalah platform blockchain yang mendukung smart contracts dan DeFi ecos
 💰 **Investment Perspective:**
 Ethereum adalah "infrastructure" untuk Web3 dan aplikasi blockchain."""
 
-            elif any(word in question_lower for word in ['defi', 'decentralized finance']):
+            elif any(word in question_lower for word in defi_keywords):
                 return """🏦 **DeFi (Decentralized Finance) - Explained**
 
 DeFi adalah sistem finansial yang dibangun di blockchain, tanpa intermediary tradisional.
@@ -2698,7 +2741,7 @@ DeFi adalah sistem finansial yang dibangun di blockchain, tanpa intermediary tra
 • Higher yields than traditional finance
 • Innovation in financial products"""
 
-            elif any(word in question_lower for word in ['trading', 'strategy', 'teknikal']):
+            elif any(word in question_lower for word in trading_keywords):
                 return """📈 **Crypto Trading Strategy - Basics**
 
 💡 **Fundamental Strategies:**
@@ -2732,25 +2775,77 @@ DeFi adalah sistem finansial yang dibangun di blockchain, tanpa intermediary tra
 • Stay updated with news
 • Practice with small amounts first"""
 
+            # If question contains specific words, provide targeted responses
+            elif any(word in question_lower for word in ['wallet', 'dompet']):
+                return """💼 **Crypto Wallet - Panduan**
+
+Crypto wallet adalah aplikasi untuk menyimpan cryptocurrency Anda dengan aman.
+
+🔐 **Jenis Wallet:**
+• **Hot Wallet**: Online, mudah akses (MetaMask, Trust Wallet)
+• **Cold Wallet**: Offline, lebih aman (Ledger, Trezor)
+• **Exchange Wallet**: Di exchange (Binance, Coinbase)
+
+🛡️ **Keamanan Wallet:**
+• Backup seed phrase dengan aman
+• Jangan share private key
+• Gunakan 2FA jika tersedia
+• Verifikasi alamat sebelum transfer
+
+💡 **Rekomendasi:**
+• Pemula: Trust Wallet atau MetaMask
+• Advanced: Hardware wallet untuk amount besar
+• Trading: Exchange wallet untuk kemudahan"""
+
+            elif any(word in question_lower for word in ['mining', 'menambang']):
+                return """⛏️ **Crypto Mining - Panduan**
+
+Mining adalah proses validasi transaksi crypto dan mendapat reward.
+
+💻 **Jenis Mining:**
+• **Bitcoin Mining**: Butuh ASIC, listrik besar
+• **Ethereum Mining**: GPU-based (sekarang Proof of Stake)
+• **Altcoin Mining**: Berbagai algoritma
+
+⚡ **Pertimbangan:**
+• Biaya listrik vs profit
+• Hardware cost & maintenance
+• Pool mining vs solo mining
+• Regulasi lokal
+
+💰 **Alternatif Modern:**
+• Staking (Proof of Stake)
+• Yield farming di DeFi
+• Cloud mining (hati-hati scam)"""
+
             else:
-                return f"""🤖 **AI Response**
+                # Generic helpful response for unmatched questions
+                return f"""🤖 **AI Assistant Ready!**
 
-Pertanyaan Anda: "{question[:100]}..."
+Pertanyaan Anda: "{question[:50]}{'...' if len(question) > 50 else ''}"
 
-Maaf, saya belum memiliki informasi spesifik untuk pertanyaan ini.
+Saya siap membantu dengan topik crypto! 
 
-💡 **Cobalah pertanyaan tentang:**
-• Bitcoin, Ethereum, atau crypto populer
-• DeFi dan Web3 concepts
-• Trading strategies dan technical analysis
-• Risk management dalam crypto
+💡 **Topik yang bisa saya bantu:**
+• **Crypto Basics**: Bitcoin, Ethereum, blockchain
+• **DeFi**: Uniswap, lending, yield farming  
+• **Trading**: Technical analysis, strategies
+• **Wallet**: Setup, security, recommendations
+• **Mining**: Proof of Work, staking, alternatives
 
-📚 **Untuk analisis mendalam, gunakan:**
+📚 **Command tersedia:**
 • `/analyze btc` - Analisis komprehensif Bitcoin
-• `/futures btc` - Sinyal trading Bitcoin
+• `/futures btc` - Sinyal trading Bitcoin  
 • `/market` - Overview pasar crypto
+• `/price btc` - Harga real-time (gratis)
 
-Atau ajukan pertanyaan yang lebih spesifik tentang cryptocurrency dan trading!"""
+🔄 **Coba tanya lagi dengan lebih spesifik:**
+Contoh: "Apa itu Bitcoin?", "Bagaimana cara trading crypto?", "Wallet mana yang aman?"
+
+Saya siap membantu dengan pengetahuan crypto terlengkap! 🚀"""
+
+        except Exception as e:
+            return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."
 
         except Exception as e:
             return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."
