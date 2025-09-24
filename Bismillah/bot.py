@@ -1326,23 +1326,32 @@ class TelegramBot:
                     
                     # Real-time progress updates
                     async def update_progress_display():
-                        for i in range(5):  # Update 5 times during processing
-                            await asyncio.sleep(2)  # Update every 2 seconds
+                        for i in range(8):  # Update 8 times during processing
+                            await asyncio.sleep(1.5)  # Update every 1.5 seconds
                             if user_id in progress_tracker.active_jobs:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:
                                     await query.edit_message_text(updated_msg, parse_mode='Markdown')
-                                except Exception:
-                                    pass  # Ignore edit message errors
+                                except Exception as e:
+                                    print(f"Progress update failed: {e}")
+                                    pass  # Continue even if edit fails
+                            else:
+                                break  # Job completed, stop updates
                     
                     # Start progress updates in background
-                    asyncio.create_task(update_progress_display())
+                    progress_task = asyncio.create_task(update_progress_display())
 
                     try:
                         print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
 
                         # Get analysis with SnD enhancement (with progress tracking)
-                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api, user_id)
+                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api, progress_tracker, user_id)
+
+                        # Cancel progress updates since analysis is done
+                        try:
+                            progress_task.cancel()
+                        except:
+                            pass
 
                         # Add credit status to response (credits already debited by guard)
                         analysis_text += f"\n\n{guard_message}"
@@ -1351,23 +1360,23 @@ class TelegramBot:
                         if len(analysis_text) > 4000:
                             chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                             try:
-                                await query.edit_message_text(chunks[0], parse_mode='MarkdownV2')
+                                await query.edit_message_text(chunks[0], parse_mode='Markdown')
                                 for chunk in chunks[1:]:
-                                    await query.message.reply_text(chunk, parse_mode='MarkdownV2')
+                                    await query.message.reply_text(chunk, parse_mode='Markdown')
                             except Exception as markdown_error:
-                                print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
-                                # Remove escape characters for plain text
-                                plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
+                                print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                                # Remove problematic characters for plain text
+                                plain_chunks = [chunk.replace('*', '').replace('_', '').replace('`', '') for chunk in chunks]
                                 await query.edit_message_text(plain_chunks[0], parse_mode=None)
                                 for chunk in plain_chunks[1:]:
                                     await query.message.reply_text(chunk, parse_mode=None)
                         else:
                             try:
-                                await query.edit_message_text(analysis_text, parse_mode='MarkdownV2')
+                                await query.edit_message_text(analysis_text, parse_mode='Markdown')
                             except Exception as markdown_error:
-                                print(f"⚠️ MarkdownV2 error, sending as plain text: {markdown_error}")
-                                # Remove escape characters for plain text
-                                plain_text = analysis_text.replace('\\', '')
+                                print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                                # Remove problematic characters for plain text
+                                plain_text = analysis_text.replace('*', '').replace('_', '').replace('`', '')
                                 await query.edit_message_text(plain_text, parse_mode=None)
 
                         print(f"✅ Successfully sent futures analysis to user {user_id}")

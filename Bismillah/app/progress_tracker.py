@@ -68,6 +68,7 @@ class ProgressTracker:
     
     def create_progress_bar(self, progress: int) -> str:
         """Create visual progress bar"""
+        progress = max(0, min(100, progress))  # Ensure progress is between 0-100
         filled = int(progress / 10)  # Each block = 10%
         empty = 10 - filled
         return "🟢" * filled + "⚪" * empty
@@ -164,9 +165,14 @@ class ProgressTracker:
 🔄 Your request will be processed soon...
 💡 Queue Info: {queue_status['queue_count']} waiting | {queue_status['active_count']} active"""
         
-        # Active processing
+        # Active processing - ensure progress is updated
         elapsed = int(time.time() - job.start_time)
         remaining = max(0, job.estimated_duration - elapsed)
+        
+        # Auto-increment progress if it's stuck at 0
+        if job.progress == 0 and elapsed > 2:
+            job.progress = min(20, elapsed * 5)  # 5% per second for first 4 seconds
+        
         progress_bar = self.create_progress_bar(job.progress)
         
         # Get queue info

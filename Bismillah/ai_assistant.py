@@ -1029,36 +1029,36 @@ class AIAssistant:
             volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
 
             if current_price <= 0:
+                # Complete job even on error
+                if user_id and progress_tracker:
+                    progress_tracker.complete_job(user_id)
                 return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/futures btc` atau `/futures eth`"
 
             # Update progress: Stage 2 - Enhanced Supply & Demand calculation
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 35, "🎯 Calculating Supply & Demand zones...")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.2)
 
             # Get enhanced SnD zones and signals
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
 
             # Update progress: Stage 3 - Market structure
-            if user_id:
+            if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 50, "🧠 Processing market structure...")
-                await asyncio.sleep(0.3)
-
-            # Get Supply & Demand zones
-            snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
+                await asyncio.sleep(0.2)
 
             # Update progress: Stage 4 - Signal generation
-            if user_id:
+            if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 70, "⚡ Generating entry signals...")
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.2)
 
             # Generate signals
             futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
             # Update progress: Stage 5 - Risk calculation
-            if user_id:
+            if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 85, "💎 Calculating risk/reward...")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.2)
 
             # Enhanced timeframe display
             tf_display = {
@@ -1188,37 +1188,13 @@ class AIAssistant:
                 tp3_pct = ((futures_signals['entry'] - futures_signals['tp3']) / futures_signals['entry'] * 100)
                 sl_risk_pct = ((futures_signals['sl'] - futures_signals['entry']) / futures_signals['entry'] * 100)
 
+            # Update progress: Final stage - Finalizing analysis
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 95, "✍️ Finalizing analysis...")
+                await asyncio.sleep(0.1)
+
             # Professional analysis output
             analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe.upper()})**
-
-1️⃣ **INITIALIZING PROCESS**
-⏳ **Queue Status**: 2 waiting | 3 active
-🎯 **Estimated Time**: 25 seconds
-📊 **Progress**: 15% 🟢⚪⚪⚪⚪
-
-1️⃣ **FETCHING MARKET DATA**
-🎯 **Estimated Time**: 10 seconds
-📊 **Progress**: 15% 🟢⚪⚪⚪⚪
-
-2️⃣ **CALCULATING SUPPLY & DEMAND**
-🎯 **Estimated Time**: 15 seconds
-📊 **Progress**: 35% 🟢🟢⚪⚪⚪
-
-3️⃣ **PROCESSING MARKET STRUCTURE**
-🎯 **Estimated Time**: 12 seconds
-📊 **Progress**: 50% 🟢🟢🟢⚪⚪
-
-4️⃣ **GENERATING ENTRY SIGNALS**
-🎯 **Estimated Time**: 20 seconds
-📊 **Progress**: 70% 🟢🟢🟢🟢⚪
-
-5️⃣ **CALCULATING RISK/REWARD**
-🎯 **Estimated Time**: 10 seconds
-📊 **Progress**: 85% 🟢🟢🟢🟢🟢
-
-6️⃣ **FINALIZING ANALYSIS**
-🎯 **Estimated Time**: 5 seconds
-📊 **Progress**: 95% 🟢🟢🟢🟢🟢
 
 📍 **Current Price**: {price_format}
 📊 **24h Change**: {change_24h:+.2f}%
@@ -1285,9 +1261,17 @@ class AIAssistant:
 
 ✅ Premium aktif — kredit tidak terpakai."""
 
+            # Complete the job
+            if user_id and progress_tracker:
+                await progress_tracker.update_progress(user_id, 100, "✅ Analysis complete!")
+                progress_tracker.complete_job(user_id)
+
             return analysis
 
         except Exception as e:
+            # Complete job even on error
+            if user_id and progress_tracker:
+                progress_tracker.complete_job(user_id)
             print(f"Error in futures signals: {e}")
             return f"""❌ **FUTURES SIGNAL ERROR**
 
