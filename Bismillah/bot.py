@@ -1314,18 +1314,35 @@ class TelegramBot:
 
                     print(f"✅ APPROVED: User {user_id} futures analysis - {guard_message}")
 
-                    # Show loading
-                    await query.edit_message_text(
-                        f"⏳ Menganalisis {symbol} {timeframe} dengan CoinAPI + Coinglass V4...\n\n"
-                        "🔍 Memproses data real-time...",
-                        parse_mode='Markdown'
-                    )
+                    # Initialize progress tracking
+                    from app.progress_tracker import progress_tracker
+                    
+                    # Start processing job
+                    job = await progress_tracker.start_processing(user_id, '/futures', symbol)
+                    
+                    # Show initial progress message
+                    progress_msg = progress_tracker.get_progress_message(user_id)
+                    await query.edit_message_text(progress_msg, parse_mode='Markdown')
+                    
+                    # Real-time progress updates
+                    async def update_progress_display():
+                        for i in range(5):  # Update 5 times during processing
+                            await asyncio.sleep(2)  # Update every 2 seconds
+                            if user_id in progress_tracker.active_jobs:
+                                updated_msg = progress_tracker.get_progress_message(user_id)
+                                try:
+                                    await query.edit_message_text(updated_msg, parse_mode='Markdown')
+                                except Exception:
+                                    pass  # Ignore edit message errors
+                    
+                    # Start progress updates in background
+                    asyncio.create_task(update_progress_display())
 
                     try:
                         print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
 
-                        # Get analysis with SnD enhancement
-                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api)
+                        # Get analysis with SnD enhancement (with progress tracking)
+                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api, user_id)
 
                         # Add credit status to response (credits already debited by guard)
                         analysis_text += f"\n\n{guard_message}"
