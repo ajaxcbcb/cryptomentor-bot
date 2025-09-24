@@ -2334,7 +2334,7 @@ class AIAssistant:
 
         return "\n".join(insights)
 
-    async def get_market_sentiment(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
+    async def get_market_sentiment_async(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate market sentiment analysis with progress tracking"""
         try:
             # Market analysis with realistic processing times
