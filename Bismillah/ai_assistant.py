@@ -794,13 +794,13 @@ class AIAssistant:
 
             recommendations = """
 
-🏆 RECOMMENDED COINS TO WATCH:"""
+🏆 **RECOMMENDED COINS TO WATCH:**"""
 
             # Best entry opportunities based on market conditions
             if avg_change > 2:  # Bull market
                 recommendations += """
 
-💎 BULLISH MOMENTUM PLAYS:"""
+💎 **BULLISH MOMENTUM PLAYS:**"""
                 for i, coin in enumerate(hot_performers[:3], 1):
                     symbol = coin['symbol']
                     change = coin['change_24h']
@@ -825,13 +825,13 @@ class AIAssistant:
                         strategy = "Moderate momentum - Wait for volume confirmation"
 
                     recommendations += f"""
-• {i}. {symbol} 🚀 {price_str} (+{change:.1f}%)
+• **{i}. {symbol}** 🚀 {price_str} (+{change:.1f}%)
   └─ Strategy: {strategy}"""
 
             elif avg_change < -2:  # Bear market
                 recommendations += """
 
-💰 OVERSOLD RECOVERY CANDIDATES:"""
+💰 **OVERSOLD RECOVERY CANDIDATES:**"""
                 for i, coin in enumerate(oversold_candidates[:3], 1):
                     symbol = coin['symbol']
                     change = coin['change_24h']
@@ -862,13 +862,13 @@ class AIAssistant:
                         strategy += " + High volume selloff - be cautious"
 
                     recommendations += f"""
-• {i}. {symbol} 📉 {price_str} ({change:.1f}%)
+• **{i}. {symbol}** 📉 {price_str} ({change:.1f}%)
   └─ Strategy: {strategy}"""
 
             else:  # Neutral market
                 recommendations += """
 
-⚖️ TOP 3 COINS FOR HOLD & TRADES (RESET EVERY 24H):"""
+⚖️ **TOP 3 COINS FOR HOLD & TRADES (RESET EVERY 24H):**"""
                 # Advanced coin selection algorithm - scan top 25 performers
                 # Score coins based on multiple factors: volume, stability, momentum, fundamentals
                 coin_scores = []
@@ -1000,24 +1000,24 @@ class AIAssistant:
                     time_horizon = "24H HOLD/TRADE (Daily Reset)"
 
                     recommendations += f"""
-• {i}. {symbol} {grade} {price_str} ({change:+.1f}%) Vol: {vol_str}
-  Score: {score:.0f}/100 - {grade_desc}
-  Strategy: {strategy}"""
+• **{i}. {symbol}** {grade} **{price_str}** (**{change:+.1f}%**) Vol: **{vol_str}**
+  **Score**: {score:.0f}/100 - {grade_desc}
+  **Strategy**: {strategy}"""
 
             # Add enhanced insights
             recommendations += f"""
 
-📊 MARKET INSIGHTS:
+📊 **MARKET INSIGHTS:**
 • Analysis based on Top 25 cryptocurrencies (optimized scan)
 • Selection criteria: Volume + Stability + Momentum + Fundamentals
 • BTC Dominance: {btc_dominance:.1f}% - {"Focus on BTC/ETH" if btc_dominance > 55 else "Altcoin opportunities" if btc_dominance < 45 else "Balanced approach"}
 
-⏰ RESET SCHEDULE:
+⏰ **RESET SCHEDULE:**
 • Selection updates every 24 hours at 00:00 UTC
 • Real-time price tracking via CoinAPI
 • Strategy adjustments based on market conditions
 
-⚡ QUICK PICKS STRATEGY:
+⚡ **QUICK PICKS STRATEGY:**
 • Focus on top 3 highest-scoring coins only
 • Perfect for quick decision making
 • Reduced analysis paralysis
@@ -1028,7 +1028,7 @@ class AIAssistant:
         except Exception as e:
             return """
 
-🏆 RECOMMENDED COINS TO WATCH:
+🏆 **RECOMMENDED COINS TO WATCH:**
 • Monitor market data untuk rekomendasi real-time
 • Focus pada top volume coins
 • Analisis technical sebelum entry"""
@@ -1038,7 +1038,7 @@ class AIAssistant:
         try:
             entry_analysis = """
 
-🎯 BEST ENTRY STRATEGIES:"""
+🎯 **BEST ENTRY STRATEGIES:**"""
 
             # Analyze current market timing
             current_hour = datetime.now().hour
@@ -1059,43 +1059,43 @@ class AIAssistant:
 
             entry_analysis += f"""
 
-⏰ MARKET TIMING:
+⏰ **MARKET TIMING:**
 • {market_session}
 • {timing_advice}
 
-💡 ENTRY STRATEGIES BY SENTIMENT:"""
+💡 **ENTRY STRATEGIES BY SENTIMENT:**"""
 
             if "BULLISH" in global_sentiment:
                 entry_analysis += """
-• Buy the Dip Strategy: Wait for 2-3% pullbacks
-• Momentum Entry: Break above resistance with volume
-• DCA Strategy: Split entries across 3-5 levels
-• Risk Level: Medium (take profits at +15-25%)"""
+• **Buy the Dip Strategy**: Wait for 2-3% pullbacks
+• **Momentum Entry**: Break above resistance with volume
+• **DCA Strategy**: Split entries across 3-5 levels
+• **Risk Level**: Medium (take profits at +15-25%)"""
 
             elif "BEARISH" in global_sentiment:
                 entry_analysis += """
-• Short Bounce Strategy: Sell strength, short rallies
-• Cash Position: Preserve capital, wait for capitulation
-• DCA Bottom: Only in strongest fundamentals
-• Risk Level: High (tight stops, small positions)"""
+• **Short Bounce Strategy**: Sell strength, short rallies
+• **Cash Position**: Preserve capital, wait for capitulation
+• **DCA Bottom**: Only in strongest fundamentals
+• **Risk Level**: High (tight stops, small positions)"""
 
             else:  # NEUTRAL
                 entry_analysis += """
-• Range Trading: Buy support, sell resistance
-• Breakout Entry: Wait for clear direction with volume
-• Accumulation: Gradual building of core positions
-• Risk Level: Low-Medium (5-10% stops)"""
+• **Range Trading**: Buy support, sell resistance
+• **Breakout Entry**: Wait for clear direction with volume
+• **Accumulation**: Gradual building of core positions
+• **Risk Level**: Low-Medium (5-10% stops)"""
 
             # Technical entry conditions
             entry_analysis += """
 
-📊 TECHNICAL ENTRY CONDITIONS:
-• Volume Confirmation: Entry only with 20%+ above average volume
-• Support/Resistance: Use key levels for timing
-• Risk Management: Never risk >2% per trade
-• Position Sizing: Inverse correlation with volatility
+📊 **TECHNICAL ENTRY CONDITIONS:**
+• **Volume Confirmation**: Entry only with 20%+ above average volume
+• **Support/Resistance**: Use key levels for timing
+• **Risk Management**: Never risk >2% per trade
+• **Position Sizing**: Inverse correlation with volatility
 
-🔥 PRIORITY ACTION ITEMS:"""
+🔥 **PRIORITY ACTION ITEMS:**"""
 
             # Generate specific action items based on data
             high_volume_coins = [coin for coin in market_data if coin['volume_24h'] > 1000000000]
@@ -1103,13 +1103,13 @@ class AIAssistant:
             if high_volume_coins:
                 top_vol_coin = max(high_volume_coins, key=lambda x: x['volume_24h'])
                 entry_analysis += f"""
-• Monitor {top_vol_coin['symbol']} - Highest volume ({top_vol_coin['volume_24h']/1000000000:.1f}B)"""
+• Monitor **{top_vol_coin['symbol']}** - Highest volume ({top_vol_coin['volume_24h']/1000000000:.1f}B)"""
 
             # Add top performers
             top_performer = max(market_data, key=lambda x: x['change_24h'])
             if top_performer['change_24h'] > 1:
                 entry_analysis += f"""
-• Watch {top_performer['symbol']} momentum - Leading gainer (+{top_performer['change_24h']:.1f}%)"""
+• Watch **{top_performer['symbol']}** momentum - Leading gainer (+{top_performer['change_24h']:.1f}%)"""
 
             # Add major coins status
             btc_data = next((coin for coin in market_data if coin['symbol'] == 'BTC'), None)
@@ -1118,19 +1118,19 @@ class AIAssistant:
             if btc_data:
                 btc_trend = "bullish" if btc_data['change_24h'] > 1 else "bearish" if btc_data['change_24h'] < -1 else "neutral"
                 entry_analysis += f"""
-• BTC trend is {btc_trend} - Market leader signal"""
+• **BTC** trend is {btc_trend} - Market leader signal"""
 
             if eth_data:
                 eth_trend = "bullish" if eth_data['change_24h'] > 1 else "bearish" if eth_data['change_24h'] < -1 else "neutral"
                 entry_analysis += f"""
-• ETH showing {eth_trend} momentum - DeFi sentiment"""
+• **ETH** showing {eth_trend} momentum - DeFi sentiment"""
 
             return entry_analysis
 
         except Exception as e:
             return """
 
-🎯 BEST ENTRY STRATEGIES:
+🎯 **BEST ENTRY STRATEGIES:**
 • Monitor volume dan momentum untuk timing optimal
 • Use technical analysis untuk entry/exit points
 • Risk management adalah prioritas utama"""
@@ -1942,7 +1942,7 @@ class AIAssistant:
             if symbol.upper() in ['BTC', 'ETH']:
                 symbol_quality = 1.06          # Small premium for majors
             elif symbol.upper() in ['SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
-                symbol_quality = 1.03          # Very small bonus for established altcoins
+                symbol_quality = 1.03          # Very small bonus for established alts
 
             # Final confidence with controlled variation - cap at 90%
             raw_confidence = base_confidence + (volume_score * 0.5) + (zone_precision_bonus * 0.8)
@@ -2144,7 +2144,7 @@ class AIAssistant:
         if confidence < 65:
             return """🛑 **NO TRADE**: Confidence too low
 📚 **Advice**: Wait for stronger signal (65%+)
-⏰ **Action**: Monitor for better setup
+⏰ **Action**: Monitor for better conditions
 ❌ **Warning**: All levels neutralized to prevent entry"""
 
         if direction == "LONG":
@@ -2440,17 +2440,17 @@ class AIAssistant:
 
             # Generate recommendations
             recommendations = self._generate_coin_recommendations(market_data, avg_change, btc_dominance)
-            entryanalysis = self._generate_best_entry_analysis(market_data, sentiment)
+            entry_analysis = self._generate_best_entry_analysis(market_data, sentiment)
 
-            analysis = f"""🌍 OVERVIEW PASAR CRYPTO GLOBAL (CoinAPI Real-time)
+            analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL (CoinAPI Real-time)**
 
-📊 SENTIMEN PASAR: {sentiment}
-🎯 Market Mood: {market_mood}
-📈 Rata-rata Perubahan: {avg_change:+.2f}%
-🟠 BTC Dominance: {btc_dominance:.1f}%
-📊 Volume Status: {volume_status}
+📊 **SENTIMEN PASAR**: {sentiment}
+🎯 **Market Mood**: {market_mood}
+📈 **Rata-rata Perubahan**: {avg_change:+.2f}%
+🟠 **BTC Dominance**: {btc_dominance:.1f}%
+📊 **Volume Status**: {volume_status}
 
-💰 TOP PERFORMERS (24H):"""
+💰 **TOP PERFORMERS (24H):**"""
 
             # Show top performers
             sorted_performers = sorted(market_data, key=lambda x: x['change_24h'], reverse=True)
@@ -2458,7 +2458,7 @@ class AIAssistant:
                 price_format = f"${coin['price']:.4f}" if coin['price'] < 100 else f"${coin['price']:,.2f}"
                 change_emoji = "📈" if coin['change_24h'] >= 0 else "📉"
                 analysis += f"""
-• {i}. {coin['symbol']}: {price_format} ({coin['change_24h']:+.2f}%) {change_emoji}"""
+• **{i}. {coin['symbol']}**: {price_format} ({coin['change_24h']:+.2f}%) {change_emoji}"""
 
             analysis += f"""
 
@@ -2493,7 +2493,7 @@ class AIAssistant:
 
 🔧 **Alternative**: Use individual coin commands"""
 
-    async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None, progress_tracker=None, user_id=None) -> str:
+    async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None, progress_tracker=None) -> str:
         """Generate multiple futures signals with professional Supply & Demand analysis format"""
         try:
             # Extended symbols list - scan top 25+ coins for better signal discovery
@@ -2613,13 +2613,17 @@ class AIAssistant:
             signals_found.sort(key=lambda x: x['signals']['confidence'], reverse=True)
             top_signals = signals_found[:5]
 
-            # Professional header format - remove problematic markdown
-            signals_text = f"""🚨 FUTURES SIGNALS - SUPPLY & DEMAND ANALYSIS
+            # Professional header format
+            signals_text = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
 
-🕐 Scan Time: {datetime.now().strftime('%H:%M:%S WIB')}
-📊 Signals Found: {len(top_signals)} (Confidence >= 65.0% - Quality Only)
+# Simulate Queue and Progress
+# User ID: {user_id if progress_tracker else 'N/A'}
+# Queue: 2 waiting | 3 active
 
-💰 GLOBAL METRICS:
+🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 65.0% - Quality Only)
+
+💰 **GLOBAL METRICS:**
 • Total Market Cap: {format_large_number(total_market_cap)}
 • 24h Market Change: {avg_change:+.2f}%
 • Total Volume 24h: {format_large_number(total_volume)}
@@ -2654,7 +2658,7 @@ class AIAssistant:
                         direction_icon = "🔴"
                         structure_bias = "SHORT Bias"
 
-                    # Format prices consistently (avoid problematic characters)
+                    # Format prices consistently
                     def format_signal_price(price):
                         if price < 1:
                             return f"${price:.6f}"
@@ -2676,17 +2680,17 @@ class AIAssistant:
                     # R:R ranking
                     rr_rank = "RANK #1" if rr >= 3.0 else "GOOD" if rr >= 2.0 else "FAIR"
 
-                    signals_text += f"""{i}. {symbol} {direction_icon} {direction} (Confidence: {confidence:.1f}%)
+                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}** (Confidence: {confidence:.1f}%)
 
-🛑 Stop Loss: {format_signal_price(sl)}
-➡️ Entry: {format_signal_price(entry)}
-🎯 TP1: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
-🎯 TP2: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
-🎯 TP3: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
-💎 R:R Ratio: {rr:.1f}:1 ({rr_rank})
+🛑 **Stop Loss**: {format_signal_price(sl)}
+➡️ **Entry**: {format_signal_price(entry)}
+🎯 **TP1**: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
+🎯 **TP2**: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
+🎯 **TP3**: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
+💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
 
-📈 24h Change: {change_24h:+.2f}%
-⚡ Structure: {structure_bias}
+📈 **24h Change**: {change_24h:+.2f}%
+⚡ **Structure**: {structure_bias}
 
 """
 
@@ -2700,19 +2704,19 @@ class AIAssistant:
 📡 Next scan akan mengacak koin berbeda
 🔄 Jalankan ulang untuk variasi sinyal
 
-✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
+✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
 
             else:
-                signals_text += f"""⚠️ NO HIGH-CONFIDENCE SIGNALS
+                signals_text += f"""⚠️ **NO HIGH-CONFIDENCE SIGNALS**
 
-📊 Scanned: {total_scanned} coins
-📈 Found: 0 signals (65%+ threshold - Quality Only)
-💤 Status: Market consolidation or low confidence conditions
+📊 **Scanned**: {total_scanned} coins
+📈 **Found**: 0 signals (65%+ threshold - Quality Only)
+💤 **Status**: Market consolidation or low confidence conditions
 
-💡 HONEST RECOMMENDATIONS:
+💡 **HONEST RECOMMENDATIONS**:
 • Market may not have clear trading opportunities right now
 • This is NORMAL - good signals are rare, not constant
-• Use /futures btc for specific analysis (may show 45-65% confidence)
+• Use `/futures btc` for specific analysis (may show 45-65% confidence)
 • Wait for genuine high-probability setups
 • Quality over quantity - better to wait than force trades"""
 
