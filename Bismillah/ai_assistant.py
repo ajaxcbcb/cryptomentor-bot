@@ -1345,25 +1345,59 @@ class AIAssistant:
                 await progress_tracker.update_progress(user_id, 95, "✍️ Finalizing analysis...")
                 await asyncio.sleep(1.0 * complexity_multiplier)  # 15m = 1.2s, 1w = 2.2s
 
-            # Professional analysis output
-            analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe.upper()})**
+            # Professional analysis output with structured signal format
+            if signal_direction != "WAIT":
+                # Calculate percentage gains for each TP level
+                if direction == "LONG":
+                    tp1_pct = ((futures_signals['tp1'] - futures_signals['entry']) / futures_signals['entry'] * 100)
+                    tp2_pct = ((futures_signals['tp2'] - futures_signals['entry']) / futures_signals['entry'] * 100)
+                    tp3_pct = ((futures_signals['tp3'] - futures_signals['entry']) / futures_signals['entry'] * 100)
+                else:
+                    tp1_pct = ((futures_signals['entry'] - futures_signals['tp1']) / futures_signals['entry'] * 100)
+                    tp2_pct = ((futures_signals['entry'] - futures_signals['tp2']) / futures_signals['entry'] * 100)
+                    tp3_pct = ((futures_signals['entry'] - futures_signals['tp3']) / futures_signals['entry'] * 100)
 
-📍 **Current Price**: {price_format}
-📊 **24h Change**: {change_24h:+.2f}%
+                # Format prices consistently
+                def format_price(price):
+                    if price < 1:
+                        return f"${price:.6f}"
+                    elif price < 1000:
+                        return f"${price:.2f}"
+                    else:
+                        return f"${price:,.2f}"
 
-{signal_color} **TRADING SIGNAL**: {signal_direction}
+                # Structured signal display
+                signal_display = f"""
+🔍 **PROFESSIONAL FUTURES SIGNAL - {symbol} ({timeframe.upper()})**
+
+📍 **Current Price**: {price_format} ({change_24h:+.2f}%)
+{signal_color} **DIRECTION**: {signal_direction}
 🔥 **Confidence**: {confidence:.1f}% ({confidence_level})
-🎯 **Strategy**: {futures_signals.get('strategy', 'Advanced SnD')}
-⚡ **Time Horizon**: {futures_signals.get('time_horizon', '4-24 hours')}
 
-💰 **DETAILED TRADING SETUP:**
-• Entry: {price_format if signal_direction == "WAIT" else f"${futures_signals['entry']:,.6f}"}
-• Stop Loss: {"Not applicable" if signal_direction == "WAIT" else f"${futures_signals['sl']:,.6f}"}
-• TP1 ({tp1_allocation}): {"Not applicable" if signal_direction == "WAIT" else f"${futures_signals['tp1']:,.6f}"}
-• TP2 ({tp2_allocation}): {"Not applicable" if signal_direction == "WAIT" else f"${futures_signals['tp2']:,.6f}"}
-• TP3 ({tp3_allocation}): {"Not applicable" if signal_direction == "WAIT" else f"${futures_signals['tp3']:,.6f}"}
-• Risk/Reward: {futures_signals['rr']:.1f}:1
-• Max Risk: {self._calculate_position_size(confidence)} per position
+🚨 **TRADING SETUP**:
+🛑 **Stop Loss**: {format_price(futures_signals['sl'])}
+➡️ **Entry**: {format_price(futures_signals['entry'])}
+🎯 **TP1**: {format_price(futures_signals['tp1'])} (+{tp1_pct:.1f}%)
+🎯 **TP2**: {format_price(futures_signals['tp2'])} (+{tp2_pct:.1f}%)
+🎯 **TP3**: {format_price(futures_signals['tp3'])} (+{tp3_pct:.1f}%)
+💎 **R:R Ratio**: {futures_signals['rr']:.1f}:1 {"(RANK #1)" if futures_signals['rr'] >= 3.0 else "(GOOD)" if futures_signals['rr'] >= 2.0 else "(FAIR)"}
+
+📊 **Strategy**: {futures_signals.get('strategy', 'Advanced SnD')}
+⚡ **Time Horizon**: {futures_signals.get('time_horizon', '4-24 hours')}
+🎯 **Position Size**: {self._calculate_position_size(confidence)} of portfolio"""
+            else:
+                signal_display = f"""
+🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe.upper()})**
+
+📍 **Current Price**: {price_format} ({change_24h:+.2f}%)
+⏳ **SIGNAL STATUS**: NO SIGNAL
+⚠️ **Confidence**: {confidence:.1f}% (Below threshold)
+
+❌ **No trading setup available**
+💡 **Recommendation**: Wait for better market conditions
+📊 **Reason**: Insufficient confluence of technical factors"""
+
+            analysis = signal_display
 
 ```
 🔬 TECHNICAL ANALYSIS ({timeframe.upper()}):
@@ -2580,7 +2614,7 @@ class AIAssistant:
 """
 
             if top_signals:
-                # Professional signal format matching the example
+                # Professional signal format matching the requested layout
                 for i, signal_data in enumerate(top_signals, 1):
                     signal = signal_data['signals']
                     symbol = signal_data['symbol']
@@ -2593,6 +2627,7 @@ class AIAssistant:
                     sl = signal['sl']
                     tp1 = signal['tp1']
                     tp2 = signal['tp2']
+                    tp3 = signal['tp3']
                     rr = signal['rr']
 
                     # Direction icon and bias
@@ -2603,34 +2638,39 @@ class AIAssistant:
                         direction_icon = "🔴"
                         structure_bias = "SHORT Bias"
 
-                    # Format prices based on value
+                    # Format prices consistently
                     def format_signal_price(price):
                         if price < 1:
-                            return f"${price:.2f}"
+                            return f"${price:.6f}"
                         elif price < 1000:
                             return f"${price:.2f}"
                         else:
-                            return f"${price:.2f}"
+                            return f"${price:,.2f}"
 
-                    # Trend determination
-                    if abs(change_24h) > 5:
-                        trend_status = "Strong Bullish" if change_24h > 0 else "Strong Bearish"
-                    elif abs(change_24h) > 2:
-                        trend_status = "Bullish" if change_24h > 0 else "Bearish"
+                    # Calculate percentage gains
+                    if direction == "LONG":
+                        tp1_pct = ((tp1 - entry) / entry * 100)
+                        tp2_pct = ((tp2 - entry) / entry * 100)
+                        tp3_pct = ((tp3 - entry) / entry * 100)
                     else:
-                        trend_status = "Sideways"
+                        tp1_pct = ((entry - tp1) / entry * 100)
+                        tp2_pct = ((entry - tp2) / entry * 100)
+                        tp3_pct = ((entry - tp3) / entry * 100)
 
-                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}**
-⭐️ Confidence: {confidence:.1f}%
-💰 Entry: {format_signal_price(entry)}
-🛑 Stop Loss: {format_signal_price(sl)}
-🎯 TP1: {format_signal_price(tp1)}
-🎯 TP2: {format_signal_price(tp2)}
-📊 R/R Ratio: {rr:.1f}:1
-🔄 Trend: {trend_status}
-⚡️ Structure: {structure_bias}
-🧠 Reason: Technical confluence detected
-📈 24h Change: {change_24h:+.2f}%
+                    # R:R ranking
+                    rr_rank = "RANK #1" if rr >= 3.0 else "GOOD" if rr >= 2.0 else "FAIR"
+
+                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}** (Confidence: {confidence:.1f}%)
+
+🛑 **Stop Loss**: {format_signal_price(sl)}
+➡️ **Entry**: {format_signal_price(entry)}
+🎯 **TP1**: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
+🎯 **TP2**: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
+🎯 **TP3**: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
+💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
+
+📈 **24h Change**: {change_24h:+.2f}%
+⚡️ **Structure**: {structure_bias}
 
 """
 
