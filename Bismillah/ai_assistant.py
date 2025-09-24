@@ -1409,6 +1409,7 @@ class AIAssistant:
             analysis = signal_display
 
             analysis += f"""
+
 🔬 **TECHNICAL ANALYSIS ({timeframe.upper()}):**
 • EMA50: {tech_indicators['ema_50']}
 • EMA200: {tech_indicators['ema_200']}
@@ -1421,7 +1422,7 @@ class AIAssistant:
 • 🔴 Supply Zone 1: ${snd_zones['supply_1_low']:,.6f} (+{((snd_zones['supply_1_low']/current_price-1)*100):+.1f}%)
 • 🟢 Demand Zone 1: ${snd_zones['demand_1_low']:,.6f} ({((snd_zones['demand_1_low']/current_price-1)*100):+.1f}%)
 • 📍 Current Position: {snd_zones.get('position', 'Between Zones')}
-• 💪 Zone Strength: {snd_zones.get('strength', 'Medium')}"""
+• 💪 Zone Strength: {snd_zones.get('strength', 'Medium')}
 
 🔮 **FUTURES MARKET METRICS**:
 • Volume 24h: {volume_format}
