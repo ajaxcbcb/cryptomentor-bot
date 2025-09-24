@@ -1014,10 +1014,22 @@ class AIAssistant:
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Get enhanced futures trading signals with improved UX"""
         try:
+            # Calculate timeframe-specific processing times based on complexity
+            timeframe_complexity = {
+                '15m': 1.2,  # Fastest, less data to process
+                '30m': 1.4,
+                '1h': 1.6,
+                '4h': 1.8,   # More data, longer calculations
+                '1d': 2.0,
+                '1w': 2.2    # Most complex, most data
+            }
+            
+            complexity_multiplier = timeframe_complexity.get(timeframe, 1.6)
+            
             # Update progress: Stage 1 - Data fetching
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 15, "⏳ Fetching market data...")
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(1.8 * complexity_multiplier)  # 15m = 2.16s, 1w = 3.96s
 
             # Get current price and market data
             price_data = {}
@@ -1037,7 +1049,7 @@ class AIAssistant:
             # Update progress: Stage 2 - Enhanced Supply & Demand calculation
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 35, "🎯 Calculating Supply & Demand zones...")
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(2.2 * complexity_multiplier)  # 15m = 2.64s, 1w = 4.84s
 
             # Get enhanced SnD zones and signals
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
@@ -1045,12 +1057,12 @@ class AIAssistant:
             # Update progress: Stage 3 - Market structure
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 50, "🧠 Processing market structure...")
-                await asyncio.sleep(2.8)
+                await asyncio.sleep(2.0 * complexity_multiplier)  # 15m = 2.4s, 1w = 4.4s
 
-            # Update progress: Stage 4 - Signal generation
+            # Update progress: Stage 4 - Signal generation (most complex step)
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 70, "⚡ Generating entry signals...")
-                await asyncio.sleep(4.2)
+                await asyncio.sleep(3.5 * complexity_multiplier)  # 15m = 4.2s, 1w = 7.7s
 
             # Generate signals
             futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
@@ -1058,7 +1070,7 @@ class AIAssistant:
             # Update progress: Stage 5 - Risk calculation
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 85, "💎 Calculating risk/reward...")
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(1.5 * complexity_multiplier)  # 15m = 1.8s, 1w = 3.3s
 
             # Enhanced timeframe display
             tf_display = {
@@ -1191,7 +1203,7 @@ class AIAssistant:
             # Update progress: Final stage - Finalizing analysis
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 95, "✍️ Finalizing analysis...")
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.0 * complexity_multiplier)  # 15m = 1.2s, 1w = 2.2s
 
             # Professional analysis output
             analysis = f"""🔍 **PROFESSIONAL FUTURES ANALYSIS - {symbol} ({timeframe.upper()})**
@@ -1240,7 +1252,7 @@ class AIAssistant:
 • ✅ Multi-TF Confirmation: {tech_indicators.get('tf_confirmation', 'PENDING')}
 
 💡 **ADVANCED TRADING INSIGHTS**:
-{self._generate_professional_insights(futures_signals, confidence, symbol)}
+{self._generate_professional_insights(futures_signals, confidence, symbol, direction)}
 
 ⚠️ **RISK MANAGEMENT PROTOCOL**:
 • Gunakan proper position sizing (1-3% per trade)
