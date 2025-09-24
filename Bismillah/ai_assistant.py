@@ -135,7 +135,7 @@ class AIAssistant:
                 'sentiment': 1.5,       # 1.5 seconds
                 'finalize': 1.0         # 1 second
             }
-
+            
             # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 15, "⚡ Mengambil data...")
@@ -1168,13 +1168,13 @@ class AIAssistant:
             total_target = 12.0  # Target 12 seconds total
             stage_timings = {
                 'data_fetch': 2.0,      # 2 seconds
-                'snd_calc': 2.5,        # 2.5 seconds
+                'snd_calc': 2.5,        # 2.5 seconds  
                 'structure': 2.0,       # 2 seconds
                 'signals': 3.0,         # 3 seconds
                 'risk_calc': 1.5,       # 1.5 seconds
                 'finalize': 1.0         # 1 second
             }
-
+            
             # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
@@ -1888,14 +1888,11 @@ class AIAssistant:
                     tp2 = current_price * 1.01
                     tp3 = current_price * 1.015
 
-                # Final R:R calculation with MAX 5.0 cap
+                # Final R:R calculation
                 if direction in ["LONG", "SHORT"]:
                     risk = abs(entry - sl)
                     reward = abs(tp1 - entry)
                     rr_ratio = reward / risk if risk > 0 else 1.0
-
-                    # Cap R:R ratio at maximum 5.0 for realistic expectations
-                    rr_ratio = min(5.0, rr_ratio)
 
                     # Enforce minimum 1.5:1 R:R ratio - reject signals below this
                     if rr_ratio < 1.5:
@@ -1930,11 +1927,11 @@ class AIAssistant:
             # Conservative timing bonus
             current_hour = datetime.now().hour
             timing_bonus = 1.0
-            if 14 <= current_hour <= 22:  # US hours
+            if 14 <= current_hour <= 22:      # US hours
                 timing_bonus = 1.04            # Small bonus only
             elif 8 <= current_hour <= 16:     # European hours
                 timing_bonus = 1.02
-            elif 0 <= current_hour <= 6:      # Asian hours
+            elif 0 <= current_hour <= 4:      # Asian hours
                 timing_bonus = 1.01
 
             # Conservative symbol quality
@@ -2357,7 +2354,7 @@ class AIAssistant:
                 'dominance': 1.5,       # 1.5 seconds
                 'finalize': 1.0         # 1 second
             }
-
+            
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
                 await asyncio.sleep(stage_timings['fetch_global'])
@@ -2365,7 +2362,7 @@ class AIAssistant:
             # Get market data from CoinAPI
             market_data = []
             symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
-
+            
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 35, "📊 Processing metrics...")
                 await asyncio.sleep(stage_timings['process'])
@@ -2690,7 +2687,7 @@ class AIAssistant:
 💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
 
 📈 **24h Change**: {change_24h:+.2f}%
-⚡ **Structure**: {structure_bias}
+⚡️ **Structure**: {structure_bias}
 
 """
 
@@ -3028,7 +3025,7 @@ class AIAssistant:
 💡 **Alternatif yang bisa dicoba:**
 • `/price btc` - Cek harga Bitcoin dari CoinAPI
 • `/analyze btc` - Analisis mendalam Bitcoin
-• `/market` - Overview pasar crypto
+• `/futures btc` - Sinyal trading Bitcoin
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap.
 
@@ -3252,6 +3249,9 @@ Saya siap membantu dengan topik crypto!
 Contoh: "Apa itu Bitcoin?", "Bagaimana cara trading crypto?", "Wallet mana yang aman?"
 
 Saya siap membantu dengan pengetahuan crypto terlengkap! 🚀"""
+
+        except Exception as e:
+            return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."
 
         except Exception as e:
             return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."

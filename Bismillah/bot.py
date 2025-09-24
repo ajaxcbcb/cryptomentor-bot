@@ -1224,8 +1224,8 @@ class TelegramBot:
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
 
-            # Generate signals using new async method with query args and progress tracking
-            signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args, self.progress_tracker, user_id, context.args)
+            # Generate signals using new async method with query args
+            signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
 
             if not signals or len(signals.strip()) < 50:
                 fallback_msg = f"""❌ **Gagal Generate Sinyal Futures**
