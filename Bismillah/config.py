@@ -1,48 +1,35 @@
 import os
 import logging
+from typing import Dict
 
-# API Base URLs - Only Binance and CoinMarketCap
-COINMARKETCAP_BASE_URL = "https://pro-api.coinmarketcap.com"
+# API Base URLs - Only Binance
 BINANCE_FUTURES_BASE_URL = "https://fapi.binance.com/fapi/v1"
 BINANCE_SPOT_BASE_URL = "https://api.binance.com/api/v3"
 
-# API Keys from Environment - Only CMC needed
-CMC_API_KEY = os.getenv("CMC_API_KEY") or os.getenv("COINMARKETCAP_API_KEY")
+# API Keys from Environment - No API keys needed for public Binance endpoints
+# CMC_API_KEY = os.getenv("CMC_API_KEY") or os.getenv("COINMARKETCAP_API_KEY")
 
 # Headers Configuration
-def get_coinmarketcap_headers():
-    headers = {
-        "Accepts": "application/json",
-        "Accept-Encoding": "deflate, gzip",
-        "User-Agent": "CryptoMentor-Bot/2.0"
-    }
-    if CMC_API_KEY:
-        headers["X-CMC_PRO_API_KEY"] = CMC_API_KEY
-    return headers
-
-def get_binance_headers():
+# Removed get_coinmarketcap_headers
+def get_binance_headers() -> Dict[str, str]:
+    """
+    Headers untuk Binance API (public endpoints tidak perlu API key)
+    """
     return {
-        "User-Agent": "CryptoMentor-Bot/2.0",
-        "Accept": "application/json"
+        'Accept': 'application/json',
+        'User-Agent': 'CryptoMentor-Bot'
     }
 
 # API Endpoints
-COINMARKETCAP_ENDPOINTS = {
-    "quotes": f"{COINMARKETCAP_BASE_URL}/v1/cryptocurrency/quotes/latest",
-    "info": f"{COINMARKETCAP_BASE_URL}/v1/cryptocurrency/info",
-    "global_metrics": f"{COINMARKETCAP_BASE_URL}/v1/global-metrics/quotes/latest",
-    "listings": f"{COINMARKETCAP_BASE_URL}/v1/cryptocurrency/listings/latest"
-}
-
+# Removed COINMARKETCAP_ENDPOINTS
 BINANCE_ENDPOINTS = {
-    "futures_ticker": f"{BINANCE_FUTURES_BASE_URL}/ticker/24hr",
-    "futures_funding": f"{BINANCE_FUTURES_BASE_URL}/fundingRate",
-    "futures_open_interest": f"{BINANCE_FUTURES_BASE_URL}/openInterest",
-    "long_short_ratio": f"{BINANCE_FUTURES_BASE_URL}/topLongShortAccountRatio",
-    "long_short_position": f"{BINANCE_FUTURES_BASE_URL}/topLongShortPositionRatio",
-    "spot_ticker": f"{BINANCE_SPOT_BASE_URL}/ticker/24hr",
-    "exchange_info": f"{BINANCE_FUTURES_BASE_URL}/exchangeInfo",
-    "klines": f"{BINANCE_FUTURES_BASE_URL}/klines"
+    'spot_price': f"{BINANCE_SPOT_BASE_URL}/ticker/price",
+    'spot_24hr': f"{BINANCE_SPOT_BASE_URL}/ticker/24hr",
+    'spot_klines': f"{BINANCE_SPOT_BASE_URL}/klines",
+    'futures_price': f"{BINANCE_FUTURES_BASE_URL}/ticker/price",
+    'futures_24hr': f"{BINANCE_FUTURES_BASE_URL}/ticker/24hr",
+    'futures_klines': f"{BINANCE_FUTURES_BASE_URL}/klines",
+    'exchange_info': f"{BINANCE_SPOT_BASE_URL}/exchangeInfo"
 }
 
 # Logging Configuration
@@ -54,11 +41,13 @@ logging.basicConfig(
 # API Status Check
 def check_api_keys():
     status = {
-        'coinmarketcap': bool(CMC_API_KEY),
+        # 'coinmarketcap': bool(CMC_API_KEY), # Removed CMC status
         'binance': True  # Public API, no key needed
     }
 
-    logging.info(f"API Keys Status: CMC={'✅' if status['coinmarketcap'] else '❌'}, Binance=✅")
+    # logging.info(f"API Keys Status: CMC={'✅' if status['coinmarketcap'] else '❌'}, Binance=✅") # Removed CMC logging
+    logging.info(f"API Keys Status: Binance=✅")
+
 
     return status
 

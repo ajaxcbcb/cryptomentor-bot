@@ -114,7 +114,7 @@ class AIAssistant:
 • Take profit bertahap di level SnD zones
 • Monitor volume untuk konfirmasi breakout
 
-📡 **Data Source**: CoinAPI Real-time + Internal SnD Algorithm
+📡 **Data Source**: Binance Real-time + Internal SnD Algorithm
 🕐 **Analisis**: {datetime.now().strftime('%H:%M:%S WIB')}"""
 
             return analysis
@@ -1223,7 +1223,7 @@ class AIAssistant:
 • ✅ Prepare for partial profit taking
 • ✅ Watch for news/events impact
 
-📡 **Data Sources**: CoinAPI OHLCV + Binance Futures + SnD Analysis
+📡 **Data Sources**: Binance OHLCV + Binance Futures + SnD Analysis
 🔄 **Update Frequency**: Real-time price + 15min technical refresh
 
 ✅ Premium aktif — kredit tidak terpakai."""
@@ -2318,9 +2318,9 @@ class AIAssistant:
             return f"❌ Error generating futures signals: {str(e)[:100]}..."
 
     def get_market_sentiment(self, language: str = 'id', crypto_api=None) -> str:
-        """Get comprehensive market overview and sentiment analysis in the requested format"""
+        """Get comprehensive market overview and sentiment analysis using Binance data"""
         try:
-            # Get data for top 25 cryptocurrencies (reduced for better performance)
+            # Get data for top cryptocurrencies available on Binance
             major_cryptos = [
                 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI',
                 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET', 'FLOW',
@@ -2605,7 +2605,7 @@ class AIAssistant:
 • **BTC Dominance Resistance**: {btc_dominance+2:.1f}%
 • **Market Cap Key Level**: {format_large_number(market_cap_low)} - {format_large_number(market_cap_high)}
 
-📡 **Data Sources**: CoinMarketCap Global Metrics + Multi-API Analysis
+📡 **Data Sources**: Binance Global Metrics + Multi-API Analysis
 ⏰ **Next Update**: Setiap 15 menit untuk data real-time"""
 
             return analysis

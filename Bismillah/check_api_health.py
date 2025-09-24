@@ -8,6 +8,41 @@ from crypto_api import CryptoAPI
 # Load environment variables
 load_dotenv()
 
+def check_binance():
+    """
+    Test Binance API connection
+    """
+    try:
+        # Test Binance Spot API
+        url = "https://api.binance.com/api/v3/ticker/price"
+        params = {'symbol': 'BTCUSDT'}
+
+        response = requests.get(url, params=params, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            if 'price' in data and float(data['price']) > 0:
+                return {
+                    'status': 'success',
+                    'response_time': response.elapsed.total_seconds(),
+                    'sample_price': data['price'],
+                    'endpoint': 'spot',
+                    'timestamp': datetime.now().isoformat()
+                }
+
+        return {
+            'status': 'failed',
+            'error': f'HTTP {response.status_code}: {response.text[:100]}',
+            'timestamp': datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        return {
+            'status': 'failed',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }
+
 def check_api_health():
     """Advanced comprehensive API health check"""
     print("🏥 CryptoMentor Advanced API Health Report")
@@ -239,6 +274,56 @@ def check_api_health():
             print("   • Add CryptoNews API key for live news integration")
     else:
         print("   • All systems optimal! Enjoy full advanced features 🚀")
+
+def main():
+    """
+    Comprehensive API health check - Binance only
+    """
+    print("🔍 API Health Check - CryptoMentor Bot (Binance)")
+    print("=" * 50)
+
+    # Check Binance Spot
+    print("\n🔄 Testing Binance Spot API...")
+    binance_spot_result = check_binance()
+    if binance_spot_result['status'] == 'success':
+        print(f"✅ Binance Spot: OK ({binance_spot_result['response_time']:.2f}s)")
+        print(f"   Sample BTC price: ${binance_spot_result['sample_price']}")
+    else:
+        print(f"❌ Binance Spot: {binance_spot_result['error']}")
+
+    # Check Binance Futures
+    print("\n⚡ Testing Binance Futures API...")
+    try:
+        futures_url = "https://fapi.binance.com/fapi/v1/ticker/price"
+        futures_response = requests.get(futures_url, params={'symbol': 'BTCUSDT'}, timeout=10)
+        if futures_response.status_code == 200:
+            futures_data = futures_response.json()
+            print(f"✅ Binance Futures: OK ({futures_response.elapsed.total_seconds():.2f}s)")
+            print(f"   Sample BTC futures price: ${futures_data['price']}")
+            futures_working = True
+        else:
+            print(f"❌ Binance Futures: HTTP {futures_response.status_code}")
+            futures_working = False
+    except Exception as e:
+        print(f"❌ Binance Futures: {str(e)}")
+        futures_working = False
+
+    # Summary
+    print("\n" + "=" * 50)
+    working_apis = sum([
+        binance_spot_result['status'] == 'success',
+        futures_working
+    ])
+    total_apis = 2
+
+    if working_apis == total_apis:
+        print("🎉 All Binance APIs are working correctly!")
+    elif working_apis > 0:
+        print(f"⚠️ {working_apis}/{total_apis} Binance APIs working")
+    else:
+        print("❌ All Binance APIs are down!")
+
+    return working_apis == total_apis
 
 if __name__ == "__main__":
     check_api_health()
