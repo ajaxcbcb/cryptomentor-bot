@@ -1138,7 +1138,7 @@ class TelegramBot:
 
             # Get market analysis using CoinAPI real-time data with progress tracking
             print("📊 Calling AI market sentiment analysis with CoinAPI...")
-            analysis_result = await self.ai.get_market_sentiment('id', self.crypto_api, progress_tracker, user_id)
+            analysis_result = await self.ai.get_market_sentiment_async('id', self.crypto_api, progress_tracker, user_id)
 
             # Cancel progress updates since analysis is done
             try:
