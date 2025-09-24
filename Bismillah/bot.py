@@ -3288,7 +3288,7 @@ ADMIN2 = [optional_second_admin_id]
             env_vars = []
             if admin_secret: env_vars.append("ADMIN=SET (Super Admin)")
             if admin1: env_vars.append("ADMIN1=SET")
-            if admin2: env_vars.append("ADMIN2=SETenv_vars.append("ADMIN2=SET")
+            if admin2: env_vars.append("ADMIN2=SET")
 
             message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
         else:
