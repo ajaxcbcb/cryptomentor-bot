@@ -27,22 +27,13 @@ class AIAssistant:
         except ImportError:
             print("⚠️ OpenAI library not available")
 
-    def get_comprehensive_analysis(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_callback=None, task_id=None) -> str:
-        """Generate comprehensive crypto analysis with progress tracking"""
+    def get_comprehensive_analysis(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None) -> str:
+        """Generate comprehensive crypto analysis"""
         try:
-            # Progress: 10% - Getting price data
-            if progress_callback and task_id:
-                await progress_callback(task_id, 10)
-                await asyncio.sleep(0.5)  # Simulate processing time
             # Get real-time price data
             price_data = {}
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-            
-            # Progress: 25% - Technical analysis
-            if progress_callback and task_id:
-                await progress_callback(task_id, 25)
-                await asyncio.sleep(0.8)
 
             current_price = price_data.get('price', 0) if 'error' not in price_data else 0
             change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
@@ -64,18 +55,8 @@ class AIAssistant:
             else:
                 volume_format = f"${volume_24h:,.0f}"
 
-            # Progress: 45% - Market sentiment
-            if progress_callback and task_id:
-                await progress_callback(task_id, 45)
-                await asyncio.sleep(0.6)
-
             # Get Supply & Demand zones
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
-
-            # Progress: 65% - SnD zones calculation
-            if progress_callback and task_id:
-                await progress_callback(task_id, 65)
-                await asyncio.sleep(0.7)
 
             # Generate signals
             signal_data = self._generate_trading_signals(symbol, current_price, change_24h, volume_24h)
@@ -85,11 +66,6 @@ class AIAssistant:
 
             change_emoji = "📈" if change_24h >= 0 else "📉"
             sentiment_emoji = "🟢" if sentiment['score'] > 60 else "🟡" if sentiment['score'] > 40 else "🔴"
-
-            # Progress: 85% - Finalizing analysis
-            if progress_callback and task_id:
-                await progress_callback(task_id, 85)
-                await asyncio.sleep(0.5)
 
             # Get additional info (news, market context, etc.)
             additional_info = self._get_additional_market_info(symbol, current_price, change_24h)
@@ -2131,7 +2107,7 @@ class AIAssistant:
 
         return "\n".join(insights)
 
-    async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None, progress_callback=None, task_id=None) -> str:
+    async def generate_futures_signals(self, language: str = 'id', crypto_api=None, query_args: List = None) -> str:
         """Generate multiple futures signals with professional Supply & Demand analysis format"""
         try:
             # Extended symbols list - scan top 25+ coins for better signal discovery
@@ -2163,11 +2139,6 @@ class AIAssistant:
             for symbol in symbols:
                 try:
                     total_scanned += 1
-
-                    # Update progress based on scan progress
-                    scan_progress = 8 + int((total_scanned / len(symbols)) * 42)  # 8% to 50%
-                    if progress_callback and task_id:
-                        await progress_callback(task_id, scan_progress)
 
                     # Get comprehensive market data
                     price_data = {}
@@ -2239,19 +2210,9 @@ class AIAssistant:
                 else:
                     return f"${num/1000000:.1f}M"
 
-            # Progress: 70% - Filtering signals
-            if progress_callback and task_id:
-                await progress_callback(task_id, 70)
-                await asyncio.sleep(0.5)
-
             # Sort signals by confidence and select top 5
             signals_found.sort(key=lambda x: x['signals']['confidence'], reverse=True)
             top_signals = signals_found[:5]
-
-            # Progress: 85% - Formatting results
-            if progress_callback and task_id:
-                await progress_callback(task_id, 85)
-                await asyncio.sleep(0.3)
 
             # Professional header format
             signals_text = f"""🚨 **FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS**
