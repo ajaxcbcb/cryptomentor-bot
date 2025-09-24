@@ -124,12 +124,22 @@ class AIAssistant:
             return f"❌ Terjadi kesalahan dalam analisis {symbol}. Error: {str(e)[:100]}..."
 
     async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
-        """Generate comprehensive crypto analysis with progress tracking"""
+        """Generate comprehensive crypto analysis with optimized timing"""
         try:
-            # Update progress: Stage 1 - Data fetching
+            # Optimized timing for faster analysis (10-12 seconds total)
+            stage_timings = {
+                'data_fetch': 1.8,      # 1.8 seconds
+                'technical': 2.2,       # 2.2 seconds
+                'snd_zones': 2.0,       # 2 seconds
+                'signals': 2.5,         # 2.5 seconds
+                'sentiment': 1.5,       # 1.5 seconds
+                'finalize': 1.0         # 1 second
+            }
+            
+            # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "🔍 Mengambil data CoinAPI...")
-                await asyncio.sleep(2.5)  # Realistic API call time
+                await progress_tracker.update_progress(user_id, 15, "⚡ Mengambil data...")
+                await asyncio.sleep(stage_timings['data_fetch'])
 
             # Get real-time price data
             price_data = {}
@@ -146,10 +156,10 @@ class AIAssistant:
                     progress_tracker.complete_job(user_id)
                 return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
 
-            # Update progress: Stage 2 - Technical analysis
+            # Update progress: Stage 2 - Technical analysis (OPTIMIZED)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "📊 Memproses technical indicators...")
-                await asyncio.sleep(3.2)  # Technical analysis time
+                await progress_tracker.update_progress(user_id, 35, "📊 Processing indicators...")
+                await asyncio.sleep(stage_timings['technical'])
 
             # Price formatting
             if current_price < 1:
@@ -167,26 +177,26 @@ class AIAssistant:
             else:
                 volume_format = f"${volume_24h:,.0f}"
 
-            # Update progress: Stage 3 - SnD zones
+            # Update progress: Stage 3 - SnD zones (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 55, "💰 Menghitung SnD zones...")
-                await asyncio.sleep(2.8)  # SnD calculation time
+                await progress_tracker.update_progress(user_id, 55, "🎯 Calculating SnD...")
+                await asyncio.sleep(stage_timings['snd_zones'])
 
             # Get Supply & Demand zones
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
 
-            # Update progress: Stage 4 - Signal generation
+            # Update progress: Stage 4 - Signal generation (CORE)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 75, "📈 Generating trading signals...")
-                await asyncio.sleep(3.5)  # Signal generation time
+                await progress_tracker.update_progress(user_id, 75, "⚡ Generating signals...")
+                await asyncio.sleep(stage_timings['signals'])
 
             # Generate signals
             signal_data = self._generate_trading_signals(symbol, current_price, change_24h, volume_24h)
 
-            # Update progress: Stage 5 - Sentiment analysis
+            # Update progress: Stage 5 - Sentiment analysis (QUICK)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 90, "🧠 Menganalisis sentimen pasar...")
-                await asyncio.sleep(2.2)  # Sentiment analysis time
+                await progress_tracker.update_progress(user_id, 90, "🧠 Analyzing sentiment...")
+                await asyncio.sleep(stage_timings['sentiment'])
 
             # Market sentiment
             sentiment = self._analyze_market_sentiment(change_24h, volume_24h)
@@ -197,10 +207,10 @@ class AIAssistant:
             # Get additional info (news, market context, etc.)
             additional_info = self._get_additional_market_info(symbol, current_price, change_24h)
 
-            # Update progress: Final stage
+            # Update progress: Final stage (QUICK)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 98, "✍️ Menyusun laporan final...")
-                await asyncio.sleep(1.5)  # Final formatting
+                await progress_tracker.update_progress(user_id, 98, "✅ Finalizing...")
+                await asyncio.sleep(stage_timings['finalize'])
 
             # Format analysis with proper spacing
             analysis = f"""📊 **ANALISIS KOMPREHENSIF {symbol} (CoinAPI + SnD)**
@@ -1152,24 +1162,23 @@ class AIAssistant:
         return "\n".join(recommendations)
 
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
-        """Get enhanced futures trading signals with improved UX"""
+        """Get enhanced futures trading signals with optimized 10-15 second timing"""
         try:
-            # Calculate timeframe-specific processing times based on complexity
-            timeframe_complexity = {
-                '15m': 1.2,  # Fastest, less data to process
-                '30m': 1.4,
-                '1h': 1.6,
-                '4h': 1.8,   # More data, longer calculations
-                '1d': 2.0,
-                '1w': 2.2    # Most complex, most data
+            # Optimized timing for 10-15 seconds total
+            total_target = 12.0  # Target 12 seconds total
+            stage_timings = {
+                'data_fetch': 2.0,      # 2 seconds
+                'snd_calc': 2.5,        # 2.5 seconds  
+                'structure': 2.0,       # 2 seconds
+                'signals': 3.0,         # 3 seconds
+                'risk_calc': 1.5,       # 1.5 seconds
+                'finalize': 1.0         # 1 second
             }
             
-            complexity_multiplier = timeframe_complexity.get(timeframe, 1.6)
-            
-            # Update progress: Stage 1 - Data fetching
+            # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "⏳ Fetching market data...")
-                await asyncio.sleep(1.8 * complexity_multiplier)  # 15m = 2.16s, 1w = 3.96s
+                await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
+                await asyncio.sleep(stage_timings['data_fetch'])
 
             # Get current price and market data
             price_data = {}
@@ -1186,31 +1195,31 @@ class AIAssistant:
                     progress_tracker.complete_job(user_id)
                 return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/futures btc` atau `/futures eth`"
 
-            # Update progress: Stage 2 - Enhanced Supply & Demand calculation
+            # Update progress: Stage 2 - SnD zones (OPTIMIZED)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "🎯 Calculating Supply & Demand zones...")
-                await asyncio.sleep(2.2 * complexity_multiplier)  # 15m = 2.64s, 1w = 4.84s
+                await progress_tracker.update_progress(user_id, 35, "🎯 Calculating SnD zones...")
+                await asyncio.sleep(stage_timings['snd_calc'])
 
             # Get enhanced SnD zones and signals
             snd_zones = self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api)
 
-            # Update progress: Stage 3 - Market structure
+            # Update progress: Stage 3 - Market structure (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 50, "🧠 Processing market structure...")
-                await asyncio.sleep(2.0 * complexity_multiplier)  # 15m = 2.4s, 1w = 4.4s
+                await progress_tracker.update_progress(user_id, 55, "🧠 Processing structure...")
+                await asyncio.sleep(stage_timings['structure'])
 
-            # Update progress: Stage 4 - Signal generation (most complex step)
+            # Update progress: Stage 4 - Signal generation (CORE)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 70, "⚡ Generating entry signals...")
-                await asyncio.sleep(3.5 * complexity_multiplier)  # 15m = 4.2s, 1w = 7.7s
+                await progress_tracker.update_progress(user_id, 75, "⚡ Generating signals...")
+                await asyncio.sleep(stage_timings['signals'])
 
             # Generate signals
             futures_signals = self._generate_advanced_futures_signals(symbol, current_price, timeframe, snd_zones, volume_24h, crypto_api)
 
-            # Update progress: Stage 5 - Risk calculation
+            # Update progress: Stage 5 - Risk calculation (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 85, "💎 Calculating risk/reward...")
-                await asyncio.sleep(1.5 * complexity_multiplier)  # 15m = 1.8s, 1w = 3.3s
+                await progress_tracker.update_progress(user_id, 90, "💎 Finalizing R:R...")
+                await asyncio.sleep(stage_timings['risk_calc'])
 
             # Enhanced timeframe display
             tf_display = {
@@ -1340,10 +1349,10 @@ class AIAssistant:
                 tp3_pct = ((futures_signals['entry'] - futures_signals['tp3']) / futures_signals['entry'] * 100)
                 sl_risk_pct = ((futures_signals['sl'] - futures_signals['entry']) / futures_signals['entry'] * 100)
 
-            # Update progress: Final stage - Finalizing analysis
+            # Update progress: Final stage - Finalizing analysis (QUICK)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 95, "✍️ Finalizing analysis...")
-                await asyncio.sleep(1.0 * complexity_multiplier)  # 15m = 1.2s, 1w = 2.2s
+                await progress_tracker.update_progress(user_id, 95, "✅ Finalizing...")
+                await asyncio.sleep(stage_timings['finalize'])
 
             # Professional analysis output with structured signal format
             if signal_direction != "WAIT":
@@ -2335,20 +2344,28 @@ class AIAssistant:
         return "\n".join(insights)
 
     async def get_market_sentiment_async(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
-        """Generate market sentiment analysis with progress tracking"""
+        """Generate market sentiment analysis with optimized timing"""
         try:
-            # Market analysis with realistic processing times
+            # Optimized timing for market analysis (8-10 seconds total)
+            stage_timings = {
+                'fetch_global': 1.5,    # 1.5 seconds
+                'process': 2.0,         # 2 seconds
+                'analyze': 2.0,         # 2 seconds
+                'dominance': 1.5,       # 1.5 seconds
+                'finalize': 1.0         # 1 second
+            }
+            
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "🌍 Fetching global market data...")
-                await asyncio.sleep(2.2)  # Realistic API call time
+                await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
+                await asyncio.sleep(stage_timings['fetch_global'])
 
             # Get market data from CoinAPI
             market_data = []
             symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
             
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "📊 Processing market metrics...")
-                await asyncio.sleep(2.8)  # Market analysis time
+                await progress_tracker.update_progress(user_id, 35, "📊 Processing metrics...")
+                await asyncio.sleep(stage_timings['process'])
 
             for symbol in symbols:
                 try:
@@ -2366,8 +2383,8 @@ class AIAssistant:
                     continue
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 60, "🧠 Analyzing market sentiment...")
-                await asyncio.sleep(3.2)  # Sentiment analysis time
+                await progress_tracker.update_progress(user_id, 60, "🧠 Analyzing sentiment...")
+                await asyncio.sleep(stage_timings['analyze'])
 
             if not market_data:
                 return "❌ Unable to fetch market data from CoinAPI"
@@ -2379,7 +2396,7 @@ class AIAssistant:
 
             if user_id and progress_tracker:
                 await progress_tracker.update_progress(user_id, 80, "💰 Calculating dominance...")
-                await asyncio.sleep(2.5)  # Calculation time
+                await asyncio.sleep(stage_timings['dominance'])
 
             # BTC dominance simulation
             btc_data = next((coin for coin in market_data if coin['symbol'] == 'BTC'), None)
@@ -2388,8 +2405,8 @@ class AIAssistant:
                 btc_dominance = 50.0 + (btc_data['change_24h'] * 0.5)  # Estimate
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 95, "✍️ Building market overview...")
-                await asyncio.sleep(1.8)  # Final formatting
+                await progress_tracker.update_progress(user_id, 95, "✅ Building overview...")
+                await asyncio.sleep(stage_timings['finalize'])
 
             # Market sentiment analysis
             if avg_change > 3:
