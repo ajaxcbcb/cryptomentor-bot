@@ -1015,12 +1015,42 @@ class TelegramBot:
 
         print(f"✅ APPROVED: User {user_id} analyze command - {guard_message}")
 
-        # Show loading ONLY after credit approval
-        loading_msg = await update.message.reply_text("⏳ Menganalisis data dengan CoinAPI real-time...")
+        # Initialize progress tracking
+        from app.progress_tracker import progress_tracker
+        
+        # Start processing job
+        job = await progress_tracker.start_processing(user_id, '/analyze', symbol)
+        
+        # Show initial progress message
+        progress_msg = progress_tracker.get_progress_message(user_id)
+        loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
+        
+        # Real-time progress updates
+        async def update_progress_display():
+            for i in range(6):  # Update 6 times during processing
+                await asyncio.sleep(3.0)  # Update every 3 seconds (realistic timing)
+                if user_id in progress_tracker.active_jobs:
+                    updated_msg = progress_tracker.get_progress_message(user_id)
+                    try:
+                        await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
+                    except Exception as e:
+                        print(f"Progress update failed: {e}")
+                        pass  # Continue even if edit fails
+                else:
+                    break  # Job completed, stop updates
+        
+        # Start progress updates in background
+        progress_task = asyncio.create_task(update_progress_display())
 
         try:
-            # Get comprehensive analysis using CoinAPI data
-            analysis = self.ai.get_comprehensive_analysis(symbol, {}, {}, 'id', self.crypto_api)
+            # Get comprehensive analysis using CoinAPI data with progress tracking
+            analysis = await self.ai.get_comprehensive_analysis_async(symbol, {}, {}, 'id', self.crypto_api, progress_tracker, user_id)
+
+            # Cancel progress updates since analysis is done
+            try:
+                progress_task.cancel()
+            except:
+                pass
 
             # Add credit status to response
             analysis += f"\n\n{guard_message}"
@@ -1035,6 +1065,12 @@ class TelegramBot:
                 await loading_msg.edit_text(analysis, parse_mode='Markdown')
 
         except Exception as e:
+            # Cancel progress updates
+            try:
+                progress_task.cancel()
+            except:
+                pass
+            
             # Credits were already debited atomically, no manual refund needed
             error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
@@ -1070,15 +1106,45 @@ class TelegramBot:
 
         print(f"✅ APPROVED: User {user_id} market command - {guard_message}")
 
-        # Show loading message ONLY after credit approval
-        loading_msg = await update.message.reply_text("⏳ Menganalisis overview pasar crypto real-time dari CoinAPI...")
+        # Initialize progress tracking
+        from app.progress_tracker import progress_tracker
+        
+        # Start processing job
+        job = await progress_tracker.start_processing(user_id, '/market', '')
+        
+        # Show initial progress message
+        progress_msg = progress_tracker.get_progress_message(user_id)
+        loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
+        
+        # Real-time progress updates
+        async def update_progress_display():
+            for i in range(5):  # Update 5 times during processing
+                await asyncio.sleep(2.8)  # Update every 2.8 seconds (realistic timing)
+                if user_id in progress_tracker.active_jobs:
+                    updated_msg = progress_tracker.get_progress_message(user_id)
+                    try:
+                        await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
+                    except Exception as e:
+                        print(f"Progress update failed: {e}")
+                        pass  # Continue even if edit fails
+                else:
+                    break  # Job completed, stop updates
+        
+        # Start progress updates in background
+        progress_task = asyncio.create_task(update_progress_display())
 
         try:
             print(f"🔄 Market command initiated by user {user_id}")
 
-            # Get market analysis using CoinAPI real-time data
+            # Get market analysis using CoinAPI real-time data with progress tracking
             print("📊 Calling AI market sentiment analysis with CoinAPI...")
-            analysis_result = self.ai.get_market_sentiment('id', self.crypto_api)
+            analysis_result = await self.ai.get_market_sentiment('id', self.crypto_api, progress_tracker, user_id)
+
+            # Cancel progress updates since analysis is done
+            try:
+                progress_task.cancel()
+            except:
+                pass
 
             if not analysis_result or len(analysis_result.strip()) < 50:
                 # Analysis failed - no need to refund since credits were already debited atomically
@@ -1103,6 +1169,12 @@ class TelegramBot:
             await loading_msg.edit_text(analysis_result, parse_mode='Markdown')
 
         except Exception as e:
+            # Cancel progress updates
+            try:
+                progress_task.cancel()
+            except:
+                pass
+            
             # Credits were already debited atomically, no need to refund manually
             await safe_reply(loading_msg, f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/price btc` atau `/analyze btc`.")
             print(f"❌ Market command error: {e}")
