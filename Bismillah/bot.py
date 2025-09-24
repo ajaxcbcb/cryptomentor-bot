@@ -1838,7 +1838,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with unified single link system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        
+
         # Use Supabase for premium checks with better error handling
         try:
             from app.premium_check import is_premium as sb_is_premium
@@ -1862,7 +1862,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         total_referrals = 0
         credits_earned = 0
         money_earned = 0
-        
+
         try:
             from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
@@ -1870,18 +1870,18 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             # Ensure user exists in Supabase first
             from app.users_repo import touch_user_from_update
             touch_user_from_update(update)
-            
+
             # Get all referrals (both free and premium)
             all_refs = s.table("users").select("telegram_id, first_name, created_at, is_premium, is_lifetime").eq("referred_by", user_id).execute()
-            
+
             total_referrals = len(all_refs.data) if all_refs.data else 0
             credits_earned = total_referrals * 10  # 10 credits per referral
-            
+
             # Calculate money earnings (only from premium referrals if referrer is premium)
             if is_premium and all_refs.data:
                 premium_referrals = [ref for ref in all_refs.data if ref.get('is_premium') or ref.get('is_lifetime')]
                 money_earned = len(premium_referrals) * 10000  # Rp 10,000 per premium referral
-            
+
         except Exception as e:
             print(f"❌ Error getting referral statistics from Supabase: {e}")
             # Try fallback to local database
@@ -1890,12 +1890,12 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 local_refs = self.db.cursor.execute("""
                     SELECT COUNT(*) FROM users WHERE referred_by = ?
                 """, (user_id,)).fetchone()
-                
+
                 total_referrals = local_refs[0] if local_refs else 0
                 credits_earned = total_referrals * 10
-                
+
                 print(f"✅ Using local DB referral stats: {total_referrals} referrals")
-                
+
             except Exception as local_e:
                 print(f"❌ Local DB referral stats also failed: {local_e}")
                 # Use default values (already set above)
@@ -2660,7 +2660,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         message = f"""🔍 **Admin Check**
 
 👤 **Your Info:**
-• **User ID**: {user_id}
+• **User ID**: `{user_id}`
 • **Admin Status**: {'✅ ADMIN' if is_admin else '❌ NOT ADMIN'}
 • **Configured Admin ID**: {self.admin_id}
 
@@ -3251,7 +3251,7 @@ ADMIN2 = [optional_second_admin_id]
 
     async def admin_debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin_debug command - shows admin configuration debug info"""
-        user_id = update.effective_user.id if update.effective_user else None
+        user_id = update.message.from_user.id if update.effective_user else None
 
         # Import new auth system
         from app.lib.auth import get_admin_hierarchy, is_super_admin
@@ -3288,7 +3288,7 @@ ADMIN2 = [optional_second_admin_id]
             env_vars = []
             if admin_secret: env_vars.append("ADMIN=SET (Super Admin)")
             if admin1: env_vars.append("ADMIN1=SET")
-            if admin2: env_vars.append("ADMIN2=SET")
+            if admin2: env_vars.append("ADMIN2=SETenv_vars.append("ADMIN2=SET")
 
             message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
         else:
@@ -3380,7 +3380,7 @@ ADMIN2 = [optional_second_admin_id]
         if not is_super_admin(user_id):
             await update.message.reply_text(
                 "❌ **Access Denied**\n\n"
-                "Only the Super Admin (ADMIN secret) can remove admins.",
+                "Only the Super Admin can remove admins.",
                 parse_mode='Markdown'
             )
             return
@@ -3408,8 +3408,8 @@ ADMIN2 = [optional_second_admin_id]
         # Check if trying to remove super admin
         if is_super_admin(target_admin_id):
             await update.message.reply_text(
-                "❌ **Tidak dapat menghapus Super Admin!**\n\n"
-                "Super Admin tidak dapat dihapus dari sistem.",
+                "❌ **Cannot remove Super Admin!**\n\n"
+                "The Super Admin cannot be removed from the system.",
                 parse_mode='Markdown'
             )
             return
@@ -3418,15 +3418,15 @@ ADMIN2 = [optional_second_admin_id]
         success = remove_admin(target_admin_id, user_id)
 
         if success:
-            message = f"""✅ **Admin berhasil dihapus!**
+            message = f"""✅ **Admin successfully removed!**
 
 👤 **Removed Admin ID**: `{target_admin_id}`
 👑 **Removed by Super Admin**: `{user_id}`
 
-⚠️ **User {target_admin_id} tidak lagi memiliki akses admin.**
+⚠️ **User {target_admin_id} no longer has admin access.**
 
 💡 **Next Steps:**
-• User {target_admin_id} masih dapat menggunakan bot sebagai user biasa."""
+• User {target_admin_id} can still use the bot as a regular user."""
 
             # Log admin action
             self.db.log_user_activity(
@@ -3435,7 +3435,7 @@ ADMIN2 = [optional_second_admin_id]
                 f"Removed admin {target_admin_id}"
             )
         else:
-            message = f"❌ **Gagal menghapus admin {target_admin_id}**\n\nTerjadi kesalahan sistem."
+            message = f"❌ **Failed to remove admin {target_admin_id}**\n\nA system error occurred."
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -3815,6 +3815,7 @@ ADMIN2 = [optional_second_admin_id]
         try:
             # This block was removed as per the instruction to remove the broken Supabase registration.
             # If specific Supabase commands are needed, they should be imported and registered separately.
+            # If specific Supabase commands are needed, they should be imported and registered separately.
             pass
         except ImportError as e:
             print(f"⚠️ Supabase handler not available: {e}")
@@ -3903,4 +3904,5 @@ ADMIN2 = [optional_second_admin_id]
     # End of TelegramBot class definition
 if __name__ == "__main__":
     bot = TelegramBot()
-    asyncio.run(bot.run_bot())
+    asyncio.run(bot.run_bot())ADMIN1 = {user_id}
+ADMIN2 = [optional_second_admin_id]
