@@ -1942,7 +1942,7 @@ class AIAssistant:
             if symbol.upper() in ['BTC', 'ETH']:
                 symbol_quality = 1.06          # Small premium for majors
             elif symbol.upper() in ['SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK']:
-                symbol_quality = 1.03          # Very small bonus for established alts
+                symbol_quality = 1.03          # Very small bonus for established altcoins
 
             # Final confidence with controlled variation - cap at 90%
             raw_confidence = base_confidence + (volume_score * 0.5) + (zone_precision_bonus * 0.8)
@@ -2144,7 +2144,7 @@ class AIAssistant:
         if confidence < 65:
             return """🛑 **NO TRADE**: Confidence too low
 📚 **Advice**: Wait for stronger signal (65%+)
-⏰ **Action**: Monitor for better conditions
+⏰ **Action**: Monitor for better setup
 ❌ **Warning**: All levels neutralized to prevent entry"""
 
         if direction == "LONG":
@@ -2440,7 +2440,7 @@ class AIAssistant:
 
             # Generate recommendations
             recommendations = self._generate_coin_recommendations(market_data, avg_change, btc_dominance)
-            entry_analysis = self._generate_best_entry_analysis(market_data, sentiment)
+            entryanalysis = self._generate_best_entry_analysis(market_data, sentiment)
 
             analysis = f"""🌍 **OVERVIEW PASAR CRYPTO GLOBAL (CoinAPI Real-time)**
 
@@ -2658,7 +2658,7 @@ class AIAssistant:
                         direction_icon = "🔴"
                         structure_bias = "SHORT Bias"
 
-                    # Format prices consistently
+                    # Format prices consistently (avoid problematic characters)
                     def format_signal_price(price):
                         if price < 1:
                             return f"${price:.6f}"
@@ -2680,17 +2680,17 @@ class AIAssistant:
                     # R:R ranking
                     rr_rank = "RANK #1" if rr >= 3.0 else "GOOD" if rr >= 2.0 else "FAIR"
 
-                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}** (Confidence: {confidence:.1f}%)
+                    signals_text += f"""{i}. {symbol} {direction_icon} {direction} (Confidence: {confidence:.1f}%)
 
-🛑 **Stop Loss**: {format_signal_price(sl)}
-➡️ **Entry**: {format_signal_price(entry)}
-🎯 **TP1**: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
-🎯 **TP2**: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
-🎯 **TP3**: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
-💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
+🛑 Stop Loss: {format_signal_price(sl)}
+➡️ Entry: {format_signal_price(entry)}
+🎯 TP1: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
+🎯 TP2: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
+🎯 TP3: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
+💎 R:R Ratio: {rr:.1f}:1 ({rr_rank})
 
-📈 **24h Change**: {change_24h:+.2f}%
-⚡ **Structure**: {structure_bias}
+📈 24h Change: {change_24h:+.2f}%
+⚡ Structure: {structure_bias}
 
 """
 
@@ -2704,7 +2704,7 @@ class AIAssistant:
 📡 Next scan akan mengacak koin berbeda
 🔄 Jalankan ulang untuk variasi sinyal
 
-✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
+✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
 
             else:
                 signals_text += f"""⚠️ **NO HIGH-CONFIDENCE SIGNALS**
