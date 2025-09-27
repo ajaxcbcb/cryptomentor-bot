@@ -1189,6 +1189,9 @@ class TelegramBot:
         # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
+        user_id = update.message.from_user.id
+        user = update.message.from_user
+
         # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 60)
         allowed, remaining, guard_message = require_credits(user_id, 60, user.username, user.first_name, user.last_name)
 
