@@ -1017,14 +1017,14 @@ class TelegramBot:
 
         # Initialize progress tracking
         from app.progress_tracker import progress_tracker
-        
+
         # Start processing job
         job = await progress_tracker.start_processing(user_id, '/analyze', symbol)
-        
+
         # Show initial progress message
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
-        
+
         # Real-time progress updates
         async def update_progress_display():
             for i in range(6):  # Update 6 times during processing
@@ -1038,7 +1038,7 @@ class TelegramBot:
                         pass  # Continue even if edit fails
                 else:
                     break  # Job completed, stop updates
-        
+
         # Start progress updates in background
         progress_task = asyncio.create_task(update_progress_display())
 
@@ -1070,7 +1070,7 @@ class TelegramBot:
                 progress_task.cancel()
             except:
                 pass
-            
+
             # Credits were already debited atomically, no manual refund needed
             error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
@@ -1108,14 +1108,14 @@ class TelegramBot:
 
         # Initialize progress tracking
         from app.progress_tracker import progress_tracker
-        
+
         # Start processing job
         job = await progress_tracker.start_processing(user_id, '/market', '')
-        
+
         # Show initial progress message
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
-        
+
         # Real-time progress updates
         async def update_progress_display():
             for i in range(5):  # Update 5 times during processing
@@ -1129,7 +1129,7 @@ class TelegramBot:
                         pass  # Continue even if edit fails
                 else:
                     break  # Job completed, stop updates
-        
+
         # Start progress updates in background
         progress_task = asyncio.create_task(update_progress_display())
 
@@ -1174,7 +1174,7 @@ class TelegramBot:
                 progress_task.cancel()
             except:
                 pass
-            
+
             # Credits were already debited atomically, no need to refund manually
             await safe_reply(loading_msg, f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/price btc` atau `/analyze btc`.")
             print(f"❌ Market command error: {e}")
@@ -1185,9 +1185,6 @@ class TelegramBot:
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
-
-        user_id = update.message.from_user.id
-        user = update.message.from_user
 
         # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
@@ -1388,14 +1385,14 @@ class TelegramBot:
 
                     # Initialize progress tracking
                     from app.progress_tracker import progress_tracker
-                    
+
                     # Start processing job
                     job = await progress_tracker.start_processing(user_id, '/futures', symbol)
-                    
+
                     # Show initial progress message
                     progress_msg = progress_tracker.get_progress_message(user_id)
                     await query.edit_message_text(progress_msg, parse_mode='Markdown')
-                    
+
                     # Real-time progress updates
                     async def update_progress_display():
                         for i in range(8):  # Update 8 times during processing
@@ -1409,7 +1406,7 @@ class TelegramBot:
                                     pass  # Continue even if edit fails
                             else:
                                 break  # Job completed, stop updates
-                    
+
                     # Start progress updates in background
                     progress_task = asyncio.create_task(update_progress_display())
 
@@ -1425,7 +1422,7 @@ class TelegramBot:
                         except:
                             pass
 
-                        # Add credit status to response (credits already debited by guard)
+                        # Add credit status to response
                         analysis_text += f"\n\n{guard_message}"
 
                         # Handle long messages
@@ -1936,7 +1933,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         """Handle /referral command with unified single link system"""
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
-        
+
         # Use Supabase for premium checks with better error handling
         try:
             from app.premium_check import is_premium as sb_is_premium
@@ -1960,7 +1957,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         total_referrals = 0
         credits_earned = 0
         money_earned = 0
-        
+
         try:
             from app.supabase_conn import get_supabase_client
             s = get_supabase_client()
@@ -1968,18 +1965,18 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             # Ensure user exists in Supabase first
             from app.users_repo import touch_user_from_update
             touch_user_from_update(update)
-            
+
             # Get all referrals (both free and premium)
             all_refs = s.table("users").select("telegram_id, first_name, created_at, is_premium, is_lifetime").eq("referred_by", user_id).execute()
-            
+
             total_referrals = len(all_refs.data) if all_refs.data else 0
             credits_earned = total_referrals * 10  # 10 credits per referral
-            
+
             # Calculate money earnings (only from premium referrals if referrer is premium)
             if is_premium and all_refs.data:
                 premium_referrals = [ref for ref in all_refs.data if ref.get('is_premium') or ref.get('is_lifetime')]
                 money_earned = len(premium_referrals) * 10000  # Rp 10,000 per premium referral
-            
+
         except Exception as e:
             print(f"❌ Error getting referral statistics from Supabase: {e}")
             # Try fallback to local database
@@ -1988,12 +1985,12 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 local_refs = self.db.cursor.execute("""
                     SELECT COUNT(*) FROM users WHERE referred_by = ?
                 """, (user_id,)).fetchone()
-                
+
                 total_referrals = local_refs[0] if local_refs else 0
                 credits_earned = total_referrals * 10
-                
+
                 print(f"✅ Using local DB referral stats: {total_referrals} referrals")
-                
+
             except Exception as local_e:
                 print(f"❌ Local DB referral stats also failed: {local_e}")
                 # Use default values (already set above)
@@ -2531,6 +2528,8 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         except Exception as e:
             await safe_reply(update.effective_message, f"❌ Gagal: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def remove_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk remove premium user dengan Supabase (alias for revoke_premium)"""
@@ -2837,7 +2836,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             s = get_supabase_client()
 
             # Count premium referrals
-            premium_refs = s.table("users").select("telegram_id, first_name, created_at").eq("referred_by", user_id).eq("referral_type", "premium").execute()
+            premium_refs = s.table("users").select("telegram_id, first_name, created_at, is_premium, is_lifetime").eq("referred_by", user_id).eq("referral_type", "premium").execute()
 
             total_referrals = len(premium_refs.data) if premium_refs.data else 0
             total_earnings = total_referrals * 10000  # Rp 10,000 per premium referral

@@ -126,14 +126,14 @@ class AIAssistant:
     async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate comprehensive crypto analysis with optimized timing"""
         try:
-            # Optimized timing for faster analysis (10-12 seconds total)
+            # Optimized timing for faster analysis (10 seconds total)
             stage_timings = {
-                'data_fetch': 1.8,      # 1.8 seconds
-                'technical': 2.2,       # 2.2 seconds
-                'snd_zones': 2.0,       # 2 seconds
-                'signals': 2.5,         # 2.5 seconds
+                'data_fetch': 1.5,      # 1.5 seconds
+                'technical': 1.8,       # 1.8 seconds
+                'snd_zones': 1.7,       # 1.7 seconds
+                'signals': 2.0,         # 2.0 seconds
                 'sentiment': 1.5,       # 1.5 seconds
-                'finalize': 1.0         # 1 second
+                'finalize': 1.5         # 1.5 seconds
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -1162,17 +1162,17 @@ class AIAssistant:
         return "\n".join(recommendations)
 
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
-        """Get enhanced futures trading signals with optimized 10-15 second timing"""
+        """Get enhanced futures trading signals with optimized 10 second timing"""
         try:
-            # Optimized timing for 10-15 seconds total
-            total_target = 12.0  # Target 12 seconds total
+            # Optimized timing for 10 seconds total
+            total_target = 10.0  # Target 10 seconds total
             stage_timings = {
-                'data_fetch': 2.0,      # 2 seconds
-                'snd_calc': 2.5,        # 2.5 seconds  
-                'structure': 2.0,       # 2 seconds
-                'signals': 3.0,         # 3 seconds
+                'data_fetch': 1.5,      # 1.5 seconds
+                'snd_calc': 1.8,        # 1.8 seconds  
+                'structure': 1.7,       # 1.7 seconds
+                'signals': 2.0,         # 2.0 seconds
                 'risk_calc': 1.5,       # 1.5 seconds
-                'finalize': 1.0         # 1 second
+                'finalize': 1.5         # 1.5 seconds
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -2398,13 +2398,13 @@ class AIAssistant:
     async def get_market_sentiment_async(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate market sentiment analysis with optimized timing"""
         try:
-            # Optimized timing for market analysis (8-10 seconds total)
+            # Optimized timing for market analysis (10 seconds total)
             stage_timings = {
                 'fetch_global': 1.5,    # 1.5 seconds
-                'process': 2.0,         # 2 seconds
-                'analyze': 2.0,         # 2 seconds
-                'dominance': 1.5,       # 1.5 seconds
-                'finalize': 1.0         # 1 second
+                'process': 2.0,         # 2.0 seconds
+                'analyze': 2.0,         # 2.0 seconds
+                'dominance': 2.0,       # 2.0 seconds
+                'finalize': 2.5         # 2.5 seconds
             }
             
             if user_id and progress_tracker:
