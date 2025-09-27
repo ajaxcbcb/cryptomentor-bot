@@ -1027,8 +1027,8 @@ class TelegramBot:
 
         # Real-time progress updates
         async def update_progress_display():
-            for i in range(6):  # Update 6 times during processing
-                await asyncio.sleep(3.0)  # Update every 3 seconds (realistic timing)
+            for i in range(5):  # Update 5 times during processing
+                await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1119,7 +1119,7 @@ class TelegramBot:
         # Real-time progress updates
         async def update_progress_display():
             for i in range(5):  # Update 5 times during processing
-                await asyncio.sleep(2.8)  # Update every 2.8 seconds (realistic timing)
+                await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1395,8 +1395,8 @@ class TelegramBot:
 
                     # Real-time progress updates
                     async def update_progress_display():
-                        for i in range(8):  # Update 8 times during processing
-                            await asyncio.sleep(2.5)  # Update every 2.5 seconds (realistic timing)
+                        for i in range(5):  # Update 5 times during processing
+                            await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
                             if user_id in progress_tracker.active_jobs:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:

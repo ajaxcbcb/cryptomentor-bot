@@ -126,14 +126,14 @@ class AIAssistant:
     async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate comprehensive crypto analysis with optimized timing"""
         try:
-            # Optimized timing for faster analysis (10 seconds total)
+            # Optimized timing for 10 seconds total
             stage_timings = {
                 'data_fetch': 1.5,      # 1.5 seconds
-                'technical': 1.8,       # 1.8 seconds
-                'snd_zones': 1.7,       # 1.7 seconds
+                'technical': 1.5,       # 1.5 seconds
+                'snd_zones': 1.5,       # 1.5 seconds
                 'signals': 2.0,         # 2.0 seconds
                 'sentiment': 1.5,       # 1.5 seconds
-                'finalize': 1.5         # 1.5 seconds
+                'finalize': 2.0         # 2.0 seconds
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -1168,11 +1168,11 @@ class AIAssistant:
             total_target = 10.0  # Target 10 seconds total
             stage_timings = {
                 'data_fetch': 1.5,      # 1.5 seconds
-                'snd_calc': 1.8,        # 1.8 seconds  
-                'structure': 1.7,       # 1.7 seconds
+                'snd_calc': 1.5,        # 1.5 seconds  
+                'structure': 1.5,       # 1.5 seconds
                 'signals': 2.0,         # 2.0 seconds
                 'risk_calc': 1.5,       # 1.5 seconds
-                'finalize': 1.5         # 1.5 seconds
+                'finalize': 2.0         # 2.0 seconds
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)
