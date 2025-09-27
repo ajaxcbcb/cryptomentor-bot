@@ -1643,7 +1643,7 @@ Terima kasih telah menjadi member premium!"""
 • Fitur lainnya - **Gratis**
 
 🎯 **Rekomendasi untuk Pemula:**
-• Mulai dengan `/price btc` (GRATIS - CoinAPI)
+• Mulai dengan `/price btc` (GRATIS) - harga real-time CoinAPI
 • Coba `/market` (20 credit) - overview pasar global CoinAPI
 • Test `/analyze btc` (20 credit) - CoinAPI analysis!
 • Coba `/futures btc` (20 credit) - SnD signals untuk trading
@@ -2257,41 +2257,41 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 {system_status}
 
 👥 User Management
-• /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium status
-• /revoke_premium <user_id> - Alias for remove_premium
-• /grant_credits <user_id> <amount> - Grant credits
-• /check_user_status <user_id> - Check user info
-• /check_premium <user_id> - Check premium status
+• `/setpremium <user_id> <days|lifetime>` - Set premium
+• `/remove_premium <user_id>` - Remove premium status
+• `/revoke_premium <user_id>` - Alias for remove_premium
+• `/grant_credits <user_id> <amount>` - Grant credits
+• `/check_user_status <user_id>` - Check user info
+• `/check_premium <user_id>` - Check premium status
 
 💳 Credit Management
-• /fix_all_credits - Reset all free users to 100 credits
-• /set_all_credits <amount> - Set all free users to specific credits
+• `/fix_all_credits` - Reset all free users to 100 credits
+• `/set_all_credits <amount>` - Set all free users to specific credits
 
 🛠️ System Commands
-• /sb_status - Supabase connection status
-• /db_status - Database health check
-• /recovery_stats - System statistics
-• /combined_stats - Combined user stats (SQLite + Supabase)
-• /restart - Restart bot
+• `/sb_status` - Supabase connection status
+• `/db_status` - Database health check
+• `/recovery_stats` - System statistics
+• `/combined_stats` - Combined user stats (SQLite + Supabase)
+• `/restart` - Restart bot
 
 📢 Broadcasting
-• /broadcast <message> - Send to all users
-• /broadcast_welcome - Send welcome broadcast
-• /confirm_broadcast - Confirm pending broadcast
-• /cancel_broadcast - Cancel pending broadcast
+• `/broadcast <message>` - Send to all users
+• `/broadcast_welcome` - Send welcome broadcast
+• `/confirm_broadcast` - Confirm pending broadcast
+• `/cancel_broadcast` - Cancel pending broadcast
 
 🎯 Auto Signals (Lifetime Users Only)
-• /auto_signal_ai_status - Check auto signals status
-• /enable_auto_signal_ai - Start auto signals
-• /disable_auto_signal_ai - Stop auto signals
+• `/auto_signal_ai_status` - Check auto signals status
+• `/enable_auto_signal_ai` - Start auto signals
+• `/disable_auto_signal_ai` - Stop auto signals
 
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
-{'• /add_admin <user_id> - Add new admin' if is_super_admin else '• /whoami - Your admin info'}
-{'• /remove_admin <user_id> - Remove admin' if is_super_admin else '• /admin_debug - Admin configuration debug'}
-{'• /list_admins - List all admins' if is_super_admin else '• /sb_diag - Supabase diagnostics'}
-{'• /whoami - Your admin info' if is_super_admin else '• /sb_repair - Attempt Supabase repair'}
-{'• /admin_debug - Admin configuration debug' if is_super_admin else ''}
+{'• `/add_admin <user_id>` - Add new admin' if is_super_admin else '• `/whoami` - Your admin info'}
+{'• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
+{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
+{'• `/whoami` - Your admin info' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/admin_debug` - Admin configuration debug' if is_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 Your Admin ID: {user_id}
@@ -2307,20 +2307,20 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 ❌ Error loading system stats: {str(e)}
 
 📋 Core Admin Commands
-• /setpremium <user_id> <days|lifetime> - Set premium
-• /remove_premium <user_id> - Remove premium status
-• /revoke_premium <user_id> - Alias for remove_premium
-• /grant_credits <user_id> <amount> - Grant credits
-• /check_user_status <user_id> - Check user status
-• /broadcast <message> - Broadcast to all users
-• /recovery_stats - System statistics
-• /sb_status - Database status
-• /restart - Restart bot
+• `/setpremium <user_id> <days|lifetime>` - Set premium
+• `/remove_premium <user_id>` - Remove premium status
+• `/revoke_premium <user_id>` - Alias for remove_premium
+• `/grant_credits <user_id> <amount>` - Grant credits
+• `/check_user_status <user_id>` - Check user status
+• `/broadcast <message>` - Broadcast to all users
+• `/recovery_stats` - System statistics
+• `/sb_status` - Database status
+• `/restart` - Restart bot
 
 🔧 Debug Commands
-• /whoami - Your info
-• /admin_debug - Debug admin config
-• /db_status - Database health
+• `/whoami` - Your info
+• `/admin_debug` - Debug admin config
+• `/db_status` - Database health
 
 👤 Your Admin ID: {user_id}"""
 
@@ -2675,6 +2675,54 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             print(f"Error in fix_all_credits_command: {e}")
 
         await update.message.reply_text(message, parse_mode='Markdown')
+
+    async def set_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /set_all_credits command - Admin only"""
+        user_id = update.message.from_user.id
+
+        if not self.is_admin(user_id):
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+
+        if not context.args or not context.args[0].isdigit():
+            await update.message.reply_text(
+                "❌ **Format salah!**\n\n"
+                "Gunakan: `/set_all_credits <amount>`\n\n"
+                "**Contoh:** `/set_all_credits 500`\n\n"
+                "⚠️ **PERHATIAN:** Command ini akan MENGGANTI credit semua user (kecuali premium/admin) ke jumlah yang Anda tentukan!",
+                parse_mode='Markdown'
+            )
+            return
+
+        amount = int(context.args[0])
+
+        await update.message.reply_text(
+            f"⏳ **Mengatur credit ke {amount} untuk semua user free... Ini mungkin memakan waktu.**",
+            parse_mode='Markdown'
+        )
+
+        try:
+            count = self.db.set_all_free_user_credits(amount)
+            message = f"""✅ **Mass Credit Set Completed!**
+
+🔧 **Action**: Set all free user credits to {amount}
+📊 **Users Affected**: {count}
+
+💡 **Note**: Premium and Admin accounts are excluded."""
+
+            # Log admin action
+            self.db.log_user_activity(
+                user_id,
+                "admin_set_all_credits",
+                f"Set all free user credits to {amount} for {count} users"
+            )
+
+        except Exception as e:
+            message = f"❌ **Error dalam mass credit set!**\n\n**Error**: {str(e)}"
+            print(f"Error in set_all_credits_command: {e}")
+
+        await update.message.reply_text(message, parse_mode='Markdown')
+
 
     async def broadcast_welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /broadcast_welcome command"""
@@ -3368,7 +3416,7 @@ ADMIN2 = [optional_second_admin_id]
             print(f"Error in banned_command: {e}")
 
     async def whoami_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /whoami command - shows user ID"""
+        """Handle /whoami command"""
         user_id = update.effective_user.id if update.effective_user else None
         username = update.effective_user.username if update.effective_user else "No username"
         first_name = update.effective_user.first_name if update.effective_user else "Unknown"
@@ -3764,30 +3812,28 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("whoami", self.whoami_command))
         self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
 
-        # Admin commands
+        # Admin commands - these should be registered after other handlers
         self.application.add_handler(CommandHandler("admin", self.admin_command))
-        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
-        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command)) # Added remove_premium command
         self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
         self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
         self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
+        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command))
         self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
-        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-        self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
-        self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
         self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
         self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
         self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
         self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
         self.application.add_handler(CommandHandler("restart", self.restart_command))
         self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
-        self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
         self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
-        self.application.add_handler(CommandHandler("banned", self.banned_command))
-
-        # System status commands
+        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
+        self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
         self.application.add_handler(CommandHandler("db_status", self.db_status_command))
+        self.application.add_handler(CommandHandler("banned", self.banned_command))
 
         # AutoSignal admin commands
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
@@ -3798,7 +3844,6 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
         self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
         self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
-        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
         self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
         self.application.add_handler(CommandHandler("test_premium", self.test_premium_command)) # Test command
 

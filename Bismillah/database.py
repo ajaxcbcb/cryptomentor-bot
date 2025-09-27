@@ -245,7 +245,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     paid_at TIMESTAMP,
                     FOREIGN KEY (referrer_id) REFERENCES users (telegram_id),
-                    FOREIGN KEY (referred_id) REFERENCES users (telegram_id)
+                    FOREIGNKEY (referred_id) REFERENCES users (telegram_id)
                 )
             """)
 
@@ -939,24 +939,53 @@ class Database:
             return False
 
     def fix_all_user_credits(self):
-        """Fix all users with NULL or negative credits"""
+        """Fix NULL and negative credits for all users"""
         try:
-            # Fix NULL credits
-            self.cursor.execute("UPDATE users SET credits = 100 WHERE credits IS NULL")
+            # Fix NULL credits - set to 100
+            self.cursor.execute("""
+                UPDATE users 
+                SET credits = 100 
+                WHERE credits IS NULL AND (is_premium = 0 OR is_premium IS NULL)
+            """)
             null_fixed = self.cursor.rowcount
 
-            # Fix negative credits
-            self.cursor.execute("UPDATE users SET credits = 10 WHERE credits < 0")
+            # Fix negative credits - set to 10
+            self.cursor.execute("""
+                UPDATE users 
+                SET credits = 10 
+                WHERE credits < 0 AND (is_premium = 0 OR is_premium IS NULL)
+            """)
             negative_fixed = self.cursor.rowcount
 
             self.conn.commit()
-
             total_fixed = null_fixed + negative_fixed
-            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
 
+            print(f"✅ Fixed credits for {total_fixed} users (NULL: {null_fixed}, Negative: {negative_fixed})")
             return total_fixed
+
         except Exception as e:
-            print(f"Error fixing all user credits: {e}")
+            print(f"❌ Error fixing user credits: {e}")
+            self.conn.rollback()
+            return 0
+
+    def set_all_user_credits(self, amount):
+        """Set specific credit amount for all non-premium users"""
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET credits = ? 
+                WHERE (is_premium = 0 OR is_premium IS NULL)
+            """, (amount,))
+
+            updated_count = self.cursor.rowcount
+            self.conn.commit()
+
+            print(f"✅ Set {amount} credits for {updated_count} free users")
+            return updated_count
+
+        except Exception as e:
+            print(f"❌ Error setting user credits: {e}")
+            self.conn.rollback()
             return 0
 
     def fix_referral_data_integrity(self):
