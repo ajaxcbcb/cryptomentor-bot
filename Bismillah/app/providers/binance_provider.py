@@ -70,38 +70,16 @@ def _append_usdt_if_base_only(s: str) -> str:
 
 def normalize_symbol(symbol: str) -> str:
     """Terima 'btc', 'BTC/USDT', 'btc-usdt' → 'BTCUSDT' (default pair USDT)."""
-    try:
-        s = symbol.replace("/", "").replace("-", "").upper().strip()
-        normalized = _append_usdt_if_base_only(s)
-        print(f"🔄 Symbol normalization: {symbol} -> {normalized}")
-        return normalized
-    except Exception as e:
-        print(f"❌ Error normalizing symbol {symbol}: {e}")
-        return f"{symbol.upper()}USDT"
+    s = symbol.replace("/", "").replace("-", "").upper().strip()
+    return _append_usdt_if_base_only(s)
 
 def get_price(symbol: str, futures: bool = False) -> float:
-    try:
-        sym = normalize_symbol(symbol)
-        base = _base_url(futures)
-        ep = "/fapi/v1/ticker/price" if futures else "/api/v3/ticker/price"
-        
-        print(f"🌐 Fetching price from: {base + ep}?symbol={sym}")
-        r = _http.get(base + ep, params={"symbol": sym})
-        data = r.json()
-        
-        if "price" not in data:
-            print(f"❌ No price in response: {data}")
-            if "msg" in data:
-                print(f"❌ Binance error: {data['msg']}")
-            return 0.0
-            
-        price = float(data["price"])
-        print(f"✅ Got price for {sym}: ${price}")
-        return price
-        
-    except Exception as e:
-        print(f"❌ Error getting price for {symbol}: {e}")
-        return 0.0
+    sym = normalize_symbol(symbol)
+    base = _base_url(futures)
+    ep = "/fapi/v1/ticker/price" if futures else "/api/v3/ticker/price"
+    r = _http.get(base + ep, params={"symbol": sym})
+    data = r.json()
+    return float(data["price"])
 
 def fetch_klines(symbol: str, interval: str, limit: int = 200, futures: bool = False) -> List[List[Any]]:
     sym = normalize_symbol(symbol)

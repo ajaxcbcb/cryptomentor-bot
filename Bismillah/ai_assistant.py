@@ -1,3 +1,4 @@
+replit_final_file>
 import os
 import json
 import asyncio
@@ -30,40 +31,14 @@ class AIAssistant:
     def get_comprehensive_analysis(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None) -> str:
         """Generate comprehensive crypto analysis"""
         try:
-            # Get real-time price data with better error handling
+            # Get real-time price data
             price_data = {}
-            current_price = 0
-            change_24h = 0
-            volume_24h = 0
-            
             if crypto_api:
-                try:
-                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    
-                    if price_data and 'error' not in price_data:
-                        current_price = price_data.get('price', 0)
-                        change_24h = price_data.get('change_24h', 0)
-                        volume_24h = price_data.get('volume_24h', 0)
-                except Exception as e:
-                    print(f"❌ Exception getting price data: {e}")
-                    
-            # Try fallback if main API fails
-            if current_price <= 0 and crypto_api:
-                try:
-                    fallback_symbols = [f"{symbol.upper()}USDT", symbol.upper(), symbol.lower()]
-                    for fallback_symbol in fallback_symbols:
-                        if fallback_symbol != symbol:
-                            try:
-                                fallback_data = crypto_api.get_crypto_price(fallback_symbol, force_refresh=True)
-                                if fallback_data and 'error' not in fallback_data and fallback_data.get('price', 0) > 0:
-                                    current_price = fallback_data.get('price', 0)
-                                    change_24h = fallback_data.get('change_24h', 0)
-                                    volume_24h = fallback_data.get('volume_24h', 0)
-                                    break
-                            except:
-                                continue
-                except:
-                    pass
+                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             # Price formatting
             if current_price < 1:
@@ -167,69 +142,20 @@ class AIAssistant:
                 await progress_tracker.update_progress(user_id, 15, "⚡ Mengambil data...")
                 await asyncio.sleep(stage_timings['data_fetch'])
 
-            # Get real-time price data with better error handling
+            # Get real-time price data
             price_data = {}
-            current_price = 0
-            change_24h = 0
-            volume_24h = 0
-            
             if crypto_api:
-                try:
-                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    print(f"📊 Price data for {symbol}: {price_data}")
-                    
-                    if price_data and 'error' not in price_data:
-                        current_price = price_data.get('price', 0)
-                        change_24h = price_data.get('change_24h', 0)
-                        volume_24h = price_data.get('volume_24h', 0)
-                    else:
-                        print(f"⚠️ Error in price data: {price_data.get('error', 'Unknown error')}")
-                except Exception as e:
-                    print(f"❌ Exception getting price data: {e}")
-                    price_data = {'error': str(e)}
+                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-            # Try fallback if main API fails
-            if current_price <= 0:
-                try:
-                    # Try with different symbol formats
-                    fallback_symbols = [
-                        symbol.upper(),
-                        f"{symbol.upper()}USDT",
-                        symbol.lower(),
-                        f"{symbol.lower()}usdt"
-                    ]
-                    
-                    for fallback_symbol in fallback_symbols:
-                        if fallback_symbol != symbol:
-                            try:
-                                fallback_data = crypto_api.get_crypto_price(fallback_symbol, force_refresh=True)
-                                if fallback_data and 'error' not in fallback_data and fallback_data.get('price', 0) > 0:
-                                    price_data = fallback_data
-                                    current_price = fallback_data.get('price', 0)
-                                    change_24h = fallback_data.get('change_24h', 0)
-                                    volume_24h = fallback_data.get('volume_24h', 0)
-                                    print(f"✅ Fallback success with {fallback_symbol}")
-                                    break
-                            except:
-                                continue
-                except Exception as e:
-                    print(f"❌ Fallback failed: {e}")
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             if current_price <= 0:
                 # Complete job even on error
                 if user_id and progress_tracker:
                     progress_tracker.complete_job(user_id)
-                error_msg = price_data.get('error', 'Data tidak tersedia') if price_data else 'API tidak dapat diakses'
-                return f"""❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}
-
-🔧 **Error Details**: {error_msg}
-
-💡 **Solusi**:
-• Coba `/analyze btc` atau `/analyze eth`
-• Pastikan simbol benar (contoh: BTC, ETH, SOL)
-• Tunggu beberapa detik dan coba lagi
-
-📡 **Status**: API sedang mencoba koneksi ulang..."""
+                return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
 
             # Update progress: Stage 2 - Technical analysis (OPTIMIZED)
             if user_id and progress_tracker:
@@ -906,10 +832,10 @@ class AIAssistant:
                     if crypto_api:
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-                    current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-                    change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-                    volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
-                    market_cap = price_data.get('market_cap', 0) if 'error' not in price_data else 0
+                    current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+                    change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+                    volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
+                    market_cap = price_data.get('market_cap', 0) if 'error' not not in price_data else 0
 
                     if current_price == 0:
                         continue
@@ -985,13 +911,12 @@ class AIAssistant:
 🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 65.0% - Quality Only)
 
-💰 **GLOBAL METRICS:**
-• Total Market Cap: {format_large_number(total_market_cap)}
-• 24h Market Change: {avg_change:+.2f}%
-• Total Volume 24h: {format_large_number(total_volume)}
-• Active Cryptocurrencies: {active_cryptos:,}
-• BTC Dominance: {btc_dominance:.1f}%
-• ETH Dominance: {eth_dominance:.1f}%
+Total Market Cap: {format_large_number(total_market_cap)}
+24h Market Change: {avg_change:+.2f}%
+Total Volume 24h: {format_large_number(total_volume)}
+Active Cryptocurrencies: {active_cryptos:,}
+BTC Dominance: {btc_dominance:.1f}%
+ETH Dominance: {eth_dominance:.1f}%
 
 """
 
@@ -1024,7 +949,7 @@ class AIAssistant:
                     def format_signal_price(price):
                         if price < 1:
                             return f"${price:.6f}"
-                        elif price < 1000:
+                        elif price < 100:
                             return f"${price:.2f}"
                         else:
                             return f"${price:,.2f}"
@@ -1041,33 +966,33 @@ class AIAssistant:
 
                     # Enhanced R:R ranking system
                     if rr >= 5.0:
-                        rr_rank = "🏆 ELITE"
+                        rr_rank = "ELITE"
                     elif rr >= 4.0:
-                        rr_rank = "💎 PREMIUM"
+                        rr_rank = "PREMIUM"
                     elif rr >= 3.5:
-                        rr_rank = "🥇 RANK #1"
+                        rr_rank = "RANK A+"
                     elif rr >= 3.0:
-                        rr_rank = "🥈 EXCELLENT"
+                        rr_rank = "EXCELLENT"
                     elif rr >= 2.5:
-                        rr_rank = "🥉 VERY GOOD"
+                        rr_rank = "VERY GOOD"
                     elif rr >= 2.0:
-                        rr_rank = "✅ GOOD"
+                        rr_rank = "GOOD"
                     elif rr >= 1.5:
-                        rr_rank = "📊 FAIR"
+                        rr_rank = "FAIR"
                     else:
-                        rr_rank = "⚠️ POOR"
+                        rr_rank = "POOR"
 
-                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}** (Confidence: {confidence:.1f}%)
+                    signals_text += f"""{i}. {symbol} {direction_icon} {direction} (Confidence: {confidence:.1f}%)
 
-🛑 **Stop Loss**: {format_signal_price(sl)}
-➡️ **Entry**: {format_signal_price(entry)}
-🎯 **TP1**: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
-🎯 **TP2**: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
-🎯 **TP3**: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
-💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
+Stop Loss: {format_signal_price(sl)}
+Entry: {format_signal_price(entry)}
+TP1: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
+TP2: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
+TP3: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
+R:R Ratio: {rr:.1f}:1 ({rr_rank})
 
-📈 **24h Change**: {change_24h:+.2f}%
-⚡️ **Structure**: {structure_bias}
+24h Change: {change_24h:+.2f}%
+Structure: {structure_bias}
 
 """
 
@@ -1079,7 +1004,9 @@ class AIAssistant:
 • DYOR sebelum trading
 
 📡 Next scan akan mengacak koin berbeda
-🔄 Jalankan ulang untuk variasi sinyal"""
+🔄 Jalankan ulang untuk variasi sinyal
+
+✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"""
 
             else:
                 signals_text += f"""⚠️ **NO HIGH-CONFIDENCE SIGNALS**
@@ -1231,7 +1158,7 @@ class AIAssistant:
                         score += 15
                     elif -3 <= change < 0:  # Slight correction, good buy opportunity
                         score += 12
-                    elif 5 < change <= 10:  # Strong momentum
+                    elif change > 5:  # Strong momentum
                         score += 10
                     elif change > 10:  # Overheated
                         score += 5
@@ -1491,7 +1418,7 @@ class AIAssistant:
                 'data_fetch': 1.0,      # 1.0 seconds - aggressive fetch
                 'snd_calc': 2.0,        # 2.0 seconds - intensive SnD calculations
                 'structure': 1.8,       # 1.8 seconds - heavy market structure analysis
-                'signals': 2.7,         # 2.7 seconds - complex signal processing
+                'signals': 2.7,         # 2.7 seconds - complex signal generation
                 'risk_calc': 1.5,       # 1.5 seconds - risk calculations
                 'finalize': 1.0         # 1.0 seconds - fast finalization
             }
@@ -1506,9 +1433,9 @@ class AIAssistant:
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             if current_price <= 0:
                 # Complete job even on error
@@ -1658,7 +1585,7 @@ class AIAssistant:
             tp2_allocation = "30%"
             tp3_allocation = "20%"
 
-            # Calculate percentage changes for targets
+            # Calculate percentage gains for each TP level
             if direction == "LONG":
                 tp1_pct = ((futures_signals['tp1'] - futures_signals['entry']) / futures_signals['entry'] * 100)
                 tp2_pct = ((futures_signals['tp2'] - futures_signals['entry']) / futures_signals['entry'] * 100)
@@ -1755,7 +1682,9 @@ class AIAssistant:
 • ✅ Watch for news/events impact
 
 📡 **Data Sources**: Binance OHLCV + Binance Futures + SnD Analysis
-🔄 **Update Frequency**: Real-time price + 15min technical refresh"""
+🔄 **Update Frequency**: Real-time price + 15min technical refresh
+
+✅ Premium aktif — kredit tidak terpakai."""
 
             # Complete the job
             if user_id and progress_tracker:
@@ -1809,8 +1738,8 @@ class AIAssistant:
             tp2 = snd_zones['demand_1_low']       # TP2: Second target (even lower)
             tp3 = snd_zones['demand_2_low']       # TP3: Final target (lowest)
             sl = snd_zones['supply_2_low']
-            strategy = "SnD Reversal Short"
             confidence = 75
+            strategy = "SnD Reversal Short"
         else:
             # Between zones - neutral
             direction = "WAIT"
@@ -1895,7 +1824,7 @@ class AIAssistant:
             try:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
+                    if 'error' not not in price_data:
                         change_24h = price_data.get('change_24h', 0)
                     else:
                         print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error')}")
@@ -2015,7 +1944,7 @@ class AIAssistant:
             # IMPROVED base confidence calculation with better weighting
             base_confidence = 35 + (price_momentum_score * 1.2) + (volatility_bonus * 0.9) + (timing_score * 0.8) + (symbol_momentum_bonus * 1.0)
 
-            # Additional quality factors for better confidence
+            # Quality factors for better confidence
             quality_bonus = 0
 
             # Major coin premium (BTC, ETH get higher base confidence)
@@ -2242,7 +2171,7 @@ class AIAssistant:
                 print(f"R:R calculation error: {e}")
                 rr_ratio = 1.0
 
-            # Much more conservative multipliers for realistic confidence
+            # Conservative multipliers for realistic confidence
             timeframe_multiplier = {
                 '15m': 0.90, '30m': 0.95, '1h': 1.0,
                 '4h': 1.05, '1d': 1.08, '1w': 1.12
@@ -2274,7 +2203,7 @@ class AIAssistant:
                 timing_bonus = 1.04            # Small bonus only
             elif 8 <= current_hour <= 16:     # European hours
                 timing_bonus = 1.02
-            elif 0 <= current_hour <= 4:      # Asian hours
+            elif 0 <= current_hour <= 6:      # Asian hours
                 timing_bonus = 1.01
 
             # Conservative symbol quality
@@ -2724,7 +2653,7 @@ class AIAssistant:
                 try:
                     if crypto_api:
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                        if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        if 'error' not not in price_data and price_data.get('price', 0) > 0:
                             market_data.append({
                                 'symbol': symbol,
                                 'price': price_data.get('price', 0),
@@ -2842,7 +2771,7 @@ class AIAssistant:
 • Wait 30 seconds and retry
 
 🔧 **Alternative Commands:**
-• `/market` - Overview pasar crypto"""
+• `/market` - Market overview"""
 
     def get_market_sentiment(self, language: str = 'id', crypto_api=None) -> str:
         """Get comprehensive market overview and sentiment analysis using Binance data"""
@@ -2863,7 +2792,7 @@ class AIAssistant:
             for symbol in major_cryptos:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                    if 'error' not not in price_data and price_data.get('price', 0) > 0:
                         price = price_data.get('price', 0)
                         change_24h = price_data.get('change_24h', 0)
                         volume_24h = price_data.get('volume_24h', 0)
@@ -3376,3 +3305,4 @@ Saya siap membantu dengan pengetahuan crypto terlengkap! 🚀"""
 
         except Exception as e:
             return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."
+</replit_final_file>
