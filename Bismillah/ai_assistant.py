@@ -1,3 +1,4 @@
+replit_final_file>
 import os
 import json
 import asyncio
@@ -35,9 +36,9 @@ class AIAssistant:
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             # Price formatting
             if current_price < 1:
@@ -146,9 +147,9 @@ class AIAssistant:
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             if current_price <= 0:
                 # Complete job even on error
@@ -831,10 +832,10 @@ class AIAssistant:
                     if crypto_api:
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-                    current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-                    change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-                    volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
-                    market_cap = price_data.get('market_cap', 0) if 'error' not in price_data else 0
+                    current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+                    change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+                    volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
+                    market_cap = price_data.get('market_cap', 0) if 'error' not not in price_data else 0
 
                     if current_price == 0:
                         continue
@@ -910,13 +911,12 @@ class AIAssistant:
 🕐 **Scan Time**: {datetime.now().strftime('%H:%M:%S WIB')}
 📊 **Signals Found**: {len(top_signals)} (Confidence ≥ 65.0% - Quality Only)
 
-💰 **GLOBAL METRICS:**
-• Total Market Cap: {format_large_number(total_market_cap)}
-• 24h Market Change: {avg_change:+.2f}%
-• Total Volume 24h: {format_large_number(total_volume)}
-• Active Cryptocurrencies: {active_cryptos:,}
-• BTC Dominance: {btc_dominance:.1f}%
-• ETH Dominance: {eth_dominance:.1f}%
+Total Market Cap: {format_large_number(total_market_cap)}
+24h Market Change: {avg_change:+.2f}%
+Total Volume 24h: {format_large_number(total_volume)}
+Active Cryptocurrencies: {active_cryptos:,}
+BTC Dominance: {btc_dominance:.1f}%
+ETH Dominance: {eth_dominance:.1f}%
 
 """
 
@@ -1433,9 +1433,9 @@ Structure: {structure_bias}
             if crypto_api:
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
 
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+            current_price = price_data.get('price', 0) if 'error' not not in price_data else 0
+            change_24h = price_data.get('change_24h', 0) if 'error' not not in price_data else 0
+            volume_24h = price_data.get('volume_24h', 0) if 'error' not not in price_data else 0
 
             if current_price <= 0:
                 # Complete job even on error
@@ -1824,7 +1824,7 @@ Structure: {structure_bias}
             try:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
+                    if 'error' not not in price_data:
                         change_24h = price_data.get('change_24h', 0)
                     else:
                         print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error')}")
@@ -2203,7 +2203,7 @@ Structure: {structure_bias}
                 timing_bonus = 1.04            # Small bonus only
             elif 8 <= current_hour <= 16:     # European hours
                 timing_bonus = 1.02
-            elif 0 <= current_hour <= 4:      # Asian hours
+            elif 0 <= current_hour <= 6:      # Asian hours
                 timing_bonus = 1.01
 
             # Conservative symbol quality
@@ -2653,7 +2653,7 @@ Structure: {structure_bias}
                 try:
                     if crypto_api:
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                        if 'error' not in price_data and price_data.get('price', 0) > 0:
+                        if 'error' not not in price_data and price_data.get('price', 0) > 0:
                             market_data.append({
                                 'symbol': symbol,
                                 'price': price_data.get('price', 0),
@@ -2792,7 +2792,7 @@ Structure: {structure_bias}
             for symbol in major_cryptos:
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data and price_data.get('price', 0) > 0:
+                    if 'error' not not in price_data and price_data.get('price', 0) > 0:
                         price = price_data.get('price', 0)
                         change_24h = price_data.get('change_24h', 0)
                         volume_24h = price_data.get('volume_24h', 0)
@@ -3305,3 +3305,4 @@ Saya siap membantu dengan pengetahuan crypto terlengkap! 🚀"""
 
         except Exception as e:
             return f"❌ Error dalam memproses pertanyaan: {str(e)[:100]}..."
+</replit_final_file>
