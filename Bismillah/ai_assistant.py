@@ -780,6 +780,194 @@ class AIAssistant:
         else:
             return "Low"
 
+    async def generate_futures_signals(self, language: str = 'id', crypto_api=None, args: list = None) -> str:
+        """Generate comprehensive futures signals for multiple cryptocurrencies"""
+        try:
+            # Top cryptocurrency symbols to analyze
+            target_symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
+            
+            # Check if specific symbol requested in args
+            if args and len(args) > 0:
+                requested_symbol = args[0].upper().replace('USDT', '')
+                if requested_symbol not in target_symbols:
+                    target_symbols = [requested_symbol] + target_symbols[:5]
+            
+            # Generate signals for each symbol
+            signals = []
+            total_processed = 0
+            
+            for symbol in target_symbols[:5]:  # Limit to 5 symbols for performance
+                try:
+                    # Get enhanced futures analysis
+                    signal_data = self._generate_advanced_futures_signals(symbol, 0, '4h', {}, 0, crypto_api)
+                    
+                    if signal_data and signal_data.get('confidence', 0) >= 60:  # Only show good signals
+                        # Get current price
+                        price_data = {}
+                        if crypto_api:
+                            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                        
+                        current_price = price_data.get('price', 0) if 'error' not in price_data else 0
+                        
+                        if current_price > 0:
+                            # Update signal with real price
+                            signal_data = self._generate_advanced_futures_signals(symbol, current_price, '4h', 
+                                                                                self._get_enhanced_supply_demand_zones(symbol, current_price, crypto_api), 
+                                                                                price_data.get('volume_24h', 0), crypto_api)
+                        
+                        signals.append({
+                            'symbol': symbol,
+                            'current_price': current_price,
+                            'signal_data': signal_data,
+                            'price_data': price_data
+                        })
+                        total_processed += 1
+                    
+                except Exception as e:
+                    print(f"Error processing {symbol}: {e}")
+                    continue
+            
+            # Format comprehensive signals output
+            if not signals:
+                return """🔍 **FUTURES SIGNALS SCAN COMPLETE**
+
+⚠️ **No High-Quality Signals Found**
+
+📊 **Scan Results:**
+• Coins analyzed: 5 major cryptocurrencies
+• Confidence threshold: 60%+ required
+• Current market conditions: Low signal quality
+
+💡 **Recommendations:**
+• Market may be in consolidation phase
+• Wait for higher volatility periods
+• Try `/futures btc` for specific analysis
+• Use `/analyze eth` for fundamental analysis
+
+🔄 **Next Scan:** Try again in 15-30 minutes when market conditions change."""
+
+            # Build comprehensive signals report
+            report = f"""🚨 **PREMIUM FUTURES SIGNALS** 🚨
+
+📊 **Scan Summary:**
+• **Signals Found**: {len(signals)}/{total_processed} coins analyzed
+• **Quality Filter**: 60%+ confidence only
+• **Timeframe**: 4H swing trading signals
+• **Market Type**: {'Bullish Bias' if sum(1 for s in signals if s['signal_data']['direction'] == 'LONG') > len(signals)/2 else 'Bearish Bias' if sum(1 for s in signals if s['signal_data']['direction'] == 'SHORT') > len(signals)/2 else 'Mixed Market'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+            # Add individual signals
+            for i, signal in enumerate(signals, 1):
+                symbol = signal['symbol']
+                current_price = signal['current_price']
+                sig = signal['signal_data']
+                price_data = signal.get('price_data', {})
+                
+                # Price formatting
+                if current_price < 1:
+                    price_format = f"${current_price:.6f}"
+                elif current_price < 100:
+                    price_format = f"${current_price:.4f}"
+                else:
+                    price_format = f"${current_price:,.2f}"
+                
+                # Direction and emoji
+                direction = sig.get('direction', 'NEUTRAL')
+                confidence = sig.get('confidence', 0)
+                
+                if direction == 'LONG':
+                    direction_emoji = "🟢"
+                    action = "BUY"
+                elif direction == 'SHORT':
+                    direction_emoji = "🔴"
+                    action = "SELL"
+                else:
+                    direction_emoji = "⚪"
+                    action = "WAIT"
+                
+                # R:R Ratio display
+                rr_ratio = sig.get('rr', 1.0)
+                if rr_ratio >= 3:
+                    rr_display = f"🏆 {rr_ratio:.1f}:1 (EXCELLENT)"
+                elif rr_ratio >= 2:
+                    rr_display = f"✅ {rr_ratio:.1f}:1 (GOOD)"
+                else:
+                    rr_display = f"⚠️ {rr_ratio:.1f}:1 (FAIR)"
+                
+                # Volume analysis
+                volume_24h = price_data.get('volume_24h', 0)
+                if volume_24h > 1000000000:
+                    volume_status = f"🔥 ${volume_24h/1000000000:.1f}B (High)"
+                elif volume_24h > 500000000:
+                    volume_status = f"📊 ${volume_24h/1000000:.0f}M (Good)"
+                else:
+                    volume_status = f"📉 ${volume_24h/1000000:.0f}M (Low)"
+                
+                # Price change
+                change_24h = price_data.get('change_24h', 0)
+                change_emoji = "📈" if change_24h >= 0 else "📉"
+                
+                report += f"""
+
+**{i}. {symbol} SIGNAL** {direction_emoji}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 **Current**: {price_format} ({change_24h:+.1f}% {change_emoji})
+🎯 **Action**: {action} ({direction})
+📊 **Confidence**: {confidence:.1f}% 
+💎 **R:R**: {rr_display}
+📈 **Volume**: {volume_status}
+
+**Trading Levels:**
+• **Entry**: ${sig.get('entry', current_price):,.6f}
+• **TP1**: ${sig.get('tp1', current_price * 1.02):,.6f} 
+• **TP2**: ${sig.get('tp2', current_price * 1.04):,.6f}
+• **TP3**: ${sig.get('tp3', current_price * 1.06):,.6f}
+• **Stop Loss**: ${sig.get('sl', current_price * 0.98):,.6f}
+
+**Strategy**: {sig.get('strategy', 'SnD Analysis')}
+**Time Horizon**: {sig.get('time_horizon', '4-24 hours')}"""
+
+            # Add footer with risk management
+            report += f"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ **RISK MANAGEMENT PROTOCOL:**
+• Position size: 1-3% per trade maximum
+• Always set stop loss before entry
+• Take profits gradually (TP1: 50%, TP2: 30%, TP3: 20%)
+• Monitor market news and events
+• Never risk more than you can afford to lose
+
+📊 **Signal Quality Standards:**
+• Minimum 60% confidence required
+• Multi-timeframe confirmation
+• Volume and momentum validation
+• Supply & Demand zone alignment
+
+🕐 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}
+📡 **Data Sources**: CoinAPI Real-time + Binance + Internal SnD Algorithm
+
+**DISCLAIMER:** Signals for educational purposes only. Always DYOR!"""
+
+            return report
+            
+        except Exception as e:
+            print(f"Error in generate_futures_signals: {e}")
+            return f"""❌ **FUTURES SIGNALS ERROR**
+
+**Error Details**: {str(e)[:100]}...
+
+🔄 **Quick Solutions:**
+• Try `/futures btc` for specific coin analysis
+• Use `/market` for general market overview
+• Wait 30 seconds and retry `/futures_signals`
+
+💡 **Alternative Commands:**
+• `/analyze btc` - Comprehensive Bitcoin analysis
+• `/price eth` - Quick Ethereum price check"""
+
     def _generate_coin_recommendations(self, market_data: List[Dict], avg_change: float, btc_dominance: float) -> str:
         """Generate intelligent coin recommendations based on market analysis"""
         try:
