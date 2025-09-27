@@ -67,11 +67,9 @@ class ProgressTracker:
         return durations.get(command, 20)
     
     def create_progress_bar(self, progress: int) -> str:
-        """Create visual progress bar"""
+        """Create numeric progress display"""
         progress = max(0, min(100, progress))  # Ensure progress is between 0-100
-        filled = int(progress / 10)  # Each block = 10%
-        empty = 10 - filled
-        return "🟢" * filled + "⚪" * empty
+        return f"{progress}%"
     
     def format_time(self, seconds: int) -> str:
         """Format seconds to readable time"""
@@ -173,7 +171,7 @@ class ProgressTracker:
         if job.progress == 0 and elapsed > 2:
             job.progress = min(20, elapsed * 5)  # 5% per second for first 4 seconds
         
-        progress_bar = self.create_progress_bar(job.progress)
+        progress_display = self.create_progress_bar(job.progress)
         
         # Get queue info
         queue_status = self.get_queue_status()
@@ -183,7 +181,7 @@ class ProgressTracker:
         return f"""🎯 {job.command.upper()} REQUEST RECEIVED{symbol_display}
 
 ⏳ Estimated Time: {job.estimated_duration} seconds  
-📊 Progress: {job.progress}% {progress_bar}
+📊 Progress: {progress_display}
 ⚡ Status: AI Processing Active
 ⏱️ Remaining: {self.format_time(remaining)}
 

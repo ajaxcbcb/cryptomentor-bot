@@ -1027,8 +1027,8 @@ class TelegramBot:
 
         # Real-time progress updates
         async def update_progress_display():
-            for i in range(5):  # Update 5 times during processing
-                await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
+            for i in range(10):  # Update 10 times during processing
+                await asyncio.sleep(1.0)  # Update every 1 second
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1084,16 +1084,16 @@ class TelegramBot:
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        user_id = update.effective_user.id
-        user = update.effective_user
-        message = update.effective_message
-
-        # Auto-upsert user (NO credits change)
+        # Auto-upsert user to Supabase (NO credits change)
         touch_user_from_update(update)
 
         # Check if user needs restart
         if await self._check_user_restart_required(update):
             return
+
+        user_id = update.effective_user.id
+        user = update.effective_user
+        message = update.effective_message
 
         # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
         allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
@@ -1118,8 +1118,8 @@ class TelegramBot:
 
         # Real-time progress updates
         async def update_progress_display():
-            for i in range(5):  # Update 5 times during processing
-                await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
+            for i in range(10):  # Update 10 times during processing
+                await asyncio.sleep(1.0)  # Update every 1 second
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1225,7 +1225,7 @@ class TelegramBot:
             signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
 
             if not signals or len(signals.strip()) < 50:
-                fallback_msg = f"""❌ **Gagal Generate Sinyal Futures**
+                fallback_msg = """❌ **Gagal Generate Sinyal Futures**
 
 💡 **Kemungkinan Penyebab:**
 • Market volatilitas rendah
@@ -1395,8 +1395,8 @@ class TelegramBot:
 
                     # Real-time progress updates
                     async def update_progress_display():
-                        for i in range(5):  # Update 5 times during processing
-                            await asyncio.sleep(2.0)  # Update every 2 seconds (10 second timing)
+                        for i in range(10):  # Update 10 times during processing
+                            await asyncio.sleep(1.0)  # Update every 1 second
                             if user_id in progress_tracker.active_jobs:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:
@@ -1573,9 +1573,7 @@ class TelegramBot:
 Selamat mengelola CryptoMentor AI!"""
         elif is_premium:
             if is_lifetime:
-                message = f"""💳 **CryptoMentor AI Bot - Credit Information**
-
-⭐ **Status**: **PREMIUM LIFETIME**
+                message = f"""⭐ **Status**: **PREMIUM LIFETIME**
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
@@ -1605,9 +1603,7 @@ Terima kasih telah menjadi member lifetime premium!"""
                         print(f"Error parsing premium_until: {e}")
                         expiry_text = "Active"
 
-                message = f"""💳 **CryptoMentor AI Bot - Credit Information**
-
-⭐ **Status**: **PREMIUM** ({expiry_text})
+                message = f"""💳 **Status**: **PREMIUM** ({expiry_text})
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
@@ -3912,9 +3908,22 @@ ADMIN2 = [optional_second_admin_id]
         try:
             # This block was removed as per the instruction to remove the broken Supabase registration.
             # If specific Supabase commands are needed, they should be imported and registered separately.
-            pass
+            # from app.handlers_sb_repair import cmd_sb_repair
+            # from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_grant_credits
+            # from app.handlers_user_set import cmd_user_set
+            # from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+
+            # self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
+            # self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
+            # self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
+            # self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+            # self.application.add_handler(CommandHandler("user_set", cmd_user_set))
+            # self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
+            # self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
+
+            print("✅ Supabase admin commands registered")
         except ImportError as e:
-            print(f"⚠️ Supabase handler not available: {e}")
+            print(f"⚠️ Could not register Supabase commands: {e}")
         # Renamed for clarity and consistency with user request
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
         self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
@@ -3930,7 +3939,6 @@ ADMIN2 = [optional_second_admin_id]
         # Add Supabase repair and diagnostic commands
         try:
             # These commands are already handled by class methods, so avoid re-registering if they conflict.
-            # If specific Supabase commands are needed, they should be imported and registered separately.
             # from app.handlers_sb_repair import cmd_sb_repair
             # from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_grant_credits
             # from app.handlers_user_set import cmd_user_set
