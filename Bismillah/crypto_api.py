@@ -39,14 +39,12 @@ class CryptoAPI:
 
             # Normalize symbol for Binance
             normalized_symbol = normalize_symbol(symbol)
-            print(f"🔍 Getting price for {symbol} -> normalized: {normalized_symbol}")
 
             # Get spot price from Binance
             spot_price = get_price(normalized_symbol, futures=False)
-            print(f"💰 Raw spot price: {spot_price}")
 
             if spot_price <= 0:
-                return {'error': f'Invalid price data for {symbol} (price: {spot_price})'}
+                return {'error': f'Invalid price data for {symbol}'}
 
             # Get 24h ticker data for additional metrics
             try:
@@ -62,12 +60,10 @@ class CryptoAPI:
                 high_24h = float(ticker_data.get('highPrice', spot_price))
                 low_24h = float(ticker_data.get('lowPrice', spot_price))
 
-                print(f"📊 24h data: price_change={change_24h}%, volume=${volume_24h:.0f}")
-
             except Exception as e:
                 logging.warning(f"Could not get 24h stats for {symbol}: {e}")
                 change_24h = 0
-                volume_24h = spot_price * 1000000  # Fallback volume estimate
+                volume_24h = 0
                 high_24h = spot_price
                 low_24h = spot_price
 
@@ -79,12 +75,7 @@ class CryptoAPI:
                 'BNB': 160000000,
                 'SOL': 580000000,
                 'XRP': 100000000000,
-                'ADA': 35000000000,
-                'AVAX': 404000000,
-                'DOT': 1400000000,
-                'MATIC': 10000000000,
-                'UNI': 1000000000,
-                'LINK': 1000000000
+                'ADA': 35000000000
             }
 
             base_symbol = symbol.upper().replace('USDT', '')
@@ -100,21 +91,17 @@ class CryptoAPI:
                 'low_24h': low_24h,
                 'market_cap': market_cap,
                 'last_updated': datetime.now().isoformat(),
-                'source': 'binance',
-                'success': True
+                'source': 'binance'
             }
 
             # Cache the result
             self._cache[cache_key] = (result, time.time())
-            print(f"✅ Successfully got price data for {symbol}: ${spot_price}")
 
             return result
 
         except Exception as e:
-            error_msg = f'Failed to get price for {symbol}: {str(e)}'
-            logging.error(error_msg)
-            print(f"❌ {error_msg}")
-            return {'error': error_msg, 'success': False}
+            logging.error(f"Error getting crypto price for {symbol}: {e}")
+            return {'error': f'Failed to get price for {symbol}: {str(e)}'}
 
     def get_futures_data(self, symbol: str) -> Dict[str, Any]:
         """
