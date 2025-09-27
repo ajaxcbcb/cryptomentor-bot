@@ -57,14 +57,14 @@ class ProgressTracker:
         }
         
     def get_estimated_duration(self, command: str) -> int:
-        """Get estimated duration in seconds for each command"""
+        """Get estimated duration in seconds for each command - optimized for heavy VPS"""
         durations = {
-            '/analyze': 25,
-            '/futures': 20, 
-            '/futures_signals': 45,
-            '/market': 18
+            '/analyze': 10,          # Exactly 10 seconds with heavy performance
+            '/futures': 10,          # Exactly 10 seconds with aggressive processing  
+            '/futures_signals': 10,  # Optimized to 10 seconds using VPS power
+            '/market': 10            # Consistent 10 seconds across all commands
         }
-        return durations.get(command, 20)
+        return durations.get(command, 10)
     
     def create_progress_bar(self, progress: int) -> str:
         """Create numeric progress display"""

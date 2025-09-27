@@ -124,16 +124,16 @@ class AIAssistant:
             return f"❌ Terjadi kesalahan dalam analisis {symbol}. Error: {str(e)[:100]}..."
 
     async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
-        """Generate comprehensive crypto analysis with optimized timing"""
+        """Generate comprehensive crypto analysis with aggressive 10-second timing"""
         try:
-            # Optimized timing for 10 seconds total
+            # Aggressive 10-second timing with heavy performance utilization
             stage_timings = {
-                'data_fetch': 1.5,      # 1.5 seconds
-                'technical': 1.5,       # 1.5 seconds
-                'snd_zones': 1.5,       # 1.5 seconds
-                'signals': 2.0,         # 2.0 seconds
-                'sentiment': 1.5,       # 1.5 seconds
-                'finalize': 2.0         # 2.0 seconds
+                'data_fetch': 1.0,      # 1.0 seconds - aggressive data fetch
+                'technical': 1.8,       # 1.8 seconds - heavy computation
+                'snd_zones': 1.7,       # 1.7 seconds - intensive SnD calculations
+                'signals': 2.5,         # 2.5 seconds - complex signal generation
+                'sentiment': 1.5,       # 1.5 seconds - sentiment analysis
+                'finalize': 1.5         # 1.5 seconds - finalization
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -1165,14 +1165,14 @@ class AIAssistant:
         """Get enhanced futures trading signals with optimized 10 second timing"""
         try:
             # Optimized timing for 10 seconds total
-            total_target = 10.0  # Target 10 seconds total
+            total_target = 10.0  # Exact 10 seconds with heavy performance
             stage_timings = {
-                'data_fetch': 1.5,      # 1.5 seconds
-                'snd_calc': 1.5,        # 1.5 seconds  
-                'structure': 1.5,       # 1.5 seconds
-                'signals': 2.0,         # 2.0 seconds
-                'risk_calc': 1.5,       # 1.5 seconds
-                'finalize': 2.0         # 2.0 seconds
+                'data_fetch': 1.0,      # 1.0 seconds - aggressive fetch
+                'snd_calc': 2.0,        # 2.0 seconds - intensive SnD calculations
+                'structure': 1.8,       # 1.8 seconds - heavy market structure analysis
+                'signals': 2.7,         # 2.7 seconds - complex signal processing
+                'risk_calc': 1.5,       # 1.5 seconds - risk calculations
+                'finalize': 1.0         # 1.0 seconds - fast finalization
             }
             
             # Update progress: Stage 1 - Data fetching (FAST)

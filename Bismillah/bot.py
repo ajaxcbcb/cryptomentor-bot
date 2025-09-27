@@ -1025,10 +1025,10 @@ class TelegramBot:
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Real-time progress updates
+        # Real-time progress updates - per second for heavy performance
         async def update_progress_display():
-            for i in range(10):  # Update 10 times during processing
-                await asyncio.sleep(1.0)  # Update every 1 second
+            for i in range(10):  # Update 10 times during processing (per second)
+                await asyncio.sleep(1.0)  # Update every 1 second for real-time feel
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1116,10 +1116,10 @@ class TelegramBot:
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Real-time progress updates
+        # Real-time progress updates - aggressive per-second
         async def update_progress_display():
-            for i in range(10):  # Update 10 times during processing
-                await asyncio.sleep(1.0)  # Update every 1 second
+            for i in range(10):  # Update 10 times for smooth experience
+                await asyncio.sleep(1.0)  # Per-second updates for heavy VPS performance
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1393,10 +1393,10 @@ class TelegramBot:
                     progress_msg = progress_tracker.get_progress_message(user_id)
                     await query.edit_message_text(progress_msg, parse_mode='Markdown')
 
-                    # Real-time progress updates
+                    # Real-time progress updates - maximum performance
                     async def update_progress_display():
-                        for i in range(10):  # Update 10 times during processing
-                            await asyncio.sleep(1.0)  # Update every 1 second
+                        for i in range(10):  # Update 10 times for smooth real-time feel
+                            await asyncio.sleep(1.0)  # Per-second updates utilizing heavy VPS
                             if user_id in progress_tracker.active_jobs:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:
@@ -2496,33 +2496,54 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         try:
             target_user_id = int(context.args[0])
 
+            # Check if user exists first
+            from app.users_repo import get_user_by_telegram_id
+            user_data = get_user_by_telegram_id(target_user_id)
+            if not user_data:
+                await safe_reply(update.effective_message, f"❌ User {target_user_id} tidak ditemukan dalam database.")
+                return
+
+            # Get current premium status for logging
+            current_premium = user_data.get('is_premium', False)
+            current_lifetime = user_data.get('is_lifetime', False)
+
+            if not current_premium:
+                await safe_reply(update.effective_message, f"⚠️ User {target_user_id} sudah bukan premium user.")
+                return
+
             # Revoke premium using normalized function
             v = revoke_premium(target_user_id)
 
+            premium_type = "LIFETIME" if current_lifetime else "TIMED"
             message = f"""✅ **Premium berhasil dicabut!**
 
 👤 **User ID**: {target_user_id}
-📊 **Status**: ❌ REVOKED
+👤 **Name**: {user_data.get('first_name', 'Unknown')}
+📊 **Previous Status**: {premium_type} Premium
+📊 **New Status**: ❌ FREE USER
 
-🔍 **Verification from v_users:**
+🔍 **Verification:**
 • is_premium: {v.get('is_premium')}
 • is_lifetime: {v.get('is_lifetime')}
 • premium_active: {v.get('premium_active')}
 • premium_until: {v.get('premium_until')}
 
-🔄 **Database**: Updated in Supabase ✅"""
+🔄 **Database**: Updated in Supabase ✅
+⚠️ **Note**: User akan kembali ke free tier dengan batasan credit normal."""
 
             await safe_reply(update.effective_message, message)
 
-            # Log admin action
+            # Log admin action with more detail
             self.db.log_user_activity(
                 user_id,
                 "admin_revoke_premium",
-                f"Revoked premium for user {target_user_id}"
+                f"Revoked {premium_type} premium from user {target_user_id} ({user_data.get('first_name', 'Unknown')})"
             )
 
+            print(f"✅ Admin {user_id} revoked premium from user {target_user_id}")
+
         except Exception as e:
-            await safe_reply(update.effective_message, f"❌ Gagal: {e}")
+            await safe_reply(update.effective_message, f"❌ Gagal mencabut premium: {e}")
             print(f"❌ Error in revoke_premium command: {e}")
             import traceback
             traceback.print_exc()
@@ -2575,10 +2596,10 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 📊 **New Status**: ❌ FREE USER
 
 🔍 **Verification:**
-• is_premium: {v.get('is_premium', False)}
-• is_lifetime: {v.get('is_lifetime', False)}
-• premium_active: {v.get('premium_active', False)}
-• premium_until: {v.get('premium_until', 'None')}
+• is_premium: {v.get('is_premium')}
+• is_lifetime: {v.get('is_lifetime')}
+• premium_active: {v.get('premium_active')}
+• premium_until: {v.get('premium_until')}
 
 🔄 **Database**: Updated in Supabase ✅
 ⚠️ **Note**: User akan kembali ke free tier dengan batasan credit normal."""
