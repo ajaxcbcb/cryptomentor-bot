@@ -1203,44 +1203,29 @@ class TelegramBot:
 
         print(f"✅ APPROVED: User {user_id} futures_signals command - {guard_message}")
 
-        # Initialize progress tracking
-        from app.progress_tracker import progress_tracker
+        # Show loading message with query processing info
+        query_display = ""
+        if context.args:
+            # Clean the query for display - remove "SND" and show clean timeframe
+            raw_query = ' '.join(context.args).upper()
+            query_parts = raw_query.split()
+            cleaned_parts = [part for part in query_parts if part != 'SND']
 
-        # Start processing job
-        job = await progress_tracker.start_processing(user_id, '/futures_signals', '')
-
-        # Show initial progress message
-        progress_msg = progress_tracker.get_progress_message(user_id)
-        loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
-
-        # Real-time progress updates - aggressive per-second
-        async def update_progress_display():
-            for i in range(10):  # Update 10 times for smooth experience
-                await asyncio.sleep(1.0)  # Per-second updates for heavy VPS performance
-                if user_id in progress_tracker.active_jobs:
-                    updated_msg = progress_tracker.get_progress_message(user_id)
-                    try:
-                        await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
-                    except Exception as e:
-                        print(f"Progress update failed: {e}")
-                        pass  # Continue even if edit fails
+            if cleaned_parts:
+                # Show cleaned query in loading message
+                if any(tf in cleaned_parts[0] for tf in ['M', 'H', 'D', 'W']):
+                    clean_timeframe = cleaned_parts[0]
+                    query_display = f" untuk {clean_timeframe}"
                 else:
-                    break  # Job completed, stop updates
+                    query_display = f" untuk {cleaned_parts[0]}"
 
-        # Start progress updates in background
-        progress_task = asyncio.create_task(update_progress_display())
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
 
-            # Generate signals using new async method with query args and progress tracking
-            signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args, progress_tracker)
-
-            # Cancel progress updates since analysis is done
-            try:
-                progress_task.cancel()
-            except:
-                pass
+            # Generate signals using new async method with query args
+            signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
 
             if not signals or len(signals.strip()) < 50:
                 fallback_msg = """❌ **Gagal Generate Sinyal Futures**
@@ -1261,22 +1246,30 @@ class TelegramBot:
             # Add credit status to response (credits already debited by guard)
             signals += f"\n\n{guard_message}"
 
-            # Handle long messages - use plain text to avoid parsing errors
+            # Handle long messages
             if len(signals) > 4000:
                 chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode=None)
-                for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode=None)
+                try:
+                    await loading_msg.edit_text(chunks[0], parse_mode='MarkdownV2')
+                    for chunk in chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode='MarkdownV2')
+                except Exception as e:
+                    print(f"⚠️ Markdown error, sending as plain text: {e}")
+                    # Remove escape characters for plain text
+                    plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
+                    await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
+                    for chunk in plain_chunks[1:]:
+                        await update.message.reply_text(chunk, parse_mode=None)
             else:
-                await loading_msg.edit_text(signals, parse_mode=None)
+                try:
+                    await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
+                except Exception as e:
+                    print(f"⚠️ MarkdownV2 error, sending as plain text: {e}")
+                    # Remove escape characters for plain text
+                    plain_text = signals.replace('\\', '')
+                    await loading_msg.edit_text(plain_text, parse_mode=None)
 
         except Exception as e:
-            # Cancel progress updates
-            try:
-                progress_task.cancel()
-            except:
-                pass
-
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"❌ Error in futures_signals command: {e}")
