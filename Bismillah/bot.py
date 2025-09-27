@@ -1043,8 +1043,23 @@ class TelegramBot:
         progress_task = asyncio.create_task(update_progress_display())
 
         try:
-            # Get comprehensive analysis using CoinAPI data with progress tracking
-            analysis = await self.ai.get_comprehensive_analysis_async(symbol, {}, {}, 'id', self.crypto_api, progress_tracker, user_id)
+            # Validate symbol format
+            if not symbol or len(symbol) < 2 or len(symbol) > 10:
+                await loading_msg.edit_text(
+                    f"❌ **Symbol tidak valid**: `{symbol}`\n\n"
+                    "💡 **Contoh yang benar**: `/analyze BTC`, `/analyze ETH`, `/analyze AVAX`",
+                    parse_mode='Markdown'
+                )
+                return
+
+            # Generate comprehensive analysis using AI Assistant with progress tracking
+            analysis = await self.ai.get_comprehensive_analysis_async(
+                symbol=symbol,
+                language='id',
+                crypto_api=self.crypto_api,
+                progress_tracker=progress_tracker,
+                user_id=user_id
+            )
 
             # Cancel progress updates since analysis is done
             try:
@@ -1055,14 +1070,14 @@ class TelegramBot:
             # Add credit status to response
             analysis += f"\n\n{guard_message}"
 
-            # Handle long messages
+            # Always send as plain text to avoid parsing errors
             if len(analysis) > 4000:
                 chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
-                await loading_msg.edit_text(chunks[0], parse_mode='Markdown')
+                await loading_msg.edit_text(chunks[0], parse_mode=None)
                 for chunk in chunks[1:]:
-                    await update.message.reply_text(chunk, parse_mode='Markdown')
+                    await update.message.reply_text(chunk, parse_mode=None)
             else:
-                await loading_msg.edit_text(analysis, parse_mode='Markdown')
+                await loading_msg.edit_text(analysis, parse_mode=None)
 
         except Exception as e:
             # Cancel progress updates
@@ -1255,7 +1270,7 @@ class TelegramBot:
                         await update.message.reply_text(chunk, parse_mode='MarkdownV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    # Remove escape characters for plain text
+                    # Remove problematic characters for plain text
                     plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
                     await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
                     for chunk in plain_chunks[1:]:
@@ -1933,7 +1948,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         user_id = update.message.from_user.id
         username = update.message.from_user.username or "no_username"
 
-        # Use Supabase for premium checks with better error handling
+        # Use Supabase for premium checks
         try:
             from app.premium_check import is_premium as sb_is_premium
             is_premium = sb_is_premium(user_id)
@@ -3396,20 +3411,17 @@ ADMIN2 = [optional_second_admin_id]
             admin_ids = get_admin_ids()
             message += f"👑 **All Resolved Admin IDs**: {admin_ids if admin_ids else 'NONE'}\n"
             message += f"🆕 **System**: Dynamic Admin Management\n\n"
-
-            # Show environment variables
-            admin_secret = os.getenv("ADMIN", "").strip()
-            admin1 = os.getenv("ADMIN1", "").strip()
-            admin2 = os.getenv("ADMIN2", "").strip()
-
-            env_vars = []
-            if admin_secret: env_vars.append("ADMIN=SET (Super Admin)")
-            if admin1: env_vars.append("ADMIN1=SET")
-            if admin2: env_vars.append("ADMIN2=SET")
-
-            message += f"⚙️ **Environment Variables**: {', '.join(env_vars) if env_vars else 'NONE SET'}\n\n"
         else:
             message += f"⚠️ **System**: Fallback (New system failed to load)\n\n"
+
+        message += f"⚙️ **Environment Variables**: "
+        admin_env_vars = []
+        for i in range(1, 10):
+            key = f'ADMIN{i}'
+            if os.getenv(key):
+                admin_env_vars.append(key)
+        message += f"{', '.join(admin_env_vars) if admin_env_vars else 'NONE SET'}\n\n"
+
 
         if is_super_admin(user_id):
             message += f"👑 **Super Admin Commands:**\n"
@@ -3715,162 +3727,8 @@ ADMIN2 = [optional_second_admin_id]
             )
             print(f"❌ Error in check_premium_command: {e}")
 
-    async def set_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /set_all_credits command - Set all free users to specific credit amount"""
-        user_id = update.message.from_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-
-        if len(context.args) != 1:
-            await update.message.reply_text(
-                "❌ **Format salah!**\n\n"
-                "Gunakan: `/set_all_credits <amount>`\n\n"
-                "**Contoh:**\n"
-                "• `/set_all_credits 100` - Set semua free user ke 100 credit\n"
-                "• `/set_all_credits 200` - Set semua free user ke 200 credit",
-                parse_mode='Markdown'
-            )
-            return
-
-        try:
-            credit_amount = int(context.args[0])
-            if credit_amount < 0:
-                await update.message.reply_text("❌ Credit amount harus positif!")
-                return
-        except ValueError:
-            await update.message.reply_text("❌ Credit amount harus berupa angka!")
-            return
-
-        await update.message.reply_text(f"🔄 Setting all free users to {credit_amount} credits...")
-
-        try:
-            from app.supabase_conn import get_supabase_client
-            from app.users_repo import is_premium_active
-
-            s = get_supabase_client()
-
-            # Get all users
-            result = s.table("users").select("telegram_id, first_name, username, is_premium, is_lifetime, premium_until").execute()
-
-            if not result.data:
-                await update.message.reply_text("❌ No users found in database")
-                return
-
-            all_users = result.data
-            free_users = []
-
-            # Filter free users (non-premium)
-            for user in all_users:
-                tg_id = user.get('telegram_id')
-                if not tg_id:
-                    continue
-
-                # Check if user is premium
-                if not is_premium_active(tg_id):
-                    free_users.append(user)
-
-            if not free_users:
-                await update.message.reply_text("ℹ️ No free users found to refresh")
-                return
-
-            # Update credits for all free users
-            updated_count = 0
-            for user in free_users:
-                telegram_id = user.get('telegram_id')
-                try:
-                    update_result = s.table("users").update({
-                        "credits": credit_amount
-                    }).eq("telegram_id", telegram_id).execute()
-
-                    if update_result.data:
-                        updated_count += 1
-
-                except Exception as e:
-                    print(f"❌ Error updating user {telegram_id}: {e}")
-                    continue
-
-            # Calculate next refresh date
-            now = datetime.now()
-            days_until_monday = (7 - now.weekday()) % 7
-            if days_until_monday == 0 and now.hour >= 0:  # If it's Monday but past midnight
-                days_until_monday = 7
-            next_refresh = now + timedelta(days=days_until_monday)
-            next_refresh = next_refresh.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # Format next refresh with date and day
-            next_refresh_str = next_refresh.strftime('%A, %d %B %Y - 00:00 WIB')
-
-            await update.message.reply_text(
-                f"✅ **Set All Credits Completed!**\n\n"
-                f"👥 **Free Users Updated**: {updated_count}/{len(free_users)}\n"
-                f"💳 **Credits Set**: {credit_amount} credits per user\n"
-                f"💰 **Total Credits Given**: {updated_count * credit_amount:,}\n"
-                f"🕐 **Completed**: {datetime.now().strftime('%H:%M:%S WIB')}\n\n"
-                f"📅 **Next auto refresh**: {next_refresh_str}\n"
-                f"⭐ **Premium users unaffected** (unlimited access)",
-                parse_mode='Markdown'
-            )
-
-        except Exception as e:
-            await update.message.reply_text(
-                f"❌ **Set All Credits Failed**\n\n"
-                f"Error: {str(e)[:200]}...",
-                parse_mode='Markdown'
-            )
-            print(f"❌ Error in set_all_credits_command: {e}")
-
-        # Log admin action
-        self.db.log_user_activity(user_id, "admin_set_all_credits", f"Set {updated_count} free users to {credit_amount} credits")
-
-    async def test_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Test command to verify Supabase premium integration"""
-        from app.users_repo import get_user_by_telegram_id, is_premium_active
-
-        user_id = update.effective_user.id
-
-        if not self.is_admin(user_id):
-            await update.message.reply_text("❌ Admin only command.")
-            return
-
-        if len(context.args) != 1:
-            await update.message.reply_text("Usage: /test_premium <user_id>")
-            return
-
-        try:
-            target_user_id = int(context.args[0])
-
-            # Get user data from Supabase
-            user_data = get_user_by_telegram_id(target_user_id)
-            is_premium = is_premium_active(target_user_id)
-
-            if user_data:
-                message = f"""🧪 **Supabase Premium Test**
-
-👤 **User ID**: {target_user_id}
-📊 **Found in DB**: ✅ Yes
-
-🔍 **Raw Data**:
-• is_premium: {user_data.get('is_premium')}
-• is_lifetime: {user_data.get('is_lifetime')}
-• premium_until: {user_data.get('premium_until')}
-• credits: {user_data.get('credits')}
-
-✅ **Computed Status**: {'PREMIUM' if is_premium else 'FREE'}
-
-🔄 **Database**: Supabase connection working ✅"""
-            else:
-                message = f"❌ User {target_user_id} not found in Supabase"
-
-            await update.message.reply_text(message, parse_mode='Markdown')
-
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
-            print(f"Error in test_premium: {e}")
-
     async def whois_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /whois command to check user status from v_users"""
+        """Handle /whois command"""
         from app.routers.admin_premium import cmd_whois
 
         # Delegate to the router function
@@ -3928,39 +3786,26 @@ ADMIN2 = [optional_second_admin_id]
         self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command)) # Added setup_admin command
         self.application.add_handler(CommandHandler("banned", self.banned_command))
 
-        # Supabase health check command
-        try:
-            # This block was removed as per the instruction to remove the broken Supabase registration.
-            # If specific Supabase commands are needed, they should be imported and registered separately.
-            # from app.handlers_sb_repair import cmd_sb_repair
-            # from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_grant_credits
-            # from app.handlers_user_set import cmd_user_set
-            # from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+        # System status commands
+        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
 
-            # self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
-            # self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
-            # self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
-            # self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            # self.application.add_handler(CommandHandler("user_set", cmd_user_set))
-            # self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
-            # self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
-
-            print("✅ Supabase admin commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register Supabase commands: {e}")
-        # Renamed for clarity and consistency with user request
+        # AutoSignal admin commands
         self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
         self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
         self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
 
+        # Admin management commands
+        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
+        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
+        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
+        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
+        self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
+        self.application.add_handler(CommandHandler("test_premium", self.test_premium_command)) # Test command
 
-        # Add callback query handler
+        # Callback query handler
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
-        # Add database status command
-        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
-
-        # Add Supabase repair and diagnostic commands
+        # Add handler for Supabase related commands (if they exist and are needed)
         try:
             # These commands are already handled by class methods, so avoid re-registering if they conflict.
             # from app.handlers_sb_repair import cmd_sb_repair
@@ -3981,15 +3826,14 @@ ADMIN2 = [optional_second_admin_id]
             print(f"⚠️ Could not register Supabase commands: {e}")
 
         # Add debug commands
-        if ADMIN_SYSTEM_AVAILABLE:
-            try:
-                # These commands are already handled by class methods, so avoid re-registering if they conflict.
-                # from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
-                # self.application.add_handler(CommandHandler("whoami", cmd_whoami))
-                # self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
-                print("✅ Admin debug commands registered")
-            except ImportError as e:
-                print(f"⚠️ Could not register debug commands: {e}")
+        try:
+            # These commands are already handled by class methods, so avoid re-registering if they conflict.
+            # from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
+            # self.application.add_handler(CommandHandler("whoami", cmd_whoami))
+            # self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
+            print("✅ Admin debug commands registered")
+        except ImportError as e:
+            print(f"⚠️ Could not register debug commands: {e}")
 
         # Add AutoSignal admin commands
         try:
@@ -4003,28 +3847,8 @@ ADMIN2 = [optional_second_admin_id]
         except ImportError as e:
             print(f"⚠️ Could not register AutoSignal commands: {e}")
 
-        # Add admin management commands
-        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
-        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
-        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
-        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
-        self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
-
-        # Add new admin premium router commands
-        try:
-            from app.routers.admin_premium import cmd_setpremium, cmd_revoke_premium, cmd_whois
-            self.application.add_handler(CommandHandler("setpremium_new", cmd_setpremium))
-            self.application.add_handler(CommandHandler("revoke_premium_new", cmd_revoke_premium))
-            self.application.add_handler(CommandHandler("whois", cmd_whois))
-            print("✅ New admin premium router commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register new admin premium commands: {e}")
-
         # Add whois command to main bot handlers
         self.application.add_handler(CommandHandler("whois", self.whois_command))
-
-        # Add test commands for Supabase integration
-        self.application.add_handler(CommandHandler("test_premium", self.test_premium_command))
 
         # Add message handler for regular text (should be last)
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))

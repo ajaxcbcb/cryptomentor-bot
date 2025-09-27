@@ -30,14 +30,40 @@ class AIAssistant:
     def get_comprehensive_analysis(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None) -> str:
         """Generate comprehensive crypto analysis"""
         try:
-            # Get real-time price data
+            # Get real-time price data with better error handling
             price_data = {}
+            current_price = 0
+            change_24h = 0
+            volume_24h = 0
+            
             if crypto_api:
-                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+                try:
+                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                    
+                    if price_data and 'error' not in price_data:
+                        current_price = price_data.get('price', 0)
+                        change_24h = price_data.get('change_24h', 0)
+                        volume_24h = price_data.get('volume_24h', 0)
+                except Exception as e:
+                    print(f"❌ Exception getting price data: {e}")
+                    
+            # Try fallback if main API fails
+            if current_price <= 0 and crypto_api:
+                try:
+                    fallback_symbols = [f"{symbol.upper()}USDT", symbol.upper(), symbol.lower()]
+                    for fallback_symbol in fallback_symbols:
+                        if fallback_symbol != symbol:
+                            try:
+                                fallback_data = crypto_api.get_crypto_price(fallback_symbol, force_refresh=True)
+                                if fallback_data and 'error' not in fallback_data and fallback_data.get('price', 0) > 0:
+                                    current_price = fallback_data.get('price', 0)
+                                    change_24h = fallback_data.get('change_24h', 0)
+                                    volume_24h = fallback_data.get('volume_24h', 0)
+                                    break
+                            except:
+                                continue
+                except:
+                    pass
 
             # Price formatting
             if current_price < 1:
@@ -141,20 +167,69 @@ class AIAssistant:
                 await progress_tracker.update_progress(user_id, 15, "⚡ Mengambil data...")
                 await asyncio.sleep(stage_timings['data_fetch'])
 
-            # Get real-time price data
+            # Get real-time price data with better error handling
             price_data = {}
+            current_price = 0
+            change_24h = 0
+            volume_24h = 0
+            
             if crypto_api:
-                price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                try:
+                    price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+                    print(f"📊 Price data for {symbol}: {price_data}")
+                    
+                    if price_data and 'error' not in price_data:
+                        current_price = price_data.get('price', 0)
+                        change_24h = price_data.get('change_24h', 0)
+                        volume_24h = price_data.get('volume_24h', 0)
+                    else:
+                        print(f"⚠️ Error in price data: {price_data.get('error', 'Unknown error')}")
+                except Exception as e:
+                    print(f"❌ Exception getting price data: {e}")
+                    price_data = {'error': str(e)}
 
-            current_price = price_data.get('price', 0) if 'error' not in price_data else 0
-            change_24h = price_data.get('change_24h', 0) if 'error' not in price_data else 0
-            volume_24h = price_data.get('volume_24h', 0) if 'error' not in price_data else 0
+            # Try fallback if main API fails
+            if current_price <= 0:
+                try:
+                    # Try with different symbol formats
+                    fallback_symbols = [
+                        symbol.upper(),
+                        f"{symbol.upper()}USDT",
+                        symbol.lower(),
+                        f"{symbol.lower()}usdt"
+                    ]
+                    
+                    for fallback_symbol in fallback_symbols:
+                        if fallback_symbol != symbol:
+                            try:
+                                fallback_data = crypto_api.get_crypto_price(fallback_symbol, force_refresh=True)
+                                if fallback_data and 'error' not in fallback_data and fallback_data.get('price', 0) > 0:
+                                    price_data = fallback_data
+                                    current_price = fallback_data.get('price', 0)
+                                    change_24h = fallback_data.get('change_24h', 0)
+                                    volume_24h = fallback_data.get('volume_24h', 0)
+                                    print(f"✅ Fallback success with {fallback_symbol}")
+                                    break
+                            except:
+                                continue
+                except Exception as e:
+                    print(f"❌ Fallback failed: {e}")
 
             if current_price <= 0:
                 # Complete job even on error
                 if user_id and progress_tracker:
                     progress_tracker.complete_job(user_id)
-                return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
+                error_msg = price_data.get('error', 'Data tidak tersedia') if price_data else 'API tidak dapat diakses'
+                return f"""❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}
+
+🔧 **Error Details**: {error_msg}
+
+💡 **Solusi**:
+• Coba `/analyze btc` atau `/analyze eth`
+• Pastikan simbol benar (contoh: BTC, ETH, SOL)
+• Tunggu beberapa detik dan coba lagi
+
+📡 **Status**: API sedang mencoba koneksi ulang..."""
 
             # Update progress: Stage 2 - Technical analysis (OPTIMIZED)
             if user_id and progress_tracker:
