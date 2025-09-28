@@ -154,7 +154,25 @@ class AIAssistant:
                 # Complete job even on error
                 if user_id and progress_tracker:
                     progress_tracker.complete_job(user_id)
-                return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
+                
+                # Check if it's a coin availability issue
+                if price_data and 'available_coins' in price_data:
+                    available_list = ', '.join(price_data['available_coins'][:10])
+                    return f"""❌ **KOIN TIDAK TERSEDIA**: {symbol} tidak tersedia di Binance Exchange
+
+💡 **Koin yang Tersedia:**
+{available_list}
+
+🎯 **Rekomendasi:**
+• `/analyze btc` - Bitcoin (paling populer)
+• `/analyze eth` - Ethereum 
+• `/analyze sol` - Solana
+• `/analyze xrp` - XRP
+• `/analyze ada` - Cardano
+
+📊 **Info**: Bot menggunakan Binance Exchange yang memiliki 500+ koin populer, tetapi tidak semua altcoin tersedia."""
+                else:
+                    return f"❌ **DATA ERROR**: Tidak dapat mengambil data {symbol}\n\n💡 **Solusi**: Coba `/analyze btc` atau `/analyze eth`"
 
             # Update progress: Stage 2 - Technical analysis (OPTIMIZED)
             if user_id and progress_tracker:

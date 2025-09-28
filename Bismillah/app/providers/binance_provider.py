@@ -77,9 +77,20 @@ def get_price(symbol: str, futures: bool = False) -> float:
     sym = normalize_symbol(symbol)
     base = _base_url(futures)
     ep = "/fapi/v1/ticker/price" if futures else "/api/v3/ticker/price"
-    r = _http.get(base + ep, params={"symbol": sym})
-    data = r.json()
-    return float(data["price"])
+    
+    try:
+        r = _http.get(base + ep, params={"symbol": sym})
+        data = r.json()
+        
+        # Check if symbol not found
+        if "code" in data and data["code"] == -1121:
+            raise ValueError(f"Symbol {sym} not found on Binance")
+            
+        return float(data["price"])
+    except Exception as e:
+        if "Symbol" in str(e) and "not found" in str(e):
+            raise ValueError(f"Symbol {sym} not available on Binance")
+        raise
 
 def fetch_klines(symbol: str, interval: str, limit: int = 200, futures: bool = False) -> List[List[Any]]:
     sym = normalize_symbol(symbol)

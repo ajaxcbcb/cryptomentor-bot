@@ -27,7 +27,7 @@ class CryptoAPI:
 
     def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Mendapatkan harga crypto dari Binance API
+        Mendapatkan harga crypto dari Binance API dengan fallback untuk koin yang tidak tersedia
         """
         try:
             # Check cache first
@@ -40,11 +40,26 @@ class CryptoAPI:
             # Normalize symbol for Binance
             normalized_symbol = normalize_symbol(symbol)
 
-            # Get spot price from Binance
-            spot_price = get_price(normalized_symbol, futures=False)
+            # Try to get spot price from Binance
+            try:
+                spot_price = get_price(normalized_symbol, futures=False)
+            except Exception as binance_error:
+                # Coin not available on Binance
+                logging.warning(f"Binance error for {symbol}: {binance_error}")
+                return {
+                    'error': f'Coin {symbol} not available on Binance',
+                    'symbol': symbol.upper(),
+                    'suggestion': 'Try popular coins like BTC, ETH, BNB, SOL, XRP, ADA, DOT, MATIC, AVAX, UNI',
+                    'available_coins': ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR']
+                }
 
             if spot_price <= 0:
-                return {'error': f'Invalid price data for {symbol}'}
+                return {
+                    'error': f'Invalid price data for {symbol}',
+                    'symbol': symbol.upper(),
+                    'suggestion': 'Try popular coins like BTC, ETH, BNB, SOL, XRP, ADA',
+                    'available_coins': ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
+                }
 
             # Get 24h ticker data for additional metrics
             try:

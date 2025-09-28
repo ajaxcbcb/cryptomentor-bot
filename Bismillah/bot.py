@@ -968,9 +968,27 @@ class TelegramBot:
 🌐 **API Status**: {api_status}
 🔗 **Mode**: {'🌐 Always On (Deployment)' if IS_DEPLOYMENT else '🔧 Development Workspace'}"""
         else:
-            # API error handling
-            error_reason = price_data.get('error', 'All price APIs unavailable') if price_data else 'All price APIs unavailable'
-            message = f"""❌ **Data harga tidak tersedia untuk {symbol}**
+            # Enhanced error handling for unavailable coins
+            if price_data and 'available_coins' in price_data:
+                available_list = ', '.join(price_data['available_coins'][:8])
+                message = f"""❌ **KOIN TIDAK TERSEDIA**: {symbol}
+
+🏪 **Koin tidak tersedia di Binance Exchange**
+
+💰 **Koin Populer yang Tersedia:**
+{available_list}
+
+🎯 **Coba Command Ini:**
+• `/price btc` - Bitcoin
+• `/price eth` - Ethereum  
+• `/price sol` - Solana
+• `/price xrp` - XRP
+
+📊 **Info**: Bot menggunakan Binance Exchange (500+ koin populer)"""
+            else:
+                # API error handling
+                error_reason = price_data.get('error', 'All price APIs unavailable') if price_data else 'All price APIs unavailable'
+                message = f"""❌ **Data harga tidak tersedia untuk {symbol}**
 
 🌐 **Mode**: {'Deployment (Real-time Only)' if IS_DEPLOYMENT else 'Development'}
 ⚠️ **Error**: {error_reason}
@@ -978,9 +996,9 @@ class TelegramBot:
 🔄 **Solusi:**
 • Coba beberapa saat lagi
 • API sedang mengalami gangguan sementara
-• Pastikan CoinAPI key tersedia di Secrets
+• Pastikan Binance API berfungsi
 
-💡 **Info**: Bot menggunakan CoinAPI → Binance (berurutan)"""
+💡 **Info**: Bot menggunakan Binance Exchange"""
 
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
