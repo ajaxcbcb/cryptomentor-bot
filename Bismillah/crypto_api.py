@@ -72,19 +72,33 @@ class CryptoAPI:
             try:
                 from app.providers.binance_provider import _http, _base_url
 
-                # Get 24h ticker stats
+                # Get 24h ticker stats using the same symbol that worked for price
                 ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
-                response = _http.get(ticker_url, params={'symbol': normalized_symbol})
-                ticker_data = response.json()
-
-                change_24h = float(ticker_data.get('priceChangePercent', 0))
-                volume_24h = float(ticker_data.get('volume', 0)) * spot_price  # Volume in USD
-                high_24h = float(ticker_data.get('highPrice', spot_price))
-                low_24h = float(ticker_data.get('lowPrice', spot_price))
+                response = _http.get(ticker_url, params={'symbol': used_symbol})
+                
+                if response.status_code == 200:
+                    ticker_data = response.json()
+                    change_24h = float(ticker_data.get('priceChangePercent', 0))
+                    volume_24h = float(ticker_data.get('volume', 0)) * spot_price  # Volume in USD
+                    high_24h = float(ticker_data.get('highPrice', spot_price))
+                    low_24h = float(ticker_data.get('lowPrice', spot_price))
+                else:
+                    raise Exception(f"HTTP {response.status_code}")
 
             except Exception as e:
-                logging.warning(f"Could not get 24h stats for {symbol}: {e}")
-                change_24h = 0
+                logging.warning(f"Could not get 24h stats for {symbol} using {used_symbol}: {e}")
+                # Try to get basic price change from price endpoint
+                try:
+                    price_url = f"{_base_url(False)}/api/v3/ticker/price"
+                    old_price_response = _http.get(price_url, params={'symbol': used_symbol})
+                    if old_price_response.status_code == 200:
+                        # Calculate rough change estimate (this is fallback)
+                        change_24h = 0  # Will show 0% if we can't get real data
+                    else:
+                        change_24h = 0
+                except:
+                    change_24h = 0
+                    
                 volume_24h = 0
                 high_24h = spot_price
                 low_24h = spot_price
@@ -259,9 +273,9 @@ class CryptoAPI:
         clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
         
         # Special symbol mappings for coins with different symbols on Binance
+        # Note: ASTER and ASTR are different cryptocurrencies
         symbol_mappings = {
-            'ASTER': 'ASTR',  # Astar Network uses ASTR on Binance
-            'ASTAR': 'ASTR',  # Alternative name
+            # Add other legitimate mappings here if needed
         }
         
         # Apply symbol mapping if needed
@@ -269,13 +283,11 @@ class CryptoAPI:
         
         # Add variants in order of likelihood
         variants.extend([
-            f"{mapped_base}USDT",    # Most common with mapped symbol
-            f"{clean_base}USDT",     # Original symbol just in case
-            f"{mapped_base}BUSD",    # Alternative stablecoin
-            f"{mapped_base}USDC",    # Another stablecoin
-            f"{mapped_base}BTC",     # BTC pair
-            f"{mapped_base}ETH",     # ETH pair
-            mapped_base,             # Mapped symbol without pair
+            f"{clean_base}USDT",     # Most common - use original symbol
+            f"{clean_base}BUSD",     # Alternative stablecoin  
+            f"{clean_base}USDC",     # Another stablecoin
+            f"{clean_base}BTC",      # BTC pair
+            f"{clean_base}ETH",      # ETH pair
             clean_base,              # Original without pair
         ])
         
@@ -329,7 +341,7 @@ class CryptoAPI:
             'MATIC': 'Polygon',
             'AVAX': 'Avalanche',
             'UNI': 'Uniswap',
-            'ASTER': 'Astar Network',
+            'ASTER': 'Aster Token',  # Different from ASTR
             'ASTAR': 'Astar Network',
             'ASTR': 'Astar Network'
         }

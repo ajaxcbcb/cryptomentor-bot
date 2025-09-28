@@ -78,8 +78,9 @@ def normalize_symbol(symbol: str) -> str:
     s = symbol.replace("/", "").replace("-", "").upper().strip()
     
     # Special mappings for coins with different symbols on Binance
+    # Note: ASTER and ASTR are different coins, don't map them
     symbol_mappings = {
-        'ASTER': 'ASTR',  # Astar Network uses ASTR on Binance, not ASTER
+        # Add other mappings here if needed, but ASTER ≠ ASTR
     }
     
     # Check if this is a base symbol that needs mapping
