@@ -2289,8 +2289,8 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
 {'• `/add_admin <user_id>` - Add new admin' if is_super_admin else '• `/whoami` - Your admin info'}
 {'• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
-{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
-{'• `/whoami` - Your admin info' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/whoami` - Your admin info' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
 {'• `/admin_debug` - Admin configuration debug' if is_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3251,36 +3251,31 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 
 ⚙️ **Setup Instructions:**
 
-**Step 1: Buka Replit Secrets**
-• Klik tab "Secrets" di sidebar kiri
-• Atau buka: Tools → Secrets
+**1. Go to Replit Secrets Tab**
+• Click on "Secrets" in the left sidebar
+• Add your admin environment variables
 
-**Step 2: Tambahkan Admin Configuration**
-• Key: `ADMIN1`
-• Value: `{user_id}` (your User ID)
+**2. Add Admin Environment Variables:**
+• **ADMIN1**: `{user_id}` (Your User ID)
+• **ADMIN2**: (Optional second admin ID)
+• **ADMIN_IDS**: `{user_id},other_id` (Comma-separated list)
 
-**Step 3 (Optional): Tambah Admin Kedua**
-• Key: `ADMIN2`
-• Value: `[USER_ID_ADMIN_KEDUA]`
+**3. Restart Bot:**
+• Use `/restart` command or restart manually
+• Bot will detect new admin configuration
 
-**Step 4: Restart Bot**
-• Klik Stop → Run untuk restart bot
-• Bot akan memuat konfigurasi admin baru
+**4. Verify Admin Access:**
+• Use `/admin` command after restart
+• All admin commands will be available
 
-💡 **Format Environment Variables:**
-```
-ADMIN1 = {user_id}
-ADMIN2 = [optional_second_admin_id]
-```
+💡 **Tips:**
+• Multiple admins can be set using ADMIN1, ADMIN2, etc.
+• Or use ADMIN_IDS for comma-separated list
+• Admin IDs must be exact Telegram user IDs
+• Changes require bot restart to take effect
 
-🔍 **Verifikasi Setup:**
-• Gunakan `/admin` setelah restart
-• Gunakan `/sb_status` untuk test admin access
-
-⚠️ **Catatan Penting:**
-• Hanya user dengan ID yang sesuai yang bisa akses admin commands
-• Maksimal 9 admin (ADMIN1 sampai ADMIN9)
-• Restart diperlukan setelah mengubah environment variables"""
+🔒 **Security Note:**
+Keep your admin user IDs private and only share with trusted users."""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -3789,115 +3784,67 @@ ADMIN2 = [optional_second_admin_id]
         print(f"⚠️ Bot Error: {repr(context.error)} | User: {user_id} | Command: {command[:50]}")
 
     def _register_handlers(self):
-        """Register all bot handlers"""
-        # Add command handlers with proper async functions
-        self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("price", self.price_command))
-        self.application.add_handler(CommandHandler("analyze", self.analyze_command))
-
-        # System status commands (dual counter)
-        self.application.add_handler(CommandHandler("status", self.status_command))
-        self.application.add_handler(CommandHandler("system", self.status_command))
-        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
-        self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
-        self.application.add_handler(CommandHandler("market", self.market_command))
-        self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
-        self.application.add_handler(CommandHandler("futures", self.futures_command))
-        self.application.add_handler(CommandHandler("credits", self.credits_command))
-        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
-        self.application.add_handler(CommandHandler("referral", self.referral_command))
-        self.application.add_handler(CommandHandler("language", self.language_command))
-        self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
-        self.application.add_handler(CommandHandler("whoami", self.whoami_command))
-        self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
-
-        # Admin commands - these should be registered after other handlers
-        self.application.add_handler(CommandHandler("admin", self.admin_command))
-        self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
-        self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
-        self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
-        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
-        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command))
-        self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
-        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
-        self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
-        self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
-        self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
-        self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
-        self.application.add_handler(CommandHandler("restart", self.restart_command))
-        self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
-        self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-        self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
-        self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
-        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
-        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
-        self.application.add_handler(CommandHandler("banned", self.banned_command))
-
-        # AutoSignal admin commands
-        self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
-        self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
-        self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
-
-        # Admin management commands
-        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
-        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
-        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
-        self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
-        self.application.add_handler(CommandHandler("test_premium", self.test_premium_command)) # Test command
-
-        # Callback query handler
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-
-        # Add handler for Supabase related commands (if they exist and are needed)
+        """Register command handlers"""
         try:
-            # These commands are already handled by class methods, so avoid re-registering if they conflict.
-            # from app.handlers_sb_repair import cmd_sb_repair
-            # from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_grant_credits
-            # from app.handlers_user_set import cmd_user_set
-            # from app.handlers_sb_diag import cmd_sb_status, cmd_sb_diag
+            # Basic commands
+            self.application.add_handler(CommandHandler("start", self.start))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            self.application.add_handler(CommandHandler("price", self.price_command))
+            self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+            self.application.add_handler(CommandHandler("market", self.market_command))
+            self.application.add_handler(CommandHandler("futures", self.futures_command))
+            self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
 
-            # self.application.add_handler(CommandHandler("sb_repair", cmd_sb_repair))
-            # self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
-            # self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
-            # self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            # self.application.add_handler(CommandHandler("user_set", cmd_user_set))
-            # self.application.add_handler(CommandHandler("sb_status", cmd_sb_status))
-            # self.application.add_handler(CommandHandler("sb_diag", cmd_sb_diag))
+            # User commands
+            self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
+            self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
+            self.application.add_handler(CommandHandler("credits", self.credits_command))
+            self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
+            self.application.add_handler(CommandHandler("referral", self.referral_command))
+            self.application.add_handler(CommandHandler("language", self.language_command))
+            self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
+            self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
 
-            print("✅ Supabase admin commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register Supabase commands: {e}")
+            # Admin commands
+            self.application.add_handler(CommandHandler("admin", self.admin_command))
+            self.application.add_handler(CommandHandler("status", self.status_command))
+            self.application.add_handler(CommandHandler("system", self.status_command))
+            self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
+            self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
+            self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
+            self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+            self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command))
+            self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
+            self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
+            self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
+            self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
+            self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+            self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+            self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
+            self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
+            self.application.add_handler(CommandHandler("restart", self.restart_command))
+            self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
+            self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+            self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
 
-        # Add debug commands
-        try:
-            # These commands are already handled by class methods, so avoid re-registering if they conflict.
-            # from app.handlers_admin_debug import cmd_whoami, cmd_admin_debug
-            # self.application.add_handler(CommandHandler("whoami", cmd_whoami))
-            # self.application.add_handler(CommandHandler("admin_debug", cmd_admin_debug))
-            print("✅ Admin debug commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register debug commands: {e}")
+            # Auto signals admin commands
+            self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
+            self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
+            self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
+            self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
 
-        # Add AutoSignal admin commands
-        try:
-            # These commands are already handled by class methods, so avoid re-registering if they conflict.
-            # from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
-            # self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
-            # self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
-            # self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
-            # self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
-            print("✅ AutoSignal admin commands registered")
-        except ImportError as e:
-            print(f"⚠️ Could not register AutoSignal commands: {e}")
+            # Callback query handler
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
-        # Add whois command to main bot handlers
-        self.application.add_handler(CommandHandler("whois", self.whois_command))
+            # Message handler for non-commands
+            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
-        # Add message handler for regular text (should be last)
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+            print("✅ All handlers registered successfully")
 
+        except Exception as e:
+            print(f"❌ Error registering handlers: {e}")
+            raise
     # End of TelegramBot class definition
 if __name__ == "__main__":
     bot = TelegramBot()
