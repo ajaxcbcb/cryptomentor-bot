@@ -76,6 +76,18 @@ def _append_usdt_if_base_only(s: str) -> str:
 def normalize_symbol(symbol: str) -> str:
     """Terima 'btc', 'BTC/USDT', 'btc-usdt' → 'BTCUSDT' (default pair USDT)."""
     s = symbol.replace("/", "").replace("-", "").upper().strip()
+    
+    # Special mappings for coins with different symbols on Binance
+    symbol_mappings = {
+        'ASTER': 'ASTR',  # Astar Network uses ASTR on Binance, not ASTER
+    }
+    
+    # Check if this is a base symbol that needs mapping
+    for old_symbol, new_symbol in symbol_mappings.items():
+        if s == old_symbol or s.startswith(old_symbol):
+            s = s.replace(old_symbol, new_symbol)
+            break
+    
     return _append_usdt_if_base_only(s)
 
 def get_price(symbol: str, futures: bool = False) -> float:

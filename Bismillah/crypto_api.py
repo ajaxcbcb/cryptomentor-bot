@@ -258,14 +258,25 @@ class CryptoAPI:
         # Remove common suffixes first
         clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
         
+        # Special symbol mappings for coins with different symbols on Binance
+        symbol_mappings = {
+            'ASTER': 'ASTR',  # Astar Network uses ASTR on Binance
+            'ASTAR': 'ASTR',  # Alternative name
+        }
+        
+        # Apply symbol mapping if needed
+        mapped_base = symbol_mappings.get(clean_base, clean_base)
+        
         # Add variants in order of likelihood
         variants.extend([
-            f"{clean_base}USDT",    # Most common
-            f"{clean_base}BUSD",    # Alternative stablecoin
-            f"{clean_base}USDC",    # Another stablecoin
-            f"{clean_base}BTC",     # BTC pair
-            f"{clean_base}ETH",     # ETH pair
-            clean_base,             # Original without pair
+            f"{mapped_base}USDT",    # Most common with mapped symbol
+            f"{clean_base}USDT",     # Original symbol just in case
+            f"{mapped_base}BUSD",    # Alternative stablecoin
+            f"{mapped_base}USDC",    # Another stablecoin
+            f"{mapped_base}BTC",     # BTC pair
+            f"{mapped_base}ETH",     # ETH pair
+            mapped_base,             # Mapped symbol without pair
+            clean_base,              # Original without pair
         ])
         
         # Remove duplicates while preserving order
@@ -276,7 +287,7 @@ class CryptoAPI:
                 seen.add(variant)
                 unique_variants.append(variant)
         
-        return unique_variants[:6]  # Limit to 6 attempts
+        return unique_variants[:8]  # Limit to 8 attempts
 
     def _get_available_symbols_sample(self) -> List[str]:
         """Get a sample of available symbols"""
@@ -318,7 +329,9 @@ class CryptoAPI:
             'MATIC': 'Polygon',
             'AVAX': 'Avalanche',
             'UNI': 'Uniswap',
-            'ASTER': 'Astar Network'
+            'ASTER': 'Astar Network',
+            'ASTAR': 'Astar Network',
+            'ASTR': 'Astar Network'
         }
         return names.get(symbol.upper().replace('USDT', ''), symbol.upper())
 
