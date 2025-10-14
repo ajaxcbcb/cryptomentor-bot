@@ -1091,11 +1091,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Real-time progress updates - per second for heavy performance
+        # Immediate response with queue system
+        initial_msg = progress_tracker.get_progress_message(user_id)
+        loading_msg = await update.message.reply_text(initial_msg, parse_mode='Markdown')
+
+        # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
-            for i in range(10):  # Update 10 times during processing (per second)
-                await asyncio.sleep(1.0)  # Update every 1 second for real-time feel
-                if user_id in progress_tracker.active_jobs:
+            for i in range(20):  # Update up to 20 times (20 seconds max)
+                await asyncio.sleep(1.0)  # Update every 1 second exactly
+                job = progress_tracker.get_job_status(user_id)
+                if job and job.status in ["queued", "processing"]:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
                         await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
@@ -1197,11 +1202,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Real-time progress updates - aggressive per-second
+        # Immediate response with queue system
+        initial_msg = progress_tracker.get_progress_message(user_id)
+        loading_msg = await update.message.reply_text(initial_msg, parse_mode='Markdown')
+
+        # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
-            for i in range(10):  # Update 10 times for smooth experience
-                await asyncio.sleep(1.0)  # Per-second updates for heavy VPS performance
-                if user_id in progress_tracker.active_jobs:
+            for i in range(20):  # Update up to 20 times (20 seconds max)
+                await asyncio.sleep(1.0)  # Update every 1 second exactly
+                job = progress_tracker.get_job_status(user_id)
+                if job and job.status in ["queued", "processing"]:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
                         await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
@@ -1477,11 +1487,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     progress_msg = progress_tracker.get_progress_message(user_id)
                     await query.edit_message_text(progress_msg, parse_mode='Markdown')
 
-                    # Real-time progress updates - maximum performance
+                    # Immediate response with queue system
+                    initial_msg = progress_tracker.get_progress_message(user_id)
+                    await query.edit_message_text(initial_msg, parse_mode='Markdown')
+
+                    # Real-time progress updates - every 1 second for maximum responsiveness
                     async def update_progress_display():
-                        for i in range(10):  # Update 10 times for smooth real-time feel
-                            await asyncio.sleep(1.0)  # Per-second updates utilizing heavy VPS
-                            if user_id in progress_tracker.active_jobs:
+                        for i in range(20):  # Update up to 20 times (20 seconds max)
+                            await asyncio.sleep(1.0)  # Update every 1 second exactly
+                            job = progress_tracker.get_job_status(user_id)
+                            if job and job.status in ["queued", "processing"]:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:
                                     await query.edit_message_text(updated_msg, parse_mode='Markdown')
