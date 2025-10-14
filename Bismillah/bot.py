@@ -417,7 +417,7 @@ class TelegramBot:
 
                     # Force exit to restart cleanly
                     if IS_DEPLOYMENT:
-                        print("🔄 Deployment will restart automatically...")")
+                        print("🔄 Deployment will restart automatically...")
                         sys.exit(1)
                     else:
                         # Restart in development
