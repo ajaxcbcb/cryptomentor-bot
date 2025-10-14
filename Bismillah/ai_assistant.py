@@ -138,7 +138,7 @@ class AIAssistant:
 
             # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "⚡ Mengambil data...")
+                progress_tracker.update_progress(user_id, "⚡ Mengambil data...", 15)
                 await asyncio.sleep(stage_timings['data_fetch'])
 
             # Get real-time price data
@@ -185,7 +185,7 @@ class AIAssistant:
 
             # Update progress: Stage 2 - Technical analysis (OPTIMIZED)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "📊 Processing indicators...")
+                progress_tracker.update_progress(user_id, "📊 Processing indicators...", 35)
                 await asyncio.sleep(stage_timings['technical'])
 
             # Price formatting
@@ -206,7 +206,7 @@ class AIAssistant:
 
             # Update progress: Stage 3 - SnD zones (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 55, "🎯 Calculating SnD...")
+                progress_tracker.update_progress(user_id, "🎯 Calculating SnD...", 55)
                 await asyncio.sleep(stage_timings['snd_zones'])
 
             # Get Supply & Demand zones
@@ -214,7 +214,7 @@ class AIAssistant:
 
             # Update progress: Stage 4 - Signal generation (CORE)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 75, "⚡ Generating signals...")
+                progress_tracker.update_progress(user_id, "⚡ Generating signals...", 75)
                 await asyncio.sleep(stage_timings['signals'])
 
             # Generate signals
@@ -222,7 +222,7 @@ class AIAssistant:
 
             # Update progress: Stage 5 - Sentiment analysis (QUICK)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 90, "🧠 Analyzing sentiment...")
+                progress_tracker.update_progress(user_id, "🧠 Analyzing sentiment...", 90)
                 await asyncio.sleep(stage_timings['sentiment'])
 
             # Market sentiment
@@ -236,7 +236,7 @@ class AIAssistant:
 
             # Update progress: Final stage (QUICK)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 98, "✅ Finalizing...")
+                progress_tracker.update_progress(user_id, "✅ Finalizing...", 98)
                 await asyncio.sleep(stage_timings['finalize'])
 
             # Format analysis with proper spacing
@@ -288,7 +288,7 @@ class AIAssistant:
 
             # Complete the job
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 100, "✅ Analysis complete!")
+                progress_tracker.update_progress(user_id, "✅ Analysis complete!", 100)
                 progress_tracker.complete_job(user_id)
 
             return analysis
@@ -1450,7 +1450,7 @@ class AIAssistant:
 
             # Update progress: Stage 1 - Data fetching (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
+                progress_tracker.update_progress(user_id, "⚡ Fetching market data...", 15)
                 await asyncio.sleep(stage_timings['data_fetch'])
 
             # Get current price and market data
@@ -1470,7 +1470,7 @@ class AIAssistant:
 
             # Update progress: Stage 2 - SnD zones (OPTIMIZED)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "🎯 Calculating SnD zones...")
+                progress_tracker.update_progress(user_id, "🎯 Calculating SnD zones...", 35)
                 await asyncio.sleep(stage_timings['snd_calc'])
 
             # Get enhanced SnD zones and signals
@@ -1478,12 +1478,12 @@ class AIAssistant:
 
             # Update progress: Stage 3 - Market structure (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 55, "🧠 Processing structure...")
+                progress_tracker.update_progress(user_id, "🧠 Processing structure...", 55)
                 await asyncio.sleep(stage_timings['structure'])
 
             # Update progress: Stage 4 - Signal generation (CORE)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 75, "⚡ Generating signals...")
+                progress_tracker.update_progress(user_id, "⚡ Generating signals...", 75)
                 await asyncio.sleep(stage_timings['signals'])
 
             # Generate signals
@@ -1491,7 +1491,7 @@ class AIAssistant:
 
             # Update progress: Stage 5 - Risk calculation (FAST)
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 90, "💎 Finalizing R:R...")
+                progress_tracker.update_progress(user_id, "💎 Finalizing R:R...", 90)
                 await asyncio.sleep(stage_timings['risk_calc'])
 
             # Enhanced timeframe display
@@ -1711,7 +1711,7 @@ class AIAssistant:
 
             # Complete the job
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 100, "✅ Analysis complete!")
+                progress_tracker.update_progress(user_id, "✅ Analysis complete!", 100)
                 progress_tracker.complete_job(user_id)
 
             return analysis
@@ -2661,7 +2661,7 @@ class AIAssistant:
             }
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 15, "⚡ Fetching market data...")
+                progress_tracker.update_progress(user_id, "⚡ Fetching market data...", 15)
                 await asyncio.sleep(stage_timings['fetch_global'])
 
             # Get market data from CoinAPI
@@ -2669,7 +2669,7 @@ class AIAssistant:
             symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 35, "📊 Processing metrics...")
+                progress_tracker.update_progress(user_id, "📊 Processing metrics...", 35)
                 await asyncio.sleep(stage_timings['process'])
 
             for symbol in symbols:
@@ -2688,7 +2688,7 @@ class AIAssistant:
                     continue
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 60, "🧠 Analyzing sentiment...")
+                progress_tracker.update_progress(user_id, "🧠 Analyzing sentiment...", 60)
                 await asyncio.sleep(stage_timings['analyze'])
 
             if not market_data:
@@ -2700,7 +2700,7 @@ class AIAssistant:
             total_volume = sum(coin['volume_24h'] for coin in market_data)
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 80, "💰 Calculating dominance...")
+                progress_tracker.update_progress(user_id, "💰 Calculating dominance...", 80)
                 await asyncio.sleep(stage_timings['dominance'])
 
             # BTC dominance simulation
@@ -2710,7 +2710,7 @@ class AIAssistant:
                 btc_dominance = 50.0 + (btc_data['change_24h'] * 0.5)  # Estimate
 
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 95, "✅ Building overview...")
+                progress_tracker.update_progress(user_id, "✅ Building overview...", 95)
                 await asyncio.sleep(stage_timings['finalize'])
 
             # Market sentiment analysis
@@ -2774,7 +2774,7 @@ class AIAssistant:
 
             # Complete progress tracking
             if user_id and progress_tracker:
-                await progress_tracker.update_progress(user_id, 100, "✅ Market analysis complete!")
+                progress_tracker.update_progress(user_id, "✅ Market analysis complete!", 100)
                 progress_tracker.complete_job(user_id)
 
             return analysis
