@@ -1093,7 +1093,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
-            for i in range(20):  # Update up to 20 times (20 seconds max)
+            for i in range(15):  # Reduced to 15 seconds max for faster processing
                 await asyncio.sleep(1.0)  # Update every 1 second exactly
                 job = progress_tracker.get_job_status(user_id)
                 if job and job.status in ["queued", "processing"]:
@@ -1101,12 +1101,12 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     try:
                         await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
                     except Exception as e:
-                        print(f"Progress update failed: {e}")
+                        print(f"Progress update failed for user {user_id}: {e}")
                         pass  # Continue even if edit fails
                 else:
                     break  # Job completed, stop updates
 
-        # Start progress updates in background
+        # Start progress updates in background - each user gets their own task
         progress_task = asyncio.create_task(update_progress_display())
 
         try:
@@ -1200,7 +1200,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
-            for i in range(20):  # Update up to 20 times (20 seconds max)
+            for i in range(15):  # Reduced for faster processing
                 await asyncio.sleep(1.0)  # Update every 1 second exactly
                 job = progress_tracker.get_job_status(user_id)
                 if job and job.status in ["queued", "processing"]:
@@ -1208,12 +1208,12 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     try:
                         await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
                     except Exception as e:
-                        print(f"Progress update failed: {e}")
+                        print(f"Market progress update failed for user {user_id}: {e}")
                         pass  # Continue even if edit fails
                 else:
                     break  # Job completed, stop updates
 
-        # Start progress updates in background
+        # Start progress updates in background - independent for each user
         progress_task = asyncio.create_task(update_progress_display())
 
         try:
@@ -1481,7 +1481,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
                     # Real-time progress updates - every 1 second for maximum responsiveness
                     async def update_progress_display():
-                        for i in range(20):  # Update up to 20 times (20 seconds max)
+                        for i in range(15):  # Reduced to 15 seconds max for faster processing
                             await asyncio.sleep(1.0)  # Update every 1 second exactly
                             job = progress_tracker.get_job_status(user_id)
                             if job and job.status in ["queued", "processing"]:
@@ -1489,12 +1489,12 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                                 try:
                                     await query.edit_message_text(updated_msg, parse_mode='MARKDOWN')
                                 except Exception as e:
-                                    print(f"Progress update failed: {e}")
+                                    print(f"Progress update failed for user {user_id}: {e}")
                                     pass  # Continue even if edit fails
                             else:
                                 break  # Job completed, stop updates
 
-                    # Start progress updates in background
+                    # Start progress updates in background - each user gets their own task
                     progress_task = asyncio.create_task(update_progress_display())
 
                     try:
@@ -2608,7 +2608,6 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 • is_premium: {v.get('is_premium')}
 • is_lifetime: {v.get('is_lifetime')}
 • premium_active: {v.get('premium_active')}
-• premium_until: {v.get('premium_until')}
 
 🔄 **Database**: Updated in Supabase ✅
 ⚠️ **Note**: User akan kembali ke free tier dengan batasan credit normal."""

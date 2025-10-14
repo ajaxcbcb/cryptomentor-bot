@@ -126,14 +126,15 @@ class AIAssistant:
     async def get_comprehensive_analysis_async(self, symbol: str, indicators: Dict = None, market_data: Dict = None, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate comprehensive crypto analysis with aggressive 10-second timing"""
         try:
-            # Aggressive 10-second timing with heavy performance utilization
+            # Optimized timing for concurrent users - reduced total time
+            total_target = 8.0  # Reduced to 8 seconds for better multi-user handling
             stage_timings = {
-                'data_fetch': 1.0,      # 1.0 seconds - aggressive data fetch
-                'technical': 1.8,       # 1.8 seconds - heavy computation
-                'snd_zones': 1.7,       # 1.7 seconds - intensive SnD calculations
-                'signals': 2.5,         # 2.5 seconds - complex signal generation
-                'sentiment': 1.5,       # 1.5 seconds - sentiment analysis
-                'finalize': 1.5         # 1.5 seconds - finalization
+                'data_fetch': 0.8,      # 0.8 seconds - faster data fetch
+                'technical': 1.4,       # 1.4 seconds - optimized computation
+                'snd_zones': 1.2,       # 1.2 seconds - faster SnD calculations
+                'signals': 2.0,         # 2.0 seconds - streamlined signal generation
+                'sentiment': 1.3,       # 1.3 seconds - faster sentiment analysis
+                'finalize': 1.3         # 1.3 seconds - quick finalization
             }
 
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -154,14 +155,14 @@ class AIAssistant:
                 # Complete job even on error
                 if user_id and progress_tracker:
                     progress_tracker.complete_job(user_id)
-                
+
                 # Check if it's a coin availability issue
                 if price_data and 'available_coins' in price_data:
                     available_list = ', '.join(price_data['available_coins'][:15])
                     variants_info = ""
                     if 'variants_tried' in price_data:
                         variants_info = f"\n🔍 **Format Dicoba**: {', '.join(price_data['variants_tried'])}"
-                    
+
                     return f"""❌ **KOIN TIDAK TERSEDIA**: {symbol} tidak tersedia di Binance Exchange
 
 🔍 **Detail Error**: {price_data.get('last_error', 'Unknown error')}{variants_info}
@@ -1019,7 +1020,7 @@ class AIAssistant:
 💎 **R:R Ratio**: {rr:.1f}:1 ({rr_rank})
 
 📈 **24h Change**: {change_24h:+.2f}%
-⚡️ **Structure**: {structure_bias}
+⚡ **Structure**: {structure_bias}
 
 """
 
@@ -1040,7 +1041,7 @@ class AIAssistant:
 📈 **Found**: 0 signals (65%+ threshold - Quality Only)
 💤 **Status**: Market consolidation or low confidence conditions
 
-💡 **HONEST RECOMMENDATIONS**:
+💡 **HONEST RECOMMENDATIONS:**
 • Market may not have clear trading opportunities right now
 • This is NORMAL - good signals are rare, not constant
 • Use `/futures btc` for specific analysis (may show 45-65% confidence)
@@ -1183,7 +1184,7 @@ class AIAssistant:
                         score += 15
                     elif -3 <= change < 0:  # Slight correction, good buy opportunity
                         score += 12
-                    elif 5 < change <= 10:  # Strong momentum
+                    elif change > 5:  # Strong momentum
                         score += 10
                     elif change > 10:  # Overheated
                         score += 5
@@ -1437,15 +1438,14 @@ class AIAssistant:
     async def get_futures_analysis(self, symbol: str, timeframe: str, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Get enhanced futures trading signals with optimized 10 second timing"""
         try:
-            # Optimized timing for 10 seconds total
-            total_target = 10.0  # Exact 10 seconds with heavy performance
+            # Optimized timing for concurrent users - reduced total time
             stage_timings = {
-                'data_fetch': 1.0,      # 1.0 seconds - aggressive fetch
-                'snd_calc': 2.0,        # 2.0 seconds - intensive SnD calculations
-                'structure': 1.8,       # 1.8 seconds - heavy market structure analysis
-                'signals': 2.7,         # 2.7 seconds - complex signal processing
-                'risk_calc': 1.5,       # 1.5 seconds - risk calculations
-                'finalize': 1.0         # 1.0 seconds - fast finalization
+                'data_fetch': 0.8,      # 0.8 seconds - faster fetch
+                'snd_calc': 1.5,        # 1.5 seconds - optimized SnD calculations
+                'structure': 1.2,       # 1.2 seconds - streamlined structure analysis
+                'signals': 2.0,         # 2.0 seconds - efficient signal processing
+                'risk_calc': 1.2,       # 1.2 seconds - faster risk calculations
+                'finalize': 0.8         # 0.8 seconds - quick finalization
             }
 
             # Update progress: Stage 1 - Data fetching (FAST)
@@ -1530,10 +1530,10 @@ class AIAssistant:
             confidence_bar = "🟢" * filled_bars + "⚪" * empty_bars
 
             # Dynamic signal status based on REAL confidence
-            if confidence >= 90:
+            if confidence >= 85:
                 signal_status = "🎯 **ULTRA PREMIUM** - EXECUTE NOW!"
                 action_advice = "✅ **Action**: Maximum conviction trade - Full position (Max 95%)"
-            elif confidence >= 85:
+            elif confidence >= 80:
                 signal_status = "🔥 **PREMIUM SIGNAL** - Strong Entry"
                 action_advice = "✅ **Action**: High conviction trade - 80% position"
             elif confidence >= 75:
@@ -2651,13 +2651,13 @@ class AIAssistant:
     async def get_market_sentiment_async(self, language: str = 'id', crypto_api=None, progress_tracker=None, user_id=None) -> str:
         """Generate market sentiment analysis with optimized timing"""
         try:
-            # Optimized timing for market analysis (10 seconds total)
+            # Optimized timing for concurrent users - reduced total time
             stage_timings = {
-                'fetch_global': 1.5,    # 1.5 seconds
-                'process': 2.0,         # 2.0 seconds
-                'analyze': 2.0,         # 2.0 seconds
-                'dominance': 2.0,       # 2.0 seconds
-                'finalize': 2.5         # 2.5 seconds
+                'fetch_global': 0.8,    # 0.8 seconds
+                'process': 1.0,         # 1.0 seconds
+                'analyze': 1.0,         # 1.0 seconds
+                'dominance': 1.0,       # 1.0 seconds
+                'finalize': 1.2         # 1.2 seconds
             }
 
             if user_id and progress_tracker:
