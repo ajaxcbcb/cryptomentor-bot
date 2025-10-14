@@ -1,87 +1,162 @@
 
+#!/usr/bin/env python3
+"""
+System Health Monitor for CryptoMentor AI
+Consolidates all health check and verification functionality
+"""
+
 import os
 import requests
-import json
 from datetime import datetime
-from typing import Dict, Any, List
+from dotenv import load_dotenv
+from database import Database
+from crypto_api import CryptoAPI
+
+load_dotenv()
 
 class SystemHealth:
     def __init__(self):
-        self.status = {}
-        
+        self.db = Database()
+        self.crypto_api = CryptoAPI()
+
+    def check_environment(self):
+        """Check deployment environment"""
+        is_deployment = (
+            os.getenv('REPLIT_DEPLOYMENT') == '1' or 
+            os.getenv('REPL_DEPLOYMENT') == '1' or
+            os.path.exists('/tmp/repl_deployment_flag')
+        )
+        return is_deployment
+
+    def check_api_keys(self):
+        """Check all API keys"""
+        keys = {
+            'telegram': bool(os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')),
+            'coinapi': bool(os.getenv('COINAPI_KEY')),
+            'coingecko': bool(os.getenv('COINGECKO_API_KEY')),
+            'cryptonews': bool(os.getenv('CRYPTONEWS_API_KEY'))
+        }
+        return keys
+
+    def check_database_health(self):
+        """Check database health"""
+        try:
+            stats = self.db.get_bot_statistics()
+            
+            # Check for data issues
+            self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE telegram_id IS NULL")
+            null_ids = self.db.cursor.fetchone()[0]
+            
+            self.db.cursor.execute("SELECT COUNT(*) FROM users WHERE credits < 0")
+            negative_credits = self.db.cursor.fetchone()[0]
+            
+            return {
+                'total_users': stats['total_users'],
+                'premium_users': stats['premium_users'],
+                'data_issues': null_ids + negative_credits,
+                'healthy': null_ids == 0 and negative_credits == 0
+            }
+        except Exception as e:
+            return {'error': str(e), 'healthy': False}
+
     def check_api_connectivity(self):
-        """Check API connectivity - Binance only"""
+        """Check API connectivity"""
         apis = {}
         
-        # Binance Spot
+        # Binance
         try:
             response = requests.get("https://api.binance.com/api/v3/ping", timeout=10)
-            apis['binance_spot'] = response.status_code == 200
+            apis['binance'] = response.status_code == 200
         except:
-            apis['binance_spot'] = False
+            apis['binance'] = False
         
-        # Binance Futures
+        # CoinGecko
         try:
-            response = requests.get("https://fapi.binance.com/fapi/v1/ping", timeout=10)
-            apis['binance_futures'] = response.status_code == 200
+            response = requests.get("https://api.coingecko.com/api/v3/ping", timeout=10)
+            apis['coingecko'] = response.status_code == 200
         except:
-            apis['binance_futures'] = False
+            apis['coingecko'] = False
+        
+        # CryptoNews (if key exists)
+        cryptonews_key = os.getenv('CRYPTONEWS_API_KEY')
+        if cryptonews_key:
+            try:
+                response = requests.get(
+                    "https://cryptonews-api.com/api/v1/category",
+                    params={'section': 'general', 'items': 1, 'token': cryptonews_key},
+                    timeout=10
+                )
+                apis['cryptonews'] = response.status_code == 200
+            except:
+                apis['cryptonews'] = False
+        else:
+            apis['cryptonews'] = None
         
         return apis
-    
-    def check_database_status(self):
-        """Check database connections"""
-        db_status = {}
+
+    def generate_health_report(self):
+        """Generate comprehensive health report"""
+        print("🏥 CryptoMentor AI - System Health Report")
+        print("=" * 50)
+        print(f"⏰ Report Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Local SQLite
-        try:
-            import sqlite3
-            conn = sqlite3.connect('cryptomentor.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            db_status['sqlite'] = True
-            conn.close()
-        except:
-            db_status['sqlite'] = False
+        # Environment
+        is_deployment = self.check_environment()
+        print(f"🌍 Environment: {'🚀 DEPLOYMENT' if is_deployment else '🔧 DEVELOPMENT'}")
         
-        # Supabase
-        try:
-            supabase_url = os.getenv('SUPABASE_URL')
-            supabase_key = <REDACTED_SUPABASE_KEY>
-            if supabase_url and supabase_key:
-                headers = {
-                    'apikey': supabase_key,
-                    'Authorization': f'Bearer {supabase_key}'
-                }
-                response = requests.get(f"{supabase_url}/rest/v1/", headers=headers, timeout=10)
-                db_status['supabase'] = response.status_code == 200
+        # API Keys
+        keys = self.check_api_keys()
+        print(f"\n🔐 API Keys:")
+        for key, status in keys.items():
+            print(f"  • {key.upper()}: {'✅ SET' if status else '❌ MISSING'}")
+        
+        # Database
+        db_health = self.check_database_health()
+        print(f"\n🗄️ Database:")
+        if 'error' not in db_health:
+            print(f"  • Users: {db_health['total_users']} (Premium: {db_health['premium_users']})")
+            print(f"  • Health: {'✅ GOOD' if db_health['healthy'] else '⚠️ ISSUES'}")
+            if db_health['data_issues'] > 0:
+                print(f"  • Issues: {db_health['data_issues']} records need fixing")
+        else:
+            print(f"  • Error: {db_health['error']}")
+        
+        # API Connectivity
+        apis = self.check_api_connectivity()
+        print(f"\n🌐 API Connectivity:")
+        for api, status in apis.items():
+            if status is None:
+                print(f"  • {api.upper()}: ⚠️ NOT CONFIGURED")
             else:
-                db_status['supabase'] = None  # Not configured
-        except:
-            db_status['supabase'] = False
+                print(f"  • {api.upper()}: {'✅ ONLINE' if status else '❌ OFFLINE'}")
         
-        return db_status
-    
-    def get_system_info(self):
-        """Get basic system information"""
-        import psutil
+        # Overall Status
+        working_keys = sum(keys.values())
+        working_apis = sum(1 for v in apis.values() if v is True)
+        
+        if working_keys >= 2 and working_apis >= 1 and db_health.get('healthy', False):
+            status = "🟢 EXCELLENT"
+        elif working_keys >= 1 and working_apis >= 1:
+            status = "🟡 GOOD"
+        else:
+            status = "🔴 NEEDS ATTENTION"
+        
+        print(f"\n🎯 Overall Status: {status}")
         
         return {
-            'cpu_percent': psutil.cpu_percent(),
-            'memory_percent': psutil.virtual_memory().percent,
-            'disk_usage': psutil.disk_usage('/').percent,
-            'python_version': f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    def run_comprehensive_check(self):
-        """Run all health checks"""
-        return {
-            'apis': self.check_api_connectivity(),
-            'databases': self.check_database_status(),
-            'system': self.get_system_info(),
-            'timestamp': datetime.now().isoformat()
+            'environment': is_deployment,
+            'keys': keys,
+            'database': db_health,
+            'apis': apis,
+            'overall_healthy': working_keys >= 2 and working_apis >= 1
         }
 
-# Global instance
-system_health = SystemHealth()
+def main():
+    """Main health check function"""
+    health = SystemHealth()
+    report = health.generate_health_report()
+    return report['overall_healthy']
+
+if __name__ == "__main__":
+    success = main()
+    exit(0 if success else 1)
