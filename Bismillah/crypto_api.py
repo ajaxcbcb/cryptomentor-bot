@@ -1,28 +1,22 @@
+
 import os
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from app.providers.binance_provider import get_price, fetch_klines, normalize_symbol
-import httpx # Import httpx for async client
+import httpx
 
 class CryptoAPI:
     """
-    Crypto API provider menggunakan Binance API sebagai pengganti CoinMarketCap
-    Mempertahankan interface yang sama untuk kompatibilitas
+    Crypto API provider menggunakan Binance API saja
+    Menghilangkan semua integrasi CoinAPI dan CMC
     """
 
     def __init__(self):
-        # Initialize with CoinAPI and Binance providers
-        self.coinapi = CoinAPIProvider()
-        self.binance = BinanceProvider()
-
-        # Main data provider (prioritize CoinAPI)
-        self.data_provider = self.coinapi
-
         # Performance optimization: Aggressive caching
         self._cache = {}
-        self._cache_timeout = 15  # Reduced from 30 to 15 seconds for faster updates
+        self._cache_timeout = 15  # 15 seconds for faster updates
 
         # Connection pooling for faster requests
         self._client = httpx.AsyncClient(
@@ -30,18 +24,11 @@ class CryptoAPI:
             limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
         )
 
-        logging.info("CryptoAPI initialized with Binance provider and performance optimizations")
-
-    def _make_request(self, url: str, headers: dict, params: dict = None, timeout: int = 30) -> Dict[str, Any]:
-        """
-        Generic request method - sekarang menggunakan Binance provider
-        """
-        # This method is kept for compatibility but uses Binance internally
-        return {'status': 'using_binance_provider'}
+        logging.info("CryptoAPI initialized with Binance API only")
 
     def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Mendapatkan harga crypto dari Binance API dengan fallback untuk koin yang tidak tersedia
+        Mendapatkan harga crypto dari Binance API
         """
         try:
             # Check cache first
@@ -88,7 +75,7 @@ class CryptoAPI:
 
                 # Get 24h ticker stats using the same symbol that worked for price
                 ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
-                response = self._client.get(ticker_url, params={'symbol': used_symbol}) # Use async client
+                response = _http.get(ticker_url, params={'symbol': used_symbol})
 
                 if response.status_code == 200:
                     ticker_data = response.json()
@@ -101,18 +88,7 @@ class CryptoAPI:
 
             except Exception as e:
                 logging.warning(f"Could not get 24h stats for {symbol} using {used_symbol}: {e}")
-                # Try to get basic price change from price endpoint
-                try:
-                    price_url = f"{_base_url(False)}/api/v3/ticker/price"
-                    old_price_response = self._client.get(price_url, params={'symbol': used_symbol}) # Use async client
-                    if old_price_response.status_code == 200:
-                        # Calculate rough change estimate (this is fallback)
-                        change_24h = 0  # Will show 0% if we can't get real data
-                    else:
-                        change_24h = 0
-                except:
-                    change_24h = 0
-
+                change_24h = 0
                 volume_24h = 0
                 high_24h = spot_price
                 low_24h = spot_price
@@ -171,7 +147,7 @@ class CryptoAPI:
                 from app.providers.binance_provider import _http, _base_url
 
                 ticker_url = f"{_base_url(True)}/fapi/v1/ticker/24hr"
-                response = self._client.get(ticker_url, params={'symbol': normalized_symbol}) # Use async client
+                response = _http.get(ticker_url, params={'symbol': normalized_symbol})
                 ticker_data = response.json()
 
                 change_24h = float(ticker_data.get('priceChangePercent', 0))
@@ -208,35 +184,16 @@ class CryptoAPI:
             total_change = 0
             successful_requests = 0
 
-            # Use parallel processing for fetching major symbols
-            import asyncio
-
-            async def fetch_symbol_data(symbol):
+            for symbol in major_symbols:
                 try:
                     price_data = self.get_crypto_price(symbol, force_refresh=True)
                     if 'error' not in price_data:
-                        return {
-                            'market_cap': price_data.get('market_cap', 0),
-                            'volume_24h': price_data.get('volume_24h', 0),
-                            'change_24h': price_data.get('change_24h', 0),
-                            'success': True
-                        }
+                        total_market_cap += price_data.get('market_cap', 0)
+                        total_volume_24h += price_data.get('volume_24h', 0)
+                        total_change += price_data.get('change_24h', 0)
+                        successful_requests += 1
                 except Exception:
-                    pass
-                return {'success': False}
-
-            async def get_all_major_symbols_data():
-                tasks = [fetch_symbol_data(symbol) for symbol in major_symbols]
-                return await asyncio.gather(*tasks)
-
-            results = asyncio.run(get_all_major_symbols_data())
-
-            for data in results:
-                if data['success']:
-                    total_market_cap += data['market_cap']
-                    total_volume_24h += data['volume_24h']
-                    total_change += data['change_24h']
-                    successful_requests += 1
+                    continue
 
             if successful_requests == 0:
                 return {'error': 'No market data available', 'success': False}
@@ -305,18 +262,9 @@ class CryptoAPI:
         # Remove common suffixes first
         clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
 
-        # Special symbol mappings for coins with different symbols on Binance
-        # Note: ASTER and ASTR are different cryptocurrencies
-        symbol_mappings = {
-            # Add other legitimate mappings here if needed
-        }
-
-        # Apply symbol mapping if needed
-        mapped_base = symbol_mappings.get(clean_base, clean_base)
-
         # Add variants in order of likelihood
         variants.extend([
-            f"{clean_base}USDT",     # Most common - use original symbol
+            f"{clean_base}USDT",     # Most common
             f"{clean_base}BUSD",     # Alternative stablecoin  
             f"{clean_base}USDC",     # Another stablecoin
             f"{clean_base}BTC",      # BTC pair
@@ -374,7 +322,7 @@ class CryptoAPI:
             'MATIC': 'Polygon',
             'AVAX': 'Avalanche',
             'UNI': 'Uniswap',
-            'ASTER': 'Aster Token',  # Different from ASTR
+            'ASTER': 'Aster Token',
             'ASTAR': 'Astar Network',
             'ASTR': 'Astar Network'
         }
