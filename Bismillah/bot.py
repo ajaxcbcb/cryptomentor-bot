@@ -8,6 +8,13 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
+# Import performance optimizer for maximum speed
+try:
+    from performance_optimizer import performance_optimizer
+    performance_optimizer.enable_turbo_mode()
+except ImportError:
+    print("Performance optimizer not available, using default settings")
+
 # Add missing imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -355,12 +362,15 @@ class TelegramBot:
             except ImportError as e:
                 print(f"⚠️ Could not initialize AutoSignal scheduler: {e}")
 
-            # Start polling with proper error handling
+            # Start polling with optimized performance settings
             await self.application.updater.start_polling(
-                poll_interval=1.0,
-                timeout=20,
+                poll_interval=0.1,  # Reduced from 1.0 to 0.1 for faster response
+                timeout=10,          # Reduced timeout for faster recovery
                 drop_pending_updates=True,
-                allowed_updates=['message', 'callback_query']
+                allowed_updates=['message', 'callback_query'],
+                read_timeout=8,      # Faster read timeout
+                write_timeout=8,     # Faster write timeout
+                connect_timeout=5    # Faster connection timeout
             )
             print("🚀 Bot polling started successfully!")
 
@@ -1091,10 +1101,10 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Real-time progress updates - per second for heavy performance
+        # Ultra-fast progress updates - instant response
         async def update_progress_display():
-            for i in range(10):  # Update 10 times during processing (per second)
-                await asyncio.sleep(1.0)  # Update every 1 second for real-time feel
+            for i in range(20):  # More frequent updates for smooth experience
+                await asyncio.sleep(0.2)  # Reduced to 0.2 seconds for instant feel
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -3244,7 +3254,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
                     )
 
                 success_count += 1
-                await asyncio.sleep(0.1)  # Rate limiting
+                # Removed artificial delay for maximum performance
 
             except Exception as e:
                 print(f"Failed to send broadcast to user {user_id_target}: {e}")

@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from app.providers.binance_provider import get_price, fetch_klines, normalize_symbol
+import httpx # Import httpx for async client
 
 class CryptoAPI:
     """
@@ -12,11 +13,24 @@ class CryptoAPI:
     """
 
     def __init__(self):
-        self.binance_available = True
-        self._cache = {}
-        self._cache_timeout = 300  # 5 minutes
+        # Initialize with CoinAPI and Binance providers
+        self.coinapi = CoinAPIProvider()
+        self.binance = BinanceProvider()
 
-        logging.info("CryptoAPI initialized with Binance provider")
+        # Main data provider (prioritize CoinAPI)
+        self.data_provider = self.coinapi
+
+        # Performance optimization: Aggressive caching
+        self._cache = {}
+        self._cache_timeout = 15  # Reduced from 30 to 15 seconds for faster updates
+
+        # Connection pooling for faster requests
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0),  # Fast timeout
+            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
+        )
+
+        logging.info("CryptoAPI initialized with Binance provider and performance optimizations")
 
     def _make_request(self, url: str, headers: dict, params: dict = None, timeout: int = 30) -> Dict[str, Any]:
         """
@@ -39,7 +53,7 @@ class CryptoAPI:
 
             # Multiple symbol formats to try for better compatibility
             symbol_variants = self._get_symbol_variants(symbol)
-            
+
             spot_price = None
             used_symbol = None
             last_error = None
@@ -74,8 +88,8 @@ class CryptoAPI:
 
                 # Get 24h ticker stats using the same symbol that worked for price
                 ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
-                response = _http.get(ticker_url, params={'symbol': used_symbol})
-                
+                response = self._client.get(ticker_url, params={'symbol': used_symbol}) # Use async client
+
                 if response.status_code == 200:
                     ticker_data = response.json()
                     change_24h = float(ticker_data.get('priceChangePercent', 0))
@@ -90,7 +104,7 @@ class CryptoAPI:
                 # Try to get basic price change from price endpoint
                 try:
                     price_url = f"{_base_url(False)}/api/v3/ticker/price"
-                    old_price_response = _http.get(price_url, params={'symbol': used_symbol})
+                    old_price_response = self._client.get(price_url, params={'symbol': used_symbol}) # Use async client
                     if old_price_response.status_code == 200:
                         # Calculate rough change estimate (this is fallback)
                         change_24h = 0  # Will show 0% if we can't get real data
@@ -98,7 +112,7 @@ class CryptoAPI:
                         change_24h = 0
                 except:
                     change_24h = 0
-                    
+
                 volume_24h = 0
                 high_24h = spot_price
                 low_24h = spot_price
@@ -157,7 +171,7 @@ class CryptoAPI:
                 from app.providers.binance_provider import _http, _base_url
 
                 ticker_url = f"{_base_url(True)}/fapi/v1/ticker/24hr"
-                response = _http.get(ticker_url, params={'symbol': normalized_symbol})
+                response = self._client.get(ticker_url, params={'symbol': normalized_symbol}) # Use async client
                 ticker_data = response.json()
 
                 change_24h = float(ticker_data.get('priceChangePercent', 0))
@@ -194,16 +208,35 @@ class CryptoAPI:
             total_change = 0
             successful_requests = 0
 
-            for symbol in major_symbols:
+            # Use parallel processing for fetching major symbols
+            import asyncio
+
+            async def fetch_symbol_data(symbol):
                 try:
                     price_data = self.get_crypto_price(symbol, force_refresh=True)
                     if 'error' not in price_data:
-                        total_market_cap += price_data.get('market_cap', 0)
-                        total_volume_24h += price_data.get('volume_24h', 0)
-                        total_change += price_data.get('change_24h', 0)
-                        successful_requests += 1
+                        return {
+                            'market_cap': price_data.get('market_cap', 0),
+                            'volume_24h': price_data.get('volume_24h', 0),
+                            'change_24h': price_data.get('change_24h', 0),
+                            'success': True
+                        }
                 except Exception:
-                    continue
+                    pass
+                return {'success': False}
+
+            async def get_all_major_symbols_data():
+                tasks = [fetch_symbol_data(symbol) for symbol in major_symbols]
+                return await asyncio.gather(*tasks)
+
+            results = asyncio.run(get_all_major_symbols_data())
+
+            for data in results:
+                if data['success']:
+                    total_market_cap += data['market_cap']
+                    total_volume_24h += data['volume_24h']
+                    total_change += data['change_24h']
+                    successful_requests += 1
 
             if successful_requests == 0:
                 return {'error': 'No market data available', 'success': False}
@@ -268,19 +301,19 @@ class CryptoAPI:
         """Generate multiple symbol variants to try"""
         base = symbol.upper().strip()
         variants = []
-        
+
         # Remove common suffixes first
         clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
-        
+
         # Special symbol mappings for coins with different symbols on Binance
         # Note: ASTER and ASTR are different cryptocurrencies
         symbol_mappings = {
             # Add other legitimate mappings here if needed
         }
-        
+
         # Apply symbol mapping if needed
         mapped_base = symbol_mappings.get(clean_base, clean_base)
-        
+
         # Add variants in order of likelihood
         variants.extend([
             f"{clean_base}USDT",     # Most common - use original symbol
@@ -290,7 +323,7 @@ class CryptoAPI:
             f"{clean_base}ETH",      # ETH pair
             clean_base,              # Original without pair
         ])
-        
+
         # Remove duplicates while preserving order
         seen = set()
         unique_variants = []
@@ -298,18 +331,18 @@ class CryptoAPI:
             if variant not in seen:
                 seen.add(variant)
                 unique_variants.append(variant)
-        
+
         return unique_variants[:8]  # Limit to 8 attempts
 
     def _get_available_symbols_sample(self) -> List[str]:
         """Get a sample of available symbols"""
         try:
             from app.providers.binance_provider import exchange_info
-            
+
             # Get exchange info
             info = exchange_info()
             symbols = []
-            
+
             if 'symbols' in info:
                 # Extract base assets from active USDT pairs
                 for symbol_info in info['symbols'][:50]:  # Limit to first 50
@@ -318,12 +351,12 @@ class CryptoAPI:
                         base = symbol_info['symbol'].replace('USDT', '')
                         if len(base) <= 6:  # Reasonable length
                             symbols.append(base)
-                
+
                 return symbols[:20]  # Return top 20
-            
+
         except Exception as e:
             logging.warning(f"Could not get exchange symbols: {e}")
-        
+
         # Fallback list
         return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 
                 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET', 'FLOW']

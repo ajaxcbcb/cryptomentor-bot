@@ -154,14 +154,14 @@ class AIAssistant:
                 # Complete job even on error
                 if user_id and progress_tracker:
                     progress_tracker.complete_job(user_id)
-                
+
                 # Check if it's a coin availability issue
                 if price_data and 'available_coins' in price_data:
                     available_list = ', '.join(price_data['available_coins'][:15])
                     variants_info = ""
                     if 'variants_tried' in price_data:
                         variants_info = f"\n🔍 **Format Dicoba**: {', '.join(price_data['variants_tried'])}"
-                    
+
                     return f"""❌ **KOIN TIDAK TERSEDIA**: {symbol} tidak tersedia di Binance Exchange
 
 🔍 **Detail Error**: {price_data.get('last_error', 'Unknown error')}{variants_info}
@@ -1040,7 +1040,7 @@ class AIAssistant:
 📈 **Found**: 0 signals (65%+ threshold - Quality Only)
 💤 **Status**: Market consolidation or low confidence conditions
 
-💡 **HONEST RECOMMENDATIONS**:
+💡 **HONEST RECOMMENDATIONS:**
 • Market may not have clear trading opportunities right now
 • This is NORMAL - good signals are rare, not constant
 • Use `/futures btc` for specific analysis (may show 45-65% confidence)
@@ -1183,7 +1183,7 @@ class AIAssistant:
                         score += 15
                     elif -3 <= change < 0:  # Slight correction, good buy opportunity
                         score += 12
-                    elif 5 < change <= 10:  # Strong momentum
+                    elif change > 5:  # Strong momentum
                         score += 10
                     elif change > 10:  # Overheated
                         score += 5
@@ -1665,7 +1665,7 @@ class AIAssistant:
 
             analysis += f"""
 
-🔬 **TECHNICAL ANALYSIS ({timeframe.upper()}):**
+🔬 **TECHNICAL ANALYSIS ({timeframe.upper()})**
 • EMA50: {tech_indicators['ema_50']}
 • EMA200: {tech_indicators['ema_200']}
 • RSI(14): {tech_indicators['rsi']} ({tech_indicators['rsi_status']})
@@ -2947,7 +2947,6 @@ class AIAssistant:
             market_data.sort(key=lambda x: x['market_cap'], reverse=True)
 
             for i, data in enumerate(market_data[:5], 1):
-                symbol = data['symbol']
                 price = data['price']
                 change = data['change_24h']
 
@@ -2976,7 +2975,7 @@ class AIAssistant:
                     status_emoji = "📉"
                     status = "Bearish"
 
-                analysis += f"\n{i}. **{symbol}** {status_emoji} {price_format} ({change:+.1f}%) - {status}"
+                analysis += f"\n{i}. **{data['symbol']}** {status_emoji} {price_format} ({change:+.1f}%) - {status}"
 
             # Trading implications
             if avg_change > 2:
@@ -3098,7 +3097,7 @@ class AIAssistant:
 💡 **Alternatif yang bisa dicoba:**
 • `/price btc` - Cek harga Bitcoin dari CoinAPI
 • `/analyze btc` - Analisis mendalam Bitcoin
-• `/futures btc` - Sinyal trading Bitcoin
+• `/market` - Overview pasar crypto
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap.
 
@@ -3312,7 +3311,7 @@ Saya siap membantu dengan topik crypto!
 • **Wallet**: Setup, security, recommendations
 • **Mining**: Proof of Work, staking, alternatives
 
-📚 **Command tersedia:**
+🚀 **Command tersedia:**
 • `/analyze btc` - Analisis komprehensif Bitcoin
 • `/futures btc` - Sinyal trading Bitcoin  
 • `/market` - Overview pasar crypto
