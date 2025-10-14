@@ -243,9 +243,16 @@ class TelegramBot:
             logger.error("📝 Go to Secrets tab and add your bot token")
             sys.exit(1)
 
-        # Initialize application with token
+        # Initialize application with token and timeout settings
         try:
-            self.application = Application.builder().token(self.token).build()
+            self.application = (
+                Application.builder()
+                .token(self.token)
+                .read_timeout(8)
+                .write_timeout(8)
+                .connect_timeout(5)
+                .build()
+            )
             logger.info("✅ Bot initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize bot: {e}")
@@ -367,10 +374,7 @@ class TelegramBot:
                 poll_interval=0.1,  # Reduced from 1.0 to 0.1 for faster response
                 timeout=10,          # Reduced timeout for faster recovery
                 drop_pending_updates=True,
-                allowed_updates=['message', 'callback_query'],
-                read_timeout=8,      # Faster read timeout
-                write_timeout=8,     # Faster write timeout
-                connect_timeout=5    # Faster connection timeout
+                allowed_updates=['message', 'callback_query']
             )
             print("🚀 Bot polling started successfully!")
 
