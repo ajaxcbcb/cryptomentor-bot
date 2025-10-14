@@ -12,7 +12,7 @@ load_dotenv()
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
-from typing import Optional, Dict, Any, Tuple, List # Ensure Dict is imported from typing
+from typing import Optional, Dict, Any, Tuple, List  # Ensure Dict is imported from typing
 
 # Import required modules for database operations
 from database import Database
