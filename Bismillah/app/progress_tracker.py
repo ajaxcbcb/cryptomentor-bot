@@ -16,7 +16,7 @@ class ProcessingJob:
 
 class ProgressTracker:
     def __init__(self):
-        self.max_concurrent = 3  # Allow 3 concurrent jobs
+        self.max_concurrent = 10  # Allow 10 concurrent jobs for multi-user support
         self.active_jobs: Dict[int, ProcessingJob] = {}
         self.queue: List[ProcessingJob] = []
 
@@ -24,16 +24,10 @@ class ProgressTracker:
         """Start processing job immediately with queue support"""
         job = ProcessingJob(user_id=user_id, command=command, symbol=symbol)
 
-        if len(self.active_jobs) < self.max_concurrent:
-            # Start immediately
-            job.status = "processing"
-            self.active_jobs[user_id] = job
-            print(f"✅ Job started immediately for user {user_id}: {command}")
-        else:
-            # Add to queue
-            job.status = "queued"
-            self.queue.append(job)
-            print(f"⏳ Job queued for user {user_id}: {command} (position {len(self.queue)})")
+        # Always start immediately with higher concurrent limit
+        job.status = "processing"
+        self.active_jobs[user_id] = job
+        print(f"✅ Job started immediately for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
 
         return job
 
