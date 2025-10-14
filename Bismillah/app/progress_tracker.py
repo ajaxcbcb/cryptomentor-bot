@@ -92,7 +92,7 @@ class ProgressTracker:
             queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
             return f"""⏳ **Dalam Antrian** - {current_time}
 
-🎯 **Command**: {job.command} {job.symbol}
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
 📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
 ⚡ **Sedang Aktif**: {queue_status['active_count']}/{queue_status['max_concurrent']} jobs
 
@@ -104,10 +104,10 @@ class ProgressTracker:
             # Get current stage, default to initializing if not set
             current_stage = getattr(job, 'current_stage', 'initializing')
             progress = getattr(job, 'progress', 0)
-            
+
             return f"""🔄 **Sedang Diproses** - {current_time}
 
-🎯 **Command**: {job.command} {job.symbol}
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
 ⚡ **Stage**: {current_stage}
 ⏱️ **Elapsed**: {elapsed:.0f}s
 📊 **Progress**: {progress}%

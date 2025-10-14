@@ -925,7 +925,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 • Follow sinyal dari `/futures_signals` untuk profit
 
 """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        await update.message.reply_text(help_text, parse_mode='MARKDOWN')
 
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /price command with CoinAPI real-time data"""
@@ -941,7 +941,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             return
 
         if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/price <symbol>`\nContoh: `/price btc`", parse_mode='Markdown')
+            await update.message.reply_text("❌ Gunakan format: `/price <symbol>`\nContoh: `/price btc`", parse_mode='MARKDOWN')
             return
 
         symbol = context.args[0].upper()
@@ -1048,7 +1048,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
 💡 **Info**: Bot menggunakan Binance Exchange"""
 
-        await loading_msg.edit_text(message, parse_mode='Markdown')
+        await loading_msg.edit_text(message, parse_mode='MARKDOWN')
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /analyze command - comprehensive analysis with CoinAPI integration using Supabase credit guard"""
@@ -1063,7 +1063,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             return
 
         if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='Markdown')
+            await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='MARKDOWN')
             return
 
         user_id = update.message.from_user.id
@@ -1075,7 +1075,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
-            await update.message.reply_text(guard_message, parse_mode='Markdown')
+            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
             # CRITICAL: Return immediately without processing - NO analysis should run
             return
 
@@ -1089,7 +1089,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         # Show SINGLE initial progress message
         initial_msg = progress_tracker.get_progress_message(user_id)
-        loading_msg = await update.message.reply_text(initial_msg, parse_mode='Markdown')
+        loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
         # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
@@ -1099,7 +1099,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 if job and job.status in ["queued", "processing"]:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
-                        await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
+                        await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
                     except Exception as e:
                         print(f"Progress update failed: {e}")
                         pass  # Continue even if edit fails
@@ -1115,7 +1115,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 await loading_msg.edit_text(
                     f"❌ **Symbol tidak valid**: `{symbol}`\n\n"
                     "💡 **Contoh yang benar**: `/analyze BTC`, `/analyze ETH`, `/analyze AVAX`",
-                    parse_mode='Markdown'
+                    parse_mode='MARKDOWN'
                 )
                 return
 
@@ -1155,7 +1155,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
             # Credits were already debited atomically, no manual refund needed
             error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
-            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            await loading_msg.edit_text(error_msg, parse_mode='MARKDOWN')
             print(f"Error in analyze command: {e}")
             import traceback
             traceback.print_exc()
@@ -1196,7 +1196,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         # Show SINGLE initial progress message
         initial_msg = progress_tracker.get_progress_message(user_id)
-        loading_msg = await update.message.reply_text(initial_msg, parse_mode='Markdown')
+        loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
         # Real-time progress updates - every 1 second for maximum responsiveness
         async def update_progress_display():
@@ -1206,7 +1206,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 if job and job.status in ["queued", "processing"]:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
-                        await loading_msg.edit_text(updated_msg, parse_mode='Markdown')
+                        await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
                     except Exception as e:
                         print(f"Progress update failed: {e}")
                         pass  # Continue even if edit fails
@@ -1242,14 +1242,14 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
-                await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
+                await loading_msg.edit_text(fallback_msg, parse_mode='MARKDOWN')
                 return
 
-            # Add credit status to response
+            # Add credit status to response (credits already debited by guard)
             analysis_result += f"\n\n{guard_message}"
 
             print(f"✅ Market analysis completed, sending response ({len(analysis_result)} chars)")
-            await loading_msg.edit_text(analysis_result, parse_mode='Markdown')
+            await loading_msg.edit_text(analysis_result, parse_mode='MARKDOWN')
 
         except Exception as e:
             # Cancel progress updates
@@ -1280,7 +1280,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
-            await update.message.reply_text(guard_message, parse_mode='Markdown')
+            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
             # CRITICAL: Return immediately without processing - NO analysis should run
             return
 
@@ -1323,7 +1323,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 • Gunakan `/futures btc` untuk analisis spesifik
 • Gunakan `/analyze btc` untuk analisis fundamental"""
 
-                await loading_msg.edit_text(fallback_msg, parse_mode='Markdown')
+                await loading_msg.edit_text(fallback_msg, parse_mode='MARKDOWN')
                 return
 
             # Add credit status to response (credits already debited by guard)
@@ -1333,9 +1333,9 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             if len(signals) > 4000:
                 chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
                 try:
-                    await loading_msg.edit_text(chunks[0], parse_mode='MarkdownV2')
+                    await loading_msg.edit_text(chunks[0], parse_mode='MARKDOWNV2')
                     for chunk in chunks[1:]:
-                        await update.message.reply_text(chunk, parse_mode='MarkdownV2')
+                        await update.message.reply_text(chunk, parse_mode='MARKDOWNV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error, sending as plain text: {e}")
                     # Remove problematic characters for plain text
@@ -1345,7 +1345,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                         await update.message.reply_text(chunk, parse_mode=None)
             else:
                 try:
-                    await loading_msg.edit_text(signals, parse_mode='MarkdownV2')
+                    await loading_msg.edit_text(signals, parse_mode='MARKDOWNV2')
                 except Exception as e:
                     print(f"⚠️ MarkdownV2 error, sending as plain text: {e}")
                     # Remove escape characters for plain text
@@ -1354,7 +1354,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
-            await loading_msg.edit_text(error_msg, parse_mode='Markdown')
+            await loading_msg.edit_text(error_msg, parse_mode='MARKDOWN')
             print(f"❌ Error in futures_signals command: {e}")
             import traceback
             traceback.print_exc()
@@ -1368,7 +1368,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         touch_user_from_update(update)
 
         if not context.args:
-            await update.message.reply_text("❌ Gunakan format: `/futures <symbol>`\nContoh: `/futures btc`", parse_mode='Markdown')
+            await update.message.reply_text("❌ Gunakan format: `/futures <symbol>`\nContoh: `/futures btc`", parse_mode='MARKDOWN')
             return
 
         user_id = update.message.from_user.id
@@ -1385,7 +1385,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 f"❌ Credit tidak cukup! Analisis futures membutuhkan 20 credit.\n\n"
                 f"💳 Credit Anda: {current_credits}\n"
                 f"💡 Gunakan `/credits` atau upgrade ke premium.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -1435,7 +1435,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         await update.message.reply_text(
             display_text,
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1477,7 +1477,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
                     # Show SINGLE initial progress message
                     initial_msg = progress_tracker.get_progress_message(user_id)
-                    await query.edit_message_text(initial_msg, parse_mode='Markdown')
+                    await query.edit_message_text(initial_msg, parse_mode='MARKDOWN')
 
                     # Real-time progress updates - every 1 second for maximum responsiveness
                     async def update_progress_display():
@@ -1487,7 +1487,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                             if job and job.status in ["queued", "processing"]:
                                 updated_msg = progress_tracker.get_progress_message(user_id)
                                 try:
-                                    await query.edit_message_text(updated_msg, parse_mode='Markdown')
+                                    await query.edit_message_text(updated_msg, parse_mode='MARKDOWN')
                                 except Exception as e:
                                     print(f"Progress update failed: {e}")
                                     pass  # Continue even if edit fails
@@ -1516,9 +1516,9 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                         if len(analysis_text) > 4000:
                             chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                             try:
-                                await query.edit_message_text(chunks[0], parse_mode='Markdown')
+                                await query.edit_message_text(chunks[0], parse_mode='MARKDOWN')
                                 for chunk in chunks[1:]:
-                                    await query.message.reply_text(chunk, parse_mode='Markdown')
+                                    await query.message.reply_text(chunk, parse_mode='MARKDOWN')
                             except Exception as markdown_error:
                                 print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
                                 # Remove problematic characters for plain text
@@ -1528,7 +1528,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                                     await query.message.reply_text(chunk, parse_mode=None)
                         else:
                             try:
-                                await query.edit_message_text(analysis_text, parse_mode='Markdown')
+                                await query.edit_message_text(analysis_text, parse_mode='MARKDOWN')
                             except Exception as markdown_error:
                                 print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
                                 # Remove problematic characters for plain text
@@ -1728,7 +1728,7 @@ Terima kasih telah menjadi member premium!"""
 - Priority support
 
 Gunakan credit dengan bijak!"""
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     # Auto Signals Admin Commands
     async def auto_signals_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1761,7 +1761,7 @@ Gunakan credit dengan bijak!"""
 
 💡 **Target**: Admin & Lifetime premium users only"""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def start_auto_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /enable_auto_signal_ai command - Admin only"""
@@ -1792,7 +1792,7 @@ Gunakan credit dengan bijak!"""
                 f"⏰ Every {self.auto_signals.scan_interval // 60} minutes\n"
                 f"👥 For Admin & Lifetime users only\n\n"
                 f"📊 Next scan will start in approximately {self.auto_signals.scan_interval // 60} minutes...",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             self.db.log_user_activity(user_id, "admin_enable_auto_signals", "Enabled Auto SnD Signals")
         except Exception as e:
@@ -1822,7 +1822,7 @@ Gunakan credit dengan bijak!"""
             stop_auto_signals()
 
             await self.auto_signals.stop_auto_scanner()
-            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='Markdown')
+            await update.message.reply_text("🛑 **Auto SnD Signals Disabled**\n\nScanner has been stopped.", parse_mode='MARKDOWN')
             self.db.log_user_activity(user_id, "admin_disable_auto_signals", "Disabled Auto SnD Signals")
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to stop auto signals: {e}")
@@ -1862,7 +1862,7 @@ Harga akan diambil real-time dari CoinAPI."""
 
             message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def add_coin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /add_coin command"""
@@ -2005,7 +2005,7 @@ Nikmati semua fitur tanpa batasan credit."""
 ℹ️ **Catatan Penting:**
 Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi cepat."""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /referral command with unified single link system"""
@@ -2123,7 +2123,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 
 🎯 **Target terbaik**: User yang butuh analisis CoinAPI real-time!"""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /language command"""
@@ -2136,7 +2136,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         await update.message.reply_text(
             "🌍 **Pilih Bahasa / Choose Language**",
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2194,7 +2194,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 "❌ Gunakan format: `/ask_ai <pertanyaan>`\n\n"
                 "Contoh: `/ask_ai apa itu DeFi?`\n"
                 "Contoh: `/ask_ai explain bitcoin halving`",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -2215,7 +2215,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                         "⚠️ **Premium Required**\n\n"
                         "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
                         "💎 Contact admin to upgrade your account.",
-                        parse_mode='Markdown'
+                        parse_mode='MARKDOWN'
                     )
                     return
             except Exception as e:
@@ -2226,7 +2226,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                         "⚠️ **Premium Required**\n\n"
                         "This command requires premium access. Upgrade to premium for unlimited access to advanced features!\n\n"
                         "💎 Contact admin to upgrade your account.",
-                        parse_mode='Markdown'
+                        parse_mode='MARKDOWN'
                     )
                     return
 
@@ -2234,7 +2234,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             # Log activity
             self.db.log_user_activity(user_id, "ask_ai", f"Question: {question[:50]}...")
 
-            await loading_msg.edit_text(response, parse_mode='Markdown')
+            await loading_msg.edit_text(response, parse_mode='MARKDOWN')
 
         except Exception as e:
             await loading_msg.edit_text(f"❌ Terjadi kesalahan: {str(e)}")
@@ -2251,7 +2251,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
         # Get admin panel text (same as /admin command)
         status_text = get_admin_panel_text()
 
-        await update.message.reply_text(status_text, parse_mode='Markdown')
+        await update.message.reply_text(status_text, parse_mode='MARKDOWN')
 
     async def _check_user_restart_required(self, update: Update):
         """Check if user needs to restart after admin restart"""
@@ -2263,7 +2263,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 "🚫 **Akun Anda telah dibanned oleh admin**\n\n"
                 "Anda tidak dapat menggunakan bot ini lagi.\n"
                 "Hubungi admin jika ini adalah kesalahan.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return True
 
@@ -2271,7 +2271,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             await update.message.reply_text(
                 "🔄 **Bot telah direstart oleh admin**\n\n"
                 "Silakan gunakan `/start` untuk mengaktifkan kembali akun Anda.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return True
         return False
@@ -2346,15 +2346,15 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 • `/cancel_broadcast` - Cancel pending broadcast
 
 🎯 Auto Signals (Lifetime Users Only)
-• `/auto_signal_ai_status` - Check auto signals status
+• `/auto_signals_status` - Check auto signals status
 • `/enable_auto_signal_ai` - Start auto signals
 • `/disable_auto_signal_ai` - Stop auto signals
 
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
 {'• `/add_admin <user_id>` - Add new admin' if is_super_admin else '• `/whoami` - Your admin info'}
-{'• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
-{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
-{'• `/whoami` - Your admin info' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
+{'• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
+{'• `/whoami` - Your admin info' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
 {'• `/admin_debug` - Admin configuration debug' if is_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2555,7 +2555,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             message = f"❌ **Error**: {result['message']}\n"
             message += f"🔧 Code: {result.get('code', 'UNKNOWN')}"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def revoke_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Admin command untuk revoke premium user dengan Supabase (normalized)"""
@@ -2738,7 +2738,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             message = f"❌ **Error dalam mass credit fix!**\n\n**Error**: {str(e)}"
             print(f"Error in fix_all_credits_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def set_all_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /set_all_credits command - Admin only"""
@@ -2754,7 +2754,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 "Gunakan: `/set_all_credits <amount>`\n\n"
                 "**Contoh:** `/set_all_credits 500`\n\n"
                 "⚠️ **PERHATIAN:** Command ini akan MENGGANTI credit semua user (kecuali premium/admin) ke jumlah yang Anda tentukan!",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -2762,7 +2762,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 
         await update.message.reply_text(
             f"⏳ **Mengatur credit ke {amount} untuk semua user free... Ini mungkin memakan waktu.**",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
         try:
@@ -2785,7 +2785,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             message = f"❌ **Error dalam mass credit set!**\n\n**Error**: {str(e)}"
             print(f"Error in set_all_credits_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
 
     async def broadcast_welcome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2819,7 +2819,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         await update.message.reply_text(
             f"📢 **Preview Welcome Broadcast:**\n\n{welcome_message}\n\n"
             "Gunakan `/confirm_broadcast` untuk mengirim atau `/cancel_broadcast` untuk membatalkan.",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def recovery_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2860,7 +2860,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             message = f"❌ **Error getting recovery stats!**\n\n**Error**: {str(e)}"
             print(f"Error in recovery_stats_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def combined_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /combined_stats command - Show combined user statistics from both databases"""
@@ -2878,7 +2878,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
             await update.message.reply_text(
                 f"🤖 **CryptoMentor AI - Combined User Statistics**\n\n{summary}\n\n⏰ **Generated**: {datetime.now().strftime('%H:%M:%S WIB')}",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
 
             # Log admin action
@@ -2891,7 +2891,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
         except Exception as e:
             await update.message.reply_text(
                 f"❌ **Error getting combined stats!**\n\n**Error**: {str(e)[:200]}...",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             print(f"Error in combined_stats_command: {e}")
 
@@ -2910,7 +2910,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
 {'👑 You have full admin access!' if is_admin else '⚠️ You do not have admin privileges.'}"""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /restart command"""
@@ -2924,7 +2924,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             "🔄 **Bot Restart Initiated**\n\n"
             "Bot akan restart dalam 5 detik...\n"
             "Semua user akan perlu menggunakan `/start` lagi setelah restart.",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
         # Mark all users as needing restart
@@ -2952,7 +2952,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
             "• `/set_all_credits <amount>` - Set specific amount for all free users\n"
             "• `/grant_credits <user_id> <amount>` - Add credits to specific user\n\n"
             "🔧 **Why disabled?** To fix the issue where credits were being reset daily instead of being preserved.",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def premium_earnings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2973,7 +2973,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
                 "• Dashboard earnings dari referral premium\n"
                 "• Withdrawal ke rekening/e-wallet\n\n"
                 "Gunakan `/subscribe` untuk upgrade!",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3027,7 +3027,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             message = f"❌ **Error getting earnings data!**\n\n**Error**: {str(e)}"
             print(f"Error in premium_earnings_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def grant_package_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /grant_package command"""
@@ -3050,7 +3050,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
                 "• `credits_100` - 100 credits\n"
                 "• `credits_500` - 500 credits\n\n"
                 "**Contoh:** `/grant_package 123456789 lifetime`",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3123,7 +3123,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             message = f"❌ **Error sistem saat memberikan package!**\n\n**Error**: {str(e)}"
             print(f"Error in grant_package_command: {e}")
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /broadcast command"""
@@ -3155,7 +3155,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
         await update.message.reply_text(
             f"📢 **Preview Broadcast Message:**\n\n{message}\n\n"
             "Gunakan `/confirm_broadcast` untuk mengirim atau `/cancel_broadcast` untuk membatalkan.",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def confirm_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3235,7 +3235,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
                     await self.application.bot.send_message(
                         chat_id=user_id_target,
                         text=self.pending_broadcast,
-                        parse_mode='Markdown'
+                        parse_mode='MARKDOWN'
                     )
                 except Exception as markdown_error:
                     # If markdown fails, send as plain text to preserve exact formatting
@@ -3267,7 +3267,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
             f"🗄️ **Sumber:**\n"
             f"• Local DB: {local_count} users\n"
             f"• Supabase: {supabase_count} users",
-            parse_mode='Markdown'
+            parse_mode='MARKDOWN'
         )
 
     async def cancel_broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3341,7 +3341,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
 🔒 **Security Note:**
 Keep your admin user IDs private and only share with trusted users."""
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def db_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /db_status command"""
@@ -3485,14 +3485,13 @@ Keep your admin user IDs private and only share with trusted users."""
         message += f"• **Name**: {first_name}\n"
         message += f"• **Admin Status**: {'✅ ADMIN' if self.is_admin(user_id) else '❌ NOT ADMIN'}"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def admin_debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin_debug command - shows admin configuration debug info"""
-        user_id = update.effective_user.id if update.effective_user else None
-
-        # Import new auth system
         from app.lib.auth import get_admin_hierarchy, is_super_admin
+
+        user_id = update.effective_user.id if update.effective_user else None
 
         hierarchy = get_admin_hierarchy()
 
@@ -3541,7 +3540,7 @@ Keep your admin user IDs private and only share with trusted users."""
         message += f"• Restart bot after secret changes\n\n"
         message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def add_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /add_admin command - Super admin only"""
@@ -3554,7 +3553,7 @@ Keep your admin user IDs private and only share with trusted users."""
                 "❌ **Access Denied**\n\n"
                 "Only the Super Admin (ADMIN secret) can add new admins.\n"
                 "Use `/admin_debug` to check your admin status.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3564,7 +3563,7 @@ Keep your admin user IDs private and only share with trusted users."""
                 "Gunakan: `/add_admin <user_id>`\n\n"
                 "**Contoh:** `/add_admin 123456789`\n\n"
                 "💡 **Tip:** User yang akan dijadikan admin harus menggunakan `/whoami` terlebih dahulu untuk mendapatkan User ID mereka.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3575,7 +3574,7 @@ Keep your admin user IDs private and only share with trusted users."""
             await update.message.reply_text(
                 f"⚠️ **User {new_admin_id} sudah menjadi admin!**\n\n"
                 "Gunakan `/list_admins` untuk melihat daftar admin saat ini.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3604,7 +3603,7 @@ Keep your admin user IDs private and only share with trusted users."""
         else:
             message = f"❌ **Gagal menambahkan admin {new_admin_id}**\n\nTerjadi kesalahan sistem."
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def remove_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /remove_admin command - Super admin only"""
@@ -3616,7 +3615,7 @@ Keep your admin user IDs private and only share with trusted users."""
             await update.message.reply_text(
                 "❌ **Access Denied**\n\n"
                 "Only the Super Admin (ADMIN secret) can remove admins.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3625,7 +3624,7 @@ Keep your admin user IDs private and only share with trusted users."""
                 "❌ **Format salah!**\n\n"
                 "Gunakan: `/remove_admin <user_id>`\n\n"
                 "**Contoh:** `/remove_admin 123456789`",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3636,7 +3635,7 @@ Keep your admin user IDs private and only share with trusted users."""
             await update.message.reply_text(
                 f"⚠️ **User {target_admin_id} bukan admin!**\n\n"
                 "Gunakan `/list_admins` untuk melihat daftar admin saat ini.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3645,7 +3644,7 @@ Keep your admin user IDs private and only share with trusted users."""
             await update.message.reply_text(
                 "❌ **Tidak dapat menghapus Super Admin!**\n\n"
                 "Super Admin tidak dapat dihapus dari sistem.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3672,7 +3671,7 @@ Keep your admin user IDs private and only share with trusted users."""
         else:
             message = f"❌ **Gagal menghapus admin {target_admin_id}**\n\nTerjadi kesalahan sistem."
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def list_admins_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /list_admins command - Super admin only"""
@@ -3685,7 +3684,7 @@ Keep your admin user IDs private and only share with trusted users."""
                 "❌ **Access Denied**\n\n"
                 "Only the Super Admin can view the admin list.\n"
                 "Regular admins can use `/admin_debug` to see basic info.",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3729,7 +3728,7 @@ Keep your admin user IDs private and only share with trusted users."""
         message += f"• Dynamic admins can be added/removed\n"
         message += f"• Static admins require bot restart to change"
 
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message, parse_mode='MARKDOWN')
 
     async def check_premium_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /check_premium command - Check premium status of any user"""
@@ -3745,7 +3744,7 @@ Keep your admin user IDs private and only share with trusted users."""
                 "Gunakan: `/check_premium <user_id>`\n\n"
                 "**Contoh:**\n"
                 "• `/check_premium 123456789`",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             return
 
@@ -3820,7 +3819,7 @@ Keep your admin user IDs private and only share with trusted users."""
                     f"Checked premium status for user {target_user_id}"
                 )
 
-                await update.message.reply_text(message, parse_mode='Markdown')
+                await update.message.reply_text(message, parse_mode='MARKDOWN')
 
             else:
                 await update.message.reply_text(f"❌ User {target_user_id} not found in Supabase")
@@ -3829,7 +3828,7 @@ Keep your admin user IDs private and only share with trusted users."""
             await update.message.reply_text(
                 f"❌ **Error checking premium status**\n\n"
                 f"Error: {str(e)[:200]}...",
-                parse_mode='Markdown'
+                parse_mode='MARKDOWN'
             )
             print(f"❌ Error in check_premium_command: {e}")
 
