@@ -920,7 +920,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
 📊 **Trading Tips dengan MEXC + CryptoMentor AI:**
 • Gunakan `/analyze` untuk riset fundamental
-• Gunakan `/futures` untuk entry/exit points
+• Gununakan `/futures` untuk entry/exit points
 • Gunakan `/price` untuk monitoring harga real-time
 • Follow sinyal dari `/futures_signals` untuk profit
 
