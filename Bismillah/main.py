@@ -145,8 +145,8 @@ async def main():
                 print("🔧 SnD analysis data validation error - applying fixes")
 
             if retry_count < max_retries:
-                print(f"🔄 Retrying in 3 seconds... ({retry_count}/{max_retries})")
-                await asyncio.sleep(3)  # Reduced wait time for faster recovery
+                print(f"🔄 Retrying in 15 seconds... ({retry_count}/{max_retries})")
+                await asyncio.sleep(15)  # Longer wait for stability
             else:
                 print("❌ Max retries reached. Bot shutting down.")
                 if is_deployment:

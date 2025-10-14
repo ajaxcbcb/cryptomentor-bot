@@ -8,13 +8,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (if exists) and system environment
 load_dotenv()
 
-# Import performance optimizer for maximum speed
-try:
-    from performance_optimizer import performance_optimizer
-    performance_optimizer.enable_turbo_mode()
-except ImportError:
-    print("Performance optimizer not available, using default settings")
-
 # Add missing imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -225,7 +218,7 @@ class TelegramBot:
         else:
             logger.warning("⚠️ Using fallback admin system - admin commands disabled")
 
-        # Initialize components with Binance API integration
+        # Initialize components with CoinAPI integration
         self.crypto_api = CryptoAPI()
         self.ai = AIAssistant()
 
@@ -243,16 +236,9 @@ class TelegramBot:
             logger.error("📝 Go to Secrets tab and add your bot token")
             sys.exit(1)
 
-        # Initialize application with token and timeout settings
+        # Initialize application with token
         try:
-            self.application = (
-                Application.builder()
-                .token(self.token)
-                .read_timeout(8)
-                .write_timeout(8)
-                .connect_timeout(5)
-                .build()
-            )
+            self.application = Application.builder().token(self.token).build()
             logger.info("✅ Bot initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize bot: {e}")
@@ -289,8 +275,8 @@ class TelegramBot:
             print("🤖 Bot handlers registered successfully")
             mode_text = "🌐 DEPLOYMENT (Always On)" if IS_DEPLOYMENT else "🔧 DEVELOPMENT (Workspace)"
             print(f"🌍 Environment: {mode_text}")
-            print(f"🔑 API Status: BN=✅ (Binance Live Data)")
-            print("🚀 Starting bot polling with Binance API integration...")
+            print(f"🔑 API Status: CG=✅, BIN=✅, NEWS=✅ (Coinglass V4 + Binance + CryptoNews)")
+            print("🚀 Starting bot polling with Coinglass V4 integration...")
 
             # Test bot connection before starting with shorter timeout
             try:
@@ -369,10 +355,10 @@ class TelegramBot:
             except ImportError as e:
                 print(f"⚠️ Could not initialize AutoSignal scheduler: {e}")
 
-            # Start polling with optimized performance settings
+            # Start polling with proper error handling
             await self.application.updater.start_polling(
-                poll_interval=0.1,  # Reduced from 1.0 to 0.1 for faster response
-                timeout=10,          # Reduced timeout for faster recovery
+                poll_interval=1.0,
+                timeout=20,
                 drop_pending_updates=True,
                 allowed_updates=['message', 'callback_query']
             )
@@ -723,7 +709,6 @@ class TelegramBot:
                     # Also register in Supabase
                     self.register_user_supabase(user)
 
-
         except Exception as e:
             print(f"❌ Error in start command: {e}")
             # Log the error but continue to show welcome message
@@ -737,20 +722,20 @@ class TelegramBot:
 
         if language == 'id':
             welcome_text = f"""🎉 **Selamat datang di CryptoMentor AI, {user.first_name}!**
-            
-🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari Binance API.
-            
+
+🤖 Saya adalah AI assistant crypto trading terlengkap dengan data real-time dari CoinAPI & Binance APIs.
+
 💡 **Untuk memulai:** Gunakan `/help` untuk panduan lengkap semua fitur bot!
-            
+
 📊 **Quick Start - Contoh Penggunaan:**
 
-**Cek Harga (Binance Real-time):**
-• `/price btc` - Harga Bitcoin real-time dari Binance
-• `/price eth` - Harga Ethereum terkini dari Binance
+**Cek Harga (CoinAPI Real-time):**
+• `/price btc` - Harga Bitcoin real-time dari CoinAPI
+• `/price eth` - Harga Ethereum terkini dari CoinAPI
 
 **Analisis Mendalam:**
 • `/analyze btc` - Analisis komprehensif Bitcoin (technical analysis, sentiment, prediksi)
-• `/analyze eth` - Analisis Ethereum dengan data real-time dari Binance
+• `/analyze eth` - Analisis Ethereum dengan data real-time dari CoinAPI
 
 **Trading Futures dengan SnD:**
 • `/futures btc` - Pilih timeframe untuk analisis futures Bitcoin dengan Supply & Demand
@@ -762,14 +747,14 @@ class TelegramBot:
 - `/futures_signals` = 60 credit | `/market` = 20 credit
 
 🎁 **Cara Dapat Credit Gratis:**
-- `/referral` - Ajak teman dapat 10 credit/referral
-- `/subscribe` - Upgrade premium untuk unlimited access
+• `/referral` - Ajak teman dapat 10 credit/referral
+• `/subscribe` - Upgrade premium untuk unlimited access
 
 💰 **BONUS TRADING MEXC - Dapatkan $20!**
-- Daftar di MEXC dengan link khusus kami
-- Lakukan KYC (verifikasi identitas)
-- Deposit minimum $100
-- **Dapatkan BONUS $20 langsung!** 🎉
+• Daftar di MEXC dengan link khusus kami
+• Lakukan KYC (verifikasi identitas)
+• Deposit minimum $100
+• **Dapatkan BONUS $20 langsung!** 🎉
 
 🔗 **Link Daftar MEXC:**
 https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
@@ -777,26 +762,26 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 🚀 **Fitur Terbaru:**
 • Auto SnD Signals untuk Admin & Lifetime users
 • Supply & Demand analysis untuk futures trading
-• Data real-time dari Binance API (bukan simulasi)
+• Data real-time dari CoinAPI (bukan simulasi)
 
-**Semua data real-time dari Binance API!**"""
+**Semua data real-time dari CoinAPI & Binance APIs!**"""
 
         else:
             welcome_text = f"""🎉 **Welcome to CryptoMentor AI, {user.first_name}!**
-            
-🤖 I'm your comprehensive crypto trading AI assistant with real-time Binance data.
-            
+
+🤖 I'm your comprehensive crypto trading AI assistant with real-time CoinAPI & Binance data.
+
 💡 **To get started:** Use `/help` for complete guide to all bot features!
-            
+
 📊 **Quick Start - Usage Examples:**
 
-**Check Prices (Binance Real-time):**
-• `/price btc` - Real-time Bitcoin price from Binance
-• `/price eth` - Current Ethereum price from Binance
+**Check Prices (CoinAPI Real-time):**
+• `/price btc` - Real-time Bitcoin price from CoinAPI
+• `/price eth` - Current Ethereum price from CoinAPI
 
 **Deep Analysis:**
 • `/analyze btc` - Comprehensive Bitcoin analysis (technical analysis, sentiment, predictions)
-• `/analyze eth` - Ethereum analysis with real-time Binance data
+• `/analyze eth` - Ethereum analysis with real-time CoinAPI data
 
 **Futures Trading with SnD:**
 • `/futures btc` - Choose timeframe for Bitcoin futures analysis with Supply & Demand
@@ -823,9 +808,9 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 🚀 **Latest Features:**
 • Auto SnD Signals for Admin & Lifetime users
 • Supply & Demand analysis for futures trading
-• Real-time data from Binance API (not simulation)
+• Real-time data from CoinAPI (not simulation)
 
-**All data real-time from Binance API!**"""
+**All data real-time from CoinAPI & Binance APIs!**"""
 
         await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -834,22 +819,22 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         user_id = update.effective_user.id
         print(f"🎯 /help command received from user {user_id}")
         logger.info(f"Help command from user {user_id}")
-        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (Binance API Edition)**
+        help_text = """🤖 **CryptoMentor AI Bot - Panduan Lengkap (CoinAPI + Coinglass V4 Edition)**
 
 ⭐ **BEST COMMANDS untuk Pemula:**
-• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari Binance
-• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan Binance data
+• `/price btc` - **GRATIS** - Cek harga Bitcoin real-time dari CoinAPI
+• `/analyze btc` - **20 credit** - Analisis Bitcoin lengkap dengan CoinAPI data
 • `/futures btc` - **20 credit** - Trading signals Bitcoin dengan SnD analysis
 
 📊 **Harga & Data Pasar:**
-• `/price <symbol>` - Harga real-time dari Binance **[GRATIS]**
+• `/price <symbol>` - Harga real-time dari CoinAPI **[GRATIS]**
   Contoh: `/price btc`, `/price eth`, `/price sol`
-• `/market` - Overview pasar global dari Binance (20 credit) ⭐
+• `/market` - Overview pasar global dari CoinAPI (20 credit) ⭐
   Data: Total market cap, dominance, volume global, fear & greed
 
 📈 **Analisis Trading dengan SnD:**
 • `/analyze <symbol>` - Analisis fundamental + teknikal (20 credit) ⭐ **RECOMMENDED**
-  Contoh: `/analyze btc` → Fundamental dari Binance + Technical analysis
+  Contoh: `/analyze btc` → Fundamental dari CoinAPI + Technical analysis
   Data: Rank, market cap, volume, description, website, price prediction
 
 • `/futures <symbol>` - Analisis futures dengan Supply & Demand (20 credit)
@@ -860,7 +845,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
   Multiple coins dengan konfirmasi Supply/Demand zones
 
 💼 **Portfolio & Credit:**
-• `/portfolio` - Lihat portfolio dengan Binance prices
+• `/portfolio` - Lihat portfolio dengan CoinAPI prices
 • `/add_coin <symbol> <amount>` - Tambah ke portfolio
   Contoh: `/add_coin btc 0.5`
 • `/credits` - Cek sisa credit
@@ -875,28 +860,28 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
 💳 **Sistem Credit:**
 - User baru: 100 credit gratis
-- `/analyze` = 20 credit ⭐ (Binance Analysis)
+- `/analyze` = 20 credit ⭐ (CoinAPI Analysis)
 - `/futures` = 20 credit ⭐ (dengan SnD)
 - `/futures_signals` = 60 credit (Multiple SnD signals)
-- `/market` = 20 credit (Global overview Binance)
+- `/market` = 20 credit (Global overview CoinAPI)
 
 🎯 **Langkah untuk Pemula:**
-1. **Mulai dengan `/price btc`** (gratis) - harga real-time Binance
-2. **Coba `/market`** (20 credit) - overview pasar global Binance
-3. **Test `/analyze btc`** (20 credit) - Binance fundamental + technical analysis
+1. **Mulai dengan `/price btc`** (gratis) - harga real-time CoinAPI
+2. **Coba `/market`** (20 credit) - overview pasar global CoinAPI
+3. **Test `/analyze btc`** (20 credit) - CoinAPI fundamental + technical analysis
 4. **Coba `/futures btc`** (20 credit) - SnD signals untuk trading
 5. **Upgrade premium** untuk unlimited access
 
 💡 **Fitur Premium:**
-- Unlimited access semua fitur Binance + SnD
+- Unlimited access semua fitur CoinAPI + SnD
 - Auto SnD signals (Admin & Lifetime only)
 - Priority support
 - No credit limits
 
 🚀 **Data Sources:**
-- **Fundamental & Prices**: Binance Real-time
-- **Futures Signals**: Binance + Internal SnD Algo
-- **SnD Analysis**: Internal algorithm + Binance candlesticks
+- **Fundamental & Prices**: CoinAPI Real-time
+- **Futures Signals**: Coinglass V4 Startup Plan + Internal SnD Algo
+- **SnD Analysis**: Internal algorithm + CoinAPI candlesticks
 
 🚀 **Fitur Auto Signal:**
 • **Momentum-based signals**: Deteksi otomatis sinyal beli/jual
@@ -943,7 +928,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /price command with Binance real-time data"""
+        """Handle /price command with CoinAPI real-time data"""
         from app.users_repo import touch_user_from_update
 
         # Auto-upsert user to Supabase
@@ -961,12 +946,12 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
         symbol = context.args[0].upper()
 
-        # Show loading with Binance status
+        # Show loading with CoinMarketCap status
         mode_text = "🌐 DEPLOYMENT" if IS_DEPLOYMENT else "🔧 DEVELOPMENT"
-        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari Binance API... ({mode_text})")
+        loading_msg = await update.message.reply_text(f"⏳ Mengambil data real-time {symbol} dari CoinAPI + Coinglass V4... ({mode_text})")
 
-        # Get real-time data from Binance
-        print(f"🔄 Fetching real-time data for {symbol} from Binance...")
+        # Get real-time data from CoinAPI
+        print(f"🔄 Fetching real-time data for {symbol} from CoinAPI...")
 
         # Force refresh in deployment to ensure real-time data
         price_data = self.crypto_api.get_crypto_price(symbol, force_refresh=IS_DEPLOYMENT)
@@ -985,7 +970,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             change_emoji = "📈" if change_24h >= 0 else "📉"
             change_color = "+" if change_24h >= 0 else ""
 
-            message = f"""📊 **{symbol} Real-Time Binance Data**
+            message = f"""📊 **{symbol} Real-Time CoinAPI Data**
 
 💰 **Harga**: {price_format}
 {change_emoji} **Perubahan 24j**: {change_color}{change_24h:.2f}%
@@ -1016,10 +1001,14 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
             # API Status and timing
             current_time = datetime.now().strftime('%H:%M:%S WIB')
-            data_source = price_data.get('source', 'binance')
+            data_source = price_data.get('source', 'unknown')
 
-            source_text = "🟢 Binance Exchange"
-            api_status = "✅ Binance Live Data"
+            if data_source == 'coinapi':
+                source_text = "🟢 CoinAPI Real-time"
+                api_status = "✅ CoinAPI Active"
+            else:
+                source_text = "🟢 Binance Exchange"
+                api_status = "✅ Binance Live Data"
 
             message += f"""
 ⏰ **Update**: {current_time}
@@ -1062,7 +1051,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         await loading_msg.edit_text(message, parse_mode='Markdown')
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /analyze command - comprehensive analysis with Binance integration using Supabase credit guard"""
+        """Handle /analyze command - comprehensive analysis with CoinAPI integration using Supabase credit guard"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
@@ -1102,10 +1091,10 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         progress_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(progress_msg, parse_mode='Markdown')
 
-        # Ultra-fast progress updates - instant response
+        # Real-time progress updates - per second for heavy performance
         async def update_progress_display():
-            for i in range(20):  # More frequent updates for smooth experience
-                await asyncio.sleep(0.2)  # Reduced to 0.2 seconds for instant feel
+            for i in range(10):  # Update 10 times during processing (per second)
+                await asyncio.sleep(1.0)  # Update every 1 second for real-time feel
                 if user_id in progress_tracker.active_jobs:
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     try:
@@ -1164,7 +1153,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 pass
 
             # Credits were already debited atomically, no manual refund needed
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (Binance)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='Markdown')
             print(f"Error in analyze command: {e}")
             import traceback
@@ -1228,8 +1217,8 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         try:
             print(f"🔄 Market command initiated by user {user_id}")
 
-            # Get market analysis using Binance real-time data with progress tracking
-            print("📊 Calling AI market sentiment analysis with Binance...")
+            # Get market analysis using CoinAPI real-time data with progress tracking
+            print("📊 Calling AI market sentiment analysis with CoinAPI...")
             analysis_result = await self.ai.get_market_sentiment_async('id', self.crypto_api, progress_tracker, user_id)
 
             # Cancel progress updates since analysis is done
@@ -1240,14 +1229,14 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
             if not analysis_result or len(analysis_result.strip()) < 50:
                 # Analysis failed - no need to refund since credits were already debited atomically
-                fallback_msg = """🌍 **OVERVIEW PASAR CRYPTO (Binance)**
+                fallback_msg = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
 
 ⚠️ **Data sementara tidak lengkap atau gagal diambil.**
 
 💡 **Alternatif yang bisa dicoba:**
-• `/price btc` - Cek harga Bitcoin dari Binance
-• `/price eth` - Cek harga Ethereum dari Binance
-• `/analyze btc` - Analisis mendalam Bitcoin dengan Binance data
+• `/price btc` - Cek harga Bitcoin dari CoinAPI
+• `/price eth` - Cek harga Ethereum dari CoinAPI
+• `/analyze btc` - Analisis mendalam Bitcoin dengan CoinAPI data
 
 🔄 Coba command `/market` lagi dalam beberapa menit untuk data lengkap."""
 
@@ -1274,7 +1263,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             traceback.print_exc()
 
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /futures_signals command with Binance + Coinglass analysis"""
+        """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
@@ -1311,7 +1300,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
-        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan Binance API{query_display}...")
+        loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
 
         try:
             print(f"🔄 Starting futures signals generation for user {user_id}")
@@ -1620,7 +1609,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 • Monitor volume for zone validation
 • Exit partial at TP1, hold for TP2
 
-📡 **Data Source**: Binance SnD Analysis
+📡 **Data Source**: CoinAPI + Binance SnD Analysis
 🕐 **Analysis Time**: {datetime.now().strftime('%H:%M:%S WIB')}"""
 
             return message
@@ -1672,7 +1661,7 @@ Selamat mengelola CryptoMentor AI!"""
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
-• Unlimited analisis Binance + SnD
+• Unlimited analisis CoinAPI + SnD
 • Auto SnD signals (Lifetime only)
 • Priority support
 
@@ -1702,7 +1691,7 @@ Terima kasih telah menjadi member lifetime premium!"""
 ♾️ **Credit**: **UNLIMITED**
 
 🚀 **Fitur Premium:**
-• Unlimited analisis Binance + SnD
+• Unlimited analisis CoinAPI + SnD
 • Priority support
 • No credit limits
 
@@ -1712,17 +1701,17 @@ Terima kasih telah menjadi member premium!"""
 
 💰 **Credit tersisa**: **{credits}**
 
-📊 **Biaya per Fitur (Binance + SnD):**
-• `/analyze <symbol>` - 20 credit (Binance analysis) ⭐
+📊 **Biaya per Fitur (CoinAPI + SnD):**
+• `/analyze <symbol>` - 20 credit (CoinAPI analysis) ⭐
 • `/futures <symbol>` - 20 credit (SnD futures analysis) ⭐
 • `/futures_signals` - 60 credit (SnD sinyal lengkap)
-• `/market` - 20 credit (overview pasar Binance)
+• `/market` - 20 credit (overview pasar CoinAPI)
 • Fitur lainnya - **Gratis**
 
 🎯 **Rekomendasi untuk Pemula:**
-• Mulai dengan `/price btc` (GRATIS) - harga real-time Binance
-• Coba `/market` (20 credit) - overview pasar global Binance
-• Test `/analyze btc` (20 credit) - Binance analysis!
+• Mulai dengan `/price btc` (GRATIS) - harga real-time CoinAPI
+• Coba `/market` (20 credit) - overview pasar global CoinAPI
+• Test `/analyze btc` (20 credit) - CoinAPI analysis!
 • Coba `/futures btc` (20 credit) - SnD signals untuk trading
 
 💡 **Cara Mendapat Credit:**
@@ -1731,7 +1720,7 @@ Terima kasih telah menjadi member premium!"""
 • 🎁 User baru mendapat 100 credit gratis
 
 🚀 **Premium Benefits:**
-- Unlimited access semua fitur Binance + SnD
+- Unlimited access semua fitur CoinAPI + SnD
 - Auto SnD signals (Lifetime users only)
 - Priority support
 
@@ -1847,9 +1836,9 @@ Gunakan credit dengan bijak!"""
 Gunakan `/add_coin <symbol> <amount>` untuk menambah koin ke portfolio.
 Contoh: `/add_coin btc 0.5`
 
-Harga akan diambil real-time dari Binance."""
+Harga akan diambil real-time dari CoinAPI."""
         else:
-            message = "💼 **Portfolio Anda (Binance Real-time):**\n\n"
+            message = "💼 **Portfolio Anda (CoinAPI Real-time):**\n\n"
             total_value = 0
 
             for coin in portfolio:
@@ -1868,7 +1857,7 @@ Harga akan diambil real-time dari Binance."""
                 else:
                     message += f"• {symbol}: {amount} koin (Price unavailable)\n"
 
-            message += f"\n💰 **Total Value: ${total_value:,.2f}** (Binance)"
+            message += f"\n💰 **Total Value: ${total_value:,.2f}** (CoinAPI)"
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -1890,7 +1879,7 @@ Harga akan diambil real-time dari Binance."""
         # Add to portfolio
         self.db.add_to_portfolio(user_id, symbol, amount)
 
-        message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari Binance saat Anda cek `/portfolio`."
+        message = f"✅ Berhasil menambahkan {amount} {symbol} ke portfolio Anda!\n\nHarga akan diupdate real-time dari CoinAPI saat Anda cek `/portfolio`."
         await update.message.reply_text(message)
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1950,8 +1939,8 @@ Harga akan diambil real-time dari Binance."""
 👤 **{update.effective_user.first_name}**, Anda sudah menjadi member {premium_type}!
 
 🚀 **Keuntungan yang Anda nikmati:**
-• ♾️ Unlimited analisis Binance + SnD
-• 📊 Data real-time Binance tanpa batas
+• ♾️ Unlimited analisis CoinAPI + SnD
+• 📊 Data real-time CoinAPI tanpa batas
 • {auto_signals_status}
 • 🛡️ Support premium
 
@@ -1968,10 +1957,10 @@ Nikmati semua fitur tanpa batasan credit."""
 • **Username:** @{username}
 • **Nama:** {update.effective_user.first_name}
 
-🚀 **Fitur Premium Binance + SnD:**
-• ♾️ Unlimited analisis dengan Binance real-time
+🚀 **Fitur Premium CoinAPI + SnD:**
+• ♾️ Unlimited analisis dengan CoinAPI real-time
 • 📊 Analisis SnD futures lengkap
-• 🚨 Alert harga real-time Binance
+• 🚨 Alert harga real-time CoinAPI
 • 📈 Sinyal trading premium dengan SnD
 • 🎯 Support prioritas
 • 🔔 Auto SnD signals (Lifetime only)
@@ -2007,8 +1996,8 @@ Nikmati semua fitur tanpa batasan credit."""
 💬 **Butuh bantuan?** Chat admin @Billfarr
 
 🎯 **Special Benefits:**
-• **Lifetime**: Auto SnD signals + Binance unlimited
-• **Regular Premium**: Binance unlimited analysis
+• **Lifetime**: Auto SnD signals + CoinAPI unlimited
+• **Regular Premium**: CoinAPI unlimited analysis
 
 ℹ️ **Catatan Penting:**
 Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi cepat."""
@@ -2108,7 +2097,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 
 💡 **Upgrade ke Premium untuk:**
 • Unlock money earnings dari referral premium
-• Unlimited Binance + SnD features
+• Unlimited CoinAPI + SnD features
 • Withdraw earnings ke rekening Anda"""
 
         message += f"""
@@ -2129,7 +2118,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 • Ajak teman yang tertarik premium features
 • Gunakan di bio sosial media Anda
 
-🎯 **Target terbaik**: User yang butuh analisis Binance real-time!"""
+🎯 **Target terbaik**: User yang butuh analisis CoinAPI real-time!"""
 
         await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -2176,7 +2165,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                     update.message,
                     f"💡 Sepertinya Anda ingin cek harga {text_upper}?\n\n"
                     f"Gunakan command:\n"
-                    f"• `/price {text_upper.lower()}` - Harga real-time dari Binance\n"
+                    f"• `/price {text_upper.lower()}` - Harga real-time dari CoinAPI\n"
                     f"• `/analyze {text_upper.lower()}` - Analisis lengkap (20 credit)\n"
                     f"• `/futures {text_upper.lower()}` - Analisis futures dengan SnD (20 credit)\n\n"
                     f"Atau ketik `/help` untuk panduan lengkap!"
@@ -2192,7 +2181,7 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
                 "• `/price btc` - Cek harga Bitcoin\n"
                 "• `/analyze eth` - Analisis Ethereum\n"
                 "• `/market` - Overview pasar crypto\n\n"
-                "📊 **Semua data real-time dari Binance API!**"
+                "📊 **Semua data real-time dari CoinAPI!**"
             )
 
     async def handle_ask_ai(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2359,11 +2348,11 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
 • `/disable_auto_signal_ai` - Stop auto signals
 
 {'👑 Super Admin Commands (ADMIN Secret Only)' if is_user_super_admin else '🔧 Debug & Diagnostics'}
-{ '• `/add_admin <user_id>` - Add new admin' if is_super_admin else '• `/whoami` - Your admin info'}
-{ '• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
-{ '• `/list_admins` - List all admins' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
-{ '• `/whoami` - Your admin info' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
-{ '• `/admin_debug` - Admin configuration debug' if is_super_admin else ''}
+{'• `/add_admin <user_id>` - Add new admin' if is_super_admin else '• `/whoami` - Your admin info'}
+{'• `/remove_admin <user_id>` - Remove admin' if is_super_admin else '• `/admin_debug` - Admin configuration debug'}
+{'• `/list_admins` - List all admins' if is_super_admin else '• `/sb_repair` - Attempt Supabase repair'}
+{'• `/whoami` - Your admin info' if is_super_admin else '• `/sb_diag` - Supabase diagnostics'}
+{'• `/admin_debug` - Admin configuration debug' if is_super_admin else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 Your Admin ID: {user_id}
@@ -2804,21 +2793,21 @@ Pastikan menyertakan User ID (`{user_id}`) dan paket yang dipilih untuk aktivasi
             await update.message.reply_text("❌ Access denied. Admin only command.")
             return
 
-        welcome_message = """🎉 **CryptoMentor AI Update - Binance API Integration!**
+        welcome_message = """🎉 **CryptoMentor AI Update - CoinAPI Integration!**
 
 🚀 **New Features:**
-• ✅ Real-time data dari Binance API (bukan simulasi)
+• ✅ Real-time data dari CoinAPI (bukan simulasi)
 • 📊 Supply & Demand (SnD) analysis untuk futures
 • 🎯 Auto SnD signals untuk Admin & Lifetime users
 • 📈 Enhanced technical analysis
 
 💰 **Quick Start:**
-• `/price btc` - GRATIS harga real-time Binance
-• `/analyze btc` - 20 credit analisis Binance
+• `/price btc` - GRATIS harga real-time CoinAPI
+• `/analyze btc` - 20 credit analisis CoinAPI
 • `/futures btc` - 20 credit SnD futures signals
 
 🎁 **Special Offer:**
-Semua user dapat 100 credit gratis untuk mencoba fitur Binance API baru!
+Semua user dapat 100 credit gratis untuk mencoba fitur CoinAPI baru!
 
 **Selamat trading dengan data real-time! 📈**"""
 
@@ -2859,7 +2848,7 @@ Semua user dapat 100 credit gratis untuk mencoba fitur Binance API baru!
 
 🔧 **System Health:**
 • Database: ✅ Online
-• Binance API: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
+• CoinAPI: {'✅ Active' if hasattr(self.crypto_api, 'data_provider') and self.crypto_api.data_provider else '❌ No Provider'}
 • Auto Signals: {'🟢 Running' if self.auto_signals and self.auto_signals.is_running else '🔴 Stopped'}
 
 ⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S WIB')}"""
@@ -3255,7 +3244,7 @@ Gunakan `/referral` untuk mendapatkan link premium referral Anda!"""
                     )
 
                 success_count += 1
-                # Removed artificial delay for maximum performance
+                await asyncio.sleep(0.1)  # Rate limiting
 
             except Exception as e:
                 print(f"Failed to send broadcast to user {user_id_target}: {e}")
@@ -3487,7 +3476,7 @@ Keep your admin user IDs private and only share with trusted users."""
         username = update.effective_user.username if update.effective_user else "No username"
         first_name = update.effective_user.first_name if update.effective_user else "Unknown"
 
-        message = "👤 **Your Information:**\n\n"
+        message = f"👤 **Your Information:**\n\n"
         message += f"• **User ID**: `{user_id}`\n"
         message += f"• **Username**: @{username}\n"
         message += f"• **Name**: {first_name}\n"
@@ -3504,7 +3493,7 @@ Keep your admin user IDs private and only share with trusted users."""
 
         hierarchy = get_admin_hierarchy()
 
-        message = "🔧 **Admin Debug Information**\n\n"
+        message = f"🔧 **Admin Debug Information**\n\n"
         message += f"👤 **Caller ID**: `{user_id}`\n"
         message += f"✅ **Is Admin**: {self.is_admin(user_id)}\n"
         message += f"👑 **Is Super Admin**: {is_super_admin(user_id)}\n\n"
@@ -3547,7 +3536,6 @@ Keep your admin user IDs private and only share with trusted users."""
         message += f"• Set `ADMIN` = `{user_id}` in Replit Secrets for super admin\n"
         message += f"• Use `/add_admin` to add additional admins\n"
         message += f"• Restart bot after secret changes\n\n"
-
         message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
 
         await update.message.reply_text(message, parse_mode='Markdown')
@@ -3624,7 +3612,7 @@ Keep your admin user IDs private and only share with trusted users."""
         if not is_super_admin(user_id):
             await update.message.reply_text(
                 "❌ **Access Denied**\n\n"
-                "Only the Super Admin can remove admins.",
+                "Only the Super Admin (ADMIN secret) can remove admins.",
                 parse_mode='Markdown'
             )
             return

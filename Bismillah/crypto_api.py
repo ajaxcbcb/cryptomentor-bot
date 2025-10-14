@@ -1,34 +1,33 @@
-
 import os
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from app.providers.binance_provider import get_price, fetch_klines, normalize_symbol
-import httpx
 
 class CryptoAPI:
     """
-    Crypto API provider menggunakan Binance API saja
-    Menghilangkan semua integrasi CoinAPI dan CMC
+    Crypto API provider menggunakan Binance API sebagai pengganti CoinMarketCap
+    Mempertahankan interface yang sama untuk kompatibilitas
     """
 
     def __init__(self):
-        # Performance optimization: Aggressive caching
+        self.binance_available = True
         self._cache = {}
-        self._cache_timeout = 15  # 15 seconds for faster updates
+        self._cache_timeout = 300  # 5 minutes
 
-        # Connection pooling for faster requests
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(5.0),  # Fast timeout
-            limits=httpx.Limits(max_keepalive_connections=50, max_connections=100)
-        )
+        logging.info("CryptoAPI initialized with Binance provider")
 
-        logging.info("CryptoAPI initialized with Binance API only")
+    def _make_request(self, url: str, headers: dict, params: dict = None, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Generic request method - sekarang menggunakan Binance provider
+        """
+        # This method is kept for compatibility but uses Binance internally
+        return {'status': 'using_binance_provider'}
 
     def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Mendapatkan harga crypto dari Binance API
+        Mendapatkan harga crypto dari Binance API dengan fallback untuk koin yang tidak tersedia
         """
         try:
             # Check cache first
@@ -40,7 +39,7 @@ class CryptoAPI:
 
             # Multiple symbol formats to try for better compatibility
             symbol_variants = self._get_symbol_variants(symbol)
-
+            
             spot_price = None
             used_symbol = None
             last_error = None
@@ -76,7 +75,7 @@ class CryptoAPI:
                 # Get 24h ticker stats using the same symbol that worked for price
                 ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
                 response = _http.get(ticker_url, params={'symbol': used_symbol})
-
+                
                 if response.status_code == 200:
                     ticker_data = response.json()
                     change_24h = float(ticker_data.get('priceChangePercent', 0))
@@ -88,7 +87,18 @@ class CryptoAPI:
 
             except Exception as e:
                 logging.warning(f"Could not get 24h stats for {symbol} using {used_symbol}: {e}")
-                change_24h = 0
+                # Try to get basic price change from price endpoint
+                try:
+                    price_url = f"{_base_url(False)}/api/v3/ticker/price"
+                    old_price_response = _http.get(price_url, params={'symbol': used_symbol})
+                    if old_price_response.status_code == 200:
+                        # Calculate rough change estimate (this is fallback)
+                        change_24h = 0  # Will show 0% if we can't get real data
+                    else:
+                        change_24h = 0
+                except:
+                    change_24h = 0
+                    
                 volume_24h = 0
                 high_24h = spot_price
                 low_24h = spot_price
@@ -258,20 +268,29 @@ class CryptoAPI:
         """Generate multiple symbol variants to try"""
         base = symbol.upper().strip()
         variants = []
-
+        
         # Remove common suffixes first
         clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
-
+        
+        # Special symbol mappings for coins with different symbols on Binance
+        # Note: ASTER and ASTR are different cryptocurrencies
+        symbol_mappings = {
+            # Add other legitimate mappings here if needed
+        }
+        
+        # Apply symbol mapping if needed
+        mapped_base = symbol_mappings.get(clean_base, clean_base)
+        
         # Add variants in order of likelihood
         variants.extend([
-            f"{clean_base}USDT",     # Most common
+            f"{clean_base}USDT",     # Most common - use original symbol
             f"{clean_base}BUSD",     # Alternative stablecoin  
             f"{clean_base}USDC",     # Another stablecoin
             f"{clean_base}BTC",      # BTC pair
             f"{clean_base}ETH",      # ETH pair
             clean_base,              # Original without pair
         ])
-
+        
         # Remove duplicates while preserving order
         seen = set()
         unique_variants = []
@@ -279,18 +298,18 @@ class CryptoAPI:
             if variant not in seen:
                 seen.add(variant)
                 unique_variants.append(variant)
-
+        
         return unique_variants[:8]  # Limit to 8 attempts
 
     def _get_available_symbols_sample(self) -> List[str]:
         """Get a sample of available symbols"""
         try:
             from app.providers.binance_provider import exchange_info
-
+            
             # Get exchange info
             info = exchange_info()
             symbols = []
-
+            
             if 'symbols' in info:
                 # Extract base assets from active USDT pairs
                 for symbol_info in info['symbols'][:50]:  # Limit to first 50
@@ -299,12 +318,12 @@ class CryptoAPI:
                         base = symbol_info['symbol'].replace('USDT', '')
                         if len(base) <= 6:  # Reasonable length
                             symbols.append(base)
-
+                
                 return symbols[:20]  # Return top 20
-
+            
         except Exception as e:
             logging.warning(f"Could not get exchange symbols: {e}")
-
+        
         # Fallback list
         return ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI', 
                 'LINK', 'LTC', 'ATOM', 'ICP', 'NEAR', 'APT', 'FTM', 'ALGO', 'VET', 'FLOW']
@@ -322,7 +341,7 @@ class CryptoAPI:
             'MATIC': 'Polygon',
             'AVAX': 'Avalanche',
             'UNI': 'Uniswap',
-            'ASTER': 'Aster Token',
+            'ASTER': 'Aster Token',  # Different from ASTR
             'ASTAR': 'Astar Network',
             'ASTR': 'Astar Network'
         }

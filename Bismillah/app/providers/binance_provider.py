@@ -1,10 +1,9 @@
+
 # app/providers/binance_provider.py
 from __future__ import annotations
-import os, time, socket
+import os, time
 from typing import Any, Dict, List, Optional
 import httpx
-import requests
-from requests.adapters import HTTPAdapter
 
 BINANCE_BASE_URL = os.getenv("BINANCE_BASE_URL", "https://api.binance.com")
 BINANCE_FAPI_BASE_URL = os.getenv("BINANCE_FAPI_BASE_URL", "https://fapi.binance.com")
@@ -64,11 +63,11 @@ def _append_usdt_if_base_only(s: str) -> str:
     stables = ("USDT","FDUSD","USDC","BUSD","TUSD")
     if any(s.endswith(x) for x in stables):
         return s
-
+    
     # Check for BTC, ETH pairs
     if any(s.endswith(x) for x in ("BTC", "ETH")):
         return s
-
+    
     # For symbols like ASTER, BTC, ETH, SOL, XRP, BNB → default ke USDT
     if 2 <= len(s) <= 10:  # Extended range for longer symbols like ASTER
         return s + "USDT"
@@ -77,43 +76,43 @@ def _append_usdt_if_base_only(s: str) -> str:
 def normalize_symbol(symbol: str) -> str:
     """Terima 'btc', 'BTC/USDT', 'btc-usdt' → 'BTCUSDT' (default pair USDT)."""
     s = symbol.replace("/", "").replace("-", "").upper().strip()
-
+    
     # Special mappings for coins with different symbols on Binance
     # Note: ASTER and ASTR are different coins, don't map them
     symbol_mappings = {
         # Add other mappings here if needed, but ASTER ≠ ASTR
     }
-
+    
     # Check if this is a base symbol that needs mapping
     for old_symbol, new_symbol in symbol_mappings.items():
         if s == old_symbol or s.startswith(old_symbol):
             s = s.replace(old_symbol, new_symbol)
             break
-
+    
     return _append_usdt_if_base_only(s)
 
 def get_price(symbol: str, futures: bool = False) -> float:
     sym = normalize_symbol(symbol)
     base = _base_url(futures)
     ep = "/fapi/v1/ticker/price" if futures else "/api/v3/ticker/price"
-
+    
     try:
         r = _http.get(base + ep, params={"symbol": sym})
         data = r.json()
-
+        
         # Better error detection
         if isinstance(data, dict):
             if "code" in data:
                 error_code = data.get("code")
                 error_msg = data.get("msg", "Unknown error")
-
+                
                 if error_code == -1121:
                     raise ValueError(f"Symbol {sym} not found on Binance: {error_msg}")
                 elif error_code in [-1000, -1001, -1002]:
                     raise ValueError(f"Binance API error {error_code}: {error_msg}")
                 else:
                     raise ValueError(f"Binance error {error_code}: {error_msg}")
-
+            
             # Check if we have price data
             if "price" in data:
                 price = float(data["price"])
@@ -125,7 +124,7 @@ def get_price(symbol: str, futures: bool = False) -> float:
                 raise ValueError(f"No price data returned for {sym}")
         else:
             raise ValueError(f"Unexpected response format for {sym}")
-
+            
     except ValueError:
         # Re-raise ValueError as is
         raise
