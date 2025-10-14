@@ -1,12 +1,5 @@
 
 #!/usr/bin/env python3
-import os
-import sys
-import signal
-import psutil
-import time
-
-#!/usr/bin/env python3
 """Kill conflicting bot instances"""
 
 import os
@@ -57,12 +50,10 @@ def kill_bot_instances():
         print(f"✅ Berhasil menghentikan {killed_count} instance bot")
         print("⏳ Menunggu 3 detik untuk cleanup...")
         time.sleep(3)
-    elseprint("✅ Tidak ada instance bot lain yang berjalan")
+    else:
+        print("✅ Tidak ada instance bot lain yang berjalan")
     
     print("🚀 Siap untuk menjalankan bot!")
-
-if __name__ == "__main__":
-    kill_bot_instances()kan bot baru!")
 
 if __name__ == "__main__":
     kill_bot_instances()
