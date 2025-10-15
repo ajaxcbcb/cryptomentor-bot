@@ -162,9 +162,8 @@ class ProgressTracker:
 ⏱️ **Elapsed**: {elapsed:.1f}s
 📊 **Progress**: {progress}%
 
-💡 **Real-time Update**: {current_time}
-🚀 **Multi-Threading**: ENABLED - Zero Delays
-🔥 **Performance**: Maximum Priority"""
+👤 **Active User**: {len(self.active_jobs)}
+💡 **Real-time Update**: {current_time}"""
 
 # Global instance with enhanced performance
 progress_tracker = ProgressTracker()

@@ -80,6 +80,11 @@ logging.basicConfig(
     level=logging.INFO,  # Use INFO level for production
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Reduce verbose HTTP logs from requests/urllib3
+logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # TODO: Import database client and Admin Agent after setup
