@@ -355,16 +355,12 @@ class TelegramBot:
             except ImportError as e:
                 print(f"⚠️ Could not initialize AutoSignal scheduler: {e}")
 
-            # Start polling with optimized settings for concurrent users
+            # Start polling with proper error handling
             await self.application.updater.start_polling(
-                poll_interval=1.0,  # Update every 1 second for responsiveness
-                timeout=10,  # Shorter timeout to handle more requests
+                poll_interval=1.0,
+                timeout=20,
                 drop_pending_updates=True,
-                allowed_updates=['message', 'callback_query'],
-                read_timeout=30,  # Longer read timeout for processing
-                write_timeout=30,  # Longer write timeout for responses
-                connect_timeout=10,  # Quick connection timeout
-                pool_timeout=5  # Pool timeout for concurrent connections
+                allowed_updates=['message', 'callback_query']
             )
             print("🚀 Bot polling started successfully!")
 
@@ -1056,11 +1052,6 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /analyze command - comprehensive analysis with CoinAPI integration using Supabase credit guard"""
-        # Create separate task for each user to ensure concurrent processing
-        asyncio.create_task(self._handle_analyze_async(update, context))
-
-    async def _handle_analyze_async(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Async handler for analyze command to support concurrent users"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
@@ -1085,6 +1076,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
             await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
+            # CRITICAL: Return immediately without processing - NO analysis should run
             return
 
         print(f"✅ APPROVED: User {user_id} analyze command - {guard_message}")
@@ -1170,11 +1162,6 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /market command with strict credit checking using Supabase credits_guard"""
-        # Create separate task for each user to ensure concurrent processing
-        asyncio.create_task(self._handle_market_async(update, context))
-
-    async def _handle_market_async(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Async handler for market command to support concurrent users"""
         from app.safe_send import safe_reply
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
@@ -1196,6 +1183,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for market command - {guard_message}")
             await safe_reply(message, guard_message)
+            # CRITICAL: Return immediately without processing - NO analysis should run
             return
 
         print(f"✅ APPROVED: User {user_id} market command - {guard_message}")
@@ -1278,11 +1266,6 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
 
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
-        # Create separate task for each user to ensure concurrent processing
-        asyncio.create_task(self._handle_futures_signals_async(update, context))
-
-    async def _handle_futures_signals_async(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Async handler for futures_signals command to support concurrent users"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
@@ -1298,6 +1281,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         if not allowed:
             print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
             await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
+            # CRITICAL: Return immediately without processing - NO analysis should run
             return
 
         print(f"✅ APPROVED: User {user_id} futures_signals command - {guard_message}")
@@ -1474,8 +1458,92 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     symbol = parts[2]
                     timeframe = parts[3]
 
-                    # Create separate task for concurrent processing
-                    asyncio.create_task(self._handle_futures_callback_async(query, symbol, timeframe, user_id))
+                    # NOW debit credits when user actually selects timeframe (not just preview)
+                    from app.credits_guard import require_credits
+                    allowed, remaining, guard_message = require_credits(user_id, 20)
+
+                    if not allowed:
+                        print(f"❌ BLOCKED: User {user_id} insufficient credits for futures analysis - {guard_message}")
+                        await query.edit_message_text(guard_message)
+                        return
+
+                    print(f"✅ APPROVED: User {user_id} futures analysis - {guard_message}")
+
+                    # Initialize progress tracking
+                    from app.progress_tracker import progress_tracker
+
+                    # Start processing job
+                    job = await progress_tracker.start_processing(user_id, '/futures', symbol)
+
+                    # Show SINGLE initial progress message
+                    initial_msg = progress_tracker.get_progress_message(user_id)
+                    await query.edit_message_text(initial_msg, parse_mode='MARKDOWN')
+
+                    # Real-time progress updates - every 1 second for maximum responsiveness
+                    async def update_progress_display():
+                        for i in range(15):  # Reduced to 15 seconds max for faster processing
+                            await asyncio.sleep(1.0)  # Update every 1 second exactly
+                            job = progress_tracker.get_job_status(user_id)
+                            if job and job.status in ["queued", "processing"]:
+                                updated_msg = progress_tracker.get_progress_message(user_id)
+                                try:
+                                    await query.edit_message_text(updated_msg, parse_mode='MARKDOWN')
+                                except Exception as e:
+                                    print(f"Progress update failed for user {user_id}: {e}")
+                                    pass  # Continue even if edit fails
+                            else:
+                                break  # Job completed, stop updates
+
+                    # Start progress updates in background - each user gets their own task
+                    progress_task = asyncio.create_task(update_progress_display())
+
+                    try:
+                        print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
+
+                        # Get analysis with SnD enhancement (with progress tracking)
+                        analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api, progress_tracker, user_id)
+
+                        # Cancel progress updates since analysis is done
+                        try:
+                            progress_task.cancel()
+                        except:
+                            pass
+
+                        # Add credit status to response
+                        analysis_text += f"\n\n{guard_message}"
+
+                        # Handle long messages
+                        if len(analysis_text) > 4000:
+                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                            try:
+                                await query.edit_message_text(chunks[0], parse_mode='MARKDOWN')
+                                for chunk in chunks[1:]:
+                                    await query.message.reply_text(chunk, parse_mode='MARKDOWN')
+                            except Exception as markdown_error:
+                                print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                                # Remove problematic characters for plain text
+                                plain_chunks = [chunk.replace('*', '').replace('_', '').replace('`', '') for chunk in chunks]
+                                await query.edit_message_text(plain_chunks[0], parse_mode=None)
+                                for chunk in plain_chunks[1:]:
+                                    await query.message.reply_text(chunk, parse_mode=None)
+                        else:
+                            try:
+                                await query.edit_message_text(analysis_text, parse_mode='MARKDOWN')
+                            except Exception as markdown_error:
+                                print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
+                                # Remove problematic characters for plain text
+                                plain_text = analysis_text.replace('*', '').replace('_', '').replace('`', '')
+                                await query.edit_message_text(plain_text, parse_mode=None)
+
+                        print(f"✅ Successfully sent futures analysis to user {user_id}")
+
+                    except Exception as e:
+                        # Create safe error message without problematic characters
+                        error_msg = f"❌ Error dalam analisis futures: {str(e)[:100]}...\n\n💡 Solusi:\n• Coba /price {symbol} untuk harga basic\n• Gunakan /futures_signals untuk multiple signals\n• Contact admin jika masalah berlanjut"
+                        await query.edit_message_text(error_msg, parse_mode=None)
+                        print(f"❌ Error in futures callback: {e}")
+                        import traceback
+                        traceback.print_exc()
 
             elif callback_data.startswith('lang_'):
                 # Language selection
@@ -1493,101 +1561,6 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 await query.edit_message_text("❌ Terjadi kesalahan dalam memproses permintaan.")
             except:
                 pass
-
-    async def _handle_futures_callback_async(self, query, symbol, timeframe, user_id):
-        """Async handler for futures callback to support concurrent processing"""
-        # NOW debit credits when user actually selects timeframe (not just preview)
-        from app.credits_guard import require_credits
-        allowed, remaining, guard_message = require_credits(user_id, 20)
-
-        if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures analysis - {guard_message}")
-            await query.edit_message_text(guard_message)
-            return
-
-        print(f"✅ APPROVED: User {user_id} futures analysis - {guard_message}")
-
-        # Initialize progress tracking
-        from app.progress_tracker import progress_tracker
-
-        # Start processing job
-        job = await progress_tracker.start_processing(user_id, '/futures', symbol)
-
-        # Show SINGLE initial progress message
-        initial_msg = progress_tracker.get_progress_message(user_id)
-        await query.edit_message_text(initial_msg, parse_mode='MARKDOWN')
-
-        # Real-time progress updates - every 1 second for maximum responsiveness
-        async def update_progress_display():
-            for i in range(15):  # Reduced to 15 seconds max for faster processing
-                await asyncio.sleep(1.0)  # Update every 1 second exactly
-                job = progress_tracker.get_job_status(user_id)
-                if job and job.status in ["queued", "processing"]:
-                    updated_msg = progress_tracker.get_progress_message(user_id)
-                    try:
-                        await query.edit_message_text(updated_msg, parse_mode='MARKDOWN')
-                    except Exception as e:
-                        print(f"Progress update failed for user {user_id}: {e}")
-                        pass  # Continue even if edit fails
-                else:
-                    break  # Job completed, stop updates
-
-        # Start progress updates in background - each user gets their own task
-        progress_task = asyncio.create_task(update_progress_display())
-
-        try:
-            print(f"🎯 Processing futures analysis: {symbol} {timeframe}")
-
-            # Get analysis with SnD enhancement (with progress tracking)
-            analysis_text = await self.ai.get_futures_analysis(symbol, timeframe, 'id', self.crypto_api, progress_tracker, user_id)
-
-            # Cancel progress updates since analysis is done
-            try:
-                progress_task.cancel()
-            except:
-                pass
-
-            # Add credit status to response
-            analysis_text += f"\n\n{guard_message}"
-
-            # Handle long messages
-            if len(analysis_text) > 4000:
-                chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                try:
-                    await query.edit_message_text(chunks[0], parse_mode='MARKDOWN')
-                    for chunk in chunks[1:]:
-                        await query.message.reply_text(chunk, parse_mode='MARKDOWN')
-                except Exception as markdown_error:
-                    print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
-                    # Remove problematic characters for plain text
-                    plain_chunks = [chunk.replace('*', '').replace('_', '').replace('`', '') for chunk in chunks]
-                    await query.edit_message_text(plain_chunks[0], parse_mode=None)
-                    for chunk in plain_chunks[1:]:
-                        await query.message.reply_text(chunk, parse_mode=None)
-            else:
-                try:
-                    await query.edit_message_text(analysis_text, parse_mode='MARKDOWN')
-                except Exception as markdown_error:
-                    print(f"⚠️ Markdown error, sending as plain text: {markdown_error}")
-                    # Remove problematic characters for plain text
-                    plain_text = analysis_text.replace('*', '').replace('_', '').replace('`', '')
-                    await query.edit_message_text(plain_text, parse_mode=None)
-
-            print(f"✅ Successfully sent futures analysis to user {user_id}")
-
-        except Exception as e:
-            # Cancel progress updates
-            try:
-                progress_task.cancel()
-            except:
-                pass
-            
-            # Create safe error message without problematic characters
-            error_msg = f"❌ Error dalam analisis futures: {str(e)[:100]}...\n\n💡 Solusi:\n• Coba /price {symbol} untuk harga basic\n• Gunakan /futures_signals untuk multiple signals\n• Contact admin jika masalah berlanjut"
-            await query.edit_message_text(error_msg, parse_mode=None)
-            print(f"❌ Error in futures callback: {e}")
-            import traceback
-            traceback.print_exc()
 
     def _format_snd_analysis(self, symbol, timeframe, snd_data, price_data):
         """Format Supply & Demand analysis results"""

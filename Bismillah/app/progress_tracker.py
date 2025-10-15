@@ -1,6 +1,5 @@
 import asyncio
 import time
-import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
@@ -14,117 +13,103 @@ class ProcessingJob:
     start_time: float = field(default_factory=time.time)
     current_stage: str = "initializing"
     progress: int = 0
-    end_time: Optional[float] = None
-
-class JobStatus:
-    QUEUED = "queued"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
 
 class ProgressTracker:
     def __init__(self):
-        self.jobs: Dict[int, ProcessingJob] = {}
-        self.max_concurrent = 10  # Maximum concurrent jobs
-        self._lock = threading.RLock()  # Thread-safe lock for concurrent access
+        self.max_concurrent = 10  # Allow 10 concurrent jobs for multi-user support
+        self.active_jobs: Dict[int, ProcessingJob] = {}
+        self.queue: List[ProcessingJob] = []
 
-    async def start_processing(self, user_id: int, command: str, symbol: str = "") -> ProcessingJob:
-        """Start a new processing job for user with thread safety"""
-        with self._lock:
-            # Check if user already has an active job
-            existing_job = self.jobs.get(user_id)
-            if existing_job and existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
-                print(f"⚠️ User {user_id} already has active job, updating...")
-                existing_job.command = command
-                existing_job.symbol = symbol
-                existing_job.start_time = time.time()
-                existing_job.current_stage = "initializing"
-                existing_job.progress = 0
-                return existing_job
+    async def start_processing(self, user_id: int, command: str, symbol: str) -> ProcessingJob:
+        """Start processing job immediately with queue support"""
+        job = ProcessingJob(user_id=user_id, command=command, symbol=symbol)
 
-            # Create new job
-            job = ProcessingJob(
-                user_id=user_id,
-                command=command,
-                symbol=symbol,
-                status=JobStatus.QUEUED,
-                start_time=time.time(),
-                current_stage="initializing",
-                progress=0
-            )
+        # Always start immediately with higher concurrent limit
+        job.status = "processing"
+        self.active_jobs[user_id] = job
+        print(f"✅ Job started immediately for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
 
-            self.jobs[user_id] = job
+        return job
 
-            # If we're under the concurrent limit, start processing immediately
-            active_jobs = sum(1 for j in self.jobs.values() if j.status == JobStatus.PROCESSING)
-            if active_jobs < self.max_concurrent:
-                job.status = JobStatus.PROCESSING
-
-            print(f"📊 Started job for user {user_id}: {command} {symbol}")
-            return job
-
-    def update_progress(self, user_id: int, stage: str, progress: int):
-        """Update progress for a user's job with thread safety"""
-        with self._lock:
-            job = self.jobs.get(user_id)
-            if job:
-                job.current_stage = stage
-                job.progress = min(100, max(0, progress))
-                if job.status == JobStatus.QUEUED:
-                    job.status = JobStatus.PROCESSING
-                print(f"📈 User {user_id} progress: {stage} ({progress}%)")
+    def update_progress(self, user_id: int, stage: str, progress: int = 0):
+        """Update job progress with stage info"""
+        if user_id in self.active_jobs:
+            self.active_jobs[user_id].current_stage = stage
+            self.active_jobs[user_id].progress = progress
 
     def complete_job(self, user_id: int):
-        """Mark job as completed with thread safety"""
-        with self._lock:
-            job = self.jobs.get(user_id)
-            if job:
-                job.status = JobStatus.COMPLETED
-                job.progress = 100
-                job.end_time = time.time()
-                print(f"✅ Completed job for user {user_id}")
+        """Mark job as complete and process queue immediately"""
+        if user_id in self.active_jobs:
+            job = self.active_jobs[user_id]
+            processing_time = time.time() - job.start_time
+            print(f"✅ Job completed for user {user_id} in {processing_time:.1f}s")
+            del self.active_jobs[user_id]
+
+            # Process next job in queue immediately
+            if self.queue and len(self.active_jobs) < self.max_concurrent:
+                next_job = self.queue.pop(0)
+                next_job.status = "processing"
+                self.active_jobs[next_job.user_id] = next_job
+                print(f"🚀 Started queued job for user {next_job.user_id}")
 
     def get_job_status(self, user_id: int) -> Optional[ProcessingJob]:
-        """Get job status for user with thread safety"""
-        with self._lock:
-            return self.jobs.get(user_id)
+        """Get job status for user"""
+        if user_id in self.active_jobs:
+            return self.active_jobs[user_id]
 
-    def get_queue_info(self) -> dict:
-        """Get current queue information with thread safety"""
-        with self._lock:
-            active_count = sum(1 for job in self.jobs.values() if job.status == JobStatus.PROCESSING)
-            queued_count = sum(1 for job in self.jobs.values() if job.status == JobStatus.QUEUED)
-            return {
-                'active': active_count,
-                'waiting': queued_count,
-                'max_concurrent': self.max_concurrent
-            }
+        # Check if in queue
+        for job in self.queue:
+            if job.user_id == user_id:
+                return job
+
+        return None
+
+    def get_queue_status(self) -> dict:
+        """Get current queue status"""
+        return {
+            'active_count': len(self.active_jobs),
+            'max_concurrent': self.max_concurrent,
+            'queue_count': len(self.queue),
+            'total_jobs': len(self.active_jobs) + len(self.queue)
+        }
 
     def get_progress_message(self, user_id: int) -> str:
-        """Get formatted progress message for user with better concurrent handling"""
-        job = self.jobs.get(user_id)
+        """Generate responsive progress message for user"""
+        job = self.get_job_status(user_id)
         if not job:
-            return "🔄 Initializing..."
+            return "❌ Job tidak ditemukan"
 
-        # Get queue info with thread safety
-        queue_info = self.get_queue_info()
+        queue_status = self.get_queue_status()
+        current_time = datetime.now().strftime('%H:%M:%S')
 
-        elapsed = int(time.time() - job.start_time)
+        if job.status == "queued":
+            queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
+            return f"""⏳ **Dalam Antrian** - {current_time}
 
-        # Show user-specific progress without duplicates
-        message = f"""🔄 Sedang Diproses - {datetime.now().strftime('%H:%M:%S')}
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
+📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
+⚡ **Sedang Aktif**: {queue_status['active_count']}/{queue_status['max_concurrent']} jobs
 
-🎯 Command: {job.command}
-⚡ Stage: {job.current_stage}
-⏱️ Elapsed: {elapsed}s
-📊 Progress: {job.progress}%
+💡 **Estimasi**: ~{queue_position * 15} detik
+🔄 **Status**: Menunggu slot tersedia..."""
 
-💡 Queue Info: {queue_info['waiting']} waiting | {queue_info['active']} active"""
+        elif job.status == "processing":
+            elapsed = time.time() - job.start_time
+            # Get current stage, default to initializing if not set
+            current_stage = getattr(job, 'current_stage', 'initializing')
+            progress = getattr(job, 'progress', 0)
 
-        # Only show "hampir selesai" when progress > 80%
-        if job.progress >= 80:
-            message += "\n🎯 Hampir selesai..."
+            return f"""🔄 **Sedang Diproses** - {current_time}
 
-        return message
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
+⚡ **Stage**: {current_stage}
+⏱️ **Elapsed**: {elapsed:.0f}s
+📊 **Progress**: {progress}%
+
+💡 **Queue Info**: {queue_status['queue_count']} waiting | {queue_status['active_count']} active
+🎯 **Hampir selesai...**"""
+
+        return "✅ Job completed"
 
 # Global instance
 progress_tracker = ProgressTracker()
@@ -142,37 +127,33 @@ class QueueStatusManager:
         self.stats = QueueStats()
         self.daily_stats = QueueStats()
         self.processing_times: List[float] = []
-        self._lock = threading.RLock() # Thread-safe lock for statistics
 
     def record_processing_time(self, duration: float):
-        """Record processing time for statistics with thread safety"""
-        with self._lock:
-            self.processing_times.append(duration)
+        """Record processing time for statistics"""
+        self.processing_times.append(duration)
 
-            # Keep only last 100 records for average calculation
-            if len(self.processing_times) > 100:
-                self.processing_times.pop(0)
+        # Keep only last 100 records for average calculation
+        if len(self.processing_times) > 100:
+            self.processing_times.pop(0)
 
-            # Update average
-            if self.processing_times:
-                self.stats.avg_processing_time = sum(self.processing_times) / len(self.processing_times)
+        # Update average
+        if self.processing_times:
+            self.stats.avg_processing_time = sum(self.processing_times) / len(self.processing_times)
 
     def update_queue_peak(self, current_size: int):
-        """Update peak queue size with thread safety"""
-        with self._lock:
-            if current_size > self.stats.peak_queue_size:
-                self.stats.peak_queue_size = current_size
+        """Update peak queue size"""
+        if current_size > self.stats.peak_queue_size:
+            self.stats.peak_queue_size = current_size
 
     def get_system_status(self) -> str:
-        """Get formatted system status with thread safety"""
-        queue_status = progress_tracker.get_queue_info() # This already uses lock
+        """Get formatted system status"""
+        queue_status = progress_tracker.get_queue_status()
 
-        with self._lock:
-            return f"""🔄 **Queue System Status**
+        return f"""🔄 **Queue System Status**
 
 📊 **Current Load:**
-• Active Jobs: {queue_status['active']}/{queue_status['max_concurrent']}
-• Waiting in Queue: {queue_status['waiting']}
+• Active Jobs: {queue_status['active_count']}/{queue_status['max_concurrent']}
+• Waiting in Queue: {queue_status['queue_count']}
 • Peak Queue Today: {self.stats.peak_queue_size}
 
 ⏱️ **Performance:**
@@ -180,7 +161,7 @@ class QueueStatusManager:
 • Total Processed: {self.stats.total_processed}
 • Success Rate: 98.5%
 
-🎯 **System Health:** {"🟢 Optimal" if queue_status['waiting'] < 5 else "🟡 Busy" if queue_status['waiting'] < 10 else "🔴 Overloaded"}"""
+🎯 **System Health:** {"🟢 Optimal" if queue_status['queue_count'] < 5 else "🟡 Busy" if queue_status['queue_count'] < 10 else "🔴 Overloaded"}"""
 
 # Global instance
 queue_manager = QueueStatusManager()
