@@ -21,20 +21,13 @@ class ProgressTracker:
         self.queue: List[ProcessingJob] = []
 
     async def start_processing(self, user_id: int, command: str, symbol: str) -> ProcessingJob:
-        """Start processing job with instant queue processing"""
+        """Start processing job with multi-user concurrent support"""
         job = ProcessingJob(user_id=user_id, command=command, symbol=symbol)
 
-        # Check if we can process immediately
-        if len(self.active_jobs) < self.max_concurrent:
-            # Instant processing - no delays or queuing
-            job.status = "processing"
-            self.active_jobs[user_id] = job
-            print(f"✅ Job started INSTANTLY for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
-        else:
-            # Add to queue if at capacity
-            job.status = "queued"
-            self.queue.append(job)
-            print(f"📋 Job queued for user {user_id}: {command} (Queue: {len(self.queue)})")
+        # Always start immediately with high concurrent limit for multi-user support
+        job.status = "processing"
+        self.active_jobs[user_id] = job
+        print(f"✅ Job started immediately for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
 
         return job
 
@@ -45,20 +38,19 @@ class ProgressTracker:
             self.active_jobs[user_id].progress = progress
 
     def complete_job(self, user_id: int):
-        """Mark job as complete and process queue with ZERO delay"""
+        """Mark job as complete and process queue immediately"""
         if user_id in self.active_jobs:
             job = self.active_jobs[user_id]
             processing_time = time.time() - job.start_time
             print(f"✅ Job completed for user {user_id} in {processing_time:.1f}s")
             del self.active_jobs[user_id]
 
-            # INSTANT queue processing - zero millisecond delay
+            # Process next job in queue immediately
             if self.queue and len(self.active_jobs) < self.max_concurrent:
                 next_job = self.queue.pop(0)
                 next_job.status = "processing"
-                next_job.start_time = time.time()  # Reset start time for accurate tracking
                 self.active_jobs[next_job.user_id] = next_job
-                print(f"🚀 INSTANT queue processing for user {next_job.user_id}")
+                print(f"🚀 Started queued job for user {next_job.user_id}")
 
     def get_job_status(self, user_id: int) -> Optional[ProcessingJob]:
         """Get job status for user"""
@@ -82,7 +74,7 @@ class ProgressTracker:
         }
 
     def get_progress_message(self, user_id: int) -> str:
-        """Generate responsive progress message for instant queue processing"""
+        """Generate responsive progress message for multi-user concurrent processing"""
         job = self.get_job_status(user_id)
         if not job:
             return "❌ Job tidak ditemukan"
@@ -90,33 +82,30 @@ class ProgressTracker:
         queue_status = self.get_queue_status()
         current_time = datetime.now().strftime('%H:%M:%S')
 
-        # Only show queue status if there's actually a queue or multiple active jobs
-        if job.status == "queued" and (queue_status['queue_count'] > 1 or queue_status['active_count'] >= self.max_concurrent):
+        if job.status == "queued":
             queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
-            
-            status_text = "Menunggu user sebelumnya selesai"
-            estimasi_text = f"~{queue_position * 15} detik"
-            
-            return f"""⏳ Dalam Antrian - {current_time}
+            return f"""⏳ **Dalam Antrian** - {current_time}
 
-🎯 Command: {job.command} {job.symbol if job.symbol else ''}
-📍 Posisi Antrian: {queue_position} dari {queue_status['queue_count']}
-⚡️ Status: {status_text}
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
+📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
+⚡ **Status**: Menunggu user sebelumnya selesai
 
-💡 Estimasi: {estimasi_text}"""
+💡 **Estimasi**: ~{queue_position * 5} detik"""
 
-        # If processing or single user, show simple processing message without queue info
-        elif job.status in ["processing", "queued"]:
+        elif job.status == "processing":
             elapsed = time.time() - job.start_time
-            current_stage = getattr(job, 'current_stage', 'Processing...')
-            
-            return f"""🔄 Memproses permintaan Anda...
+            current_stage = getattr(job, 'current_stage', 'initializing')
+            progress = getattr(job, 'progress', 0)
 
-🎯 Command: {job.command} {job.symbol if job.symbol else ''}
-⚡️ Status: {current_stage}
-⏱️ Elapsed: {elapsed:.0f}s
+            return f"""🔄 **Sedang Diproses** - {current_time}
 
-💡 Estimasi: Hampir selesai..."""
+🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
+⚡ **Stage**: {current_stage}
+⏱️ **Elapsed**: {elapsed:.0f}s
+📊 **Progress**: {progress}%
+
+💡 **Active Users**: {queue_status['active_count']} processing simultaneously
+🚀 **Multi-Threading**: Enabled for all users"""
 
         return "✅ Job completed"
 
