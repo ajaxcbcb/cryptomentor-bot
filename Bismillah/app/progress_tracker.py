@@ -16,7 +16,7 @@ class ProcessingJob:
 
 class ProgressTracker:
     def __init__(self):
-        self.max_concurrent = 10  # Allow 10 concurrent jobs for multi-user support
+        self.max_concurrent = 25  # Increased to 25 concurrent jobs for better multi-user support
         self.active_jobs: Dict[int, ProcessingJob] = {}
         self.queue: List[ProcessingJob] = []
 

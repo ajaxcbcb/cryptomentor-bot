@@ -236,10 +236,10 @@ class TelegramBot:
             logger.error("📝 Go to Secrets tab and add your bot token")
             sys.exit(1)
 
-        # Initialize application with token
+        # Initialize application with token - with concurrent user optimization
         try:
-            self.application = Application.builder().token(self.token).build()
-            logger.info("✅ Bot initialized successfully")
+            self.application = Application.builder().token(self.token).concurrent_updates(True).build()
+            logger.info("✅ Bot initialized successfully with concurrent updates enabled")
         except Exception as e:
             logger.error(f"❌ Failed to initialize bot: {e}")
             sys.exit(1)
@@ -1055,10 +1055,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        # Auto-upsert user to Supabase (NO credits change)
-        touch_user_from_update(update)
+        user_id = update.message.from_user.id
+        print(f"🎯 User {user_id} started /analyze command")
 
-        # Check if user needs restart
+        # Auto-upsert user to Supabase (NO credits change) - NON-BLOCKING
+        try:
+            touch_user_from_update(update)
+        except Exception as e:
+            print(f"⚠️ User upsert failed for {user_id}: {e}")
+
+        # Check if user needs restart - QUICK CHECK
         if await self._check_user_restart_required(update):
             return
 
@@ -1066,52 +1072,63 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             await update.message.reply_text("❌ Gunakan format: `/analyze <symbol>`\nContoh: `/analyze btc`", parse_mode='MARKDOWN')
             return
 
-        user_id = update.message.from_user.id
         user = update.message.from_user
         symbol = context.args[0].upper()
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
-        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
-
-        if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for analyze command - {guard_message}")
-            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
-            # CRITICAL: Return immediately without processing - NO analysis should run
+        # QUICK CREDIT CHECK - NO BLOCKING
+        try:
+            allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
+        except Exception as e:
+            print(f"❌ Credit check failed for user {user_id}: {e}")
+            await update.message.reply_text("❌ Sistem kredit sedang bermasalah. Coba lagi.", parse_mode='MARKDOWN')
             return
 
-        print(f"✅ APPROVED: User {user_id} analyze command - {guard_message}")
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits")
+            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
+            return
 
-        # Initialize progress tracking
+        print(f"✅ APPROVED: User {user_id} analyze command")
+
+        # Initialize progress tracking - ISOLATED PER USER
         from app.progress_tracker import progress_tracker
 
-        # Start processing job
+        # Start processing job - IMMEDIATE START
         job = await progress_tracker.start_processing(user_id, '/analyze', symbol)
 
-        # Show SINGLE initial progress message
+        # Show initial progress message - UNIQUE PER USER
         initial_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
-        # Real-time progress updates - every 1 second for maximum responsiveness
-        async def update_progress_display():
-            for i in range(15):  # Reduced to 15 seconds max for faster processing
-                await asyncio.sleep(1.0)  # Update every 1 second exactly
-                job = progress_tracker.get_job_status(user_id)
-                if job and job.status in ["queued", "processing"]:
-                    updated_msg = progress_tracker.get_progress_message(user_id)
+        # Create isolated progress updater for this specific user
+        async def isolated_progress_updater():
+            """Isolated progress updater - won't interfere with other users"""
+            try:
+                for i in range(15):  # 15 second max
+                    await asyncio.sleep(1.0)  # Update every second
+                    
+                    # Get THIS user's job status only
+                    current_job = progress_tracker.get_job_status(user_id)
+                    if not current_job or current_job.status not in ["queued", "processing"]:
+                        break  # Job done
+                    
+                    # Update THIS user's message only
                     try:
+                        updated_msg = progress_tracker.get_progress_message(user_id)
                         await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
-                    except Exception as e:
-                        print(f"Progress update failed for user {user_id}: {e}")
-                        pass  # Continue even if edit fails
-                else:
-                    break  # Job completed, stop updates
+                    except Exception as edit_error:
+                        # Ignore edit failures - don't block other users
+                        pass
+            except Exception as progress_error:
+                print(f"Progress updater error for user {user_id}: {progress_error}")
 
-        # Start progress updates in background - each user gets their own task
-        progress_task = asyncio.create_task(update_progress_display())
+        # Start isolated progress task - WON'T BLOCK OTHER USERS
+        progress_task = asyncio.create_task(isolated_progress_updater())
 
         try:
-            # Validate symbol format
+            # Quick symbol validation
             if not symbol or len(symbol) < 2 or len(symbol) > 10:
+                progress_task.cancel()
                 await loading_msg.edit_text(
                     f"❌ **Symbol tidak valid**: `{symbol}`\n\n"
                     "💡 **Contoh yang benar**: `/analyze BTC`, `/analyze ETH`, `/analyze AVAX`",
@@ -1119,7 +1136,8 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 )
                 return
 
-            # Generate comprehensive analysis using AI Assistant with progress tracking
+            # ISOLATED ANALYSIS - Each user gets their own analysis thread
+            print(f"🔄 Starting isolated analysis for user {user_id}")
             analysis = await self.ai.get_comprehensive_analysis_async(
                 symbol=symbol,
                 language='id',
@@ -1128,16 +1146,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 user_id=user_id
             )
 
-            # Cancel progress updates since analysis is done
+            # Clean up progress task
             try:
                 progress_task.cancel()
             except:
                 pass
 
-            # Add credit status to response
+            # Add credit status
             analysis += f"\n\n{guard_message}"
 
-            # Always send as plain text to avoid parsing errors
+            # Send response - ISOLATED PER USER
             if len(analysis) > 4000:
                 chunks = [analysis[i:i+4000] for i in range(0, len(analysis), 4000)]
                 await loading_msg.edit_text(chunks[0], parse_mode=None)
@@ -1146,91 +1164,108 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
             else:
                 await loading_msg.edit_text(analysis, parse_mode=None)
 
+            print(f"✅ Analysis completed for user {user_id}")
+
         except Exception as e:
-            # Cancel progress updates
+            # Clean up
             try:
                 progress_task.cancel()
             except:
                 pass
 
-            # Credits were already debited atomically, no manual refund needed
-            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic (CoinAPI)\n• `/futures {symbol.lower()}` untuk analisis SnD futures\n• Contact admin jika masalah berlanjut"
+            error_msg = f"❌ Terjadi kesalahan dalam analisis.\n\n**Error**: {str(e)[:100]}...\n\n💡 **Coba alternatif:**\n• `/price {symbol.lower()}` untuk harga basic\n• `/futures {symbol.lower()}` untuk analisis SnD\n• Contact admin jika masalah berlanjut"
             await loading_msg.edit_text(error_msg, parse_mode='MARKDOWN')
-            print(f"Error in analyze command: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Analysis error for user {user_id}: {e}")
+
+        finally:
+            # Ensure job completion tracking
+            try:
+                progress_tracker.complete_job(user_id)
+            except:
+                pass
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /market command with strict credit checking using Supabase credits_guard"""
+        """Handle /market command with isolated per-user processing"""
         from app.safe_send import safe_reply
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        # Auto-upsert user to Supabase (NO credits change)
-        touch_user_from_update(update)
+        user_id = update.effective_user.id
+        print(f"🎯 User {user_id} started /market command")
 
-        # Check if user needs restart
+        # Non-blocking user upsert
+        try:
+            touch_user_from_update(update)
+        except Exception as e:
+            print(f"⚠️ User upsert failed for {user_id}: {e}")
+
+        # Quick restart check
         if await self._check_user_restart_required(update):
             return
 
-        user_id = update.effective_user.id
         user = update.effective_user
         message = update.effective_message
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 20)
-        allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
-
-        if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for market command - {guard_message}")
-            await safe_reply(message, guard_message)
-            # CRITICAL: Return immediately without processing - NO analysis should run
+        # Quick credit check
+        try:
+            allowed, remaining, guard_message = require_credits(user_id, 20, user.username, user.first_name, user.last_name)
+        except Exception as e:
+            print(f"❌ Credit check failed for user {user_id}: {e}")
+            await safe_reply(message, "❌ Sistem kredit sedang bermasalah. Coba lagi.")
             return
 
-        print(f"✅ APPROVED: User {user_id} market command - {guard_message}")
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits")
+            await safe_reply(message, guard_message)
+            return
 
-        # Initialize progress tracking
+        print(f"✅ APPROVED: User {user_id} market command")
+
+        # Isolated progress tracking
         from app.progress_tracker import progress_tracker
 
-        # Start processing job
+        # Start job immediately
         job = await progress_tracker.start_processing(user_id, '/market', '')
 
-        # Show SINGLE initial progress message
+        # User-specific progress message
         initial_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
-        # Real-time progress updates - every 1 second for maximum responsiveness
-        async def update_progress_display():
-            for i in range(15):  # Reduced for faster processing
-                await asyncio.sleep(1.0)  # Update every 1 second exactly
-                job = progress_tracker.get_job_status(user_id)
-                if job and job.status in ["queued", "processing"]:
-                    updated_msg = progress_tracker.get_progress_message(user_id)
+        # Isolated progress updater
+        async def isolated_market_progress():
+            """Market progress updater - isolated per user"""
+            try:
+                for i in range(12):  # 12 seconds max
+                    await asyncio.sleep(1.0)
+                    
+                    current_job = progress_tracker.get_job_status(user_id)
+                    if not current_job or current_job.status not in ["queued", "processing"]:
+                        break
+                    
                     try:
+                        updated_msg = progress_tracker.get_progress_message(user_id)
                         await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
-                    except Exception as e:
-                        print(f"Market progress update failed for user {user_id}: {e}")
-                        pass  # Continue even if edit fails
-                else:
-                    break  # Job completed, stop updates
+                    except Exception:
+                        pass  # Ignore edit failures
+            except Exception as progress_error:
+                print(f"Market progress error for user {user_id}: {progress_error}")
 
-        # Start progress updates in background - independent for each user
-        progress_task = asyncio.create_task(update_progress_display())
+        # Start isolated progress task
+        progress_task = asyncio.create_task(isolated_market_progress())
 
         try:
-            print(f"🔄 Market command initiated by user {user_id}")
+            print(f"🔄 Market analysis started for user {user_id}")
 
-            # Get market analysis using CoinAPI real-time data with progress tracking
-            print("📊 Calling AI market sentiment analysis with CoinAPI...")
+            # Get market analysis with isolated processing
             analysis_result = await self.ai.get_market_sentiment_async('id', self.crypto_api, progress_tracker, user_id)
 
-            # Cancel progress updates since analysis is done
+            # Clean up progress
             try:
                 progress_task.cancel()
             except:
                 pass
 
             if not analysis_result or len(analysis_result.strip()) < 50:
-                # Analysis failed - no need to refund since credits were already debited atomically
                 fallback_msg = """🌍 **OVERVIEW PASAR CRYPTO (CoinAPI)**
 
 ⚠️ **Data sementara tidak lengkap atau gagal diambil.**
@@ -1245,69 +1280,81 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 await loading_msg.edit_text(fallback_msg, parse_mode='MARKDOWN')
                 return
 
-            # Add credit status to response (credits already debited by guard)
+            # Add credit status
             analysis_result += f"\n\n{guard_message}"
 
-            print(f"✅ Market analysis completed, sending response ({len(analysis_result)} chars)")
+            print(f"✅ Market analysis completed for user {user_id}")
             await loading_msg.edit_text(analysis_result, parse_mode='MARKDOWN')
 
         except Exception as e:
-            # Cancel progress updates
+            # Clean up
             try:
                 progress_task.cancel()
             except:
                 pass
 
-            # Credits were already debited atomically, no need to refund manually
             await safe_reply(loading_msg, f"❌ Terjadi kesalahan saat menganalisis pasar.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/price btc` atau `/analyze btc`.")
-            print(f"❌ Market command error: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Market command error for user {user_id}: {e}")
+
+        finally:
+            # Ensure completion
+            try:
+                progress_tracker.complete_job(user_id)
+            except:
+                pass
 
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /futures_signals command with CoinAPI + Coinglass analysis"""
+        """Handle /futures_signals command with isolated per-user processing"""
         from app.users_repo import touch_user_from_update
         from app.credits_guard import require_credits
 
-        # Auto-upsert user to Supabase (NO credits change)
-        touch_user_from_update(update)
-
         user_id = update.message.from_user.id
+        print(f"🎯 User {user_id} started /futures_signals command")
+
+        # Non-blocking user upsert
+        try:
+            touch_user_from_update(update)
+        except Exception as e:
+            print(f"⚠️ User upsert failed for {user_id}: {e}")
+
         user = update.message.from_user
 
-        # STRICT SUPABASE CREDIT CHECK BEFORE ANY OPERATION (Cost: 60)
-        allowed, remaining, guard_message = require_credits(user_id, 60, user.username, user.first_name, user.last_name)
-
-        if not allowed:
-            print(f"❌ BLOCKED: User {user_id} insufficient credits for futures_signals command - {guard_message}")
-            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
-            # CRITICAL: Return immediately without processing - NO analysis should run
+        # Quick credit check
+        try:
+            allowed, remaining, guard_message = require_credits(user_id, 60, user.username, user.first_name, user.last_name)
+        except Exception as e:
+            print(f"❌ Credit check failed for user {user_id}: {e}")
+            await update.message.reply_text("❌ Sistem kredit sedang bermasalah. Coba lagi.", parse_mode='MARKDOWN')
             return
 
-        print(f"✅ APPROVED: User {user_id} futures_signals command - {guard_message}")
+        if not allowed:
+            print(f"❌ BLOCKED: User {user_id} insufficient credits")
+            await update.message.reply_text(guard_message, parse_mode='MARKDOWN')
+            return
 
-        # Show loading message with query processing info
+        print(f"✅ APPROVED: User {user_id} futures_signals command")
+
+        # Parse query for display
         query_display = ""
         if context.args:
-            # Clean the query for display - remove "SND" and show clean timeframe
             raw_query = ' '.join(context.args).upper()
             query_parts = raw_query.split()
             cleaned_parts = [part for part in query_parts if part != 'SND']
 
             if cleaned_parts:
-                # Show cleaned query in loading message
                 if any(tf in cleaned_parts[0] for tf in ['M', 'H', 'D', 'W']):
                     clean_timeframe = cleaned_parts[0]
                     query_display = f" untuk {clean_timeframe}"
                 else:
                     query_display = f" untuk {cleaned_parts[0]}"
 
+        # Show loading message - unique per user
         loading_msg = await update.message.reply_text(f"⏳ Menganalisis sinyal futures dengan CoinAPI + Coinglass V4{query_display}...")
 
         try:
-            print(f"🔄 Starting futures signals generation for user {user_id}")
+            print(f"🔄 Starting isolated futures signals for user {user_id}")
 
-            # Generate signals using new async method with query args
+            # Generate signals with isolated processing - won't block other users
             signals = await self.ai.generate_futures_signals('id', self.crypto_api, context.args)
 
             if not signals or len(signals.strip()) < 50:
@@ -1326,10 +1373,10 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 await loading_msg.edit_text(fallback_msg, parse_mode='MARKDOWN')
                 return
 
-            # Add credit status to response (credits already debited by guard)
+            # Add credit status
             signals += f"\n\n{guard_message}"
 
-            # Handle long messages
+            # Send response with isolated message handling
             if len(signals) > 4000:
                 chunks = [signals[i:i+4000] for i in range(0, len(signals), 4000)]
                 try:
@@ -1337,8 +1384,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     for chunk in chunks[1:]:
                         await update.message.reply_text(chunk, parse_mode='MARKDOWNV2')
                 except Exception as e:
-                    print(f"⚠️ Markdown error, sending as plain text: {e}")
-                    # Remove problematic characters for plain text
+                    print(f"⚠️ Markdown error for user {user_id}, sending as plain text: {e}")
                     plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
                     await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
                     for chunk in plain_chunks[1:]:
@@ -1347,17 +1393,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 try:
                     await loading_msg.edit_text(signals, parse_mode='MARKDOWNV2')
                 except Exception as e:
-                    print(f"⚠️ MarkdownV2 error, sending as plain text: {e}")
-                    # Remove escape characters for plain text
+                    print(f"⚠️ MarkdownV2 error for user {user_id}, sending as plain text: {e}")
                     plain_text = signals.replace('\\', '')
                     await loading_msg.edit_text(plain_text, parse_mode=None)
+
+            print(f"✅ Futures signals completed for user {user_id}")
 
         except Exception as e:
             error_msg = f"❌ Terjadi kesalahan dalam analisis sinyal futures.\n\n**Error**: {str(e)[:100]}...\n\n💡 Coba `/futures btc` untuk analisis spesifik."
             await loading_msg.edit_text(error_msg, parse_mode='MARKDOWN')
-            print(f"❌ Error in futures_signals command: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Futures signals error for user {user_id}: {e}")
 
     async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /futures command with SnD timeframe selection and strict credit checking"""
