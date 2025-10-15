@@ -88,10 +88,9 @@ class ProgressTracker:
 
 🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
 📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Status**: Server overloaded, waiting for slot
+⚡ **Status**: Menunggu user sebelumnya selesai
 
-💡 **Estimasi**: ~{queue_position * 5} detik
-🔄 **Multi-User**: Concurrent processing active"""
+💡 **Estimasi**: ~{queue_position * 5} detik"""
 
         elif job.status == "processing":
             elapsed = time.time() - job.start_time
