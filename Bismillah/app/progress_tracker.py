@@ -90,16 +90,12 @@ class ProgressTracker:
         queue_status = self.get_queue_status()
         current_time = datetime.now().strftime('%H:%M:%S')
 
-        if job.status == "queued":
+        # Only show queue status if there's actually a queue or multiple active jobs
+        if job.status == "queued" and (queue_status['queue_count'] > 1 or queue_status['active_count'] >= self.max_concurrent):
             queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
             
-            # Fix logic: if user is the only one in queue (1 dari 1), should start immediately
-            if queue_position == 1 and queue_status['queue_count'] == 1:
-                status_text = "Memulai sekarang"
-                estimasi_text = "Instant"
-            else:
-                status_text = "Menunggu user sebelumnya selesai"
-                estimasi_text = f"~{queue_position * 15} detik"
+            status_text = "Menunggu user sebelumnya selesai"
+            estimasi_text = f"~{queue_position * 15} detik"
             
             return f"""⏳ Dalam Antrian - {current_time}
 
@@ -109,17 +105,16 @@ class ProgressTracker:
 
 💡 Estimasi: {estimasi_text}"""
 
-        elif job.status == "processing":
+        # If processing or single user, show simple processing message without queue info
+        elif job.status in ["processing", "queued"]:
             elapsed = time.time() - job.start_time
-            current_stage = getattr(job, 'current_stage', 'initializing')
-            progress = getattr(job, 'progress', 0)
-
-            return f"""🔄 Sedang Diproses - {current_time}
+            current_stage = getattr(job, 'current_stage', 'Processing...')
+            
+            return f"""🔄 Memproses permintaan Anda...
 
 🎯 Command: {job.command} {job.symbol if job.symbol else ''}
-⚡️ Stage: {current_stage}
+⚡️ Status: {current_stage}
 ⏱️ Elapsed: {elapsed:.0f}s
-📊 Progress: {progress}%
 
 💡 Estimasi: Hampir selesai..."""
 
