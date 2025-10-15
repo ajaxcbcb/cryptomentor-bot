@@ -86,17 +86,18 @@ class ProgressTracker:
         if job.status == "queued":
             queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
             
-            # If user is first in queue and no active jobs, they should start immediately
-            if queue_position == 1 and queue_status['active_count'] == 0:
-                return f"""🔄 **Memulai Proses** - {current_time}
+            # If user is the only one in queue (position 1 of 1), start immediately
+            if queue_position == 1 and queue_status['queue_count'] == 1 and queue_status['active_count'] == 0:
+                return f"""⏳ **Dalam Antrian** - {current_time}
 
 🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
-⚡ **Status**: Memulai proses instant...
+📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
+⚡ **Status**: Memulai sekarang
 
-💡 **Processing**: Dimulai sekarang"""
+💡 **Estimasi**: Instant processing"""
             
-            # If there are active jobs, show proper queue status
-            elif queue_status['active_count'] > 0:
+            # If there are active jobs or multiple users in queue
+            elif queue_status['active_count'] > 0 or queue_status['queue_count'] > 1:
                 return f"""⏳ **Dalam Antrian** - {current_time}
 
 🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
@@ -105,14 +106,14 @@ class ProgressTracker:
 
 💡 **Estimasi**: ~{queue_position * 5} detik"""
             
-            # Default queue message
+            # Default queue message - should start immediately
             return f"""⏳ **Dalam Antrian** - {current_time}
 
 🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
 📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Status**: Dalam antrian
+⚡ **Status**: Memulai instant
 
-💡 **Estimasi**: ~{queue_position * 5} detik"""
+💡 **Estimasi**: Processing now"""
 
         elif job.status == "processing":
             elapsed = time.time() - job.start_time
