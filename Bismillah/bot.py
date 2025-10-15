@@ -1107,27 +1107,34 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         initial_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
-        # Create isolated progress updater for this specific user
+        # Create REAL-TIME progress updater for this specific user
         async def isolated_progress_updater():
-            """Isolated progress updater - won't interfere with other users"""
+            """REAL-TIME progress updater - Updates every 0.5 seconds for maximum responsiveness"""
             try:
-                for i in range(15):  # 15 second max
-                    await asyncio.sleep(1.0)  # Update every second
+                last_message_hash = ""
+                for i in range(60):  # 30 second max (60 x 0.5s)
+                    await asyncio.sleep(0.5)  # Update every 500ms for REAL-TIME feel
                     
                     # Get THIS user's job status only
                     current_job = progress_tracker.get_job_status(user_id)
-                    if not current_job or current_job.status not in ["queued", "processing"]:
-                        break  # Job done
+                    if not current_job:
+                        break  # Job completed
                     
-                    # Update THIS user's message only
-                    try:
-                        updated_msg = progress_tracker.get_progress_message(user_id)
-                        await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
-                    except Exception as edit_error:
-                        # Ignore edit failures - don't block other users
-                        pass
+                    # Get new progress message
+                    updated_msg = progress_tracker.get_progress_message(user_id)
+                    current_message_hash = str(hash(updated_msg))
+                    
+                    # Only update if message actually changed (avoid rate limits)
+                    if current_message_hash != last_message_hash:
+                        try:
+                            await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
+                            last_message_hash = current_message_hash
+                        except Exception as edit_error:
+                            # Continue even if edit fails - user experience priority
+                            pass
+                            
             except Exception as progress_error:
-                print(f"Progress updater error for user {user_id}: {progress_error}")
+                print(f"Real-time progress updater error for user {user_id}: {progress_error}")
 
         # Start isolated progress task - WON'T BLOCK OTHER USERS
         progress_task = asyncio.create_task(isolated_progress_updater())
@@ -1238,24 +1245,31 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
         initial_msg = progress_tracker.get_progress_message(user_id)
         loading_msg = await update.message.reply_text(initial_msg, parse_mode='MARKDOWN')
 
-        # Isolated progress updater
+        # REAL-TIME market progress updater
         async def isolated_market_progress():
-            """Market progress updater - isolated per user"""
+            """REAL-TIME market progress updater - Updates every 500ms"""
             try:
-                for i in range(12):  # 12 seconds max
-                    await asyncio.sleep(1.0)
+                last_message_hash = ""
+                for i in range(40):  # 20 seconds max (40 x 0.5s)
+                    await asyncio.sleep(0.5)  # Ultra-fast updates
                     
                     current_job = progress_tracker.get_job_status(user_id)
-                    if not current_job or current_job.status not in ["queued", "processing"]:
-                        break
+                    if not current_job:
+                        break  # Job completed
                     
-                    try:
-                        updated_msg = progress_tracker.get_progress_message(user_id)
-                        await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
-                    except Exception:
-                        pass  # Ignore edit failures
+                    # Get real-time progress
+                    updated_msg = progress_tracker.get_progress_message(user_id)
+                    current_message_hash = str(hash(updated_msg))
+                    
+                    # Update only if content changed
+                    if current_message_hash != last_message_hash:
+                        try:
+                            await loading_msg.edit_text(updated_msg, parse_mode='MARKDOWN')
+                            last_message_hash = current_message_hash
+                        except Exception:
+                            pass  # Continue on edit errors
             except Exception as progress_error:
-                print(f"Market progress error for user {user_id}: {progress_error}")
+                print(f"Real-time market progress error for user {user_id}: {progress_error}")
 
         # Start isolated progress task
         progress_task = asyncio.create_task(isolated_market_progress())
@@ -1531,20 +1545,27 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                     initial_msg = progress_tracker.get_progress_message(user_id)
                     await query.edit_message_text(initial_msg, parse_mode='MARKDOWN')
 
-                    # Real-time progress updates - every 1 second for maximum responsiveness
+                    # ULTRA-FAST real-time progress updates
                     async def update_progress_display():
-                        for i in range(15):  # Reduced to 15 seconds max for faster processing
-                            await asyncio.sleep(1.0)  # Update every 1 second exactly
+                        last_message_hash = ""
+                        for i in range(60):  # 30 seconds max (60 x 0.5s)
+                            await asyncio.sleep(0.5)  # Update every 500ms for MAXIMUM responsiveness
                             job = progress_tracker.get_job_status(user_id)
-                            if job and job.status in ["queued", "processing"]:
-                                updated_msg = progress_tracker.get_progress_message(user_id)
+                            if not job:
+                                break  # Job completed
+                            
+                            # Get real-time progress message
+                            updated_msg = progress_tracker.get_progress_message(user_id)
+                            current_message_hash = str(hash(updated_msg))
+                            
+                            # Only update if content actually changed
+                            if current_message_hash != last_message_hash:
                                 try:
                                     await query.edit_message_text(updated_msg, parse_mode='MARKDOWN')
+                                    last_message_hash = current_message_hash
                                 except Exception as e:
-                                    print(f"Progress update failed for user {user_id}: {e}")
-                                    pass  # Continue even if edit fails
-                            else:
-                                break  # Job completed, stop updates
+                                    # Continue processing even if edit fails
+                                    pass
 
                     # Start progress updates in background - each user gets their own task
                     progress_task = asyncio.create_task(update_progress_display())
