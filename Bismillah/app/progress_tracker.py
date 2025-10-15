@@ -24,10 +24,17 @@ class ProgressTracker:
         """Start processing job with instant queue processing"""
         job = ProcessingJob(user_id=user_id, command=command, symbol=symbol)
 
-        # Instant processing - no delays or queuing
-        job.status = "processing"
-        self.active_jobs[user_id] = job
-        print(f"✅ Job started INSTANTLY for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
+        # Check if we can process immediately
+        if len(self.active_jobs) < self.max_concurrent:
+            # Instant processing - no delays or queuing
+            job.status = "processing"
+            self.active_jobs[user_id] = job
+            print(f"✅ Job started INSTANTLY for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
+        else:
+            # Add to queue if at capacity
+            job.status = "queued"
+            self.queue.append(job)
+            print(f"📋 Job queued for user {user_id}: {command} (Queue: {len(self.queue)})")
 
         return job
 
