@@ -16,18 +16,24 @@ class ProcessingJob:
 
 class ProgressTracker:
     def __init__(self):
-        self.max_concurrent = 25  # Increased to 25 concurrent jobs for better multi-user support
+        self.max_concurrent = 1  # Single user priority system
         self.active_jobs: Dict[int, ProcessingJob] = {}
         self.queue: List[ProcessingJob] = []
 
     async def start_processing(self, user_id: int, command: str, symbol: str) -> ProcessingJob:
-        """Start processing job immediately with queue support"""
+        """Start processing job with single user priority"""
         job = ProcessingJob(user_id=user_id, command=command, symbol=symbol)
 
-        # Always start immediately with higher concurrent limit
-        job.status = "processing"
-        self.active_jobs[user_id] = job
-        print(f"✅ Job started immediately for user {user_id}: {command} (Active: {len(self.active_jobs)}/{self.max_concurrent})")
+        # Check if we can start immediately (only 1 active allowed)
+        if len(self.active_jobs) < self.max_concurrent:
+            job.status = "processing"
+            self.active_jobs[user_id] = job
+            print(f"✅ Job started immediately for user {user_id}: {command}")
+        else:
+            # Add to queue
+            job.status = "queued"
+            self.queue.append(job)
+            print(f"📋 Job queued for user {user_id}: {command} (Position: {len(self.queue)})")
 
         return job
 
@@ -74,7 +80,7 @@ class ProgressTracker:
         }
 
     def get_progress_message(self, user_id: int) -> str:
-        """Generate responsive progress message for user"""
+        """Generate responsive progress message for single user priority"""
         job = self.get_job_status(user_id)
         if not job:
             return "❌ Job tidak ditemukan"
@@ -88,14 +94,13 @@ class ProgressTracker:
 
 🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
 📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Sedang Aktif**: {queue_status['active_count']}/{queue_status['max_concurrent']} jobs
+⚡ **Status**: Menunggu user sebelumnya selesai
 
 💡 **Estimasi**: ~{queue_position * 15} detik
-🔄 **Status**: Menunggu slot tersedia..."""
+🔄 **Priority**: Single user processing active"""
 
         elif job.status == "processing":
             elapsed = time.time() - job.start_time
-            # Get current stage, default to initializing if not set
             current_stage = getattr(job, 'current_stage', 'initializing')
             progress = getattr(job, 'progress', 0)
 
@@ -106,8 +111,8 @@ class ProgressTracker:
 ⏱️ **Elapsed**: {elapsed:.0f}s
 📊 **Progress**: {progress}%
 
-💡 **Queue Info**: {queue_status['queue_count']} waiting | {queue_status['active_count']} active
-🎯 **Hampir selesai...**"""
+💡 **Queue Info**: {queue_status['queue_count']} waiting | 1 active
+🎯 **Anda sedang diproses...**"""
 
         return "✅ Job completed"
 
