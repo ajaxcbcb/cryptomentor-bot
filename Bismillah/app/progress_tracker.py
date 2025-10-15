@@ -86,49 +86,31 @@ class ProgressTracker:
         if job.status == "queued":
             queue_position = next((i+1 for i, q in enumerate(self.queue) if q.user_id == user_id), 0)
             
-            # If user is the only one in queue (position 1 of 1), start immediately
-            if queue_position == 1 and queue_status['queue_count'] == 1 and queue_status['active_count'] == 0:
-                return f"""⏳ **Dalam Antrian** - {current_time}
-
-🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
-📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Status**: Memulai sekarang
-
-💡 **Estimasi**: Instant processing"""
+            # Clean, consistent queue message format
+            status_text = "Memulai sekarang" if queue_position == 1 and queue_status['active_count'] == 0 else "Menunggu user sebelumnya selesai"
+            estimasi_text = "Instant" if queue_position == 1 and queue_status['active_count'] == 0 else f"~{queue_position * 15} detik"
             
-            # If there are active jobs or multiple users in queue
-            elif queue_status['active_count'] > 0 or queue_status['queue_count'] > 1:
-                return f"""⏳ **Dalam Antrian** - {current_time}
+            return f"""⏳ Dalam Antrian - {current_time}
 
-🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
-📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Status**: Menunggu user sebelumnya selesai
+🎯 Command: {job.command} {job.symbol if job.symbol else ''}
+📍 Posisi Antrian: {queue_position} dari {queue_status['queue_count']}
+⚡️ Status: {status_text}
 
-💡 **Estimasi**: ~{queue_position * 5} detik"""
-            
-            # Default queue message - should start immediately
-            return f"""⏳ **Dalam Antrian** - {current_time}
-
-🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
-📍 **Posisi Antrian**: {queue_position} dari {queue_status['queue_count']}
-⚡ **Status**: Memulai instant
-
-💡 **Estimasi**: Processing now"""
+💡 Estimasi: {estimasi_text}"""
 
         elif job.status == "processing":
             elapsed = time.time() - job.start_time
             current_stage = getattr(job, 'current_stage', 'initializing')
             progress = getattr(job, 'progress', 0)
 
-            return f"""🔄 **Sedang Diproses** - {current_time}
+            return f"""🔄 Sedang Diproses - {current_time}
 
-🎯 **Command**: {job.command} {job.symbol if job.symbol else ''}
-⚡ **Stage**: {current_stage}
-⏱️ **Elapsed**: {elapsed:.0f}s
-📊 **Progress**: {progress}%
+🎯 Command: {job.command} {job.symbol if job.symbol else ''}
+⚡️ Stage: {current_stage}
+⏱️ Elapsed: {elapsed:.0f}s
+📊 Progress: {progress}%
 
-💡 **Active Users**: {queue_status['active_count']} processing simultaneously
-🚀 **Multi-Threading**: Enabled for all users"""
+💡 Estimasi: Hampir selesai..."""
 
         return "✅ Job completed"
 
