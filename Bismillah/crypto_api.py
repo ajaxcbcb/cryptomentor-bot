@@ -27,7 +27,7 @@ class CryptoAPI:
 
     def get_crypto_price(self, symbol: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Mendapatkan harga crypto dari Binance API dengan fallback untuk koin yang tidak tersedia
+        Mendapatkan harga crypto dari Binance API dengan akurasi tinggi dan validasi berlapis
         """
         try:
             # Check cache first
@@ -37,107 +37,314 @@ class CryptoAPI:
                 if (time.time() - timestamp) < self._cache_timeout:
                     return cached_data
 
-            # Multiple symbol formats to try for better compatibility
-            symbol_variants = self._get_symbol_variants(symbol)
+            # Enhanced symbol variants with priority ordering
+            symbol_variants = self._get_enhanced_symbol_variants(symbol)
             
-            spot_price = None
-            used_symbol = None
-            last_error = None
+            best_result = None
+            validation_errors = []
 
-            # Try each symbol variant
+            # Try each symbol variant with enhanced validation
             for variant in symbol_variants:
                 try:
+                    # Get spot price with validation
                     spot_price = get_price(variant, futures=False)
-                    if spot_price > 0:
-                        used_symbol = variant
-                        break
+                    
+                    # Enhanced price validation
+                    if not self._validate_price_data(spot_price):
+                        validation_errors.append(f"{variant}: Invalid price {spot_price}")
+                        continue
+
+                    # Get comprehensive 24h ticker data
+                    ticker_data = self._get_enhanced_ticker_data(variant)
+                    
+                    if ticker_data.get('error'):
+                        validation_errors.append(f"{variant}: Ticker error - {ticker_data['error']}")
+                        continue
+
+                    # Cross-validate price consistency
+                    ticker_price = ticker_data.get('price', 0)
+                    price_diff_percent = abs((spot_price - ticker_price) / ticker_price * 100) if ticker_price > 0 else 0
+                    
+                    if price_diff_percent > 5.0:  # More than 5% difference is suspicious
+                        validation_errors.append(f"{variant}: Price inconsistency {price_diff_percent:.2f}%")
+                        continue
+
+                    # Calculate accuracy score
+                    accuracy_score = self._calculate_accuracy_score(ticker_data, spot_price)
+                    
+                    result = {
+                        'symbol': symbol.upper().replace('USDT', '').replace('BUSD', '').replace('USDC', ''),
+                        'price': spot_price,
+                        'change_24h': ticker_data.get('change_24h', 0),
+                        'volume_24h': ticker_data.get('volume_24h', 0),
+                        'high_24h': ticker_data.get('high_24h', spot_price),
+                        'low_24h': ticker_data.get('low_24h', spot_price),
+                        'market_cap': self._calculate_enhanced_market_cap(symbol, spot_price),
+                        'last_updated': datetime.now().isoformat(),
+                        'source': 'binance_enhanced',
+                        'pair_used': variant,
+                        'accuracy_score': accuracy_score,
+                        'validation_passed': True
+                    }
+
+                    # Keep the best result (highest accuracy score)
+                    if not best_result or accuracy_score > best_result.get('accuracy_score', 0):
+                        best_result = result
+
                 except Exception as e:
-                    last_error = str(e)
+                    validation_errors.append(f"{variant}: {str(e)}")
                     continue
 
-            # If all variants failed
-            if spot_price is None or spot_price <= 0:
-                # Get available symbols for better error message
-                available_symbols = self._get_available_symbols_sample()
-                return {
-                    'error': f'Coin {symbol} not available on Binance',
-                    'symbol': symbol.upper(),
-                    'variants_tried': symbol_variants,
-                    'last_error': last_error,
-                    'suggestion': 'Try popular coins like BTC, ETH, BNB, SOL, XRP, ADA, DOT, MATIC, AVAX, UNI',
-                    'available_coins': available_symbols
-                }
+            # Return best result if found
+            if best_result:
+                # Cache the result
+                self._cache[cache_key] = (best_result, time.time())
+                logging.info(f"✅ Enhanced price data for {symbol}: ${best_result['price']:.6f} (accuracy: {best_result['accuracy_score']:.1f}%)")
+                return best_result
 
-            # Get 24h ticker data for additional metrics
-            try:
-                from app.providers.binance_provider import _http, _base_url
-
-                # Get 24h ticker stats using the same symbol that worked for price
-                ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
-                response = _http.get(ticker_url, params={'symbol': used_symbol})
-                
-                if response.status_code == 200:
-                    ticker_data = response.json()
-                    change_24h = float(ticker_data.get('priceChangePercent', 0))
-                    volume_24h = float(ticker_data.get('volume', 0)) * spot_price  # Volume in USD
-                    high_24h = float(ticker_data.get('highPrice', spot_price))
-                    low_24h = float(ticker_data.get('lowPrice', spot_price))
-                else:
-                    raise Exception(f"HTTP {response.status_code}")
-
-            except Exception as e:
-                logging.warning(f"Could not get 24h stats for {symbol} using {used_symbol}: {e}")
-                # Try to get basic price change from price endpoint
-                try:
-                    price_url = f"{_base_url(False)}/api/v3/ticker/price"
-                    old_price_response = _http.get(price_url, params={'symbol': used_symbol})
-                    if old_price_response.status_code == 200:
-                        # Calculate rough change estimate (this is fallback)
-                        change_24h = 0  # Will show 0% if we can't get real data
-                    else:
-                        change_24h = 0
-                except:
-                    change_24h = 0
-                    
-                volume_24h = 0
-                high_24h = spot_price
-                low_24h = spot_price
-
-            # Estimate market cap (simplified calculation)
-            # For major coins, use approximate supply
-            supply_estimates = {
-                'BTC': 19700000,
-                'ETH': 120300000,
-                'BNB': 160000000,
-                'SOL': 580000000,
-                'XRP': 100000000000,
-                'ADA': 35000000000
+            # Enhanced error response with diagnostics
+            available_symbols = self._get_available_symbols_sample()
+            return {
+                'error': f'No reliable data found for {symbol}',
+                'symbol': symbol.upper(),
+                'variants_tried': symbol_variants,
+                'validation_errors': validation_errors,
+                'diagnostics': {
+                    'total_variants_tried': len(symbol_variants),
+                    'validation_failures': len(validation_errors),
+                    'suggested_alternatives': self._get_similar_symbols(symbol)
+                },
+                'available_coins': available_symbols
             }
-
-            base_symbol = symbol.upper().replace('USDT', '')
-            estimated_supply = supply_estimates.get(base_symbol, 1000000000)
-            market_cap = spot_price * estimated_supply
-
-            result = {
-                'symbol': base_symbol,
-                'price': spot_price,
-                'change_24h': change_24h,
-                'volume_24h': volume_24h,
-                'high_24h': high_24h,
-                'low_24h': low_24h,
-                'market_cap': market_cap,
-                'last_updated': datetime.now().isoformat(),
-                'source': 'binance'
-            }
-
-            # Cache the result
-            self._cache[cache_key] = (result, time.time())
-
-            return result
 
         except Exception as e:
-            logging.error(f"Error getting crypto price for {symbol}: {e}")
-            return {'error': f'Failed to get price for {symbol}: {str(e)}'}
+            logging.error(f"Critical error getting crypto price for {symbol}: {e}")
+            return {'error': f'Critical system error for {symbol}: {str(e)}'}
+
+    def _get_enhanced_symbol_variants(self, symbol: str) -> List[str]:
+        """Generate enhanced symbol variants with intelligent priority ordering"""
+        base = symbol.upper().strip()
+        variants = []
+        
+        # Remove common suffixes
+        clean_base = base.replace('USDT', '').replace('BUSD', '').replace('USDC', '')
+        
+        # Priority 1: Most common USDT pairs
+        variants.extend([
+            f"{clean_base}USDT",
+            f"{clean_base}BUSD", 
+            f"{clean_base}USDC"
+        ])
+        
+        # Priority 2: Major crypto pairs
+        if clean_base not in ['BTC', 'ETH']:
+            variants.extend([
+                f"{clean_base}BTC",
+                f"{clean_base}ETH"
+            ])
+        
+        # Priority 3: Alternative stablecoins
+        variants.extend([
+            f"{clean_base}FDUSD",
+            f"{clean_base}TUSD"
+        ])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variants = []
+        for variant in variants:
+            if variant not in seen and variant != clean_base:
+                seen.add(variant)
+                unique_variants.append(variant)
+        
+        return unique_variants[:6]  # Limit to top 6 variants
+
+    def _get_enhanced_ticker_data(self, symbol: str) -> Dict[str, Any]:
+        """Get enhanced 24h ticker data with comprehensive validation"""
+        try:
+            from app.providers.binance_provider import _http, _base_url
+            
+            ticker_url = f"{_base_url(False)}/api/v3/ticker/24hr"
+            response = _http.get(ticker_url, params={'symbol': symbol})
+            
+            if response.status_code != 200:
+                return {'error': f'HTTP {response.status_code}'}
+                
+            ticker_data = response.json()
+            
+            # Enhanced data validation
+            required_fields = ['lastPrice', 'priceChangePercent', 'volume', 'highPrice', 'lowPrice']
+            for field in required_fields:
+                if field not in ticker_data:
+                    return {'error': f'Missing field: {field}'}
+            
+            # Convert and validate numeric data
+            try:
+                price = float(ticker_data['lastPrice'])
+                change_24h = float(ticker_data['priceChangePercent'])
+                volume = float(ticker_data['volume'])
+                high_24h = float(ticker_data['highPrice'])
+                low_24h = float(ticker_data['lowPrice'])
+                
+                # Sanity checks
+                if not (low_24h <= price <= high_24h):
+                    return {'error': f'Price {price} not within daily range [{low_24h}, {high_24h}]'}
+                
+                if volume < 0:
+                    return {'error': f'Invalid volume: {volume}'}
+                    
+                # Calculate volume in USD
+                volume_24h = volume * price
+                
+                return {
+                    'price': price,
+                    'change_24h': change_24h,
+                    'volume_24h': volume_24h,
+                    'high_24h': high_24h,
+                    'low_24h': low_24h,
+                    'raw_volume': volume,
+                    'count': int(ticker_data.get('count', 0)),  # Trade count
+                    'openTime': ticker_data.get('openTime'),
+                    'closeTime': ticker_data.get('closeTime')
+                }
+                
+            except (ValueError, TypeError) as e:
+                return {'error': f'Data conversion error: {e}'}
+                
+        except Exception as e:
+            return {'error': f'Ticker request failed: {e}'}
+
+    def _validate_price_data(self, price: Any) -> bool:
+        """Validate price data with comprehensive checks"""
+        try:
+            # Type and value validation
+            if not isinstance(price, (int, float)):
+                return False
+                
+            price_float = float(price)
+            
+            # Range validation
+            if price_float <= 0:
+                return False
+                
+            # Reasonable range check (between 0.000001 and 10,000,000)
+            if not (0.000001 <= price_float <= 10000000):
+                return False
+                
+            # Check for NaN or infinite values
+            if not (price_float == price_float):  # NaN check
+                return False
+                
+            if price_float == float('inf') or price_float == float('-inf'):
+                return False
+                
+            return True
+            
+        except (ValueError, TypeError, OverflowError):
+            return False
+
+    def _calculate_accuracy_score(self, ticker_data: Dict, spot_price: float) -> float:
+        """Calculate accuracy score based on data quality metrics"""
+        score = 100.0
+        
+        # Price consistency check
+        ticker_price = ticker_data.get('price', 0)
+        if ticker_price > 0:
+            price_diff = abs((spot_price - ticker_price) / ticker_price * 100)
+            score -= min(price_diff * 10, 50)  # Penalize up to 50 points for price inconsistency
+        
+        # Volume validation (higher volume = more reliable)
+        volume = ticker_data.get('volume_24h', 0)
+        if volume < 1000:  # Very low volume
+            score -= 30
+        elif volume < 10000:  # Low volume  
+            score -= 15
+        elif volume > 1000000:  # High volume bonus
+            score += 5
+        
+        # Trade count validation
+        trade_count = ticker_data.get('count', 0)
+        if trade_count < 100:  # Very few trades
+            score -= 20
+        elif trade_count > 10000:  # Many trades bonus
+            score += 5
+        
+        # Spread validation (high-low range)
+        high = ticker_data.get('high_24h', 0)
+        low = ticker_data.get('low_24h', 0)
+        if high > 0 and low > 0:
+            spread_percent = ((high - low) / low) * 100
+            if spread_percent > 50:  # Extremely high volatility
+                score -= 15
+            elif spread_percent > 25:  # High volatility
+                score -= 5
+        
+        return max(0.0, min(100.0, score))
+
+    def _calculate_enhanced_market_cap(self, symbol: str, price: float) -> float:
+        """Calculate enhanced market cap with updated supply data"""
+        # Updated supply estimates with more accurate data
+        supply_estimates = {
+            'BTC': 19700000,    # ~19.7M BTC
+            'ETH': 120300000,   # ~120.3M ETH  
+            'BNB': 160000000,   # ~160M BNB
+            'SOL': 580000000,   # ~580M SOL
+            'XRP': 54000000000, # ~54B XRP (updated from 100B)
+            'ADA': 35000000000, # ~35B ADA
+            'DOT': 1300000000,  # ~1.3B DOT
+            'MATIC': 10000000000, # ~10B MATIC
+            'AVAX': 400000000,  # ~400M AVAX
+            'UNI': 750000000,   # ~750M UNI
+            'LINK': 1000000000, # ~1B LINK
+            'LTC': 75000000,    # ~75M LTC
+            'ATOM': 390000000,  # ~390M ATOM
+            'ICP': 500000000,   # ~500M ICP
+            'NEAR': 1100000000, # ~1.1B NEAR
+            'APT': 1000000000,  # ~1B APT
+            'FTM': 3200000000,  # ~3.2B FTM
+            'ALGO': 10000000000, # ~10B ALGO
+            'VET': 86000000000, # ~86B VET
+            'FLOW': 1400000000  # ~1.4B FLOW
+        }
+        
+        base_symbol = symbol.upper().replace('USDT', '').replace('BUSD', '').replace('USDC', '')
+        estimated_supply = supply_estimates.get(base_symbol, 1000000000)  # Default 1B tokens
+        
+        return price * estimated_supply
+
+    def _get_similar_symbols(self, symbol: str) -> List[str]:
+        """Get similar symbols for better error suggestions"""
+        symbol_upper = symbol.upper()
+        
+        # Common symbol alternatives and corrections
+        alternatives = {
+            'BITCOIN': ['BTC'],
+            'ETHEREUM': ['ETH'], 
+            'BINANCE': ['BNB'],
+            'SOLANA': ['SOL'],
+            'RIPPLE': ['XRP'],
+            'CARDANO': ['ADA'],
+            'POLKADOT': ['DOT'],
+            'POLYGON': ['MATIC'],
+            'AVALANCHE': ['AVAX'],
+            'UNISWAP': ['UNI'],
+            'CHAINLINK': ['LINK'],
+            'LITECOIN': ['LTC']
+        }
+        
+        # Check if symbol is a full name
+        for full_name, symbols in alternatives.items():
+            if full_name in symbol_upper or symbol_upper in full_name:
+                return symbols
+                
+        # Check for partial matches
+        matches = []
+        common_symbols = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'MATIC', 'AVAX', 'UNI']
+        for common in common_symbols:
+            if common in symbol_upper or symbol_upper in common:
+                matches.append(common)
+                
+        return matches[:3]  # Return top 3 matches
 
     def get_futures_data(self, symbol: str) -> Dict[str, Any]:
         """
