@@ -92,45 +92,175 @@ def normalize_symbol(symbol: str) -> str:
     return _append_usdt_if_base_only(s)
 
 def get_price(symbol: str, futures: bool = False) -> float:
+    """Get price with enhanced validation and error handling"""
     sym = normalize_symbol(symbol)
     base = _base_url(futures)
     ep = "/fapi/v1/ticker/price" if futures else "/api/v3/ticker/price"
+    
+    # Enhanced retry mechanism with exponential backoff
+    max_retries = 3
+    base_delay = 0.5
+    
+    for attempt in range(max_retries):
+        try:
+            r = _http.get(base + ep, params={"symbol": sym})
+            data = r.json()
+            
+            # Enhanced error detection and handling
+            if isinstance(data, dict):
+                if "code" in data:
+                    error_code = data.get("code")
+                    error_msg = data.get("msg", "Unknown error")
+                    
+                    # Specific error handling
+                    if error_code == -1121:
+                        raise ValueError(f"Symbol {sym} not found on Binance: {error_msg}")
+                    elif error_code == -1003:  # Too many requests
+                        if attempt < max_retries - 1:
+                            time.sleep(base_delay * (2 ** attempt))
+                            continue
+                        raise ValueError(f"Rate limit exceeded for {sym}")
+                    elif error_code in [-1000, -1001, -1002]:
+                        raise ValueError(f"Binance API error {error_code}: {error_msg}")
+                    else:
+                        raise ValueError(f"Binance error {error_code}: {error_msg}")
+                
+                # Enhanced price data validation
+                if "price" in data:
+                    try:
+                        price = float(data["price"])
+                        
+                        # Comprehensive price validation
+                        if price <= 0:
+                            raise ValueError(f"Invalid price for {sym}: {price}")
+                        
+                        # Range validation (reasonable price range)
+                        if not (0.000001 <= price <= 10000000):
+                            raise ValueError(f"Price out of reasonable range for {sym}: {price}")
+                        
+                        # Check for NaN or infinite values
+                        if not (price == price):  # NaN check
+                            raise ValueError(f"Price is NaN for {sym}")
+                        
+                        if price == float('inf') or price == float('-inf'):
+                            raise ValueError(f"Price is infinite for {sym}")
+                        
+                        return price
+                        
+                    except (ValueError, TypeError) as e:
+                        raise ValueError(f"Price conversion error for {sym}: {e}")
+                else:
+                    raise ValueError(f"No price field in response for {sym}")
+            else:
+                raise ValueError(f"Unexpected response format for {sym}: {type(data)}")
+                
+        except ValueError:
+            # Re-raise ValueError as is (no retry)
+            raise
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            # Convert other exceptions to ValueError for consistency
+            raise ValueError(f"Failed to get price for {sym} after {max_retries} attempts: {str(e)}")
+    
+    raise ValueError(f"Exhausted all retry attempts for {sym}")
+
+def get_enhanced_ticker_data(symbol: str, futures: bool = False) -> Dict[str, Any]:
+    """Get comprehensive 24h ticker data with validation"""
+    sym = normalize_symbol(symbol)
+    base = _base_url(futures)
+    ep = "/fapi/v1/ticker/24hr" if futures else "/api/v3/ticker/24hr"
     
     try:
         r = _http.get(base + ep, params={"symbol": sym})
         data = r.json()
         
-        # Better error detection
-        if isinstance(data, dict):
-            if "code" in data:
-                error_code = data.get("code")
-                error_msg = data.get("msg", "Unknown error")
-                
-                if error_code == -1121:
-                    raise ValueError(f"Symbol {sym} not found on Binance: {error_msg}")
-                elif error_code in [-1000, -1001, -1002]:
-                    raise ValueError(f"Binance API error {error_code}: {error_msg}")
-                else:
-                    raise ValueError(f"Binance error {error_code}: {error_msg}")
+        # Enhanced error handling
+        if isinstance(data, dict) and "code" in data:
+            error_code = data.get("code")
+            error_msg = data.get("msg", "Unknown error")
+            raise ValueError(f"Binance ticker error {error_code} for {sym}: {error_msg}")
+        
+        # Comprehensive data validation
+        required_fields = ['lastPrice', 'priceChangePercent', 'volume', 'highPrice', 'lowPrice', 'count']
+        missing_fields = [field for field in required_fields if field not in data]
+        
+        if missing_fields:
+            raise ValueError(f"Missing required fields for {sym}: {missing_fields}")
+        
+        # Extract and validate numeric data
+        try:
+            price = float(data['lastPrice'])
+            change_24h = float(data['priceChangePercent'])
+            volume = float(data['volume'])
+            high_24h = float(data['highPrice'])
+            low_24h = float(data['lowPrice'])
+            trade_count = int(data['count'])
             
-            # Check if we have price data
-            if "price" in data:
-                price = float(data["price"])
-                if price > 0:
-                    return price
-                else:
-                    raise ValueError(f"Invalid price data for {sym}: {price}")
-            else:
-                raise ValueError(f"No price data returned for {sym}")
-        else:
-            raise ValueError(f"Unexpected response format for {sym}")
+            # Sanity checks
+            if not (0 < price <= 10000000):
+                raise ValueError(f"Invalid price range for {sym}: {price}")
             
-    except ValueError:
-        # Re-raise ValueError as is
-        raise
+            if not (low_24h <= price <= high_24h):
+                raise ValueError(f"Price {price} not within 24h range [{low_24h}, {high_24h}] for {sym}")
+            
+            if volume < 0:
+                raise ValueError(f"Negative volume for {sym}: {volume}")
+            
+            if trade_count < 0:
+                raise ValueError(f"Negative trade count for {sym}: {trade_count}")
+            
+            # Calculate additional metrics
+            volume_usd = volume * price
+            spread_percent = ((high_24h - low_24h) / low_24h * 100) if low_24h > 0 else 0
+            
+            return {
+                'symbol': sym,
+                'price': price,
+                'change_24h': change_24h,
+                'volume': volume,
+                'volume_usd': volume_usd,
+                'high_24h': high_24h,
+                'low_24h': low_24h,
+                'trade_count': trade_count,
+                'spread_percent': spread_percent,
+                'open_time': data.get('openTime'),
+                'close_time': data.get('closeTime'),
+                'source': 'binance_futures' if futures else 'binance_spot',
+                'validated': True
+            }
+            
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Data conversion error for {sym}: {e}")
+            
     except Exception as e:
-        # Convert other exceptions to ValueError for consistency
-        raise ValueError(f"Failed to get price for {sym}: {str(e)}")
+        raise ValueError(f"Failed to get ticker data for {sym}: {str(e)}")
+
+def validate_symbol_exists(symbol: str, futures: bool = False) -> bool:
+    """Validate if symbol exists on Binance with comprehensive checking"""
+    try:
+        sym = normalize_symbol(symbol)
+        
+        # Try to get exchange info first (more reliable)
+        exchange_data = exchange_info(sym, futures)
+        
+        if 'symbols' in exchange_data:
+            symbols = exchange_data['symbols']
+            if isinstance(symbols, list) and len(symbols) > 0:
+                symbol_data = symbols[0]
+                status = symbol_data.get('status', '')
+                return status == 'TRADING'
+        
+        # Fallback: try to get price
+        try:
+            price = get_price(sym, futures)
+            return price > 0
+        except:
+            return False
+            
+    except Exception:
+        return False
 
 def fetch_klines(symbol: str, interval: str, limit: int = 200, futures: bool = False) -> List[List[Any]]:
     sym = normalize_symbol(symbol)
