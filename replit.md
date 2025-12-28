@@ -85,9 +85,38 @@ result = detect_snd_zones("BTCUSDT", "1h", limit=100)
 - **Zone strength 0-100** based on volume consistency
 - **Entry proximity**: 0.5% from zone boundary
 
+## UI: Button-Based Menu System
+
+### Files Added
+- `menu_handler.py` - InlineKeyboard system mapping ALL commands to buttons
+- `MENU_INTEGRATION_GUIDE.md` - Complete integration instructions
+
+### Menu Structure (7 Categories)
+1. **📈 Price & Market** → Check Price, Market Overview
+2. **🧠 Trading Analysis** → Spot Analysis (SnD), Futures Analysis (SnD)
+3. **🚀 Futures Signals** → Multi-Coin Signals, Auto Signals (Lifetime)
+4. **💼 Portfolio & Credits** → Portfolio, Add Coin, Credits, Upgrade
+5. **👑 Premium & Referral** → Referral Program, Premium Earnings
+6. **🤖 Ask AI** → Ask CryptoMentor AI
+7. **⚙️ Settings** → Change Language, Back to Main
+
+### Integration Status
+- ✅ Menu builder functions created
+- ✅ Callback handlers implemented
+- ✅ Symbol input flow (step-by-step)
+- ✅ Backward compatible (slash commands still work)
+- ⏳ Needs: Add to bot.py registration
+
+### Quick Setup
+```python
+# In bot.py
+from menu_handler import register_menu_handlers
+register_menu_handlers(application)
+```
+
 ## Next Steps
 1. ✅ Core S&D detection algorithm
-2. ⏳ Integration with bot signal pipeline
-3. ⏳ Multi-timeframe analysis (1H + 4H confluence)
-4. ⏳ Risk/Reward calculation for entries
-5. ⏳ Telegram signal formatting
+2. ✅ Button-based UI menu system
+3. ⏳ Integration with bot signal pipeline
+4. ⏳ Multi-timeframe analysis (1H + 4H confluence)
+5. ⏳ Risk/Reward calculation for entries
