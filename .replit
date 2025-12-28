@@ -72,5 +72,14 @@ args = "cd ./Bismillah && python main.py"
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Start Bot with Menu"
+author = 43938181
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd Bismillah && python main.py"
+
 [agent]
 expertMode = true
