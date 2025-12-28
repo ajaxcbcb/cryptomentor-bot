@@ -22,7 +22,7 @@ PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
 [workflows]
-runButton = "Start Bot Clean"
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "Start Bot"
@@ -51,6 +51,26 @@ args = "sleep 2"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd Bismillah && python main.py"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "bot-server"
+
+[[workflows.workflow]]
+name = "bot-server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd ./Bismillah && python main.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 expertMode = true
