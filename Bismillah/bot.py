@@ -1119,16 +1119,16 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 last_message_hash = ""
                 for i in range(60):  # 30 second max (60 x 0.5s)
                     await asyncio.sleep(0.5)  # Update every 500ms for REAL-TIME feel
-                    
+
                     # Get THIS user's job status only
                     current_job = progress_tracker.get_job_status(user_id)
                     if not current_job:
                         break  # Job completed
-                    
+
                     # Get new progress message
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     current_message_hash = str(hash(updated_msg))
-                    
+
                     # Only update if message actually changed (avoid rate limits)
                     if current_message_hash != last_message_hash:
                         try:
@@ -1137,7 +1137,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                         except Exception as edit_error:
                             # Continue even if edit fails - user experience priority
                             pass
-                            
+
             except Exception as progress_error:
                 print(f"Real-time progress updater error for user {user_id}: {progress_error}")
 
@@ -1257,15 +1257,15 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                 last_message_hash = ""
                 for i in range(40):  # 20 seconds max (40 x 0.5s)
                     await asyncio.sleep(0.5)  # Ultra-fast updates
-                    
+
                     current_job = progress_tracker.get_job_status(user_id)
                     if not current_job:
                         break  # Job completed
-                    
+
                     # Get real-time progress
                     updated_msg = progress_tracker.get_progress_message(user_id)
                     current_message_hash = str(hash(updated_msg))
-                    
+
                     # Update only if content changed
                     if current_message_hash != last_message_hash:
                         try:
@@ -1411,6 +1411,7 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                         await update.message.reply_text(chunk, parse_mode='MARKDOWNV2')
                 except Exception as e:
                     print(f"⚠️ Markdown error for user {user_id}, sending as plain text: {e}")
+                    # Remove problematic characters for plain text
                     plain_chunks = [chunk.replace('\\', '') for chunk in chunks]
                     await loading_msg.edit_text(plain_chunks[0], parse_mode=None)
                     for chunk in plain_chunks[1:]:
@@ -1558,11 +1559,11 @@ https://www.mexc.fm/id-ID/acquisition/custom-sign-up?shareCode=mexc-3VvV3
                             job = progress_tracker.get_job_status(user_id)
                             if not job:
                                 break  # Job completed
-                            
+
                             # Get real-time progress message
                             updated_msg = progress_tracker.get_progress_message(user_id)
                             current_message_hash = str(hash(updated_msg))
-                            
+
                             # Only update if content actually changed
                             if current_message_hash != last_message_hash:
                                 try:
@@ -3615,6 +3616,7 @@ Keep your admin user IDs private and only share with trusted users."""
         message += f"• Set `ADMIN` = `{user_id}` in Replit Secrets for super admin\n"
         message += f"• Use `/add_admin` to add additional admins\n"
         message += f"• Restart bot after secret changes\n\n"
+
         message += f"🔄 **Quick Test**: Use `/whoami` to see your ID"
 
         await update.message.reply_text(message, parse_mode='MARKDOWN')
@@ -3923,76 +3925,88 @@ Keep your admin user IDs private and only share with trusted users."""
         print(f"⚠️ Bot Error: {repr(context.error)} | User: {user_id} | Command: {command[:50]}")
 
     def _register_handlers(self):
-        """Register command handlers"""
+        """Register all command handlers"""
+        # Core commands
+        self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("menu", self.menu_command))  # New menu command
+        self.application.add_handler(CommandHandler("price", self.price_command))
+        self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+        self.application.add_handler(CommandHandler("market", self.market_command))
+        self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
+        self.application.add_handler(CommandHandler("futures", self.futures_command))
+
+        # Portfolio and user management
+        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
+        self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
+        self.application.add_handler(CommandHandler("credits", self.credits_command))
+        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
+        self.application.add_handler(CommandHandler("referral", self.referral_command))
+        self.application.add_handler(CommandHandler("language", self.language_command))
+
+        # AI and interaction
+        self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
+
+        # Status commands (alias)
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        self.application.add_handler(CommandHandler("system", self.status_command))
+
+        # Admin commands
+        self.application.add_handler(CommandHandler("admin", self.admin_command))
+        self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
+        self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
+        self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
+        self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
+        self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command))
+        self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
+        self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
+        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
+        self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
+        self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
+        self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
+        self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
+        self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
+        self.application.add_handler(CommandHandler("restart", self.restart_command))
+        self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
+        self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
+        self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
+        self.application.add_handler(CommandHandler("db_status", self.db_status_command))
+        self.application.add_handler(CommandHandler("banned", self.banned_command))
+        self.application.add_handler(CommandHandler("whoami", self.whoami_command))
+        self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
+        self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
+        self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
+        self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
+        self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
+        self.application.add_handler(CommandHandler("whois", self.whois_command))
+
+        # Auto signals admin commands
+        self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
+        self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
+        self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
+        self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
+
+        # Callback query handler
+        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+
+        # Message handler for non-commands
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+
+        # Register menu system handlers
         try:
-            # Basic commands
-            self.application.add_handler(CommandHandler("start", self.start))
-            self.application.add_handler(CommandHandler("help", self.help_command))
-            self.application.add_handler(CommandHandler("price", self.price_command))
-            self.application.add_handler(CommandHandler("analyze", self.analyze_command))
-            self.application.add_handler(CommandHandler("market", self.market_command))
-            self.application.add_handler(CommandHandler("futures", self.futures_command))
-            self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
+            from menu_handlers import register_menu_handlers
+            register_menu_handlers(self.application, self)
+            print("✅ Menu system integrated successfully")
+        except ImportError as e:
+            print(f"⚠️ Menu system not available: {e}")
+            print("ℹ️ Bot will work with commands only")
 
-            # User commands
-            self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
-            self.application.add_handler(CommandHandler("add_coin", self.add_coin_command))
-            self.application.add_handler(CommandHandler("credits", self.credits_command))
-            self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
-            self.application.add_handler(CommandHandler("referral", self.referral_command))
-            self.application.add_handler(CommandHandler("language", self.language_command))
-            self.application.add_handler(CommandHandler("ask_ai", self.handle_ask_ai))
-            self.application.add_handler(CommandHandler("premium_earnings", self.premium_earnings_command))
+        print("✅ All handlers registered successfully")
 
-            # Admin commands
-            self.application.add_handler(CommandHandler("admin", self.admin_command))
-            self.application.add_handler(CommandHandler("status", self.status_command))
-            self.application.add_handler(CommandHandler("system", self.status_command))
-            self.application.add_handler(CommandHandler("setpremium", self.setpremium_command))
-            self.application.add_handler(CommandHandler("grant_credits", self.grant_credits_command))
-            self.application.add_handler(CommandHandler("check_user_status", self.check_user_status_command))
-            self.application.add_handler(CommandHandler("revoke_premium", self.revoke_premium_command))
-            self.application.add_handler(CommandHandler("remove_premium", self.remove_premium_command))
-            self.application.add_handler(CommandHandler("fix_all_credits", self.fix_all_credits_command))
-            self.application.add_handler(CommandHandler("set_all_credits", self.set_all_credits_command))
-            self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-            self.application.add_handler(CommandHandler("broadcast_welcome", self.broadcast_welcome_command))
-            self.application.add_handler(CommandHandler("confirm_broadcast", self.confirm_broadcast_command))
-            self.application.add_handler(CommandHandler("cancel_broadcast", self.cancel_broadcast_command))
-            self.application.add_handler(CommandHandler("recovery_stats", self.recovery_stats_command))
-            self.application.add_handler(CommandHandler("combined_stats", self.combined_stats_command))
-            self.application.add_handler(CommandHandler("check_admin", self.check_admin_command))
-            self.application.add_handler(CommandHandler("restart", self.restart_command))
-            self.application.add_handler(CommandHandler("refresh_credits", self.refresh_credits_command))
-            self.application.add_handler(CommandHandler("grant_package", self.grant_package_command))
-            self.application.add_handler(CommandHandler("setup_admin", self.setup_admin_command))
-            self.application.add_handler(CommandHandler("db_status", self.db_status_command))
-            self.application.add_handler(CommandHandler("banned", self.banned_command))
-            self.application.add_handler(CommandHandler("whoami", self.whoami_command))
-            self.application.add_handler(CommandHandler("admin_debug", self.admin_debug_command))
-            self.application.add_handler(CommandHandler("add_admin", self.add_admin_command))
-            self.application.add_handler(CommandHandler("remove_admin", self.remove_admin_command))
-            self.application.add_handler(CommandHandler("list_admins", self.list_admins_command))
-            self.application.add_handler(CommandHandler("check_premium", self.check_premium_command))
-            self.application.add_handler(CommandHandler("whois", self.whois_command))
-
-            # Auto signals admin commands
-            self.application.add_handler(CommandHandler("auto_signals_status", self.auto_signals_status_command))
-            self.application.add_handler(CommandHandler("auto_signal_ai_status", self.auto_signals_status_command))
-            self.application.add_handler(CommandHandler("enable_auto_signal_ai", self.start_auto_signals_command))
-            self.application.add_handler(CommandHandler("disable_auto_signal_ai", self.stop_auto_signals_command))
-
-            # Callback query handler
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-
-            # Message handler for non-commands
-            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-
-            print("✅ All handlers registered successfully")
-
-        except Exception as e:
-            print(f"❌ Error registering handlers: {e}")
-            raise
+    except Exception as e:
+        print(f"❌ Error registering handlers: {e}")
+        raise
     # End of TelegramBot class definition
 if __name__ == "__main__":
     bot = TelegramBot()
