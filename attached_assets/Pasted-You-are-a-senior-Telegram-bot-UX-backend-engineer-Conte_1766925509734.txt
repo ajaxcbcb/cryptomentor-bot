@@ -1,0 +1,111 @@
+You are a senior Telegram bot UX & backend engineer.
+
+Context:
+This project is CryptoMentor AI 2.0.
+The bot has many advanced commands, but most users are beginners and get confused by text-based commands.
+
+Goal:
+Design a BUTTON-BASED (InlineKeyboard) command system that maps ALL existing commands into intuitive menus.
+The bot must remain fully compatible with existing slash commands.
+
+IMPORTANT:
+- Do NOT remove existing commands
+- Buttons should TRIGGER the same logic internally
+- UX must be beginner-friendly (emoji + simple labels)
+- Advanced users can still type commands manually
+
+========================
+AVAILABLE COMMANDS
+========================
+
+BEGINNER / BEST COMMANDS:
+- /price <symbol> → FREE
+- /analyze <symbol> → 20 credits
+- /futures <symbol> → 20 credits
+
+MARKET & PRICE:
+- /price <symbol>
+- /market
+
+TRADING ANALYSIS (SnD):
+- /analyze <symbol>
+- /futures <symbol>
+- /futures_signals
+
+PORTFOLIO & CREDIT:
+- /portfolio
+- /add_coin <symbol> <amount>
+- /credits
+- /subscribe
+
+OTHERS:
+- /ask_ai <question>
+- /referral
+- /premium_earnings
+- /language
+
+========================
+TASKS
+========================
+
+1. DESIGN MAIN MENU (InlineKeyboard)
+Main menu buttons must be:
+- 📈 Price & Market
+- 🧠 Trading Analysis
+- 🚀 Futures Signals
+- 💼 Portfolio & Credits
+- 👑 Premium & Referral
+- 🤖 Ask AI
+- ⚙️ Settings
+
+2. DESIGN SUB-MENUS AND MAP COMMANDS
+
+📈 Price & Market:
+- 🔹 Check Price → /price
+- 🌍 Market Overview → /market
+
+🧠 Trading Analysis:
+- 📊 Spot Analysis (SnD) → /analyze
+- 📉 Futures Analysis (SnD) → /futures
+
+🚀 Futures Signals:
+- 🔥 Futures Signals (Multi Coin) → /futures_signals
+- 👑 Auto Signal (Lifetime) → explanation text only
+
+💼 Portfolio & Credits:
+- 📂 My Portfolio → /portfolio
+- ➕ Add Coin → /add_coin (ask symbol & amount step-by-step)
+- 💳 Check Credits → /credits
+- ⭐ Upgrade Premium → /subscribe
+
+👑 Premium & Referral:
+- 🎁 Referral Program → /referral
+- 💰 Premium Earnings → /premium_earnings
+
+🤖 Ask AI:
+- 💬 Ask CryptoMentor AI → /ask_ai
+
+⚙️ Settings:
+- 🌐 Change Language → /language
+- 🔙 Back to Main Menu
+
+3. IMPLEMENT PYTHON CODE EXAMPLE
+- Use python-telegram-bot OR aiogram
+- Show:
+  - InlineKeyboard layout
+  - Callback handlers
+  - Command fallback support
+
+4. UX RULES
+- No typing needed for beginners
+- Clear emoji labels
+- Step-by-step input for symbol & amount
+- Friendly system messages
+
+========================
+OUTPUT FORMAT
+========================
+- Menu structure (tree)
+- Python code examples
+- UX explanation
+- Notes for scalability
