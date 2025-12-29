@@ -257,13 +257,87 @@ Choose an option from the menu below:"""
             )
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle market overview command - placeholder implementation"""
-        await update.effective_message.reply_text(
-            f"🌍 **Global Market Overview**\n\n"
-            f"📊 Loading market statistics...\n\n"
-            f"💡 *Placeholder - implement with market data API*",
-            parse_mode='MARKDOWN'
-        )
+        """Handle market overview command with real Binance data"""
+        try:
+            from crypto_api import crypto_api
+            from datetime import datetime
+            from pytz import timezone as tz_module
+            
+            # Fetch market data in parallel (5 pairs)
+            market_data = crypto_api.get_market_overview_fast()
+            
+            if not market_data.get('success', False):
+                await update.effective_message.reply_text(
+                    f"❌ **Market Data Error**\n\nFailed to fetch market data",
+                    parse_mode='MARKDOWN'
+                )
+                return
+            
+            # Format market overview
+            pairs = market_data.get('pairs', [])
+            sentiment = market_data.get('sentiment', 'UNKNOWN')
+            
+            # Sentiment emoji
+            sentiment_emoji = '🟢' if sentiment == 'BULLISH' else ('🟡' if sentiment == 'NEUTRAL' else '🔴')
+            
+            # Build pairs summary
+            pairs_lines = []
+            for pair in pairs:
+                emoji = pair.get('emoji', '○')
+                symbol = pair.get('symbol', 'N/A')
+                price = pair.get('price', 0)
+                change = pair.get('change_24h', 0)
+                volume = pair.get('volume_24h', 0)
+                
+                # Format price
+                if price >= 1:
+                    price_str = f"${price:,.0f}" if price > 1000 else f"${price:.2f}"
+                else:
+                    price_str = f"${price:.6f}"
+                
+                # Format change
+                change_str = f"{'+' if change > 0 else ''}{change:.2f}%"
+                change_emoji = '📈' if change > 0 else ('📉' if change < 0 else '➡️')
+                
+                # Format volume
+                if volume > 1_000_000_000:
+                    volume_str = f"${volume/1_000_000_000:.1f}B"
+                elif volume > 1_000_000:
+                    volume_str = f"${volume/1_000_000:.1f}M"
+                else:
+                    volume_str = f"${volume/1_000:,.0f}K"
+                
+                pair_line = f"{emoji} **{symbol}**: {price_str} | {change_emoji} {change_str} | 📊 {volume_str}"
+                pairs_lines.append(pair_line)
+            
+            pairs_text = "\n".join(pairs_lines)
+            current_time = datetime.now(tz_module('Asia/Jakarta')).strftime('%H:%M:%S')
+            
+            message_text = f"""🌍 **GLOBAL MARKET OVERVIEW**
+
+⏰ {current_time} WIB
+
+📊 **Market Sentiment:** {sentiment_emoji} **{sentiment}**
+
+--------------------
+
+{pairs_text}
+
+--------------------
+
+💡 *Data from Binance Spot Market*"""
+            
+            await update.effective_message.reply_text(
+                message_text,
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            logger.error(f"Market command error: {e}", exc_info=True)
+            await update.effective_message.reply_text(
+                f"❌ **Error**: {str(e)[:100]}",
+                parse_mode='MARKDOWN'
+            )
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle analyze command with real SnD analysis"""
