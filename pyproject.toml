@@ -7,4 +7,5 @@ dependencies = [
     "psutil>=7.0.0",
     "python-dateutil>=2.9.0.post0",
     "supabase>=2.18.0",
+    "python-telegram-bot[job-queue]>=21.0",
 ]
