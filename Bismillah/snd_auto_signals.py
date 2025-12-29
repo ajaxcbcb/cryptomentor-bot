@@ -8,9 +8,10 @@ from database import Database
 class SnDAutoSignals:
     def __init__(self, bot_instance):
         self.bot = bot_instance
-        self.db = bot_instance.db
-        self.crypto_api = bot_instance.crypto_api
-        self.ai = bot_instance.ai
+        # Lazy load db - it may not be initialized yet
+        self._db = None
+        self.crypto_api = getattr(bot_instance, 'crypto_api', None)
+        self.ai = getattr(bot_instance, 'ai', None)
 
         # Configuration
         self.scan_interval = 30 * 60  # 30 minutes
@@ -32,6 +33,13 @@ class SnDAutoSignals:
         print(f"🎯 Auto SnD Signals initialized with {len(self.target_symbols)} altcoins")
         print(f"⏰ Scan interval: {self.scan_interval // 60} minutes")
         print(f"📈 Min confidence: {self.min_confidence}%")
+    
+    @property
+    def db(self):
+        """Lazy load database instance"""
+        if self._db is None:
+            self._db = getattr(self.bot, 'db', None)
+        return self._db
 
     async def start_auto_scanner(self):
         """Start the auto signal scanner"""
@@ -246,7 +254,8 @@ class SnDAutoSignals:
 
             # Log the broadcast
             try:
-                self.db.log_auto_signals_broadcast(len(signals_to_send), success_count, len(eligible_users))
+                if self.db:
+                    self.db.log_auto_signals_broadcast(len(signals_to_send), success_count, len(eligible_users))
             except:
                 pass  # Don't fail if logging fails
 
