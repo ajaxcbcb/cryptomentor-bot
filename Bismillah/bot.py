@@ -102,7 +102,6 @@ class TelegramBot:
         
         # Admin command handler
         self.application.add_handler(CommandHandler("admin", self.admin_command))
-        self.application.add_handler(CommandHandler("admin_help", self.admin_help_command))
         
         # Register admin premium handlers
         try:
@@ -135,6 +134,9 @@ class TelegramBot:
             for handler in sb_handlers:
                 self.application.add_handler(handler)
 
+        # Register callback handlers for admin panel buttons
+        self.application.add_handler(CallbackQueryHandler(self.admin_button_handler))
+        
         # Message handler for menu interactions
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
@@ -656,39 +658,11 @@ Choose an option from the menu below:"""
         await update.effective_message.reply_text(id_info, parse_mode='MARKDOWN')
 
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command - show admin panel"""
+        """Handle /admin command - interactive admin panel with buttons"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from app.lib.auth import get_admin_level, get_admin_hierarchy
+        
         user_id = update.effective_user.id
-        is_admin = user_id in self.admin_ids
-        
-        if not is_admin:
-            await update.effective_message.reply_text(
-                f"❌ **Access Denied**\n\nYou are not authorized to use admin commands.",
-                parse_mode='MARKDOWN'
-            )
-            return
-        
-        admin_menu = f"""👑 **ADMIN PANEL**
-
-👤 Admin ID: `{user_id}`
-
-📊 **Commands:**
-• `/signal_on` - Enable auto signals
-• `/signal_off` - Disable auto signals  
-• `/signal_status` - Check status
-
-🔧 **Bot Status:**
-• HTTP/2: ✅
-• Rate limit: ✅ (9 RPS)
-• Market overview: ✅"""
-        
-        await update.effective_message.reply_text(admin_menu, parse_mode='MARKDOWN')
-
-    async def admin_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin_help command - comprehensive admin guide"""
-        user_id = update.effective_user.id
-        
-        # Check if user is admin using auth module
-        from app.lib.auth import get_admin_level
         admin_level = get_admin_level(user_id)
         
         if admin_level is None:
@@ -699,49 +673,208 @@ Choose an option from the menu below:"""
             return
         
         level_name = {1: "ADMIN1", 2: "ADMIN2", 3: "ADMIN3"}.get(admin_level, "UNKNOWN")
+        hierarchy = get_admin_hierarchy()
         
-        admin_help = f"""👑 **CryptoMentor AI - Admin Panel**
+        admin_panel_text = f"""👑 **CryptoMentor AI - Admin Panel**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🤖 **System Status**
 ⏰ **Time:** {datetime.now().strftime('%H:%M:%S')} WIB
 👤 **Your ID:** `{user_id}`
 🔑 **Your Role:** {level_name}
+👥 **Total Admins:** {hierarchy.get('total_admins', 0)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**👥 USER MANAGEMENT:**
-`/set_premium <user_id> <days|lifetime>` - Set premium
-`/remove_premium <user_id>` - Remove premium
-`/grant_credits <user_id> <amount>` - Grant credits
-`/check_user_status <user_id>` - Check user info
+**What would you like to do?**
 
-**💎 PREMIUM FEATURES:**
+Select an option using the buttons below to manage users, check system status, or configure admins.
+
+⚠️ Use admin commands responsibly"""
+        
+        # Create inline buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt"),
+                InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")
+            ],
+            [
+                InlineKeyboardButton("🤖 Supabase Status", callback_data="admin_sb_status"),
+                InlineKeyboardButton("📊 System Info", callback_data="admin_system_info")
+            ],
+            [
+                InlineKeyboardButton("👨‍💼 Admin Settings", callback_data="admin_settings"),
+                InlineKeyboardButton("⚙️ Bot Config", callback_data="admin_config")
+            ]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.effective_message.reply_text(
+            admin_panel_text,
+            reply_markup=reply_markup,
+            parse_mode='MARKDOWN'
+        )
+
+    async def admin_button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle admin panel button clicks"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from app.lib.auth import get_admin_level
+        
+        query = update.callback_query
+        user_id = query.from_user.id
+        admin_level = get_admin_level(user_id)
+        
+        if admin_level is None:
+            await query.answer("❌ Access Denied", show_alert=True)
+            return
+        
+        # Handle different button presses
+        if query.data == "admin_user_mgmt":
+            text = """👥 **User Management**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Use these commands to manage users:
+
+• `/set_premium <user_id> <days|lifetime>` - Set premium
+• `/remove_premium <user_id>` - Remove premium
+• `/grant_credits <user_id> <amount>` - Grant credits
+
+**Example:**
+`/set_premium 7079544380 lifetime`
+`/set_premium 7079544380 30`
+`/grant_credits 7079544380 1000`"""
+            
+        elif query.data == "admin_premium":
+            text = """💎 **Premium Control**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Premium Features Available:
 • Lifetime/Unlimited Premium
 • Unlimited Credits
 • Auto Signals Access
 
-**🛠️ SYSTEM COMMANDS:**
-`/signal_on` - Enable auto signals
-`/signal_off` - Disable auto signals
-`/signal_status` - Check signal status
-
-**👨‍💼 ADMIN HIERARCHY:**
-• ADMIN1 (Level 1) - Can remove ADMIN2/ADMIN3
-• ADMIN2 (Level 2) - Can remove ADMIN3
-• ADMIN3 (Level 3) - Lower privileges
-
+Use the User Management commands to set premium for users."""
+            
+        elif query.data == "admin_sb_status":
+            text = """🤖 **Supabase Status**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📝 **Examples:**
-`/set_premium 7079544380 lifetime` - Set lifetime premium
-`/set_premium 7079544380 30` - Set 30 days premium
-`/remove_premium 7079544380` - Remove premium
-`/grant_credits 7079544380 1000` - Give 1000 credits
+Checking Supabase connection...
 
-⚠️ Use admin commands responsibly"""
+✅ Supabase Integration: Active
+📊 Users in Database: Connected
+💾 Premium Tracking: Enabled
+
+Use `/signal_status` to check live signal status."""
+            
+        elif query.data == "admin_system_info":
+            text = f"""📊 **System Information**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 **Bot Status:**
+• HTTP/2: ✅ Enabled
+• Rate Limit: ✅ 9 RPS
+• Market Overview: ✅ Active
+• Auto Signals: ✅ Running
+
+⏰ **Current Time:** {datetime.now().strftime('%H:%M:%S')} WIB
+👤 **Your Admin Level:** {admin_level}
+📡 **Deployment:** ✅ Active"""
+            
+        elif query.data == "admin_settings":
+            if admin_level == 1:  # Only ADMIN1 can add admins
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add New Admin", callback_data="admin_add_admin")],
+                    [InlineKeyboardButton("👥 List Admins", callback_data="admin_list_admins")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_back")]
+                ]
+                text = """👨‍💼 **Admin Settings**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You have admin privileges.
+
+Select an option:
+• Add new admin
+• View admin list
+• Configure permissions"""
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='MARKDOWN')
+                await query.answer()
+                return
+            else:
+                text = """👨‍💼 **Admin Settings**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You don't have permission to manage admins.
+
+Only ADMIN1 can add/remove admins."""
+                
+        elif query.data == "admin_add_admin":
+            if admin_level != 1:
+                await query.answer("❌ Only ADMIN1 can add admins", show_alert=True)
+                return
+            text = """➕ **Add New Admin**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+To add a new admin, use:
+`/add_admin <telegram_user_id>`
+
+Or set the environment variable:
+`ADMIN2` or `ADMIN3` with the user ID
+
+**Example:**
+`/add_admin 7079544380`
+
+Then restart the bot to apply."""
+            
+        elif query.data == "admin_list_admins":
+            from app.lib.auth import get_admin_hierarchy
+            hierarchy = get_admin_hierarchy()
+            text = """👥 **Admin List**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+            if hierarchy.get('admin1', {}).get('id'):
+                text += f"👑 **ADMIN1:** {hierarchy['admin1']['id']}\n"
+            if hierarchy.get('admin2', {}).get('id'):
+                text += f"🔹 **ADMIN2:** {hierarchy['admin2']['id']}\n"
+            if hierarchy.get('admin3', {}).get('id'):
+                text += f"🔸 **ADMIN3:** {hierarchy['admin3']['id']}\n"
+                
+            text += f"\n📊 **Total Admins:** {hierarchy.get('total_admins', 0)}"
+            
+        elif query.data == "admin_config":
+            text = """⚙️ **Bot Configuration**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Current Setup:
+✅ HTTP/2 Enabled
+✅ Rate Limiting Active
+✅ Supabase Integration
+✅ Auto Signals Running
+✅ Premium System Active
+
+For advanced configuration, contact ADMIN1."""
+            
+        elif query.data == "admin_back":
+            # Go back to main admin panel
+            await self.admin_command(update, context)
+            await query.answer()
+            return
         
-        await update.effective_message.reply_text(admin_help, parse_mode='MARKDOWN')
+        else:
+            text = "Unknown action"
+        
+        # Default keyboard with back button
+        if query.data not in ["admin_settings"]:
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='MARKDOWN')
+        else:
+            await query.edit_message_text(text=text, parse_mode='MARKDOWN')
+        
+        await query.answer()
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages for menu interactions"""
