@@ -1757,7 +1757,10 @@ class AIAssistant:
         except Exception as e:
             # Complete job even on error
             if user_id and progress_tracker:
-                progress_tracker.complete_job(user_id)
+                try:
+                    progress_tracker.complete_job(user_id)
+                except:
+                    pass  # Ignore progress tracker errors
             print(f"Error in futures signals: {e}")
             return f"""❌ **FUTURES SIGNAL ERROR**
 
@@ -1886,16 +1889,19 @@ class AIAssistant:
                 # Import crypto_api if not already available
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
+                    if 'error' not in price_data and price_data:
                         change_24h = price_data.get('change_24h', 0)
                     else:
-                        print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error')}")
+                        print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error') if price_data else 'No data'}")
                 else:
                     # Fallback: import crypto_api if not passed
-                    from crypto_api import crypto_api as fallback_api
-                    price_data = fallback_api.get_crypto_price(symbol, force_refresh=True)
-                    if 'error' not in price_data:
-                        change_24h = price_data.get('change_24h', 0)
+                    try:
+                        from crypto_api import crypto_api as fallback_api
+                        price_data = fallback_api.get_crypto_price(symbol, force_refresh=True)
+                        if 'error' not in price_data and price_data:
+                            change_24h = price_data.get('change_24h', 0)
+                    except ImportError:
+                        print(f"Could not import crypto_api for {symbol}")
             except Exception as e:
                 print(f"Error getting change_24h for {symbol}: {e}")
                 change_24h = 0 # Default to 0 if error
@@ -2322,18 +2328,19 @@ class AIAssistant:
             preliminary_final = adjusted_confidence * hash_variation * market_multiplier * volume_multiplier
             final_confidence = min(90, max(40, preliminary_final))
 
-            # Dynamic confidence threshold based on R:R ratio
-            confidence_threshold = 55  # Base threshold
+            # Dynamic confidence threshold based on R:R ratio - LOWERED FOR MORE SIGNALS
+            confidence_threshold = 45  # Base threshold (lowered from 55)
 
             # Lower threshold for high R:R signals (they're worth taking with lower confidence)
             if rr_ratio >= 4.0:
-                confidence_threshold = 45  # High R:R = lower confidence needed
+                confidence_threshold = 35  # High R:R = lower confidence needed
             elif rr_ratio >= 3.0:
-                confidence_threshold = 50  # Good R:R = slightly lower threshold
+                confidence_threshold = 40  # Good R:R = slightly lower threshold
             elif rr_ratio >= 2.5:
-                confidence_threshold = 52  # Above average R:R
+                confidence_threshold = 42  # Above average R:R
 
             if final_confidence < confidence_threshold:
+                print(f"🔍 DEBUG: {symbol} signal rejected - Confidence {final_confidence:.1f}% < threshold {confidence_threshold}%")
                 direction = "NEUTRAL"
                 emoji = "⚖️"
                 # Neutralize all prices to prevent user entry
@@ -2343,6 +2350,8 @@ class AIAssistant:
                 tp3 = current_price      # Same as entry to prevent execution
                 sl = current_price       # Same as entry to prevent execution
                 strategy = f"Low Confidence ({final_confidence:.1f}% < {confidence_threshold}%) - Wait for Better Setup"
+            else:
+                print(f"✅ DEBUG: {symbol} signal accepted - Confidence {final_confidence:.1f}% >= threshold {confidence_threshold}%")
 
             # More realistic leverage recommendations based on honest confidence
             if final_confidence >= 85:

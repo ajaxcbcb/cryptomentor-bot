@@ -45,6 +45,19 @@ class TelegramBot:
 
         self.application = None
         self.admin_ids = self._load_admin_ids()
+        
+        # Initialize AI assistant and crypto API
+        try:
+            from ai_assistant import AIAssistant
+            from crypto_api import crypto_api
+            self.ai_assistant = AIAssistant()
+            self.crypto_api = crypto_api
+            print("✅ AI Assistant and Crypto API initialized")
+        except Exception as e:
+            print(f"⚠️ AI Assistant initialization failed: {e}")
+            self.ai_assistant = None
+            self.crypto_api = None
+        
         print(f"✅ Bot initialized with {len(self.admin_ids)} admin(s)")
 
     def _load_admin_ids(self):
@@ -422,8 +435,8 @@ Choose an option from the menu below:"""
 
             # Get signals with error handling
             try:
-                signals = await self.ai_assistant.get_multi_coin_futures_signals(
-                    'id', self.crypto_api, progress_tracker, user_id
+                signals = await self.ai_assistant.generate_futures_signals(
+                    'id', self.crypto_api, context.args, progress_tracker
                 )
                 print("✅ Multi-coin futures signals generated successfully")
             except Exception as signal_error:
