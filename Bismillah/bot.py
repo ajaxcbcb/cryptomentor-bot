@@ -182,15 +182,56 @@ Choose an option from the menu below:"""
         await update.message.reply_text(help_text, parse_mode='MARKDOWN')
     
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle price command - placeholder implementation"""
+        """Handle price command with real Binance integration"""
         symbol = context.args[0].upper() if context.args else "BTC"
         
-        await update.effective_message.reply_text(
-            f"📈 **Price Check: {symbol}**\n\n"
-            f"🔄 Fetching real-time data...\n\n"
-            f"💡 *This is a placeholder - implement with your preferred crypto API*",
-            parse_mode='MARKDOWN'
-        )
+        try:
+            from crypto_api import crypto_api
+            
+            # Get real price data
+            price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
+            
+            if 'error' in price_data:
+                await update.effective_message.reply_text(
+                    f"❌ **Error for {symbol}:**\n{price_data['error']}\n\n"
+                    f"💡 Try: `/price btc` or `/price eth`",
+                    parse_mode='MARKDOWN'
+                )
+                return
+            
+            # Format price display
+            price = price_data['price']
+            change_24h = price_data.get('change_24h', 0)
+            volume_24h = price_data.get('volume_24h', 0)
+            
+            if price < 0.01:
+                price_format = f"${price:.8f}"
+            elif price < 1:
+                price_format = f"${price:.6f}"
+            elif price < 100:
+                price_format = f"${price:.4f}"
+            else:
+                price_format = f"${price:,.2f}"
+            
+            change_emoji = "📈" if change_24h >= 0 else "📉"
+            volume_format = f"${volume_24h/1000000:.1f}M" if volume_24h > 1000000 else f"${volume_24h:,.0f}"
+            
+            await update.effective_message.reply_text(
+                f"📊 **{symbol} Price (Binance)**\n\n"
+                f"💰 **Current**: {price_format}\n"
+                f"📈 **24h Change**: {change_24h:+.2f}% {change_emoji}\n"
+                f"📊 **24h Volume**: {volume_format}\n\n"
+                f"🎯 Use `/analyze {symbol.lower()}` for SnD analysis\n"
+                f"⚡ Use `/futures {symbol.lower()} 1h` for signals",
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            await update.effective_message.reply_text(
+                f"❌ **Price Error**: {str(e)[:100]}\n\n"
+                f"💡 Try: `/price btc` or `/price eth`",
+                parse_mode='MARKDOWN'
+            )
     
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle market overview command - placeholder implementation"""
@@ -202,16 +243,85 @@ Choose an option from the menu below:"""
         )
     
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle analyze command - placeholder implementation"""
+        """Handle analyze command with real SnD analysis"""
         symbol = context.args[0].upper() if context.args else "BTC"
         
-        await update.effective_message.reply_text(
-            f"📊 **Spot Analysis: {symbol}**\n\n"
-            f"🧠 Performing Supply & Demand analysis...\n"
-            f"💳 Cost: 20 credits\n\n"
-            f"💡 *Placeholder - implement SnD analysis logic*",
-            parse_mode='MARKDOWN'
-        )
+        # Add USDT if not present
+        if not any(symbol.endswith(pair) for pair in ['USDT', 'BUSD', 'USDC']):
+            symbol += 'USDT'
+        
+        try:
+            from snd_zone_detector import detect_snd_zones
+            from ai_assistant import AIAssistant
+            
+            # Show loading message
+            loading_msg = await update.effective_message.reply_text(
+                f"🔄 **Analyzing {symbol}...**\n\n"
+                f"📊 Fetching Binance klines data...\n"
+                f"🎯 Detecting Supply & Demand zones...\n"
+                f"⚡ Generating trading signals...",
+                parse_mode='MARKDOWN'
+            )
+            
+            # Get SnD analysis
+            snd_result = detect_snd_zones(symbol, "1h", limit=100)
+            
+            if 'error' in snd_result:
+                await loading_msg.edit_text(
+                    f"❌ **Analysis Error for {symbol}:**\n{snd_result['error']}\n\n"
+                    f"💡 Try: `/analyze btc` or `/analyze eth`",
+                    parse_mode='MARKDOWN'
+                )
+                return
+            
+            # Generate comprehensive analysis using AI assistant
+            ai_assistant = AIAssistant()
+            from crypto_api import crypto_api
+            
+            analysis = await ai_assistant.get_comprehensive_analysis_async(
+                symbol.replace('USDT', ''), 
+                crypto_api=crypto_api
+            )
+            
+            # Add SnD specific information
+            snd_summary = f"\n\n🎯 **ENHANCED SnD ZONES (Binance Klines):**\n"
+            
+            if snd_result.get('demand_zones'):
+                snd_summary += f"🟢 **Demand Zones Found:** {len(snd_result['demand_zones'])}\n"
+                for zone in snd_result['demand_zones'][:2]:  # Show top 2
+                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
+            
+            if snd_result.get('supply_zones'):
+                snd_summary += f"🔴 **Supply Zones Found:** {len(snd_result['supply_zones'])}\n"
+                for zone in snd_result['supply_zones'][:2]:  # Show top 2
+                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
+            
+            if snd_result.get('entry_signal'):
+                snd_summary += f"\n🚨 **SnD SIGNAL: {snd_result['entry_signal']}**\n"
+                snd_summary += f"💪 **Strength:** {snd_result['signal_strength']:.1f}%\n"
+                snd_summary += f"🎯 **Entry:** ${snd_result['entry_price']:.6f}\n"
+                snd_summary += f"🛑 **Stop:** ${snd_result['stop_loss']:.6f}\n"
+                snd_summary += f"🎯 **Target:** ${snd_result['take_profit']:.6f}"
+            else:
+                snd_summary += f"\n⏳ **No SnD Signal** - Wait for zone revisit"
+            
+            # Combine analysis
+            full_analysis = analysis + snd_summary
+            
+            # Send result (split if too long)
+            if len(full_analysis) > 4000:
+                # Send in parts
+                await loading_msg.edit_text(full_analysis[:4000], parse_mode='MARKDOWN')
+                await update.effective_message.reply_text(full_analysis[4000:], parse_mode='MARKDOWN')
+            else:
+                await loading_msg.edit_text(full_analysis, parse_mode='MARKDOWN')
+            
+        except Exception as e:
+            await update.effective_message.reply_text(
+                f"❌ **Analysis Error**: {str(e)[:100]}\n\n"
+                f"💡 Try: `/analyze btc` or check symbol format",
+                parse_mode='MARKDOWN'
+            )
     
     async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle futures analysis command"""
