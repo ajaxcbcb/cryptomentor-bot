@@ -98,6 +98,7 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
         self.application.add_handler(CommandHandler("referral", self.referral_command))
         self.application.add_handler(CommandHandler("language", self.language_command))
+        self.application.add_handler(CommandHandler("id", self.id_command))
         
         # Admin command handler
         self.application.add_handler(CommandHandler("admin", self.admin_command))
@@ -623,6 +624,23 @@ Choose an option from the menu below:"""
             f"✅ Language changed to {lang_names[lang]}!",
             parse_mode='MARKDOWN'
         )
+
+    async def id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /id command - show user Telegram ID"""
+        user = update.effective_user
+        user_id = user.id
+        username = user.username or "N/A"
+        first_name = user.first_name or "N/A"
+        
+        id_info = f"""🆔 **Your Telegram ID**
+
+📱 **User ID:** `{user_id}`
+👤 **Name:** {first_name}
+🔖 **Username:** @{username}
+
+💡 Use this ID for admin access or referral purposes."""
+        
+        await update.effective_message.reply_text(id_info, parse_mode='MARKDOWN')
 
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - show admin panel"""
