@@ -1883,12 +1883,19 @@ class AIAssistant:
             # Get real 24h change for dynamic calculation - IMPROVED FETCHING
             change_24h = 0  # Initialize change_24h
             try:
+                # Import crypto_api if not already available
                 if crypto_api:
                     price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
                     if 'error' not in price_data:
                         change_24h = price_data.get('change_24h', 0)
                     else:
                         print(f"Error in price data for {symbol}: {price_data.get('error', 'Unknown error')}")
+                else:
+                    # Fallback: import crypto_api if not passed
+                    from crypto_api import crypto_api as fallback_api
+                    price_data = fallback_api.get_crypto_price(symbol, force_refresh=True)
+                    if 'error' not in price_data:
+                        change_24h = price_data.get('change_24h', 0)
             except Exception as e:
                 print(f"Error getting change_24h for {symbol}: {e}")
                 change_24h = 0 # Default to 0 if error
