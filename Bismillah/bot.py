@@ -102,6 +102,19 @@ class TelegramBot:
         
         # Admin command handler
         self.application.add_handler(CommandHandler("admin", self.admin_command))
+        self.application.add_handler(CommandHandler("admin_help", self.admin_help_command))
+        
+        # Register admin premium handlers
+        try:
+            from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_remove_premium, cmd_grant_credits
+            self.application.add_handler(CommandHandler("set_premium", cmd_set_premium))
+            self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))  # Alias
+            self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+            self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
+            self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+            print("✅ Admin premium handlers registered")
+        except Exception as e:
+            print(f"⚠️ Admin premium handlers failed: {e}")
 
         # Register menu system handlers
         register_menu_handlers(self.application, self)
@@ -669,6 +682,66 @@ Choose an option from the menu below:"""
 • Market overview: ✅"""
         
         await update.effective_message.reply_text(admin_menu, parse_mode='MARKDOWN')
+
+    async def admin_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin_help command - comprehensive admin guide"""
+        user_id = update.effective_user.id
+        
+        # Check if user is admin using auth module
+        from app.lib.auth import get_admin_level
+        admin_level = get_admin_level(user_id)
+        
+        if admin_level is None:
+            await update.effective_message.reply_text(
+                "❌ **Access Denied**\n\nYou are not authorized to use admin commands.",
+                parse_mode='MARKDOWN'
+            )
+            return
+        
+        level_name = {1: "ADMIN1", 2: "ADMIN2", 3: "ADMIN3"}.get(admin_level, "UNKNOWN")
+        
+        admin_help = f"""👑 **CryptoMentor AI - Admin Panel**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🤖 **System Status**
+⏰ **Time:** {datetime.now().strftime('%H:%M:%S')} WIB
+👤 **Your ID:** `{user_id}`
+🔑 **Your Role:** {level_name}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**👥 USER MANAGEMENT:**
+`/set_premium <user_id> <days|lifetime>` - Set premium
+`/remove_premium <user_id>` - Remove premium
+`/grant_credits <user_id> <amount>` - Grant credits
+`/check_user_status <user_id>` - Check user info
+
+**💎 PREMIUM FEATURES:**
+• Lifetime/Unlimited Premium
+• Unlimited Credits
+• Auto Signals Access
+
+**🛠️ SYSTEM COMMANDS:**
+`/signal_on` - Enable auto signals
+`/signal_off` - Disable auto signals
+`/signal_status` - Check signal status
+
+**👨‍💼 ADMIN HIERARCHY:**
+• ADMIN1 (Level 1) - Can remove ADMIN2/ADMIN3
+• ADMIN2 (Level 2) - Can remove ADMIN3
+• ADMIN3 (Level 3) - Lower privileges
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 **Examples:**
+`/set_premium 7079544380 lifetime` - Set lifetime premium
+`/set_premium 7079544380 30` - Set 30 days premium
+`/remove_premium 7079544380` - Remove premium
+`/grant_credits 7079544380 1000` - Give 1000 credits
+
+⚠️ Use admin commands responsibly"""
+        
+        await update.effective_message.reply_text(admin_help, parse_mode='MARKDOWN')
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages for menu interactions"""
