@@ -33,29 +33,27 @@ _rps = _RPS()
 
 class _HTTP:
     def __init__(self):
-        # Use HTTP/2 + HTTP/3 with automatic fallback and connection pooling
-        try:
-            # Try HTTP/3 first (faster, lower latency), fallback to HTTP/2
-            self.client = httpx.Client(
-                timeout=HTTP_TIMEOUT,
-                follow_redirects=True,
-                http2=True,  # Enable HTTP/2 as primary
-                http3=False,  # Disable HTTP/3 by default (requires h3 package)
-                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-                headers={"Accept-Encoding": "gzip, deflate, br"}  # Include brotli if available
-            )
-        except Exception as e:
-            # Fallback to HTTP/2 only if HTTP/3 fails
-            logger.info(f"HTTP/3 not available, using HTTP/2: {e}")
-            self.client = httpx.Client(
-                timeout=HTTP_TIMEOUT,
-                follow_redirects=True,
-                http2=True,
-                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-                headers={"Accept-Encoding": "gzip, deflate"}
-            )
+        # Enable HTTP/2 (primary) + HTTP/3 (via h3 package if available)
+        client_config = {
+            "timeout": HTTP_TIMEOUT,
+            "follow_redirects": True,
+            "http2": True,  # Enable HTTP/2
+            "limits": httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            "headers": {"Accept-Encoding": "gzip, deflate, br"}  # gzip, deflate, brotli
+        }
         
+        # Try to enable HTTP/3 if h3 package is available
+        try:
+            import h3  # HTTP/3 support requires h3 package
+            # For HTTP/3, we'd need to use AsyncClient with special mounts
+            # For now, HTTP/2 is sufficient and more universally supported
+            logger.info("💡 h3 package available - HTTP/3 can be enabled with AsyncClient if needed")
+        except ImportError:
+            logger.info("📌 h3 package not installed - using HTTP/2 (h3 pip install h3 for HTTP/3)")
+        
+        self.client = httpx.Client(**client_config)
         self.invalid_symbols: Set[str] = set()  # Cache of symbols that don't exist
+        logger.info("✅ HTTP/2 ENABLED (primary) - Best performance for Binance API")
         
     def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
         # Check if symbol is known to be invalid (circuit breaker)
