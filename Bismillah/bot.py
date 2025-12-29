@@ -1,0 +1,461 @@
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+CryptoMentor AI Bot - Main Bot Class
+Enhanced with button-based menu system and async support
+"""
+
+import os
+import logging
+import asyncio
+from datetime import datetime
+from telegram import Update
+from telegram.ext import (
+    Application, 
+    CommandHandler, 
+    MessageHandler, 
+    CallbackQueryHandler,
+    filters,
+    ContextTypes
+)
+
+# Import menu system
+from menu_handlers import register_menu_handlers
+from menu_system import MenuBuilder, get_menu_text, MAIN_MENU
+
+# Import existing handlers and utilities
+try:
+    from app.supabase_conn import get_supabase_client, health
+    from app.sb_repo import ensure_user_registered, get_user_by_telegram_id
+    from app.routers.sb_quickcheck import handlers as sb_handlers
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    print("⚠️ Supabase integration not available, using local fallback")
+
+logger = logging.getLogger(__name__)
+
+class TelegramBot:
+    """Main CryptoMentor AI Bot class with menu system integration"""
+    
+    def __init__(self):
+        self.token = os.getenv('TELEGRAM_BOT_TOKEN')
+        if not self.token:
+            raise ValueError("❌ TELEGRAM_BOT_TOKEN not found in environment variables")
+        
+        self.application = None
+        self.admin_ids = self._load_admin_ids()
+        print(f"✅ Bot initialized with {len(self.admin_ids)} admin(s)")
+    
+    def _load_admin_ids(self):
+        """Load admin IDs from environment"""
+        admin_ids = set()
+        
+        # Load from various environment variables
+        for key in ['ADMIN_IDS', 'ADMIN1', 'ADMIN2', 'ADMIN_USER_ID', 'ADMIN2_USER_ID']:
+            value = os.getenv(key)
+            if value:
+                try:
+                    if ',' in value:
+                        admin_ids.update(int(aid.strip()) for aid in value.split(',') if aid.strip())
+                    else:
+                        admin_ids.add(int(value))
+                except ValueError:
+                    continue
+        
+        return admin_ids
+    
+    async def setup_application(self):
+        """Setup telegram application with handlers"""
+        self.application = Application.builder().token(self.token).build()
+        
+        # Register core command handlers
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("menu", self.menu_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        
+        # Basic command handlers
+        self.application.add_handler(CommandHandler("price", self.price_command))
+        self.application.add_handler(CommandHandler("market", self.market_command))
+        self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+        self.application.add_handler(CommandHandler("futures", self.futures_command))
+        self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
+        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
+        self.application.add_handler(CommandHandler("credits", self.credits_command))
+        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
+        self.application.add_handler(CommandHandler("referral", self.referral_command))
+        self.application.add_handler(CommandHandler("language", self.language_command))
+        
+        # Register menu system handlers
+        register_menu_handlers(self.application, self)
+        
+        # Register Supabase handlers if available
+        if SUPABASE_AVAILABLE and sb_handlers:
+            for handler in sb_handlers:
+                self.application.add_handler(handler)
+        
+        # Message handler for menu interactions
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
+        )
+        
+        print("✅ Application handlers registered successfully")
+    
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command with menu integration"""
+        user = update.effective_user
+        
+        # Register user if Supabase is available
+        if SUPABASE_AVAILABLE:
+            try:
+                ensure_user_registered(
+                    user.id, 
+                    user.username, 
+                    user.first_name, 
+                    user.last_name
+                )
+            except Exception as e:
+                logger.warning(f"User registration failed: {e}")
+        
+        welcome_text = f"""🤖 **Welcome to CryptoMentor AI 2.0**
+
+Hello {user.first_name}! 👋
+
+🎯 **What's New:**
+• ✨ Brand new button-based interface
+• 📊 Advanced Supply & Demand analysis
+• 🚀 Professional futures signals
+• 💰 Credit system with free starter pack
+• 👑 Premium features available
+
+💡 **Quick Start:**
+• Use the menu buttons below for easy navigation
+• Advanced users can still use slash commands
+• Type `/help` for command reference
+
+Choose an option from the menu below:"""
+        
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=MenuBuilder.build_main_menu(),
+            parse_mode='MARKDOWN'
+        )
+    
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show main menu"""
+        await update.message.reply_text(
+            get_menu_text(MAIN_MENU),
+            reply_markup=MenuBuilder.build_main_menu(),
+            parse_mode='MARKDOWN'
+        )
+    
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show help information"""
+        help_text = """📚 **CryptoMentor AI - Command Reference**
+
+🎯 **Menu System (Recommended):**
+• `/start` - Show welcome menu
+• `/menu` - Open main menu anytime
+
+💰 **Free Commands:**
+• `/price <symbol>` - Check cryptocurrency price
+• `/market` - Global market overview
+• `/portfolio` - View your holdings
+• `/credits` - Check credit balance
+
+🧠 **Analysis Commands (Credits Required):**
+• `/analyze <symbol>` - Spot analysis with SnD (20 credits)
+• `/futures <symbol> <timeframe>` - Futures analysis (20 credits)
+• `/futures_signals` - Multi-coin signals (60 credits)
+
+👑 **Premium & Account:**
+• `/subscribe` - Upgrade to premium
+• `/referral` - Referral program
+• `/language <en|id>` - Change language
+
+🤖 **AI Assistant:**
+• `/ask_ai <question>` - Ask AI about crypto
+
+💡 **Tip:** Use the button menu for the best experience!"""
+        
+        await update.message.reply_text(help_text, parse_mode='MARKDOWN')
+    
+    async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle price command - placeholder implementation"""
+        symbol = context.args[0].upper() if context.args else "BTC"
+        
+        await update.effective_message.reply_text(
+            f"📈 **Price Check: {symbol}**\n\n"
+            f"🔄 Fetching real-time data...\n\n"
+            f"💡 *This is a placeholder - implement with your preferred crypto API*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle market overview command - placeholder implementation"""
+        await update.effective_message.reply_text(
+            f"🌍 **Global Market Overview**\n\n"
+            f"📊 Loading market statistics...\n\n"
+            f"💡 *Placeholder - implement with market data API*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle analyze command - placeholder implementation"""
+        symbol = context.args[0].upper() if context.args else "BTC"
+        
+        await update.effective_message.reply_text(
+            f"📊 **Spot Analysis: {symbol}**\n\n"
+            f"🧠 Performing Supply & Demand analysis...\n"
+            f"💳 Cost: 20 credits\n\n"
+            f"💡 *Placeholder - implement SnD analysis logic*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle futures analysis command"""
+        if len(context.args) < 2:
+            await update.effective_message.reply_text(
+                "❌ **Usage:** `/futures <symbol> <timeframe>`\n\n"
+                "**Example:** `/futures BTC 1h`\n"
+                "**Timeframes:** 15m, 30m, 1h, 4h, 1d, 1w",
+                parse_mode='MARKDOWN'
+            )
+            return
+        
+        symbol = context.args[0].upper()
+        timeframe = context.args[1].lower()
+        
+        await update.effective_message.reply_text(
+            f"📉 **Futures Analysis: {symbol} ({timeframe})**\n\n"
+            f"🎯 Analyzing futures data...\n"
+            f"💳 Cost: 20 credits\n\n"
+            f"💡 *Placeholder - implement futures analysis*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle futures signals command"""
+        await update.effective_message.reply_text(
+            f"🚀 **Multi-Coin Futures Signals**\n\n"
+            f"🔍 Scanning top cryptocurrencies...\n"
+            f"💳 Cost: 60 credits\n\n"
+            f"💡 *Placeholder - implement signal detection*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle portfolio command"""
+        await update.effective_message.reply_text(
+            f"📂 **Your Portfolio**\n\n"
+            f"💼 Loading your holdings...\n\n"
+            f"💡 *Placeholder - implement portfolio tracking*",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle credits command"""
+        user_id = update.effective_user.id
+        credits = 100  # Placeholder
+        
+        await update.effective_message.reply_text(
+            f"💳 **Credit Balance**\n\n"
+            f"👤 User: {update.effective_user.first_name}\n"
+            f"💰 Credits: {credits}\n\n"
+            f"📊 **Credit Costs:**\n"
+            f"• Spot Analysis: 20 credits\n"
+            f"• Futures Analysis: 20 credits\n"
+            f"• Multi-Coin Signals: 60 credits\n\n"
+            f"⭐ Upgrade to Premium for unlimited access!",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle subscribe command"""
+        await update.effective_message.reply_text(
+            f"👑 **Premium Subscription**\n\n"
+            f"🎯 **Premium Benefits:**\n"
+            f"• Unlimited analysis credits\n"
+            f"• Priority signal delivery\n"
+            f"• Advanced market insights\n"
+            f"• Auto signal notifications\n\n"
+            f"💰 **Plans Available:**\n"
+            f"• Monthly: $19.99\n"
+            f"• Lifetime: $99.99\n\n"
+            f"💡 Contact admin to subscribe!",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle referral command"""
+        user_id = update.effective_user.id
+        referral_link = f"https://t.me/your_bot?start={user_id}"
+        
+        await update.effective_message.reply_text(
+            f"🎁 **Referral Program**\n\n"
+            f"👥 **Your Referral Link:**\n"
+            f"`{referral_link}`\n\n"
+            f"💰 **Rewards:**\n"
+            f"• 50 credits per referral\n"
+            f"• Premium users earn money\n\n"
+            f"📊 **Your Stats:**\n"
+            f"• Referrals: 0\n"
+            f"• Credits Earned: 0",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle language command"""
+        lang = context.args[0].lower() if context.args else None
+        
+        if not lang or lang not in ['en', 'id']:
+            await update.effective_message.reply_text(
+                "🌐 **Language Selection**\n\n"
+                "**Usage:** `/language <code>`\n\n"
+                "**Available:**\n"
+                "• `en` - English\n"
+                "• `id` - Bahasa Indonesia",
+                parse_mode='MARKDOWN'
+            )
+            return
+        
+        lang_names = {'en': 'English', 'id': 'Bahasa Indonesia'}
+        await update.effective_message.reply_text(
+            f"✅ Language changed to {lang_names[lang]}!",
+            parse_mode='MARKDOWN'
+        )
+    
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle text messages for menu interactions"""
+        user_data = context.user_data
+        text = update.message.text
+        
+        # Handle manual symbol input
+        if user_data.get('awaiting_manual_symbol'):
+            current_action = user_data.get('current_action', '')
+            symbol = text.strip().upper()
+            
+            user_data['awaiting_manual_symbol'] = False
+            user_data['symbol'] = symbol
+            
+            if current_action == 'price':
+                context.args = [symbol]
+                await self.price_command(update, context)
+            elif current_action == 'analyze':
+                context.args = [symbol]
+                await self.analyze_command(update, context)
+            elif current_action == 'futures':
+                await update.message.reply_text(
+                    f"📉 **Futures Analysis: {symbol}**\n\n"
+                    f"Select timeframe: 15m, 30m, 1h, 4h, 1d, 1w",
+                    parse_mode='MARKDOWN'
+                )
+                user_data['awaiting_timeframe'] = True
+            elif current_action == 'add_coin':
+                user_data['step'] = 'amount'
+                user_data['awaiting_amount'] = True
+                await update.message.reply_text(
+                    f"➕ **Add {symbol}**\n\n"
+                    f"Enter the amount you own:",
+                    parse_mode='MARKDOWN'
+                )
+        
+        # Handle amount input for add coin
+        elif user_data.get('awaiting_amount'):
+            try:
+                amount = float(text.strip())
+                symbol = user_data.get('symbol', 'Unknown')
+                
+                user_data.clear()
+                
+                await update.message.reply_text(
+                    f"✅ **Coin Added Successfully!**\n\n"
+                    f"📊 **Details:**\n"
+                    f"• Symbol: {symbol}\n"
+                    f"• Amount: {amount}\n\n"
+                    f"Use `/portfolio` to view your complete portfolio.",
+                    parse_mode='MARKDOWN'
+                )
+            except ValueError:
+                await update.message.reply_text("❌ Invalid amount. Please enter a valid number.")
+        
+        # Handle AI questions
+        elif user_data.get('awaiting_question'):
+            question = text.strip()
+            user_data.clear()
+            
+            await update.message.reply_text(
+                f"🤖 **CryptoMentor AI Response:**\n\n"
+                f"❓ **Your Question:** {question}\n\n"
+                f"💭 **Answer:** This is a placeholder response. Implement with your AI service.\n\n"
+                f"💡 *Connect with OpenAI API or similar service for real AI responses*",
+                parse_mode='MARKDOWN'
+            )
+        
+        # Handle timeframe input
+        elif user_data.get('awaiting_timeframe'):
+            timeframe = text.strip().lower()
+            symbol = user_data.get('symbol', 'BTC')
+            
+            user_data.clear()
+            
+            context.args = [symbol, timeframe]
+            await self.futures_command(update, context)
+        
+        else:
+            # Default response for unhandled messages
+            await update.message.reply_text(
+                "💡 Use `/menu` to see available options or `/help` for commands!",
+                parse_mode='MARKDOWN'
+            )
+    
+    async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle callback queries from inline keyboards - delegated to menu handlers"""
+        # This will be handled by the menu system
+        pass
+    
+    async def run_bot(self):
+        """Run the bot with error handling"""
+        try:
+            # Setup application
+            await self.setup_application()
+            
+            # Initialize and start polling
+            await self.application.initialize()
+            await self.application.start()
+            
+            print("🚀 CryptoMentor AI Bot is running...")
+            print(f"🤖 Bot username: @{(await self.application.bot.get_me()).username}")
+            print("🔄 Polling for updates...")
+            
+            # Start polling
+            await self.application.updater.start_polling(
+                poll_interval=1.0,
+                timeout=30,
+                drop_pending_updates=True
+            )
+            
+            # Keep running
+            while True:
+                await asyncio.sleep(1)
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Bot stopping...")
+        except Exception as e:
+            print(f"❌ Bot error: {e}")
+            logger.error(f"Bot error: {e}")
+            raise
+        finally:
+            # Cleanup
+            if self.application:
+                try:
+                    await self.application.updater.stop()
+                    await self.application.stop()
+                    await self.application.shutdown()
+                except:
+                    pass
+            print("👋 Bot stopped")
+
+# Export for main.py
+__all__ = ['TelegramBot']
