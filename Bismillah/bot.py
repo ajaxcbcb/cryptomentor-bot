@@ -730,41 +730,16 @@ Choose an option from the menu below:"""
         
         # Handle different button presses
         if query.data == "admin_user_mgmt":
-            text = """👥 **User Management**
-
-• `/set_premium <user_id> <days|lifetime>`
-• `/remove_premium <user_id>`
-• `/grant_credits <user_id> <amount>`
-
-**Example:**
-`/set_premium 7079544380 lifetime`
-`/set_premium 7079544380 30`"""
+            text = "👥 **User Management**\n\n• /set_premium userid days_or_lifetime\n• /remove_premium userid\n• /grant_credits userid amount\n\n**Example:**\n/set_premium 7079544380 lifetime\n/set_premium 7079544380 30"
             
         elif query.data == "admin_premium":
-            text = """💎 **Premium Control**
-
-✅ Lifetime/Unlimited Premium
-✅ Unlimited Credits  
-✅ Auto Signals Access
-
-Use User Management commands."""
+            text = "💎 **Premium Control**\n\n✅ Lifetime Premium\n✅ Unlimited Credits\n✅ Auto Signals\n\nUse User Management."
             
         elif query.data == "admin_sb_status":
-            text = """🤖 **Supabase Status**
-
-✅ Supabase: Active
-✅ Database: Connected
-✅ Premium Tracking: Enabled"""
+            text = "🤖 **Supabase Status**\n\n✅ Active\n✅ Database Connected\n✅ Premium Tracking Enabled"
             
         elif query.data == "admin_system_info":
-            text = f"""📊 **System Information**
-
-✅ HTTP/2: Enabled
-✅ Rate Limit: 9 RPS
-✅ Market Overview: Active
-✅ Auto Signals: Running
-
-⏰ Time: {datetime.now().strftime('%H:%M:%S')} WIB"""
+            text = f"📊 **System Information**\n\n✅ HTTP/2: Enabled\n✅ Rate Limit: 9 RPS\n✅ Market Overview: Active\n✅ Auto Signals: Running\n\n⏰ Time: {datetime.now().strftime('%H:%M:%S')} WIB"
             
         elif query.data == "admin_settings":
             if admin_level == 1:
@@ -773,28 +748,16 @@ Use User Management commands."""
                     [InlineKeyboardButton("👥 List Admins", callback_data="admin_list_admins")],
                     [InlineKeyboardButton("🔙 Back", callback_data="admin_back")]
                 ]
-                text = """👨‍💼 **Admin Settings**
-
-➕ Add new admin
-👥 View admin list"""
+                text = "👨‍💼 **Admin Settings**\n\n➕ Add new admin\n👥 View admin list"
                 reply_markup = InlineKeyboardMarkup(keyboard)
             else:
-                text = """👨‍💼 **Admin Settings**
-
-❌ Only ADMIN1 can manage admins"""
+                text = "👨‍💼 **Admin Settings**\n\n❌ Only ADMIN1 can manage admins"
                 
         elif query.data == "admin_add_admin":
             if admin_level != 1:
                 await query.answer("❌ Only ADMIN1 can add admins", show_alert=True)
                 return
-            text = """➕ **Add New Admin**
-
-`/add_admin <telegram_user_id>`
-
-Or set env:
-`ADMIN2` or `ADMIN3`
-
-Then restart bot."""
+            text = "➕ **Add New Admin**\n\n/add_admin userid\n\nOr set env ADMIN2 or ADMIN3\nThen restart bot."
             
         elif query.data == "admin_list_admins":
             hierarchy = get_admin_hierarchy()
@@ -807,13 +770,7 @@ Then restart bot."""
                 text += f"🔸 ADMIN3: {hierarchy['admin3']['id']}\n"
             
         elif query.data == "admin_config":
-            text = """⚙️ **Bot Configuration**
-
-✅ HTTP/2 Enabled
-✅ Rate Limiting Active
-✅ Supabase Integration
-✅ Auto Signals Running
-✅ Premium System Active"""
+            text = "⚙️ **Bot Configuration**\n\n✅ HTTP/2 Enabled\n✅ Rate Limiting Active\n✅ Supabase Integration\n✅ Auto Signals Running\n✅ Premium System Active"
             
         elif query.data == "admin_back":
             # Go back to main panel
