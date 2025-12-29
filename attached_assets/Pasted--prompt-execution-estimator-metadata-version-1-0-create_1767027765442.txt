@@ -1,0 +1,269 @@
+{
+  "prompt_execution_estimator": {
+    "metadata": {
+      "version": "1.0",
+      "created_at": "2024-12-30T00:00:00Z",
+      "ai_agent": "Replit AI Agent",
+      "estimation_method": "based on complexity and operation type"
+    },
+    "pre_execution": {
+      "status": "pending",
+      "estimated_total_seconds": 0,
+      "estimated_total_readable": "0 minutes",
+      "estimated_start_time": null,
+      "estimated_completion_time": null,
+      "breakdown_by_operation": []
+    },
+    "during_execution": {
+      "status": "in_progress",
+      "current_operation": null,
+      "current_operation_id": null,
+      "started_at": null,
+      "elapsed_seconds": 0,
+      "elapsed_readable": "0 seconds",
+      "remaining_seconds": 0,
+      "remaining_readable": "0 seconds",
+      "completion_percentage": 0,
+      "operations_completed": 0,
+      "operations_total": 0
+    },
+    "post_execution": {
+      "status": "completed",
+      "started_at": null,
+      "completed_at": null,
+      "actual_duration_seconds": 0,
+      "actual_duration_readable": "0 seconds",
+      "estimated_vs_actual_difference_seconds": 0,
+      "accuracy_percentage": 0,
+      "operations_summary": []
+    },
+    "operation_templates": {
+      "file_operations": {
+        "create_file": {
+          "estimated_seconds": 5,
+          "readable": "5 seconds"
+        },
+        "modify_file": {
+          "estimated_seconds": 10,
+          "readable": "10 seconds"
+        },
+        "delete_file": {
+          "estimated_seconds": 3,
+          "readable": "3 seconds"
+        },
+        "read_file": {
+          "estimated_seconds": 2,
+          "readable": "2 seconds"
+        }
+      },
+      "code_operations": {
+        "write_function": {
+          "estimated_seconds": 30,
+          "readable": "30 seconds"
+        },
+        "refactor_code": {
+          "estimated_seconds": 60,
+          "readable": "1 minute"
+        },
+        "debug_error": {
+          "estimated_seconds": 120,
+          "readable": "2 minutes"
+        },
+        "add_error_handling": {
+          "estimated_seconds": 45,
+          "readable": "45 seconds"
+        },
+        "optimize_performance": {
+          "estimated_seconds": 180,
+          "readable": "3 minutes"
+        }
+      },
+      "api_operations": {
+        "setup_endpoint": {
+          "estimated_seconds": 60,
+          "readable": "1 minute"
+        },
+        "fix_api_call": {
+          "estimated_seconds": 90,
+          "readable": "1.5 minutes"
+        },
+        "add_api_validation": {
+          "estimated_seconds": 45,
+          "readable": "45 seconds"
+        },
+        "implement_retry_logic": {
+          "estimated_seconds": 75,
+          "readable": "1 minute 15 seconds"
+        }
+      },
+      "database_operations": {
+        "create_schema": {
+          "estimated_seconds": 120,
+          "readable": "2 minutes"
+        },
+        "add_migration": {
+          "estimated_seconds": 90,
+          "readable": "1.5 minutes"
+        },
+        "optimize_query": {
+          "estimated_seconds": 60,
+          "readable": "1 minute"
+        }
+      },
+      "architecture_operations": {
+        "implement_async_pattern": {
+          "estimated_seconds": 180,
+          "readable": "3 minutes"
+        },
+        "add_queue_system": {
+          "estimated_seconds": 240,
+          "readable": "4 minutes"
+        },
+        "setup_load_balancing": {
+          "estimated_seconds": 300,
+          "readable": "5 minutes"
+        },
+        "add_caching": {
+          "estimated_seconds": 150,
+          "readable": "2.5 minutes"
+        }
+      },
+      "logging_operations": {
+        "setup_logger": {
+          "estimated_seconds": 90,
+          "readable": "1.5 minutes"
+        },
+        "add_log_statements": {
+          "estimated_seconds": 30,
+          "readable": "30 seconds"
+        },
+        "configure_log_rotation": {
+          "estimated_seconds": 60,
+          "readable": "1 minute"
+        },
+        "format_log_output": {
+          "estimated_seconds": 45,
+          "readable": "45 seconds"
+        }
+      },
+      "testing_operations": {
+        "write_unit_test": {
+          "estimated_seconds": 120,
+          "readable": "2 minutes"
+        },
+        "run_tests": {
+          "estimated_seconds": 30,
+          "readable": "30 seconds"
+        },
+        "stress_test": {
+          "estimated_seconds": 180,
+          "readable": "3 minutes"
+        }
+      },
+      "deployment_operations": {
+        "install_dependency": {
+          "estimated_seconds": 45,
+          "readable": "45 seconds"
+        },
+        "update_config": {
+          "estimated_seconds": 15,
+          "readable": "15 seconds"
+        },
+        "restart_service": {
+          "estimated_seconds": 20,
+          "readable": "20 seconds"
+        }
+      }
+    },
+    "example_prompt_execution": {
+      "prompt": "Fix Binance API 404 errors, implement concurrent processing, and improve logging",
+      "estimated_breakdown": [
+        {
+          "operation_id": 1,
+          "operation_type": "api_operations.fix_api_call",
+          "description": "Debug and fix API endpoint calls",
+          "estimated_seconds": 90,
+          "estimated_readable": "1.5 minutes"
+        },
+        {
+          "operation_id": 2,
+          "operation_type": "code_operations.add_error_handling",
+          "description": "Add API error handling",
+          "estimated_seconds": 45,
+          "estimated_readable": "45 seconds"
+        },
+        {
+          "operation_id": 3,
+          "operation_type": "api_operations.add_api_validation",
+          "description": "Implement request validation",
+          "estimated_seconds": 45,
+          "estimated_readable": "45 seconds"
+        },
+        {
+          "operation_id": 4,
+          "operation_type": "api_operations.implement_retry_logic",
+          "description": "Add retry logic with backoff",
+          "estimated_seconds": 75,
+          "estimated_readable": "1 minute 15 seconds"
+        },
+        {
+          "operation_id": 5,
+          "operation_type": "architecture_operations.implement_async_pattern",
+          "description": "Implement async/await patterns",
+          "estimated_seconds": 180,
+          "estimated_readable": "3 minutes"
+        },
+        {
+          "operation_id": 6,
+          "operation_type": "architecture_operations.add_queue_system",
+          "description": "Create queue system for users",
+          "estimated_seconds": 240,
+          "estimated_readable": "4 minutes"
+        },
+        {
+          "operation_id": 7,
+          "operation_type": "logging_operations.setup_logger",
+          "description": "Setup structured logging library",
+          "estimated_seconds": 90,
+          "estimated_readable": "1.5 minutes"
+        },
+        {
+          "operation_id": 8,
+          "operation_type": "logging_operations.format_log_output",
+          "description": "Format logs in JSON structure",
+          "estimated_seconds": 45,
+          "estimated_readable": "45 seconds"
+        },
+        {
+          "operation_id": 9,
+          "operation_type": "logging_operations.configure_log_rotation",
+          "description": "Implement log rotation",
+          "estimated_seconds": 60,
+          "estimated_readable": "1 minute"
+        },
+        {
+          "operation_id": 10,
+          "operation_type": "testing_operations.run_tests",
+          "description": "Verify all changes work",
+          "estimated_seconds": 30,
+          "estimated_readable": "30 seconds"
+        }
+      ],
+      "total_estimated_seconds": 900,
+      "total_estimated_readable": "15 minutes",
+      "operations_count": 10
+    },
+    "timing_report_template": {
+      "operation_id": null,
+      "operation_name": "",
+      "estimated_seconds": 0,
+      "actual_seconds": 0,
+      "difference_seconds": 0,
+      "status": "pending|in_progress|completed|failed",
+      "started_at": null,
+      "completed_at": null,
+      "accuracy_percentage": 0,
+      "notes": ""
+    }
+  }
+}
