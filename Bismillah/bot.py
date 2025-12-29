@@ -93,6 +93,8 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("analyze", self.analyze_command))
         self.application.add_handler(CommandHandler("futures", self.futures_command))
         self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
+        self.application.add_handler(CommandHandler("signal", self.signal_command))
+        self.application.add_handler(CommandHandler("signals", self.signals_command))
         self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
         self.application.add_handler(CommandHandler("credits", self.credits_command))
         self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
@@ -134,7 +136,8 @@ class TelegramBot:
             for handler in sb_handlers:
                 self.application.add_handler(handler)
 
-        # Register callback handlers for admin panel buttons
+        # Register callback handlers for admin panel buttons and signals
+        self.application.add_handler(CallbackQueryHandler(self.signal_callback_handler, pattern=r'^signal_tf_'))
         self.application.add_handler(CallbackQueryHandler(self.admin_button_handler))
         
         # Message handler for menu interactions
@@ -501,35 +504,93 @@ Resistance: ${max(closes):.2f}"""
     async def futures_signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle futures signals command"""
         try:
-            await update.message.reply_text("⏳ Generating signals for top coins...")
+            from futures_signal_generator import FuturesSignalGenerator
+            await update.message.reply_text("⏳ Generating multi-coin futures signals...")
             
-            # Quick signal analysis for top 5 coins
-            from app.providers.binance_provider import fetch_klines
-            coins = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT']
-            signals_text = "🚀 **Futures Signals (1H)**\n\n"
-            
-            for coin in coins:
-                try:
-                    klines = fetch_klines(coin, '1h', limit=50)
-                    if not klines or len(klines) < 2:
-                        continue
-                    
-                    closes = [float(k[4]) for k in klines[-20:]]
-                    latest = closes[-1]
-                    prev = closes[-2]
-                    ma20 = sum(closes) / len(closes)
-                    
-                    signal = "🟢" if latest > ma20 else "🔴"
-                    change = ((latest - prev) / prev * 100)
-                    
-                    signals_text += f"{signal} {coin}: {change:+.2f}%\n"
-                except:
-                    continue
-            
-            await update.message.reply_text(signals_text, parse_mode='MARKDOWN')
+            generator = FuturesSignalGenerator()
+            signals = await generator.generate_multi_signals()
+            await update.message.reply_text(signals, parse_mode='MARKDOWN')
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
+    
+    async def signal_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle professional futures signal command with timeframe selection"""
+        if len(context.args) < 1:
+            await update.effective_message.reply_text(
+                "📊 **Futures Signal Generator**\n\n"
+                "Usage: /signal symbol\n\n"
+                "Example: /signal BTC\n"
+                "Then select timeframe from buttons",
+                parse_mode='MARKDOWN'
+            )
+            return
+        
+        symbol = context.args[0].upper()
+        if 'USDT' not in symbol:
+            symbol = symbol + 'USDT'
+        
+        # Store in context for callback
+        context.user_data['signal_symbol'] = symbol
+        
+        # Show timeframe buttons
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [
+                InlineKeyboardButton("🚀 15M", callback_data=f"signal_tf_15m_{symbol}"),
+                InlineKeyboardButton("🚀 30M", callback_data=f"signal_tf_30m_{symbol}"),
+            ],
+            [
+                InlineKeyboardButton("🚀 1H", callback_data=f"signal_tf_1h_{symbol}"),
+                InlineKeyboardButton("🚀 4H", callback_data=f"signal_tf_4h_{symbol}"),
+            ],
+            [
+                InlineKeyboardButton("🚀 1D", callback_data=f"signal_tf_1d_{symbol}"),
+                InlineKeyboardButton("🚀 1W", callback_data=f"signal_tf_1w_{symbol}"),
+            ]
+        ]
+        await update.message.reply_text(
+            f"🕐 Select timeframe for {symbol}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle multi-coin signals command"""
+        try:
+            from futures_signal_generator import FuturesSignalGenerator
+            await update.message.reply_text("⏳ Generating multi-coin futures signals...")
+            
+            generator = FuturesSignalGenerator()
+            signals = await generator.generate_multi_signals()
+            await update.message.reply_text(signals, parse_mode='MARKDOWN')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
+    
+    async def signal_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle timeframe button callbacks for signals"""
+        query = update.callback_query
+        data = query.data  # Format: signal_tf_15m_BTCUSDT
+        
+        parts = data.split('_')
+        if len(parts) < 4:
+            await query.answer("❌ Invalid callback", show_alert=True)
+            return
+        
+        timeframe = parts[2]  # 15m, 1h, etc
+        symbol = '_'.join(parts[3:])  # Handle symbol properly
+        
+        try:
+            await query.answer("⏳ Generating signal...")
+            await query.edit_message_text("⏳ Generating professional signal...")
+            
+            from futures_signal_generator import FuturesSignalGenerator
+            generator = FuturesSignalGenerator()
+            signal = await generator.generate_signal(symbol, timeframe)
+            
+            await query.edit_message_text(signal, parse_mode='MARKDOWN')
+        except Exception as e:
+            await query.answer(f"❌ Error: {str(e)[:50]}", show_alert=True)
 
 
     async def portfolio_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
