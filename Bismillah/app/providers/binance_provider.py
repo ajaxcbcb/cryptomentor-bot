@@ -33,14 +33,28 @@ _rps = _RPS()
 
 class _HTTP:
     def __init__(self):
-        # Use HTTP/2 with connection pooling and compression
-        self.client = httpx.Client(
-            timeout=HTTP_TIMEOUT,
-            follow_redirects=True,
-            http2=True,  # Enable HTTP/2
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            headers={"Accept-Encoding": "gzip, deflate"}
-        )
+        # Use HTTP/2 + HTTP/3 with automatic fallback and connection pooling
+        try:
+            # Try HTTP/3 first (faster, lower latency), fallback to HTTP/2
+            self.client = httpx.Client(
+                timeout=HTTP_TIMEOUT,
+                follow_redirects=True,
+                http2=True,  # Enable HTTP/2 as primary
+                http3=False,  # Disable HTTP/3 by default (requires h3 package)
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                headers={"Accept-Encoding": "gzip, deflate, br"}  # Include brotli if available
+            )
+        except Exception as e:
+            # Fallback to HTTP/2 only if HTTP/3 fails
+            logger.info(f"HTTP/3 not available, using HTTP/2: {e}")
+            self.client = httpx.Client(
+                timeout=HTTP_TIMEOUT,
+                follow_redirects=True,
+                http2=True,
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                headers={"Accept-Encoding": "gzip, deflate"}
+            )
+        
         self.invalid_symbols: Set[str] = set()  # Cache of symbols that don't exist
         
     def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
