@@ -102,6 +102,17 @@ class TelegramBot:
         # Register menu system handlers
         register_menu_handlers(self.application, self)
 
+        # Register admin auto signal handlers
+        try:
+            from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
+            self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
+            self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
+            self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
+            self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
+            print("✅ Auto signal admin commands registered")
+        except Exception as e:
+            print(f"⚠️ Auto signal admin commands failed to register: {e}")
+
         # Register Supabase handlers if available
         if SUPABASE_AVAILABLE and sb_handlers:
             for handler in sb_handlers:
@@ -646,13 +657,30 @@ Choose an option from the menu below:"""
                 drop_pending_updates=True
             )
 
-            # Initialize lifetime auto-signals
+            # Initialize auto-signals systems
             try:
                 from lifetime_auto_signals import start_lifetime_auto_signals
                 self.lifetime_auto_signals = await start_lifetime_auto_signals(self.application.bot)
                 print("👑 Lifetime Auto-Signals system started")
             except Exception as e:
                 print(f"⚠️ Lifetime Auto-Signals failed to start: {e}")
+
+            # Initialize SnD Auto Signals
+            try:
+                from snd_auto_signals import SnDAutoSignals
+                self.snd_auto_signals = SnDAutoSignals(self)
+                asyncio.create_task(self.snd_auto_signals.start_auto_scanner())
+                print("🎯 SnD Auto-Signals system started")
+            except Exception as e:
+                print(f"⚠️ SnD Auto-Signals failed to start: {e}")
+
+            # Initialize App AutoSignal scheduler
+            try:
+                from app.autosignal import start_background_scheduler
+                start_background_scheduler(self.application)
+                print("📡 App AutoSignal scheduler started")
+            except Exception as e:
+                print(f"⚠️ App AutoSignal scheduler failed to start: {e}")
 
             # Keep running
             while True:
