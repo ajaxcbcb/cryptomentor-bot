@@ -49,6 +49,11 @@ class CryptoAPI:
                     # Get spot price with validation
                     spot_price = get_price(variant, futures=False)
                     
+                    # Skip if price is None or invalid (symbol doesn't exist)
+                    if spot_price is None:
+                        validation_errors.append(f"{variant}: Symbol not found on Binance")
+                        continue
+                    
                     # Enhanced price validation
                     if not self._validate_price_data(spot_price):
                         validation_errors.append(f"{variant}: Invalid price {spot_price}")

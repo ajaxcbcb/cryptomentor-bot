@@ -1,8 +1,8 @@
 
 # app/providers/binance_provider.py
 from __future__ import annotations
-import os, time
-from typing import Any, Dict, List, Optional
+import os, time, logging
+from typing import Any, Dict, List, Optional, Set
 import httpx
 
 BINANCE_BASE_URL = os.getenv("BINANCE_BASE_URL", "https://api.binance.com")
@@ -10,6 +10,8 @@ BINANCE_FAPI_BASE_URL = os.getenv("BINANCE_FAPI_BASE_URL", "https://fapi.binance
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "15"))
 MAX_RETRIES = int(os.getenv("HTTP_MAX_RETRIES", "3"))
 BACKOFF_BASE = float(os.getenv("HTTP_BACKOFF_BASE", "0.6"))  # seconds
+
+logger = logging.getLogger(__name__)
 
 class _RPS:
     def __init__(self, rps: float = 9.0):
@@ -31,20 +33,49 @@ _rps = _RPS()
 
 class _HTTP:
     def __init__(self):
-        self.client = httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True)
+        # Use HTTP/2 with connection pooling and compression
+        self.client = httpx.Client(
+            timeout=HTTP_TIMEOUT,
+            follow_redirects=True,
+            http2=True,  # Enable HTTP/2
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            headers={"Accept-Encoding": "gzip, deflate"}
+        )
+        self.invalid_symbols: Set[str] = set()  # Cache of symbols that don't exist
+        
     def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
+        # Check if symbol is known to be invalid (circuit breaker)
+        if params and "symbol" in params:
+            symbol = params["symbol"]
+            if symbol in self.invalid_symbols:
+                logger.debug(f"Skipping known invalid symbol: {symbol}")
+                return None
+        
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 _rps.acquire()
                 r = self.client.get(url, params=params, headers={"Accept": "application/json"})
+                
+                # 400 = Bad Request (invalid symbol - don't retry)
+                if r.status_code == 400:
+                    if params and "symbol" in params:
+                        self.invalid_symbols.add(params["symbol"])
+                        logger.debug(f"Symbol {params['symbol']} is invalid (400), caching")
+                    return r
+                
+                # 429 = Rate Limited, 5xx = Server Error (retry)
                 if r.status_code in (429,) or r.status_code >= 500:
+                    logger.debug(f"Retrying due to status {r.status_code} (attempt {attempt}/{MAX_RETRIES})")
                     time.sleep(BACKOFF_BASE * (2 ** (attempt - 1)))
                     continue
+                
                 r.raise_for_status()
                 return r
-            except httpx.HTTPError:
+            except httpx.HTTPError as e:
                 if attempt == MAX_RETRIES:
+                    logger.error(f"HTTP error after {MAX_RETRIES} retries: {e}")
                     raise
+                logger.debug(f"HTTP error, retrying (attempt {attempt}/{MAX_RETRIES})")
                 time.sleep(BACKOFF_BASE * (2 ** (attempt - 1)))
 
 _http = _HTTP()
