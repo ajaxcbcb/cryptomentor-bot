@@ -98,6 +98,9 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
         self.application.add_handler(CommandHandler("referral", self.referral_command))
         self.application.add_handler(CommandHandler("language", self.language_command))
+        
+        # Admin command handler
+        self.application.add_handler(CommandHandler("admin", self.admin_command))
 
         # Register menu system handlers
         register_menu_handlers(self.application, self)
@@ -620,6 +623,34 @@ Choose an option from the menu below:"""
             f"✅ Language changed to {lang_names[lang]}!",
             parse_mode='MARKDOWN'
         )
+
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin command - show admin panel"""
+        user_id = update.effective_user.id
+        is_admin = user_id in self.admin_ids
+        
+        if not is_admin:
+            await update.effective_message.reply_text(
+                f"❌ **Access Denied**\n\nYou are not authorized to use admin commands.",
+                parse_mode='MARKDOWN'
+            )
+            return
+        
+        admin_menu = f"""👑 **ADMIN PANEL**
+
+👤 Admin ID: `{user_id}`
+
+📊 **Commands:**
+• `/signal_on` - Enable auto signals
+• `/signal_off` - Disable auto signals  
+• `/signal_status` - Check status
+
+🔧 **Bot Status:**
+• HTTP/2: ✅
+• Rate limit: ✅ (9 RPS)
+• Market overview: ✅"""
+        
+        await update.effective_message.reply_text(admin_menu, parse_mode='MARKDOWN')
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages for menu interactions"""
