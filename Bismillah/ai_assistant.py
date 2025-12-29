@@ -78,11 +78,16 @@ class AIAssistant:
 • **Perubahan 24j**: {change_24h:+.2f}% {change_emoji}
 • **Volume 24j**: {volume_format}
 
-🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
+🎯 **ENHANCED SUPPLY & DEMAND ZONES** ({snd_zones.get('engine_used', 'Unknown')}):
 • 🔴 Supply Zone 1: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
 • 🔴 Supply Zone 2: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
 • 🟢 Demand Zone 1: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
 • 🟢 Demand Zone 2: ${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}
+
+🔍 **SnD ENGINE ANALYSIS:**
+• Zone Position: {snd_zones.get('position', 'Unknown')}
+• Zone Strength: {snd_zones.get('strength', 'Unknown')}
+{f"• Engine Signal: **{snd_zones['entry_signal']}** ({snd_zones['signal_strength']:.0f}%)" if snd_zones.get('entry_signal') else "• Engine Signal: No signal detected"}
 
 📈 **SINYAL TRADING:**
 • **Arah**: {signal_data.get('direction', 'NEUTRAL')} {signal_data.get('emoji', '⚖️')}
@@ -145,16 +150,16 @@ class AIAssistant:
             # Enhanced data fetching with validation
             price_data = {}
             data_quality_score = 0
-            
+
             if crypto_api:
                 # Primary data fetch with enhanced validation
                 price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
-                
+
                 # Data quality assessment
                 if 'error' not in price_data:
                     accuracy_score = price_data.get('accuracy_score', 0)
                     validation_passed = price_data.get('validation_passed', False)
-                    
+
                     if validation_passed and accuracy_score > 80:
                         data_quality_score = accuracy_score
                     elif accuracy_score > 60:
@@ -163,7 +168,7 @@ class AIAssistant:
                         # Low quality data - try alternative approach
                         if user_id and progress_tracker:
                             progress_tracker.update_progress(user_id, "⚠️ Retrying with backup method...", 18)
-                        
+
                         # Retry with different validation approach
                         price_data = crypto_api.get_crypto_price(symbol, force_refresh=True)
                         data_quality_score = price_data.get('accuracy_score', 50)
@@ -274,11 +279,16 @@ class AIAssistant:
 • **Perubahan 24j**: {change_24h:+.2f}% {change_emoji}
 • **Volume 24j**: {volume_format}
 
-🎯 **ENHANCED SUPPLY & DEMAND ZONES**:
+🎯 **ENHANCED SUPPLY & DEMAND ZONES** ({snd_zones.get('engine_used', 'Unknown')}):
 • 🔴 Supply Zone 1: ${snd_zones['supply_1_low']:,.6f} - ${snd_zones['supply_1_high']:,.6f}
 • 🔴 Supply Zone 2: ${snd_zones['supply_2_low']:,.6f} - ${snd_zones['supply_2_high']:,.6f}
 • 🟢 Demand Zone 1: ${snd_zones['demand_1_low']:,.6f} - ${snd_zones['demand_1_high']:,.6f}
 • 🟢 Demand Zone 2: ${snd_zones['demand_2_low']:,.6f} - ${snd_zones['demand_2_high']:,.6f}
+
+🔍 **SnD ENGINE ANALYSIS:**
+• Zone Position: {snd_zones.get('position', 'Unknown')}
+• Zone Strength: {snd_zones.get('strength', 'Unknown')}
+{f"• Engine Signal: **{snd_zones['entry_signal']}** ({snd_zones['signal_strength']:.0f}%)" if snd_zones.get('entry_signal') else "• Engine Signal: No signal detected"}
 
 📈 **SINYAL TRADING:**
 • **Arah**: {signal_data.get('direction', 'NEUTRAL')} {signal_data.get('emoji', '⚖️')}
@@ -385,7 +395,8 @@ class AIAssistant:
                 'demand_2_low': demand_2_low,
                 'demand_2_high': demand_2_high,
                 'position': position,
-                'strength': strength
+                'strength': strength,
+                'engine_used': 'Standard SnD' # Indicate the engine used
             }
 
         except Exception as e:
@@ -402,7 +413,8 @@ class AIAssistant:
                 'demand_2_high': current_price * 0.980,
                 'position': 'Enhanced SnD analysis unavailable',
                 'strength': 'Unknown',
-                'error': str(e)
+                'error': str(e),
+                'engine_used': 'Fallback SnD' # Indicate the engine used
             }
 
     def _calculate_basic_snd_zones(self, current_price: float) -> Dict:
@@ -867,7 +879,7 @@ class AIAssistant:
                 # Assume user_id is available or generated here. For simplicity, let's use a placeholder.
                 # In a real application, user_id would come from the context.
                 user_id = f"user_{random.randint(1000, 9999)}"
-                await progress_tracker.update_progress(user_id, 0, "⏳ Initializing analysis...")
+                await progress_tracker.update_progress(user_id, "⏳ Initializing analysis...", 0)
                 await asyncio.sleep(0.1)
 
                 # Update progress: Stage 1 - Data fetching for the first batch of coins
@@ -2220,7 +2232,7 @@ class AIAssistant:
                 print(f"R:R calculation error: {e}")
                 rr_ratio = 1.0
 
-            # Much more conservative multipliers for realistic confidence
+            # More conservative multipliers for realistic confidence
             timeframe_multiplier = {
                 '15m': 0.90, '30m': 0.95, '1h': 1.0,
                 '4h': 1.05, '1d': 1.08, '1w': 1.12
@@ -2973,7 +2985,6 @@ class AIAssistant:
             market_data.sort(key=lambda x: x['market_cap'], reverse=True)
 
             for i, data in enumerate(market_data[:5], 1):
-                symbol = data['symbol']
                 price = data['price']
                 change = data['change_24h']
 
@@ -3002,7 +3013,7 @@ class AIAssistant:
                     status_emoji = "📉"
                     status = "Bearish"
 
-                analysis += f"\n{i}. **{symbol}** {status_emoji} {price_format} ({change:+.1f}%) - {status}"
+                analysis += f"\n{i}. **{data['symbol']}** {status_emoji} {price_format} ({change:+.1f}%) - {status}"
 
             # Trading implications
             if avg_change > 2:
