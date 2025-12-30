@@ -129,12 +129,17 @@ Confidence: {confidence:.0f}%"""
     async def generate_multi_signals(self, coins: Optional[List[str]] = None) -> str:
         """Generate multi-coin signals"""
         if coins is None:
-            coins = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT']
+            # Expanded coin list for comprehensive coverage
+            coins = [
+                'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+                'ADAUSDT', 'DOLUSDT', 'AVAXUSDT', 'MATICUSDT', 'LINKUSDT',
+                'UNIUSDT', 'LTCUSDT', 'DOGECOINUSDT', 'PEPEUSDT', 'OPUSDT'
+            ]
         
         try:
             signals_text = "🚨 FUTURES SIGNALS – SUPPLY & DEMAND ANALYSIS\n\n"
             signals_text += f"🕐 Scan Time: {datetime.now().strftime('%H:%M:%S')} WIB\n"
-            signals_text += f"📊 Signals Found: {len(coins)} (Confidence ≥ 65.0% - Quality Only)\n\n"
+            signals_text += f"📊 Scanning: {len(coins)} coins for trading opportunities\n\n"
             
             signals_text += "💰 GLOBAL METRICS:\n"
             signals_text += "• Total Market Cap: $3.17T\n"
@@ -169,9 +174,7 @@ Confidence: {confidence:.0f}%"""
                         conf += 15
                     conf = min(conf, 100.0)
                     
-                    if conf < 65:
-                        continue
-                    
+                    # Show all coins with analysis, not filtering by confidence
                     direction = "LONG" if current_price > ema50 else "SHORT"
                     emoji_dir = "🟢" if direction == "LONG" else "🔴"
                     
