@@ -684,7 +684,7 @@ Just type the symbol in your next message!"""
         )
 
     async def handle_futures_timeframe_selection(self, query, context):
-        """Handle futures timeframe selection - DIRECT ANALYSIS"""
+        """Handle futures timeframe selection with SnD entry recommendations"""
         # Parse callback data: futures_SYMBOL_TIMEFRAME
         parts = query.data.split('_')
         if len(parts) >= 3:
@@ -696,36 +696,90 @@ Just type the symbol in your next message!"""
                 symbol = symbol + 'USDT'
 
             try:
-                await query.edit_message_text(f"🔄 **Futures: {symbol} {timeframe}**\n\n📊 Fetching klines data...", parse_mode='MARKDOWN')
+                await query.edit_message_text(f"🔄 **Futures: {symbol} {timeframe}**\n\n📊 Analyzing Supply & Demand zones...", parse_mode='MARKDOWN')
 
-                from app.providers.binance_provider import fetch_klines
+                from snd_zone_detector import detect_snd_zones
 
-                # Get klines
-                klines = fetch_klines(symbol, timeframe, limit=100)
-                if not klines or len(klines) == 0:
+                # Get SnD zones
+                snd_result = detect_snd_zones(symbol, timeframe, limit=100)
+                
+                if 'error' in snd_result:
                     await query.edit_message_text(
-                        f"❌ No data for {symbol} {timeframe}",
+                        f"❌ Error: {snd_result['error']}",
                         parse_mode='MARKDOWN'
                     )
                     return
 
-                # Extract OHLCV
-                closes = [float(k[4]) for k in klines[-20:]]
-                latest = float(klines[-1][4])
-                prev = float(klines[-2][4])
-                change = ((latest - prev) / prev * 100)
+                current_price = snd_result.get('current_price', 0)
+                demand_zones = snd_result.get('demand_zones', [])
+                supply_zones = snd_result.get('supply_zones', [])
+                signal_type = snd_result.get('entry_signal')
+                signal_strength = snd_result.get('signal_strength', 0)
 
-                avg_20 = sum(closes) / len(closes)
-                trend = "📈 BULLISH" if latest > avg_20 else "📉 BEARISH"
+                # Build analysis response
+                response = f"""📊 **Futures: {symbol} ({timeframe})**
 
-                response = f"""📊 **Futures: {symbol}**
+💰 **Current Price:** ${current_price:.6f}
 
-Price: ${latest:.2f}
-Change: {change:+.2f}%
-Trend: {trend}
-20MA: ${avg_20:.2f}
+"""
 
-Analysis: {trend} signal detected"""
+                # Add demand zones (BUY ENTRIES)
+                if demand_zones:
+                    response += f"🟢 **DEMAND ZONES (BUY SETUP):** {len(demand_zones)} zone(s)\n"
+                    for i, zone in enumerate(demand_zones[:3], 1):
+                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
+                        strength = zone.strength if hasattr(zone, 'strength') else 0
+                        response += f"\n**Zone {i}:** 💵 Entry ${entry:.6f}\n"
+                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"  • Strength: {strength:.0f}%\n"
+                        
+                        # Calculate SL and TP
+                        zone_width = zone.high - zone.low
+                        sl = zone.low - (zone_width * 0.5)
+                        tp1 = current_price + (zone_width * 1.5)
+                        tp2 = current_price + (zone_width * 2.5)
+                        
+                        response += f"  • 🛑 StopLoss: ${sl:.6f}\n"
+                        response += f"  • 🎯 Target1: ${tp1:.6f}\n"
+                        response += f"  • 🎯 Target2: ${tp2:.6f}\n"
+                else:
+                    response += "🟢 **DEMAND ZONES:** No active demand zones\n"
+
+                # Add supply zones (SHORT ENTRIES)
+                if supply_zones:
+                    response += f"\n🔴 **SUPPLY ZONES (SHORT SETUP):** {len(supply_zones)} zone(s)\n"
+                    for i, zone in enumerate(supply_zones[:3], 1):
+                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
+                        strength = zone.strength if hasattr(zone, 'strength') else 0
+                        response += f"\n**Zone {i}:** 📍 Entry ${entry:.6f}\n"
+                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"  • Strength: {strength:.0f}%\n"
+                        
+                        # Calculate SL and TP for shorts
+                        zone_width = zone.high - zone.low
+                        sl = zone.high + (zone_width * 0.5)
+                        tp1 = current_price - (zone_width * 1.5)
+                        tp2 = current_price - (zone_width * 2.5)
+                        
+                        response += f"  • 🛑 StopLoss: ${sl:.6f}\n"
+                        response += f"  • 🎯 Target1: ${tp1:.6f}\n"
+                        response += f"  • 🎯 Target2: ${tp2:.6f}\n"
+                else:
+                    response += "\n🔴 **SUPPLY ZONES:** No active supply zones\n"
+
+                # Add signal recommendation
+                response += f"\n⚡ **SIGNAL STATUS:**"
+                if signal_type:
+                    response += f"\n✅ {signal_type}\n"
+                    response += f"📊 Strength: {signal_strength:.0f}%\n"
+                else:
+                    response += f"\n⏳ Waiting for zone confirmation\n"
+
+                response += f"\n💡 **Setup Guide:**\n"
+                response += f"• Enter at zone (not market)\n"
+                response += f"• Place SL below zone\n"
+                response += f"• Set TP at 1.5-2.5x risk:reward\n"
+                response += f"• Avoid breakout chasing"
 
                 await query.edit_message_text(response, parse_mode='MARKDOWN')
 
