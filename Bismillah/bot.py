@@ -119,6 +119,10 @@ class TelegramBot:
         except Exception as e:
             print(f"⚠️ Admin premium handlers failed: {e}")
 
+        # Register admin callback handler BEFORE menu handlers (order matters!)
+        self.application.add_handler(CallbackQueryHandler(self.admin_button_handler, pattern=r'^admin_'))
+        self.application.add_handler(CallbackQueryHandler(self.signal_callback_handler, pattern=r'^signal_tf_'))
+        
         # Register menu system handlers
         register_menu_handlers(self.application, self)
 
@@ -138,10 +142,6 @@ class TelegramBot:
             for handler in sb_handlers:
                 self.application.add_handler(handler)
 
-        # Register callback handlers for admin panel buttons and signals
-        self.application.add_handler(CallbackQueryHandler(self.signal_callback_handler, pattern=r'^signal_tf_'))
-        self.application.add_handler(CallbackQueryHandler(self.admin_button_handler, pattern=r'^admin_'))
-        
         # Message handler for menu interactions
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
