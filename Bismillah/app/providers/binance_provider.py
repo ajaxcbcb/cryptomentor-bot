@@ -1,7 +1,7 @@
 
 # app/providers/binance_provider.py
 from __future__ import annotations
-import os, time, logging
+import os, time, logging, random
 from typing import Any, Dict, List, Optional, Set
 import httpx
 
@@ -33,28 +33,42 @@ _rps = _RPS()
 
 class _HTTP:
     def __init__(self):
-        # Enable HTTP/2 (primary) + HTTP/3 (via h3 package if available)
+        # Single HTTP/2 client with header rotation for Binance
         client_config = {
             "timeout": HTTP_TIMEOUT,
             "follow_redirects": True,
-            "http2": True,  # Enable HTTP/2
+            "http2": True,  # HTTP/2 primary
             "limits": httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            "headers": {"Accept-Encoding": "gzip, deflate, br"}  # gzip, deflate, brotli
+            "headers": {
+                "Accept-Encoding": "gzip, deflate, br",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
         }
         
-        # Try to enable HTTP/3 if h3 package is available
-        try:
-            import h3  # HTTP/3 support requires h3 package
-            # For HTTP/3, we'd need to use AsyncClient with special mounts
-            # For now, HTTP/2 is sufficient and more universally supported
-            logger.info("💡 h3 package available - HTTP/3 can be enabled with AsyncClient if needed")
-        except ImportError:
-            logger.info("📌 h3 package not installed - using HTTP/2 (h3 pip install h3 for HTTP/3)")
-        
         self.client = httpx.Client(**client_config)
-        self.invalid_symbols: Set[str] = set()  # Cache of symbols that don't exist
-        logger.info("✅ HTTP/2 ENABLED (primary) - Best performance for Binance API")
+        self.invalid_symbols: Set[str] = set()
+        self.request_count = 0
+        self.rotation_interval = random.randint(3, 5)
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
+        ]
         
+        logger.info("✅ HTTP/2 ENABLED with User-Agent rotation (every 3-5 requests)")
+        
+    def _rotate_headers(self):
+        """Rotate User-Agent every 3-5 requests to avoid Binance 400 errors"""
+        self.request_count += 1
+        
+        if self.request_count >= self.rotation_interval:
+            new_agent = random.choice(self.user_agents)
+            self.client.headers.update({"User-Agent": new_agent})
+            self.request_count = 0
+            self.rotation_interval = random.randint(3, 5)
+            logger.debug(f"🔄 Rotated User-Agent, next rotation in {self.rotation_interval} requests")
+    
     def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
         # Check if symbol is known to be invalid (circuit breaker)
         if params and "symbol" in params:
@@ -66,6 +80,8 @@ class _HTTP:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 _rps.acquire()
+                self._rotate_headers()
+                
                 r = self.client.get(url, params=params, headers={"Accept": "application/json"})
                 
                 # 400 = Bad Request (invalid symbol - don't retry)
