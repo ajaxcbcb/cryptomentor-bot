@@ -143,12 +143,14 @@ def _append_usdt_if_base_only(s: str) -> str:
     if any(s.endswith(x) for x in stables):
         return s
     
-    # Check for BTC, ETH pairs
-    if any(s.endswith(x) for x in ("BTC", "ETH")):
-        return s
+    # Check for BTC, ETH pairs (e.g., SOLBTC, ETHBTC) - but NOT if the symbol IS BTC/ETH
+    quote_assets = ("BTC", "ETH")
+    for quote in quote_assets:
+        if s.endswith(quote) and len(s) > len(quote):
+            return s  # It's a pair like SOLBTC
     
-    # For symbols like ASTER, BTC, ETH, SOL, XRP, BNB → default ke USDT
-    if 2 <= len(s) <= 10:  # Extended range for longer symbols like ASTER
+    # For base symbols like BTC, ETH, SOL, XRP, BNB → add USDT
+    if 2 <= len(s) <= 10:  # Extended range for longer symbols
         return s + "USDT"
     return s
 
