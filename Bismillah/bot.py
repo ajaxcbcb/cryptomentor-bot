@@ -1054,7 +1054,10 @@ Resistance: ${max(closes):.2f}"""
         
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
-            [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")]
+            [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")],
+            [InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt")],
+            [InlineKeyboardButton("⚙️ Admin Settings", callback_data="admin_settings")],
+            [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1166,6 +1169,67 @@ Resistance: ${max(closes):.2f}"""
                 print(f"[ADMIN BUTTON] Error editing message: {e}")
                 await query.message.reply_text(db_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
         
+        elif query.data == "admin_user_mgmt":
+            user_mgmt_text = """**👥 User Management**
+
+• **Available Actions:**
+🔍 Search User - Find user by ID/username
+📋 List Users - View recent users
+🚫 Ban/Unban - Manage user access
+📊 User Stats - View detailed statistics
+
+_Select an action below:_
+"""
+            keyboard = [
+                [InlineKeyboardButton("🔍 Search User", callback_data="admin_search_user")],
+                [InlineKeyboardButton("📋 List Users", callback_data="admin_list_users")],
+                [InlineKeyboardButton("🚫 Ban/Unban User", callback_data="admin_ban_user")],
+                [InlineKeyboardButton("◀️ Back", callback_data="admin_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(user_mgmt_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
+        
+        elif query.data == "admin_settings":
+            settings_text = """**⚙️ Admin Settings**
+
+• **Configuration Options:**
+🔔 Notifications - Toggle admin alerts
+🌐 Bot Settings - Configure bot behavior
+📢 Broadcast - Send message to all users
+🔄 Restart Bot - Restart bot service
+
+_Select an option below:_
+"""
+            keyboard = [
+                [InlineKeyboardButton("🔔 Notifications", callback_data="admin_notif")],
+                [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")],
+                [InlineKeyboardButton("🔄 Restart Bot", callback_data="admin_restart")],
+                [InlineKeyboardButton("◀️ Back", callback_data="admin_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(settings_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
+        
+        elif query.data == "admin_premium":
+            premium_text = """**💎 Premium Control**
+
+• **Premium Management:**
+➕ Add Premium - Grant premium access
+➖ Remove Premium - Revoke premium
+♾️ Set Lifetime - Grant lifetime access
+🎁 Add Credits - Give credits to user
+
+_Select an action below:_
+"""
+            keyboard = [
+                [InlineKeyboardButton("➕ Add Premium", callback_data="admin_add_premium")],
+                [InlineKeyboardButton("➖ Remove Premium", callback_data="admin_remove_premium")],
+                [InlineKeyboardButton("♾️ Set Lifetime", callback_data="admin_set_lifetime")],
+                [InlineKeyboardButton("🎁 Add Credits", callback_data="admin_add_credits")],
+                [InlineKeyboardButton("◀️ Back", callback_data="admin_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(premium_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
+        
         elif query.data == "admin_back":
             from database import Database
             from datetime import timedelta
@@ -1194,7 +1258,10 @@ Resistance: ${max(closes):.2f}"""
 """
             
             keyboard = [
-                [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")]
+                [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")],
+                [InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt")],
+                [InlineKeyboardButton("⚙️ Admin Settings", callback_data="admin_settings")],
+                [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
