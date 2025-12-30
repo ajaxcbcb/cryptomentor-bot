@@ -2042,3 +2042,70 @@ class Database:
         except Exception as e:
             print(f"Error adding credits: {e}")
             return False
+
+    def get_recent_users(self, limit=10):
+        """Get recent users"""
+        try:
+            self.cursor.execute("""
+                SELECT * FROM users 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (limit,))
+            
+            columns = [description[0] for description in self.cursor.description]
+            users = []
+            for row in self.cursor.fetchall():
+                user_dict = dict(zip(columns, row))
+                users.append(user_dict)
+            return users
+        except Exception as e:
+            print(f"Error getting recent users: {e}")
+            return []
+
+    def search_user(self, query):
+        """Search user by ID or username"""
+        try:
+            # Try to parse as integer first (user ID)
+            try:
+                user_id = int(query)
+                self.cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+            except ValueError:
+                # Search by username
+                self.cursor.execute("SELECT * FROM users WHERE username = ?", (query,))
+            
+            row = self.cursor.fetchone()
+            if row:
+                columns = [description[0] for description in self.cursor.description]
+                return dict(zip(columns, row))
+            return None
+        except Exception as e:
+            print(f"Error searching user: {e}")
+            return None
+
+    def ban_user(self, user_id):
+        """Ban a user"""
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET banned = 1
+                WHERE telegram_id = ?
+            """, (user_id,))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except Exception as e:
+            print(f"Error banning user: {e}")
+            return False
+
+    def unban_user(self, user_id):
+        """Unban a user"""
+        try:
+            self.cursor.execute("""
+                UPDATE users 
+                SET banned = 0
+                WHERE telegram_id = ?
+            """, (user_id,))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except Exception as e:
+            print(f"Error unbanning user: {e}")
+            return False

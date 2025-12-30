@@ -1314,6 +1314,55 @@ Choose an action:
         elif query.data == "admin_reset_credits_confirm":
             await self.handle_admin_reset_credits_confirm(query, context)
 
+        elif query.data == "admin_search_user":
+            msg = await query.edit_message_text(
+                "🔍 **Search User**\n\n"
+                "Enter user ID or username to search:",
+                parse_mode='MARKDOWN',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_user_mgmt")]])
+            )
+            context.user_data['awaiting_input'] = 'admin_search_user'
+            context.user_data['message_id'] = msg.message_id
+
+        elif query.data == "admin_list_users":
+            from database import Database
+            db = Database()
+            try:
+                # Get last 10 users
+                users = db.get_recent_users(limit=10)
+                if users:
+                    user_text = "📋 **Recent Users**\n\n"
+                    for i, user in enumerate(users, 1):
+                        user_text += f"{i}. {user.get('first_name', 'Unknown')}\n"
+                        user_text += f"   🆔 {user.get('telegram_id')}\n"
+                        user_text += f"   💰 Credits: {user.get('credits', 0)}\n"
+                        user_text += f"   📅 Created: {user.get('created_at', 'N/A')[:10]}\n\n"
+                else:
+                    user_text = "📭 No users found"
+                
+                keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="admin_user_mgmt")]]
+                await query.edit_message_text(
+                    user_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='MARKDOWN'
+                )
+            except Exception as e:
+                await query.edit_message_text(
+                    f"❌ Error loading users: {str(e)}",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back", callback_data="admin_user_mgmt")]]),
+                    parse_mode='MARKDOWN'
+                )
+
+        elif query.data == "admin_ban_user":
+            msg = await query.edit_message_text(
+                "🚫 **Ban/Unban User**\n\n"
+                "Enter user ID to ban/unban:",
+                parse_mode='MARKDOWN',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_user_mgmt")]])
+            )
+            context.user_data['awaiting_input'] = 'admin_ban_user'
+            context.user_data['message_id'] = msg.message_id
+
         elif query.data == "admin_back":
             from database import Database
             from datetime import datetime, timedelta
@@ -1506,53 +1555,95 @@ Choose an action:
 
         # Handle admin inputs
         awaiting = user_data.get('awaiting_input')
-        if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_add_credits_manual']:
+        if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_add_credits_manual', 'admin_search_user', 'admin_ban_user']:
             from database import Database
             from datetime import datetime, timedelta
             
             parts = text.strip().split()
             try:
-                user_id = int(parts[0])
-                db = Database()
+                if awaiting == 'admin_search_user':
+                    search_query = parts[0]
+                    db = Database()
+                    user = db.search_user(search_query)
+                    if user:
+                        user_text = f"""🔍 **User Found**
+
+🆔 User ID: {user.get('telegram_id')}
+📝 Name: {user.get('first_name')} {user.get('last_name', '')}
+👤 Username: @{user.get('username', 'N/A')}
+💰 Credits: {user.get('credits', 0)}
+👑 Premium: {'Yes' if user.get('is_premium') else 'No'}
+♾️ Lifetime: {'Yes' if user.get('is_lifetime') else 'No'}
+🚫 Banned: {'Yes' if user.get('banned') else 'No'}
+📅 Created: {user.get('created_at', 'N/A')[:10]}"""
+                        await update.message.reply_text(user_text, parse_mode='MARKDOWN')
+                    else:
+                        await update.message.reply_text("❌ User not found!", parse_mode='MARKDOWN')
                 
-                if awaiting == 'admin_add_premium':
-                    days = int(parts[1]) if len(parts) > 1 else 30
-                    premium_until = datetime.utcnow() + timedelta(days=days)
-                    db.add_user_premium(user_id, premium_until)
-                    await update.message.reply_text(
-                        f"✅ Premium access added!\n\n"
-                        f"🆔 User: {user_id}\n"
-                        f"📅 Days: {days}\n"
-                        f"⏰ Until: {premium_until.strftime('%Y-%m-%d %H:%M:%S')}",
-                        parse_mode='MARKDOWN'
-                    )
+                elif awaiting == 'admin_ban_user':
+                    user_id = int(parts[0])
+                    db = Database()
+                    user = db.search_user(str(user_id))
+                    if user:
+                        if user.get('banned'):
+                            db.unban_user(user_id)
+                            await update.message.reply_text(
+                                f"✅ User unbanned!\n\n"
+                                f"🆔 User: {user_id}",
+                                parse_mode='MARKDOWN'
+                            )
+                        else:
+                            db.ban_user(user_id)
+                            await update.message.reply_text(
+                                f"✅ User banned!\n\n"
+                                f"🆔 User: {user_id}",
+                                parse_mode='MARKDOWN'
+                            )
+                    else:
+                        await update.message.reply_text("❌ User not found!", parse_mode='MARKDOWN')
                 
-                elif awaiting == 'admin_remove_premium':
-                    db.remove_user_premium(user_id)
-                    await update.message.reply_text(
-                        f"✅ Premium access removed!\n\n"
-                        f"🆔 User: {user_id}",
-                        parse_mode='MARKDOWN'
-                    )
-                
-                elif awaiting == 'admin_set_lifetime':
-                    db.set_user_lifetime(user_id, True)
-                    await update.message.reply_text(
-                        f"✅ Lifetime access granted!\n\n"
-                        f"🆔 User: {user_id}\n"
-                        f"♾️ Status: Lifetime Premium",
-                        parse_mode='MARKDOWN'
-                    )
-                
-                elif awaiting == 'admin_add_credits_manual':
-                    credits = int(parts[1]) if len(parts) > 1 else 100
-                    db.add_user_credits(user_id, credits)
-                    await update.message.reply_text(
-                        f"✅ Credits added!\n\n"
-                        f"🆔 User: {user_id}\n"
-                        f"💰 Added: {credits}",
-                        parse_mode='MARKDOWN'
-                    )
+                else:
+                    user_id = int(parts[0])
+                    db = Database()
+                    
+                    if awaiting == 'admin_add_premium':
+                        days = int(parts[1]) if len(parts) > 1 else 30
+                        premium_until = datetime.utcnow() + timedelta(days=days)
+                        db.add_user_premium(user_id, premium_until)
+                        await update.message.reply_text(
+                            f"✅ Premium access added!\n\n"
+                            f"🆔 User: {user_id}\n"
+                            f"📅 Days: {days}\n"
+                            f"⏰ Until: {premium_until.strftime('%Y-%m-%d %H:%M:%S')}",
+                            parse_mode='MARKDOWN'
+                        )
+                    
+                    elif awaiting == 'admin_remove_premium':
+                        db.remove_user_premium(user_id)
+                        await update.message.reply_text(
+                            f"✅ Premium access removed!\n\n"
+                            f"🆔 User: {user_id}",
+                            parse_mode='MARKDOWN'
+                        )
+                    
+                    elif awaiting == 'admin_set_lifetime':
+                        db.set_user_lifetime(user_id, True)
+                        await update.message.reply_text(
+                            f"✅ Lifetime access granted!\n\n"
+                            f"🆔 User: {user_id}\n"
+                            f"♾️ Status: Lifetime Premium",
+                            parse_mode='MARKDOWN'
+                        )
+                    
+                    elif awaiting == 'admin_add_credits_manual':
+                        credits = int(parts[1]) if len(parts) > 1 else 100
+                        db.add_user_credits(user_id, credits)
+                        await update.message.reply_text(
+                            f"✅ Credits added!\n\n"
+                            f"🆔 User: {user_id}\n"
+                            f"💰 Added: {credits}",
+                            parse_mode='MARKDOWN'
+                        )
                 
                 user_data.pop('awaiting_input', None)
                 user_data.pop('message_id', None)
