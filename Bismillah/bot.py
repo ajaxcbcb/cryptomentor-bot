@@ -1096,26 +1096,16 @@ Resistance: ${max(closes):.2f}"""
                 connection_status = "🔴 Disconnected"
                 
                 try:
-                    result = supabase_service.rpc('hc').execute()
-                    if result:
+                    users_result = supabase_service.table('users').select('id', count='exact').execute()
+                    if users_result is not None:
                         connection_status = "🟢 Connected"
-                except:
-                    pass
-                
-                try:
-                    stats = supabase_service.rpc('stats_totals').execute()
-                    if stats.data:
-                        total_users = stats.data.get('total_users', 0)
-                        premium_users = stats.data.get('premium_users', 0)
-                except:
-                    try:
-                        users_result = supabase_service.table('users').select('id', count='exact').execute()
                         total_users = users_result.count if users_result.count else 0
-                        
-                        premium_result = supabase_service.table('users').select('id', count='exact').eq('is_premium', True).execute()
-                        premium_users = premium_result.count if premium_result.count else 0
-                    except:
-                        pass
+                    
+                    premium_result = supabase_service.table('users').select('id', count='exact').eq('is_premium', True).execute()
+                    premium_users = premium_result.count if premium_result.count else 0
+                except Exception as conn_err:
+                    print(f"[DB STATUS] Connection error: {conn_err}")
+                    connection_status = "🔴 Disconnected"
                 
                 from datetime import datetime, timedelta
                 try:
