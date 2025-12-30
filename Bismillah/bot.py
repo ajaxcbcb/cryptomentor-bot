@@ -1250,6 +1250,12 @@ _Select an action below:_
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(premium_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
         
+        elif query.data == "admin_reset_credits":
+            await self.handle_admin_reset_credits(query, context)
+        
+        elif query.data == "admin_reset_credits_confirm":
+            await self.handle_admin_reset_credits_confirm(query, context)
+        
         elif query.data == "admin_back":
             from database import Database
             from datetime import datetime, timedelta
@@ -1281,13 +1287,157 @@ _Select an action below:_
                 [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")],
                 [InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt")],
                 [InlineKeyboardButton("⚙️ Admin Settings", callback_data="admin_settings")],
-                [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")]
+                [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")],
+                [InlineKeyboardButton("💰 Reset All Credits", callback_data="admin_reset_credits")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
                 admin_panel_text,
                 reply_markup=reply_markup,
+                parse_mode='MARKDOWN'
+            )
+
+    async def handle_admin_reset_credits(self, query, context):
+        """Show reset credits confirmation"""
+        from database import Database
+        
+        try:
+            # Get current user counts
+            db = Database()
+            local_stats = db.get_user_stats()
+            
+            supabase_users = 0
+            try:
+                from supabase_client import get_live_user_count
+                supabase_users = get_live_user_count()
+            except:
+                pass
+                
+            warning_text = f"""⚠️ **RESET ALL CREDITS - CONFIRMATION REQUIRED**
+
+🎯 **Action:** Set 100 credits for ALL users
+📊 **Scope:** Both Local SQLite & Supabase databases
+
+📈 **Current User Count:**
+• 📁 Local SQLite: {local_stats['total_users']} users
+• ☁️ Supabase: {supabase_users} users
+• 💎 Premium users: Will keep unlimited access
+
+⚠️ **WARNING:**
+• This will reset ALL free users to 100 credits
+• Premium users are unaffected
+• Action cannot be undone
+• Both databases will be updated
+
+❓ **Are you sure you want to proceed?**"""
+
+            keyboard = [
+                [InlineKeyboardButton("✅ YES - Reset All Credits", callback_data="admin_reset_credits_confirm")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                warning_text,
+                reply_markup=reply_markup,
+                parse_mode='MARKDOWN'
+            )
+        except Exception as e:
+            await query.edit_message_text(
+                f"❌ Error loading reset credits page: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]),
+                parse_mode='MARKDOWN'
+            )
+
+    async def handle_admin_reset_credits_confirm(self, query, context):
+        """Execute reset credits for all users"""
+        from database import Database
+        
+        try:
+            # Show processing message
+            await query.edit_message_text(
+                "⏳ **Processing credit reset...**\n\n"
+                "📁 Updating Local SQLite database...\n"
+                "☁️ Updating Supabase database...\n\n"
+                "Please wait...",
+                parse_mode='MARKDOWN'
+            )
+            
+            db = Database()
+            local_updated = 0
+            supabase_updated = 0
+            errors = []
+            
+            # 1. Reset credits in Local SQLite
+            try:
+                local_updated = db.set_all_user_credits(100)
+                print(f"✅ Local SQLite: Updated {local_updated} users")
+            except Exception as e:
+                errors.append(f"Local SQLite error: {str(e)}")
+                print(f"❌ Local SQLite error: {e}")
+            
+            # 2. Reset credits in Supabase
+            try:
+                from supabase_client import supabase
+                if supabase:
+                    # Use RPC function to reset all user credits
+                    result = supabase.rpc('reset_all_user_credits', {'p_amount': 100}).execute()
+                    supabase_updated = result.data if isinstance(result.data, int) else 0
+                    print(f"✅ Supabase: Updated {supabase_updated} users via RPC")
+                else:
+                    errors.append("Supabase client not available")
+            except Exception as e:
+                errors.append(f"Supabase error: {str(e)}")
+                print(f"❌ Supabase error: {e}")
+            
+            # 3. Log the admin action
+            admin_id = query.from_user.id
+            db.log_user_activity(
+                admin_id, 
+                "admin_reset_all_credits", 
+                f"Reset credits for Local:{local_updated}, Supabase:{supabase_updated}"
+            )
+            
+            # 4. Show results
+            if errors:
+                result_text = f"""⚠️ **CREDIT RESET COMPLETED WITH WARNINGS**
+
+✅ **Successfully Updated:**
+• 📁 Local SQLite: {local_updated} users
+• ☁️ Supabase: {supabase_updated} users
+
+❌ **Errors Encountered:**
+"""
+                for error in errors:
+                    result_text += f"• {error}\n"
+                    
+                result_text += "\n💡 Check console logs for more details."
+            else:
+                result_text = f"""✅ **CREDIT RESET COMPLETED SUCCESSFULLY**
+
+📊 **Updated User Counts:**
+• 📁 Local SQLite: {local_updated} users
+• ☁️ Supabase: {supabase_updated} users
+• 💰 New Credit Balance: 100 for all free users
+
+🎯 All users now have 100 credits
+👑 Premium users maintain unlimited access"""
+            
+            keyboard = [[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")]]
+            
+            await query.edit_message_text(
+                result_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            await query.edit_message_text(
+                f"❌ **CRITICAL ERROR**\n\n"
+                f"Failed to reset credits: {str(e)}\n\n"
+                f"Please check console logs for details.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]),
                 parse_mode='MARKDOWN'
             )
 
