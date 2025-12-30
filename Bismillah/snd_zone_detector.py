@@ -53,14 +53,14 @@ class Zone:
 
 class SnDZoneDetector:
     """
-    Enhanced Supply & Demand Zone Detection Algorithm
+    Enhanced Supply & Demand Zone Detection Algorithm v3.0
     
-    ALGORITHM:
-    1. SCAN for impulsive moves (large candles with volume spikes)
-    2. IDENTIFY consolidation base after impulse
-    3. CONFIRM departure/breakout from base
-    4. CREATE zone from consolidation area
-    5. VALIDATE zone strength and entry conditions
+    NEW ALGORITHM (Swing-Based - works for ALL volatility levels):
+    1. Calculate ATR for adaptive thresholds
+    2. Detect swing highs (resistance/supply) and swing lows (support/demand) using pivot points
+    3. Cluster nearby pivots into zones with ATR-based expansion
+    4. Score zones by freshness, touch count, and volume
+    5. Derive deterministic entry/SL/TP from zone boundaries
     """
     
     BINANCE_SPOT_URL = "https://api.binance.com/api/v3"
@@ -69,22 +69,172 @@ class SnDZoneDetector:
     # Enhanced timeframe configuration
     VALID_TIMEFRAMES = {
         '1h': '1h', '4h': '4h', '15m': '15m', '30m': '30m', '1d': '1d', '1w': '1w',
-        '1H': '1h', '4H': '4h', '15M': '15m', '30M': '30m', '1D': '1d', '1W': '1w'  # Accept both formats
+        '1H': '1h', '4H': '4h', '15M': '15m', '30M': '30m', '1D': '1d', '1W': '1w'
     }
     
-    # Algorithm parameters - ADAPTIVE & FLEXIBLE for all coins
-    IMPULSE_THRESHOLD = 1.2  # Lowered from 1.8 to catch moves in low volatility coins
-    VOLUME_SPIKE_THRESHOLD = 1.1  # Lowered from 1.4 to be more inclusive
-    CONSOLIDATION_RATIO = 0.6  # Raised from 0.4 to allow wider consolidations
-    MIN_BASE_CANDLES = 2  # Lowered from 3 to allow shorter consolidations
-    MAX_BASE_CANDLES = 8  # Keep max
-    ZONE_VALIDITY_PERIODS = {'1h': 24, '4h': 12, '15m': 96, '30m': 48, '1d': 5, '1w': 1}  # Max candles before zone expires
+    # Swing-based algorithm parameters (adaptive to all volatility levels)
+    PIVOT_WINDOW = 3  # Candles on each side to confirm swing high/low
+    MIN_SWING_ATR = 0.3  # Minimum move in ATR units to qualify as swing
+    ZONE_ATR_EXPANSION = 0.3  # Expand zone bounds by this ATR fraction
+    MIN_ZONE_STRENGTH = 40  # Minimum strength to keep zone
+    MAX_ZONES_PER_TYPE = 5  # Max zones to return per type
+    ZONE_VALIDITY_PERIODS = {'1h': 48, '4h': 24, '15m': 192, '30m': 96, '1d': 10, '1w': 4}
     
     def __init__(self, symbol: str = "BTCUSDT", timeframe: str = "1h", use_futures: bool = False):
         self.symbol = symbol.upper()
         self.timeframe = self.VALID_TIMEFRAMES.get(timeframe, "1h")
         self.use_futures = use_futures
         self.base_url = self.BINANCE_FUTURES_URL if use_futures else self.BINANCE_SPOT_URL
+    
+    def _calculate_atr(self, highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+        """Calculate Average True Range for adaptive thresholds"""
+        if len(closes) < period + 1:
+            return (max(highs[-20:]) - min(lows[-20:])) / 10 if highs else 0.01
+        
+        true_ranges = []
+        for i in range(1, len(closes)):
+            high_low = highs[i] - lows[i]
+            high_close = abs(highs[i] - closes[i-1])
+            low_close = abs(lows[i] - closes[i-1])
+            true_ranges.append(max(high_low, high_close, low_close))
+        
+        if len(true_ranges) >= period:
+            return sum(true_ranges[-period:]) / period
+        return sum(true_ranges) / len(true_ranges) if true_ranges else 0.01
+    
+    def _find_swing_highs(self, highs: List[float], lows: List[float], closes: List[float], volumes: List[float], atr: float) -> List[Dict]:
+        """Find swing highs (potential supply zones) using pivot detection"""
+        swing_highs = []
+        n = len(highs)
+        window = self.PIVOT_WINDOW
+        
+        for i in range(window, n - window):
+            is_pivot_high = True
+            current_high = highs[i]
+            
+            # Check if current high is higher than surrounding candles
+            for j in range(1, window + 1):
+                if highs[i - j] >= current_high or highs[i + j] >= current_high:
+                    is_pivot_high = False
+                    break
+            
+            if is_pivot_high:
+                # Calculate move magnitude from nearby lows
+                nearby_lows = lows[max(0, i-5):i]
+                if nearby_lows:
+                    move_from_low = current_high - min(nearby_lows)
+                    if move_from_low >= atr * self.MIN_SWING_ATR:
+                        swing_highs.append({
+                            'index': i,
+                            'price': current_high,
+                            'low': lows[i],
+                            'volume': volumes[i],
+                            'move_magnitude': move_from_low / atr
+                        })
+        
+        return swing_highs
+    
+    def _find_swing_lows(self, highs: List[float], lows: List[float], closes: List[float], volumes: List[float], atr: float) -> List[Dict]:
+        """Find swing lows (potential demand zones) using pivot detection"""
+        swing_lows = []
+        n = len(lows)
+        window = self.PIVOT_WINDOW
+        
+        for i in range(window, n - window):
+            is_pivot_low = True
+            current_low = lows[i]
+            
+            # Check if current low is lower than surrounding candles
+            for j in range(1, window + 1):
+                if lows[i - j] <= current_low or lows[i + j] <= current_low:
+                    is_pivot_low = False
+                    break
+            
+            if is_pivot_low:
+                # Calculate move magnitude from nearby highs
+                nearby_highs = highs[max(0, i-5):i]
+                if nearby_highs:
+                    move_from_high = max(nearby_highs) - current_low
+                    if move_from_high >= atr * self.MIN_SWING_ATR:
+                        swing_lows.append({
+                            'index': i,
+                            'price': current_low,
+                            'high': highs[i],
+                            'volume': volumes[i],
+                            'move_magnitude': move_from_high / atr
+                        })
+        
+        return swing_lows
+    
+    def _cluster_to_zones(self, swings: List[Dict], atr: float, zone_type: str, n_candles: int, volumes: List[float]) -> List[Zone]:
+        """Cluster nearby swing points into zones and score them"""
+        if not swings:
+            return []
+        
+        zones = []
+        used_indices = set()
+        avg_volume = sum(volumes[-20:]) / len(volumes[-20:]) if len(volumes) >= 20 else sum(volumes) / len(volumes)
+        
+        for swing in swings:
+            if swing['index'] in used_indices:
+                continue
+            
+            # Find nearby swings within 1.5 ATR to cluster
+            cluster = [swing]
+            for other in swings:
+                if other['index'] != swing['index'] and other['index'] not in used_indices:
+                    price_diff = abs(swing['price'] - other['price'])
+                    if price_diff <= atr * 1.5:
+                        cluster.append(other)
+                        used_indices.add(other['index'])
+            
+            used_indices.add(swing['index'])
+            
+            # Create zone from cluster
+            if zone_type == 'SUPPLY':
+                zone_high = max(s['price'] for s in cluster) + atr * self.ZONE_ATR_EXPANSION
+                zone_low = min(s.get('low', s['price'] - atr * 0.5) for s in cluster)
+            else:  # DEMAND
+                zone_low = min(s['price'] for s in cluster) - atr * self.ZONE_ATR_EXPANSION
+                zone_high = max(s.get('high', s['price'] + atr * 0.5) for s in cluster)
+            
+            # Calculate zone strength based on multiple factors
+            touch_count = len(cluster)
+            freshness = 1 - (min(s['index'] for s in cluster) / n_candles)  # Newer = stronger
+            avg_cluster_volume = sum(s['volume'] for s in cluster) / len(cluster)
+            volume_factor = min(avg_cluster_volume / avg_volume, 2.0) / 2.0 if avg_volume > 0 else 0.5
+            avg_move = sum(s['move_magnitude'] for s in cluster) / len(cluster)
+            move_factor = min(avg_move / 2.0, 1.0)  # Cap at 2 ATR move
+            
+            # Weighted strength calculation (0-100)
+            strength = (
+                touch_count * 15 +  # More touches = stronger zone (up to ~45)
+                freshness * 25 +    # Freshness factor (0-25)
+                volume_factor * 20 + # Volume confirmation (0-20)
+                move_factor * 20     # Move magnitude (0-20)
+            )
+            strength = min(100, max(40, strength))
+            
+            # Entry price at zone edge
+            if zone_type == 'DEMAND':
+                entry_price = zone_low + (zone_high - zone_low) * 0.3  # 30% into zone
+            else:
+                entry_price = zone_high - (zone_high - zone_low) * 0.3  # 70% into zone
+            
+            zone = Zone(
+                zone_type=zone_type,
+                high=zone_high,
+                low=zone_low,
+                strength=strength,
+                formation_candle_index=max(s['index'] for s in cluster),
+                entry_price=entry_price,
+                volume_confirmation=avg_cluster_volume > avg_volume * 0.8
+            )
+            zones.append(zone)
+        
+        # Sort by strength and return top zones
+        zones.sort(key=lambda z: z.strength, reverse=True)
+        return zones[:self.MAX_ZONES_PER_TYPE]
         
     def detect_snd_zones(self, limit: int = 100) -> Dict:
         """
@@ -118,10 +268,18 @@ class SnDZoneDetector:
             
             opens, highs, lows, closes, volumes = ohlcv_data
             current_price = closes[-1]
+            n = len(closes)
             
-            # Enhanced zone detection
-            demand_zones = self._detect_enhanced_demand_zones(opens, highs, lows, closes, volumes)
-            supply_zones = self._detect_enhanced_supply_zones(opens, highs, lows, closes, volumes)
+            # Calculate ATR for adaptive thresholds
+            atr = self._calculate_atr(highs, lows, closes)
+            
+            # NEW: Swing-based zone detection (works for all volatility levels)
+            swing_lows = self._find_swing_lows(highs, lows, closes, volumes, atr)
+            swing_highs = self._find_swing_highs(highs, lows, closes, volumes, atr)
+            
+            # Cluster swings into zones
+            demand_zones = self._cluster_to_zones(swing_lows, atr, 'DEMAND', n, volumes)
+            supply_zones = self._cluster_to_zones(swing_highs, atr, 'SUPPLY', n, volumes)
             
             # Filter and validate zones
             valid_demand_zones = self._filter_valid_zones(demand_zones, current_price, 'DEMAND')
@@ -158,7 +316,7 @@ class SnDZoneDetector:
                     current_price, active_demand, active_supply, signal_data
                 ),
                 'zone_analysis': zone_analysis,
-                'algorithm_version': '2.0_enhanced'
+                'algorithm_version': '3.0_swing_based'
             }
             
         except Exception as e:
