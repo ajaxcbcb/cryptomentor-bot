@@ -1013,6 +1013,9 @@ Resistance: ${max(closes):.2f}"""
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - text-only admin panel"""
         from app.lib.auth import get_admin_level, get_admin_hierarchy
+        from database import Database
+        from datetime import timedelta
+        import time
         
         user_id = update.effective_user.id
         admin_level = get_admin_level(user_id)
@@ -1024,26 +1027,52 @@ Resistance: ${max(closes):.2f}"""
             )
             return
         
-        level_name = {1: "ADMIN1", 2: "ADMIN2", 3: "ADMIN3"}.get(admin_level, "UNKNOWN")
-        hierarchy = get_admin_hierarchy()
+        level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
+        level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
         
-        admin_panel_text = f"""👑 **CryptoMentor AI - Admin Panel**
+        db = Database()
+        user_tz = db.get_user_timezone(user_id)
+        tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
+        offset = tz_offsets.get(user_tz, 7)
+        local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
+        
+        if not hasattr(self, 'start_time'):
+            self.start_time = time.time()
+        uptime_seconds = int(time.time() - self.start_time)
+        hours, remainder = divmod(uptime_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{hours}h {minutes}m {seconds}s"
+        
+        admin_panel_text = f"""
+🤖 **CryptoMentorAI V2.0 Admin Panel**
+━━━━━━━━━━━━━━━━━━━━━━━
 
-🤖 **System Status**
-⏰ **Time:** {datetime.now().strftime('%H:%M:%S')} WIB
-👤 **Your ID:** `{user_id}`
-🔑 **Your Role:** {level_name}
-👥 **Total Admins:** {hierarchy.get('total_admins', 0)}
+⏰ **Time:** {local_time} {user_tz}
+🟢 **Status:** ONLINE ({uptime_str})
+{level_emoji} **Role:** {level_name}
+🆔 **Your ID:** `{user_id}`
 
-📋 **Admin Commands:**
-• /set_premium userid days_or_lifetime
-• /remove_premium userid
-• /grant_credits userid amount
-• /broadcast message
+━━━━━━━━━━━━━━━━━━━━━━━
 
-💡 **Example:**
-/set_premium 7079544380 lifetime
-/set_premium 7079544380 30"""
+📋 **Available Commands:**
+
+👥 **User Management:**
+   `/set_premium <id> <days/lifetime>`
+   `/remove_premium <id>`
+   `/grant_credits <id> <amount>`
+
+📢 **Communication:**
+   `/broadcast <message>`
+
+━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 **Examples:**
+`/set_premium 7079544380 lifetime`
+`/set_premium 7079544380 30`
+`/grant_credits 7079544380 100`
+
+━━━━━━━━━━━━━━━━━━━━━━━
+"""
         
         await update.effective_message.reply_text(
             admin_panel_text,
