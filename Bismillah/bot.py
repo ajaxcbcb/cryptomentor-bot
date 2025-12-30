@@ -1045,14 +1045,11 @@ Resistance: ${max(closes):.2f}"""
         
         admin_panel_text = f"""
 🤖 **CryptoMentorAI V2.0 Admin Panel**
-━━━━━━━━━━━━━━━━━━━━━━━
 
 ⏰ **Time:** {local_time} {user_tz}
 🟢 **Status:** ONLINE ({uptime_str})
 {level_emoji} **Role:** {level_name}
 🆔 **Your ID:** `{user_id}`
-
-━━━━━━━━━━━━━━━━━━━━━━━
 
 📋 **Available Commands:**
 
@@ -1064,14 +1061,10 @@ Resistance: ${max(closes):.2f}"""
 📢 **Communication:**
    `/broadcast <message>`
 
-━━━━━━━━━━━━━━━━━━━━━━━
-
 💡 **Examples:**
 `/set_premium 7079544380 lifetime`
 `/set_premium 7079544380 30`
 `/grant_credits 7079544380 100`
-
-━━━━━━━━━━━━━━━━━━━━━━━
 """
         
         await update.effective_message.reply_text(
