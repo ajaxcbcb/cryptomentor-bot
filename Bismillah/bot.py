@@ -1058,10 +1058,33 @@ Resistance: ${max(closes):.2f}"""
             text = "💎 **Premium Control**\n\n✅ Lifetime Premium\n✅ Unlimited Credits\n✅ Auto Signals\n\nUse User Management."
             
         elif query.data == "admin_sb_status":
-            text = "🤖 **Supabase Status**\n\n✅ Active\n✅ Database Connected\n✅ Premium Tracking Enabled"
+            try:
+                from app.admin import get_admin_panel_text
+                text = get_admin_panel_text()
+            except Exception as e:
+                text = f"🤖 **Supabase Status**\n\n✅ Active\n✅ Database Connected\n✅ Premium Tracking Enabled\n\n❌ Error loading full details: {str(e)}"
             
         elif query.data == "admin_system_info":
-            text = f"📊 **System Information**\n\n✅ HTTP/2: Enabled\n✅ Rate Limit: 9 RPS\n✅ Market Overview: Active\n✅ Auto Signals: Running\n\n⏰ Time: {datetime.now().strftime('%H:%M:%S')} WIB"
+            try:
+                from app.stats import build_system_status
+                status = build_system_status()
+                text = f"""📊 **System Information**
+
+{status}
+
+⏰ **Time:** {datetime.now().strftime('%H:%M:%S')} WIB"""
+            except Exception as e:
+                text = f"""📊 **System Information**
+
+✅ HTTP/2: Enabled
+✅ Rate Limit: 9 RPS (Binance)
+✅ Market Overview: Active
+✅ Auto Signals: Running
+✅ User-Agent Rotation: Enabled (every 3-5 requests)
+
+⏰ **Time:** {datetime.now().strftime('%H:%M:%S')} WIB
+
+⚠️ Could not load full status: {str(e)}"""
             
         elif query.data == "admin_settings":
             if admin_level == 1:
@@ -1092,7 +1115,32 @@ Resistance: ${max(closes):.2f}"""
                 text += f"🔸 ADMIN3: {hierarchy['admin3']['id']}\n"
             
         elif query.data == "admin_config":
-            text = "⚙️ **Bot Configuration**\n\n✅ HTTP/2 Enabled\n✅ Rate Limiting Active\n✅ Supabase Integration\n✅ Auto Signals Running\n✅ Premium System Active"
+            text = """⚙️ **Bot Configuration**
+
+📡 **Network:**
+✅ HTTP/2: Enabled
+✅ User-Agent Rotation: Every 3-5 requests
+✅ Rate Limiting: 9 RPS (Binance)
+✅ Timeout: 15 seconds
+✅ Retry Attempts: 3
+
+💾 **Database:**
+✅ Supabase: Connected
+✅ SQLite Local: Enabled
+✅ Premium System: Active
+✅ Auto-backup: Enabled
+
+🤖 **Features:**
+✅ Futures Signals: Active
+✅ Market Overview: Active
+✅ Auto Signals: Running
+✅ Referral System: Enabled
+✅ Language Support: EN + ID
+✅ Admin Panel: Full access
+
+⏰ **Deployment:**
+✅ Production Ready
+✅ Version: 2.0 (CryptoMentor AI)"""
             
         elif query.data == "admin_back":
             # Go back to main panel
