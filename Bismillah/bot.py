@@ -1142,23 +1142,23 @@ Resistance: ${max(closes):.2f}"""
                 
                 combined_users = total_users + local_users
                 
-                db_text = f"""**🗄 Database Status**
+                db_text = f"""🗄 **Database Status**
 
-• **Connection**
+**Connection**
 {connection_status} Supabase
 📡 Region: Southeast Asia
 
-• **Users**
+**Users**
 👥 Total Users: {combined_users}
-  ├ ☁️ Supabase (New): {total_users}
-  └ 💾 Local DB (Old): {local_users}
+   ☁️ Supabase (New): {total_users}
+   💾 Local DB (Old): {local_users}
 👑 Premium Users: {premium_users}
 ♾️ Lifetime Users: {lifetime_users}
 🟢 Active Today: {active_today}
 
-• **Storage**
+**Storage**
 ☁️ Supabase: users, portfolios, referrals
-💾 Local: users_local.json
+💾 Local: users\_local.json
 🔄 Sync: Real-time enabled
 """
             except Exception as e:
