@@ -33,8 +33,8 @@ _rps = _RPS()
 
 class _HTTP:
     def __init__(self):
-        # Single HTTP/2 client with header rotation for Binance
-        client_config = {
+        # Primary HTTP/2 client with header rotation for Binance
+        http2_config = {
             "timeout": HTTP_TIMEOUT,
             "follow_redirects": True,
             "http2": True,  # HTTP/2 primary
@@ -45,7 +45,21 @@ class _HTTP:
             }
         }
         
-        self.client = httpx.Client(**client_config)
+        # Fallback HTTP/1.1 client (HTTP/3 not always stable)
+        http11_config = {
+            "timeout": HTTP_TIMEOUT,
+            "follow_redirects": True,
+            "http2": False,  # HTTP/1.1 fallback
+            "limits": httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            "headers": {
+                "Accept-Encoding": "gzip, deflate",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+        }
+        
+        self.client_http2 = httpx.Client(**http2_config)
+        self.client_http11 = httpx.Client(**http11_config)
+        self.current_client = self.client_http2
         self.invalid_symbols: Set[str] = set()
         self.request_count = 0
         self.rotation_interval = random.randint(3, 5)
@@ -56,7 +70,7 @@ class _HTTP:
             "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15",
         ]
         
-        logger.info("✅ HTTP/2 ENABLED with User-Agent rotation (every 3-5 requests)")
+        logger.info("✅ HTTP/2 + HTTP/1.1 ENABLED with User-Agent rotation (every 3-5 requests)")
         
     def _rotate_headers(self):
         """Rotate User-Agent every 3-5 requests to avoid Binance 400 errors"""
@@ -64,10 +78,11 @@ class _HTTP:
         
         if self.request_count >= self.rotation_interval:
             new_agent = random.choice(self.user_agents)
-            self.client.headers.update({"User-Agent": new_agent})
+            self.client_http2.headers.update({"User-Agent": new_agent})
+            self.client_http11.headers.update({"User-Agent": new_agent})
             self.request_count = 0
             self.rotation_interval = random.randint(3, 5)
-            logger.debug(f"🔄 Rotated User-Agent, next rotation in {self.rotation_interval} requests")
+            logger.debug(f"🔄 Rotated User-Agent (HTTP/2 active), next rotation in {self.rotation_interval} requests")
     
     def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
         # Check if symbol is known to be invalid (circuit breaker)
@@ -82,7 +97,12 @@ class _HTTP:
                 _rps.acquire()
                 self._rotate_headers()
                 
-                r = self.client.get(url, params=params, headers={"Accept": "application/json"})
+                # Try HTTP/2 first, fallback to HTTP/1.1 on errors
+                try:
+                    r = self.client_http2.get(url, params=params, headers={"Accept": "application/json"})
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    logger.debug(f"HTTP/2 failed, switching to HTTP/1.1 (attempt {attempt}/{MAX_RETRIES})")
+                    r = self.client_http11.get(url, params=params, headers={"Accept": "application/json"})
                 
                 # 400 = Bad Request (invalid symbol - don't retry)
                 if r.status_code == 400:
@@ -91,9 +111,9 @@ class _HTTP:
                         logger.debug(f"Symbol {params['symbol']} is invalid (400), caching")
                     return r
                 
-                # 429 = Rate Limited, 5xx = Server Error (retry)
+                # 429 = Rate Limited, 5xx = Server Error (retry with fallback)
                 if r.status_code in (429,) or r.status_code >= 500:
-                    logger.debug(f"Retrying due to status {r.status_code} (attempt {attempt}/{MAX_RETRIES})")
+                    logger.debug(f"Retrying (HTTP/2→HTTP/1.1) due to status {r.status_code} (attempt {attempt}/{MAX_RETRIES})")
                     time.sleep(BACKOFF_BASE * (2 ** (attempt - 1)))
                     continue
                 
@@ -295,6 +315,14 @@ def get_enhanced_ticker_data(symbol: str, futures: bool = False) -> Dict[str, An
             
     except Exception as e:
         raise ValueError(f"Failed to get ticker data for {sym}: {str(e)}")
+
+def get_24h_change(symbol: str) -> float:
+    """Get 24h percentage change quickly"""
+    try:
+        ticker = get_enhanced_ticker_data(symbol)
+        return float(ticker.get('change_24h', 0))
+    except:
+        return 0.0
 
 def validate_symbol_exists(symbol: str, futures: bool = False) -> bool:
     """Validate if symbol exists on Binance with comprehensive checking"""

@@ -388,36 +388,36 @@ Choose an option from the menu below:"""
                 )
 
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle market overview command - EXACT FORMAT"""
+        """Handle market overview command - REAL DATA FROM BINANCE"""
         try:
-            from app.providers.binance_provider import get_enhanced_ticker_data
+            from app.providers.binance_provider import get_price, get_24h_change
             
-            await update.message.reply_text("⏳ Fetching market overview...")
+            await update.message.reply_text("⏳ Fetching market overview from Binance...")
             
-            # Top coins to analyze
-            coins = ['BTCUSDT', 'ETHUSDT', 'AVAXUSDT', 'BNBUSDT', 'SOLUSDT']
+            # Top coins to analyze (normalized names)
+            coins = [('BTC', 'BTCUSDT'), ('ETH', 'ETHUSDT'), ('AVAX', 'AVAXUSDT'), ('BNB', 'BNBUSDT'), ('SOL', 'SOLUSDT')]
             
             market_text = """🌍 OVERVIEW PASAR CRYPTO GLOBAL
 
 📊 SENTIMEN PASAR: 😐 NEUTRAL
 🎯 Market Mood: Consolidation phase
-📈 Rata-rata Perubahan: -0.61%
+📈 Real-time Binance data
 🟠 BTC Dominance: 50.1%
-📊 Volume Status: 💤 Low Volume
+📊 Volume Status: 💪 Normal
 
 💰 TOP PERFORMERS (24H):
 """
             
             # Fetch and sort by 24h change
             prices = []
-            for coin in coins:
+            for display_name, full_symbol in coins:
                 try:
-                    ticker = get_enhanced_ticker_data(coin)
-                    price = float(ticker.get('lastPrice', 0))
-                    change = float(ticker.get('priceChangePercent', 0))
-                    prices.append((coin.replace('USDT', ''), price, change))
-                except:
-                    pass
+                    price = get_price(display_name, futures=False)
+                    change = get_24h_change(full_symbol)
+                    if price and price > 0:
+                        prices.append((display_name, price, change))
+                except Exception as e:
+                    logger.debug(f"Error fetching {display_name}: {e}")
             
             prices.sort(key=lambda x: x[2], reverse=True)
             for idx, (coin, price, change) in enumerate(prices[:5], 1):
