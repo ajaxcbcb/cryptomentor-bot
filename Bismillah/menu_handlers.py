@@ -12,7 +12,7 @@ from menu_system import (
     SETTINGS_MENU, CHECK_PRICE, MARKET_OVERVIEW, SPOT_ANALYSIS,
     FUTURES_ANALYSIS, MULTI_COIN_SIGNALS, AUTO_SIGNAL_INFO, MY_PORTFOLIO,
     ADD_COIN, CHECK_CREDITS, UPGRADE_PREMIUM, REFERRAL_PROGRAM,
-    PREMIUM_EARNINGS, ASK_AI, CHANGE_LANGUAGE, POPULAR_SYMBOLS
+    PREMIUM_EARNINGS, ASK_AI, CHANGE_LANGUAGE, TIME_SETTINGS, TIMEZONES, POPULAR_SYMBOLS
 )
 import asyncio
 
@@ -92,6 +92,10 @@ class MenuCallbackHandler:
                 await self.handle_advanced_referral_guide(query, context)
             elif callback_data.startswith("set_lang_"):
                 await self.handle_set_language(query, context)
+            elif callback_data == TIME_SETTINGS:
+                await self.handle_time_settings(query, context)
+            elif callback_data.startswith("set_tz_"):
+                await self.handle_set_timezone(query, context)
 
 
             # Symbol selection handlers
@@ -188,6 +192,58 @@ class MenuCallbackHandler:
         """Show settings submenu"""
         await query.edit_message_text(
             get_menu_text(SETTINGS_MENU),
+            reply_markup=MenuBuilder.build_settings_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def handle_time_settings(self, query, context):
+        """Show timezone selection menu"""
+        user_id = query.from_user.id
+        from database import Database
+        db = Database()
+        current_tz = db.get_user_timezone(user_id)
+        tz_info = TIMEZONES.get(current_tz, TIMEZONES['WIB'])
+        
+        await query.edit_message_text(
+            f"🕐 **Time Settings**\n\n"
+            f"📍 **Current Timezone:** {tz_info['name']}\n\n"
+            f"Select your preferred timezone:\n\n"
+            f"🇮🇩 **Indonesia:**\n"
+            f"• WIB - Jakarta, Sumatra, Java (UTC+7)\n"
+            f"• WITA - Bali, Makassar (UTC+8)\n"
+            f"• WIT - Papua (UTC+9)\n\n"
+            f"🌏 **Other Countries:**\n"
+            f"• Singapore, Malaysia (UTC+8)\n"
+            f"• Dubai (UTC+4)\n"
+            f"• UK (UTC+0)\n"
+            f"• US East/West (UTC-5/-8)",
+            reply_markup=MenuBuilder.build_timezone_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def handle_set_timezone(self, query, context):
+        """Handle timezone selection"""
+        user_id = query.from_user.id
+        tz_code = query.data.replace("set_tz_", "")
+        
+        if tz_code not in TIMEZONES:
+            await query.answer("Invalid timezone", show_alert=True)
+            return
+        
+        from database import Database
+        db = Database()
+        db.set_user_timezone(user_id, tz_code)
+        
+        tz_info = TIMEZONES[tz_code]
+        from datetime import datetime, timedelta
+        user_time = (datetime.utcnow() + timedelta(hours=tz_info['offset'])).strftime('%H:%M:%S')
+        
+        await query.edit_message_text(
+            f"✅ **Timezone Updated!**\n\n"
+            f"🕐 **Your Timezone:** {tz_info['name']}\n"
+            f"🏙️ **City:** {tz_info['city']}\n"
+            f"⏰ **Current Time:** {user_time}\n\n"
+            f"All timestamps will now display in your selected timezone.",
             reply_markup=MenuBuilder.build_settings_menu(),
             parse_mode='MARKDOWN'
         )

@@ -33,6 +33,20 @@ REFERRAL_PROGRAM = "referral_program"
 PREMIUM_EARNINGS = "premium_earnings"
 ASK_AI = "ask_ai"
 CHANGE_LANGUAGE = "change_language"
+TIME_SETTINGS = "time_settings"
+
+# Timezone definitions
+TIMEZONES = {
+    'WIB': {'offset': 7, 'name': '🇮🇩 WIB (Jakarta)', 'city': 'Jakarta'},
+    'WITA': {'offset': 8, 'name': '🇮🇩 WITA (Makassar)', 'city': 'Makassar'},
+    'WIT': {'offset': 9, 'name': '🇮🇩 WIT (Papua)', 'city': 'Jayapura'},
+    'SGT': {'offset': 8, 'name': '🇸🇬 Singapore', 'city': 'Singapore'},
+    'MYT': {'offset': 8, 'name': '🇲🇾 Malaysia', 'city': 'Kuala Lumpur'},
+    'GST': {'offset': 4, 'name': '🇦🇪 Dubai (GST)', 'city': 'Dubai'},
+    'GMT': {'offset': 0, 'name': '🇬🇧 UK (GMT)', 'city': 'London'},
+    'EST': {'offset': -5, 'name': '🇺🇸 US East (EST)', 'city': 'New York'},
+    'PST': {'offset': -8, 'name': '🇺🇸 US West (PST)', 'city': 'Los Angeles'},
+}
 
 # Popular symbols for quick selection
 POPULAR_SYMBOLS = ["BTC", "ETH", "SOL", "ADA", "DOT", "MATIC", "AVAX", "UNI"]
@@ -120,7 +134,25 @@ class MenuBuilder:
         """Build Settings submenu"""
         keyboard = [
             [InlineKeyboardButton("🌐 Change Language", callback_data=CHANGE_LANGUAGE)],
+            [InlineKeyboardButton("🕐 Time Settings", callback_data=TIME_SETTINGS)],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_timezone_menu() -> InlineKeyboardMarkup:
+        """Build timezone selection menu"""
+        keyboard = [
+            [InlineKeyboardButton("🇮🇩 WIB (Jakarta)", callback_data="set_tz_WIB"),
+             InlineKeyboardButton("🇮🇩 WITA (Makassar)", callback_data="set_tz_WITA")],
+            [InlineKeyboardButton("🇮🇩 WIT (Papua)", callback_data="set_tz_WIT"),
+             InlineKeyboardButton("🇸🇬 Singapore", callback_data="set_tz_SGT")],
+            [InlineKeyboardButton("🇲🇾 Malaysia", callback_data="set_tz_MYT"),
+             InlineKeyboardButton("🇦🇪 Dubai", callback_data="set_tz_GST")],
+            [InlineKeyboardButton("🇬🇧 UK (GMT)", callback_data="set_tz_GMT"),
+             InlineKeyboardButton("🇺🇸 US East", callback_data="set_tz_EST")],
+            [InlineKeyboardButton("🇺🇸 US West", callback_data="set_tz_PST")],
+            [InlineKeyboardButton("🔙 Back to Settings", callback_data=SETTINGS_MENU)]
         ]
         return InlineKeyboardMarkup(keyboard)
 

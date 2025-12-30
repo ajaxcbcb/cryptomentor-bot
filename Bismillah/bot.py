@@ -501,9 +501,21 @@ Choose an option from the menu below:"""
 
 ✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
             
-            # Add real timestamp
-            current_time = datetime.now().strftime('%H:%M:%S')
-            market_text += f"\n🕐 Update: {current_time} WIB"
+            # Get user timezone and calculate local time
+            from database import Database
+            db = Database()
+            user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
+            user_tz = db.get_user_timezone(user_id)
+            
+            # Timezone offsets
+            tz_offsets = {
+                'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8,
+                'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8
+            }
+            offset = tz_offsets.get(user_tz, 7)
+            from datetime import timedelta
+            local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
+            market_text += f"\n🕐 Update: {local_time} {user_tz}"
             
             # Delete loading message and send final result
             await loading_msg.delete()

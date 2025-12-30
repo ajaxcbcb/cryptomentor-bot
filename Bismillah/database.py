@@ -60,6 +60,7 @@ class Database:
             missing_columns = [
                 ('telegram_id', 'INTEGER'),
                 ('language_code', "TEXT DEFAULT 'id'"),
+                ('timezone', "TEXT DEFAULT 'WIB'"),
                 ('is_premium', 'INTEGER DEFAULT 0'),
                 ('credits', 'INTEGER DEFAULT 0'),
                 ('subscription_end', 'TEXT'),
@@ -1601,6 +1602,28 @@ class Database:
         except Exception as e:
             print(f"Error getting user language: {e}")
             return 'id' # Default language
+
+    def get_user_timezone(self, telegram_id):
+        """Get user's timezone preference (default: WIB)"""
+        try:
+            self.cursor.execute("SELECT timezone FROM users WHERE telegram_id = ?", (telegram_id,))
+            result = self.cursor.fetchone()
+            if result and result[0]:
+                return result[0]
+            return 'WIB'  # Default to Jakarta timezone
+        except Exception as e:
+            print(f"Error getting user timezone: {e}")
+            return 'WIB'
+
+    def set_user_timezone(self, telegram_id, timezone):
+        """Set user's timezone preference"""
+        try:
+            self.cursor.execute("UPDATE users SET timezone = ? WHERE telegram_id = ?", (timezone, telegram_id))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error setting user timezone: {e}")
+            return False
 
     def get_all_referrals(self, telegram_id):
         """Get all users referred by this user"""
