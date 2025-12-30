@@ -47,7 +47,7 @@ class TelegramBot:
         self.application = None
         self.admin_ids = self._load_admin_ids()
         self.start_time = time.time()
-        
+
         # Initialize AI assistant and crypto API
         try:
             from ai_assistant import AIAssistant
@@ -59,7 +59,7 @@ class TelegramBot:
             print(f"⚠️ AI Assistant initialization failed: {e}")
             self.ai_assistant = None
             self.crypto_api = None
-        
+
         print(f"✅ Bot initialized with {len(self.admin_ids)} admin(s)")
 
     def _load_admin_ids(self):
@@ -103,10 +103,10 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("referral", self.referral_command))
         self.application.add_handler(CommandHandler("language", self.language_command))
         self.application.add_handler(CommandHandler("id", self.id_command))
-        
+
         # Admin command handler
         self.application.add_handler(CommandHandler("admin", self.admin_command))
-        
+
         # Register admin premium handlers
         try:
             from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_remove_premium, cmd_grant_credits
@@ -122,7 +122,7 @@ class TelegramBot:
         # Register admin callback handler BEFORE menu handlers (order matters!)
         self.application.add_handler(CallbackQueryHandler(self.admin_button_handler, pattern=r'^admin_'))
         self.application.add_handler(CallbackQueryHandler(self.signal_callback_handler, pattern=r'^signal_tf_'))
-        
+
         # Register menu system handlers
         register_menu_handlers(self.application, self)
 
@@ -152,11 +152,11 @@ class TelegramBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with menu integration and referral processing"""
         user = update.effective_user
-        
+
         # Initialize local database
         from database import Database
         db = Database()
-        
+
         # Check for referral code in start command
         referrer_id = None
         if context.args:
@@ -176,7 +176,7 @@ class TelegramBot:
                 # Premium referral
                 code = ref_code[5:]  # Remove 'prem_' prefix
                 referrer_id = db.get_user_by_premium_referral_code(code)
-        
+
         # Register user in local database
         try:
             user_created = db.create_user(
@@ -187,12 +187,12 @@ class TelegramBot:
                 'id',
                 referrer_id
             )
-            
+
             if user_created and referrer_id:
                 # Process referral reward
                 db.process_referral_reward(referrer_id, user.id)
                 print(f"✅ Processed referral reward: {referrer_id} <- {user.id}")
-                
+
         except Exception as e:
             print(f"❌ User registration failed: {e}")
 
@@ -243,7 +243,7 @@ Choose an option from the menu below:"""
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show help information"""
         user_id = update.effective_user.id
-        
+
         # Get user language
         from database import Database
         db = Database()
@@ -394,14 +394,14 @@ Choose an option from the menu below:"""
         try:
             import asyncio
             from app.providers.binance_provider import get_price, get_24h_change
-            
+
             # Show loading message with countdown
             loading_msg = await update.message.reply_text(
                 "⏳ **Fetching market overview from Binance...**\n\n"
                 "📊 Loading prices... ⏱️ ~5 seconds",
                 parse_mode='MARKDOWN'
             )
-            
+
             # Update countdown while fetching
             await asyncio.sleep(1)
             await loading_msg.edit_text(
@@ -409,10 +409,10 @@ Choose an option from the menu below:"""
                 "📊 Loading prices... ⏱️ ~4 seconds",
                 parse_mode='MARKDOWN'
             )
-            
+
             # Top coins to analyze (normalized names)
             coins = [('BTC', 'BTCUSDT'), ('ETH', 'ETHUSDT'), ('AVAX', 'AVAXUSDT'), ('BNB', 'BNBUSDT'), ('SOL', 'SOLUSDT')]
-            
+
             market_text = """🌍 OVERVIEW PASAR CRYPTO GLOBAL
 
 📊 SENTIMEN PASAR: 😐 NEUTRAL
@@ -423,7 +423,7 @@ Choose an option from the menu below:"""
 
 💰 TOP PERFORMERS (24H):
 """
-            
+
             # Fetch and sort by 24h change
             prices = []
             for display_name, full_symbol in coins:
@@ -434,30 +434,30 @@ Choose an option from the menu below:"""
                         prices.append((display_name, price, change))
                 except Exception as e:
                     logger.debug(f"Error fetching {display_name}: {e}")
-            
+
             prices.sort(key=lambda x: x[2], reverse=True)
             for idx, (coin, price, change) in enumerate(prices[:5], 1):
                 emoji = "📈" if change > 0 else "📉"
                 market_text += f"• {idx}. {coin}: ${price:,.2f} ({change:+.2f}%) {emoji}\n"
-            
+
             market_text += """
 
 🏆 RECOMMENDED COINS TO WATCH:
 
 ⚖️ TOP 3 COINS FOR HOLD & TRADES (RESET EVERY 24H):
 """
-            
+
             # Top 3 recommendations
             for idx, (coin, price, change) in enumerate(prices[:3], 1):
                 volume = "1.7B" if coin == "BTC" else "1.4B" if coin == "ETH" else "595M"
                 score = 105 if idx <= 2 else 100
                 strategy = "ACCUMULATE gradually - Market leader stability" if idx <= 2 else "DCA ACCUMULATION - Good entry zone"
-                
+
                 market_text += f"""• {idx}. {coin} 🏆 PREMIUM ${price:,.2f} ({change:+.2f}%) Vol: ${volume}
   Score: {score}/100 - Top-tier pick
   Strategy: {strategy}
 """
-            
+
             market_text += """
 📊 MARKET INSIGHTS:
 • Analysis based on Top 25 cryptocurrencies (optimized scan)
@@ -502,13 +502,13 @@ Choose an option from the menu below:"""
 🔄 Refresh: Real-time market data
 
 ✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
-            
+
             # Get user timezone and calculate local time
             from database import Database
             db = Database()
             user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
             user_tz = db.get_user_timezone(user_id)
-            
+
             # Timezone offsets
             tz_offsets = {
                 'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8,
@@ -518,11 +518,11 @@ Choose an option from the menu below:"""
             from datetime import timedelta
             local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
             market_text += f"\n🕐 Update: {local_time} {user_tz}"
-            
+
             # Delete loading message and send final result
             await loading_msg.delete()
             await update.message.reply_text(market_text, parse_mode='MARKDOWN')
-            
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
 
@@ -621,14 +621,14 @@ Choose an option from the menu below:"""
 
         symbol = context.args[0].upper()
         timeframe = context.args[1].lower()
-        
+
         # Ensure symbol has USDT suffix
         if not 'USDT' in symbol:
             symbol = symbol + 'USDT'
-        
+
         try:
             await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe}...")
-            
+
             # Get klines data from binance
             try:
                 from app.providers.binance_provider import fetch_klines
@@ -636,18 +636,18 @@ Choose an option from the menu below:"""
                 if not klines or len(klines) == 0:
                     await update.message.reply_text(f"❌ No data for {symbol} {timeframe}")
                     return
-                
+
                 # Extract OHLCV
                 closes = [float(k[4]) for k in klines[-20:]]  # Last 20 closes
-                
+
                 # Simple trend analysis
                 latest = float(klines[-1][4])
                 prev = float(klines[-2][4])
                 change = ((latest - prev) / prev * 100)
-                
+
                 avg_20 = sum(closes) / len(closes)
                 trend = "📈 BULLISH" if latest > avg_20 else "📉 BEARISH"
-                
+
                 response = f"""📊 **Futures: {symbol}**
 
 Price: ${latest:.2f}
@@ -657,11 +657,11 @@ MA20: ${avg_20:.2f}
 
 Support: ${min(closes):.2f}
 Resistance: ${max(closes):.2f}"""
-                
+
                 await update.message.reply_text(response, parse_mode='MARKDOWN')
             except Exception as e:
                 await update.message.reply_text(f"❌ Data error: {str(e)[:80]}")
-                
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
 
@@ -671,14 +671,14 @@ Resistance: ${max(closes):.2f}"""
         try:
             from futures_signal_generator import FuturesSignalGenerator
             await update.message.reply_text("⏳ Generating multi-coin futures signals...")
-            
+
             generator = FuturesSignalGenerator()
             signals = await generator.generate_multi_signals()
             await update.message.reply_text(signals, parse_mode='MARKDOWN')
-            
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
-    
+
     async def signal_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle professional futures signal command with timeframe selection"""
         if len(context.args) < 1:
@@ -690,14 +690,14 @@ Resistance: ${max(closes):.2f}"""
                 parse_mode='MARKDOWN'
             )
             return
-        
+
         symbol = context.args[0].upper()
         if 'USDT' not in symbol:
             symbol = symbol + 'USDT'
-        
+
         # Store in context for callback
         context.user_data['signal_symbol'] = symbol
-        
+
         # Show timeframe buttons
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
@@ -718,41 +718,41 @@ Resistance: ${max(closes):.2f}"""
             f"🕐 Select timeframe for {symbol}:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    
+
     async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle multi-coin signals command"""
         try:
             from futures_signal_generator import FuturesSignalGenerator
             await update.message.reply_text("⏳ Generating multi-coin futures signals...")
-            
+
             generator = FuturesSignalGenerator()
             signals = await generator.generate_multi_signals()
             await update.message.reply_text(signals, parse_mode='MARKDOWN')
-            
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
-    
+
     async def signal_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle timeframe button callbacks for signals"""
         query = update.callback_query
         data = query.data  # Format: signal_tf_15m_BTCUSDT
-        
+
         parts = data.split('_')
         if len(parts) < 4:
             await query.answer("❌ Invalid callback", show_alert=True)
             return
-        
+
         timeframe = parts[2]  # 15m, 1h, etc
         symbol = '_'.join(parts[3:])  # Handle symbol properly
-        
+
         try:
             await query.answer("⏳ Generating signal...")
             await query.edit_message_text("⏳ Generating professional signal...")
-            
+
             from futures_signal_generator import FuturesSignalGenerator
             generator = FuturesSignalGenerator()
             signal = await generator.generate_signal(symbol, timeframe)
-            
+
             await query.edit_message_text(signal, parse_mode='MARKDOWN')
         except Exception as e:
             await query.answer(f"❌ Error: {str(e)[:50]}", show_alert=True)
@@ -770,7 +770,7 @@ Resistance: ${max(closes):.2f}"""
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle credits command"""
         user_id = update.effective_user.id
-        
+
         # Get user language and credits
         from database import Database
         db = Database()
@@ -822,38 +822,38 @@ Resistance: ${max(closes):.2f}"""
         """Handle referral command with enhanced tier system"""
         from database import Database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        
+
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name or "User"
-        
+
         # Get bot username for referral link
         bot_info = await context.bot.get_me()
         bot_username = bot_info.username or "CryptoMentorAI_bot"
-        
+
         try:
             db = Database()
-            
+
             # Get user referral codes
             referral_codes = db.get_user_referral_codes(user_id)
             if not referral_codes:
                 # Create user if doesn't exist
-                db.create_user(user_id, update.effective_user.username, 
-                             update.effective_user.first_name, 
+                db.create_user(user_id, update.effective_user.username,
+                             update.effective_user.first_name,
                              update.effective_user.last_name)
                 referral_codes = db.get_user_referral_codes(user_id)
-            
+
             free_referral_code = referral_codes.get('free_referral_code', 'INVALID')
             premium_referral_code = referral_codes.get('premium_referral_code', 'INVALID')
-            
+
             # Get detailed stats
             detailed_stats = db.get_detailed_referral_stats(user_id)
             earnings_summary = db.get_referral_earnings_summary(user_id)
             tier_info = db.get_user_tier(user_id)
-            
+
             # Build referral links
             free_link = f"https://t.me/{bot_username}?start=ref_{free_referral_code}"
             premium_link = f"https://t.me/{bot_username}?start=prem_{premium_referral_code}"
-            
+
             referral_text = f"""🎁 **REFERRAL PROGRAM - {tier_info['tier']} TIER**
 
 👤 **{user_name}** | Level {tier_info['level']}/5
@@ -870,7 +870,7 @@ Resistance: ${max(closes):.2f}"""
 
 📊 **CURRENT PERFORMANCE:**
 • Total Referrals: {earnings_summary['total_referrals']}
-• Free Referrals: {earnings_summary['free_referrals']} 
+• Free Referrals: {earnings_summary['free_referrals']}
 • Premium Referrals: {earnings_summary['premium_referrals']}
 • Credits Earned: {earnings_summary['credit_earnings']}
 • Money Earned: Rp {earnings_summary['money_earnings']:,}
@@ -884,7 +884,7 @@ Resistance: ${max(closes):.2f}"""
 1. Share free link for instant credits
 2. Premium link gives money when they subscribe
 3. Higher tiers = bigger rewards!"""
-            
+
             # Create interactive buttons
             keyboard = [
                 [
@@ -897,13 +897,13 @@ Resistance: ${max(closes):.2f}"""
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             await update.effective_message.reply_text(
                 referral_text,
                 reply_markup=reply_markup,
                 parse_mode='MARKDOWN'
             )
-            
+
         except Exception as e:
             print(f"Error in referral command: {e}")
             # Fallback to simple version
@@ -932,7 +932,7 @@ Resistance: ${max(closes):.2f}"""
                 db = Database()
                 current_lang = db.get_user_language(user_id) or 'en'
                 current_name = {'en': 'English', 'id': 'Bahasa Indonesia'}.get(current_lang, 'English')
-                
+
                 await update.effective_message.reply_text(
                     f"🌐 **Language Selection**\n\n"
                     f"📍 **Current:** {current_name} (`{current_lang}`)\n\n"
@@ -958,7 +958,7 @@ Resistance: ${max(closes):.2f}"""
         try:
             from database import Database
             db = Database()
-            
+
             # Ensure user exists first
             user = db.get_user(user_id)
             if not user:
@@ -974,7 +974,7 @@ Resistance: ${max(closes):.2f}"""
                 db.update_user_language(user_id, lang)
 
             lang_names = {'en': 'English', 'id': 'Bahasa Indonesia'}
-            
+
             if lang == 'id':
                 success_msg = f"✅ **Bahasa berhasil diubah ke {lang_names[lang]}!**\n\n" \
                              f"🎯 Sekarang bot akan merespons dalam Bahasa Indonesia.\n" \
@@ -985,7 +985,7 @@ Resistance: ${max(closes):.2f}"""
                              f"💡 Use `/menu` for easy navigation!"
 
             await update.effective_message.reply_text(success_msg, parse_mode='MARKDOWN')
-            
+
         except Exception as e:
             print(f"Error updating language: {e}")
             lang_names = {'en': 'English', 'id': 'Bahasa Indonesia'}
@@ -1001,7 +1001,7 @@ Resistance: ${max(closes):.2f}"""
         user_id = user.id
         username = user.username or "N/A"
         first_name = user.first_name or "N/A"
-        
+
         id_info = f"""🆔 **Your Telegram ID**
 
 📱 **User ID:** `{user_id}`
@@ -1009,7 +1009,7 @@ Resistance: ${max(closes):.2f}"""
 🔖 **Username:** @{username}
 
 💡 Use this ID for admin access or referral purposes."""
-        
+
         await update.effective_message.reply_text(id_info, parse_mode='MARKDOWN')
 
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1018,31 +1018,31 @@ Resistance: ${max(closes):.2f}"""
         from database import Database
         from datetime import timedelta
         import time
-        
+
         user_id = update.effective_user.id
         admin_level = get_admin_level(user_id)
-        
+
         if admin_level is None:
             await update.effective_message.reply_text(
                 "❌ **Access Denied**\n\nYou are not authorized to use admin commands.",
                 parse_mode='MARKDOWN'
             )
             return
-        
+
         level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
         level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
-        
+
         db = Database()
         user_tz = db.get_user_timezone(user_id)
         tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
         offset = tz_offsets.get(user_tz, 7)
         local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
-        
+
         uptime_seconds = int(time.time() - self.start_time)
         hours, remainder = divmod(uptime_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime_str = f"{hours}h {minutes}m {seconds}s"
-        
+
         admin_panel_text = f"""**CryptoMentorAI V2.0** | Admin Panel
 
 • 📊 **STATUS**
@@ -1051,16 +1051,17 @@ Resistance: ${max(closes):.2f}"""
 {level_emoji} {level_name}
 🆔 `{user_id}`
 """
-        
+
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
             [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")],
             [InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt")],
             [InlineKeyboardButton("⚙️ Admin Settings", callback_data="admin_settings")],
-            [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")]
+            [InlineKeyboardButton("💎 Premium Control", callback_data="admin_premium")],
+            [InlineKeyboardButton("💰 Reset All Credits", callback_data="admin_reset_credits")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.effective_message.reply_text(
             admin_panel_text,
             reply_markup=reply_markup,
@@ -1072,51 +1073,51 @@ Resistance: ${max(closes):.2f}"""
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         from app.lib.auth import get_admin_level
         import time
-        
+
         query = update.callback_query
         user_id = query.from_user.id
-        
+
         print(f"[ADMIN BUTTON] Received callback: {query.data} from user {user_id}")
-        
+
         admin_level = get_admin_level(user_id)
-        
+
         if admin_level is None:
             await query.answer("❌ Access Denied", show_alert=True)
             return
-        
+
         try:
             await query.answer()
         except Exception as e:
             print(f"[ADMIN BUTTON] Error answering query: {e}")
-        
+
         if query.data == "admin_db_status":
             try:
                 from supabase_client import health_check, get_live_user_count, supabase as sb_client
-                
+
                 total_users = 0
                 premium_users = 0
                 lifetime_users = 0
                 active_today = 0
                 connection_status = "🔴 Disconnected"
-                
+
                 is_healthy, status_msg = health_check()
                 if is_healthy and sb_client:
                     connection_status = "🟢 Connected"
                     total_users = get_live_user_count()
-                    
+
                     try:
                         premium_result = sb_client.table('users').select('id', count='exact').eq('is_premium', True).execute()
                         premium_users = premium_result.count if premium_result.count else 0
                     except:
                         premium_users = 0
-                    
+
                     try:
                         lifetime_result = sb_client.table('users').select('id', count='exact').eq('is_lifetime', True).execute()
                         lifetime_users = lifetime_result.count if lifetime_result.count else 0
                     except Exception as le:
                         print(f"[DB STATUS] Lifetime query error: {le}")
                         lifetime_users = 0
-                    
+
                     from datetime import datetime
                     try:
                         today = datetime.utcnow().date().isoformat()
@@ -1126,7 +1127,7 @@ Resistance: ${max(closes):.2f}"""
                         active_today = 0
                 else:
                     print(f"[DB STATUS] Health check failed: {status_msg}")
-                
+
                 import sqlite3
                 import os
                 local_users = 0
@@ -1141,27 +1142,27 @@ Resistance: ${max(closes):.2f}"""
                 except Exception as le:
                     print(f"[DB STATUS] Local SQLite error: {le}")
                     local_users = 0
-                
+
                 combined_users = total_users + local_users
-                
+
                 db_text = f"""🗄 **Database Status**
 
 **Connection**
 {connection_status} Supabase
-📡 Region: Southeast Asia
+ 📡 Region: Southeast Asia
 
 **Users**
-👥 Total Users: {combined_users}
+ 👥 Total Users: {combined_users}
    ☁️ Supabase (New): {total_users}
    💾 Local DB (Old): {local_users}
-👑 Premium Users: {premium_users}
-♾️ Lifetime Users: {lifetime_users}
-🟢 Active Today: {active_today}
+ 👑 Premium Users: {premium_users}
+ ♾️ Lifetime Users: {lifetime_users}
+ 🟢 Active Today: {active_today}
 
 **Storage**
-☁️ Supabase: users, portfolios, referrals
-💾 SQLite: cryptomentor.db
-🔄 Sync: Real-time enabled
+ ☁️ Supabase: users, portfolios, referrals
+ 💾 SQLite: cryptomentor.db
+ 🔄 Sync: Real-time enabled
 """
             except Exception as e:
                 db_text = f"""**🗄 Database Status**
@@ -1171,13 +1172,13 @@ Resistance: ${max(closes):.2f}"""
 ⚠️ {str(e)[:50]}
 
 • **Fallback**
-💾 SQLite: Active
-📁 Local storage enabled
+ 💾 SQLite: Active
+ 📁 Local storage enabled
 """
-            
+
             keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             try:
                 await query.edit_message_text(
                     db_text,
@@ -1188,15 +1189,15 @@ Resistance: ${max(closes):.2f}"""
             except Exception as e:
                 print(f"[ADMIN BUTTON] Error editing message: {e}")
                 await query.message.reply_text(db_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
-        
+
         elif query.data == "admin_user_mgmt":
             user_mgmt_text = """**👥 User Management**
 
 • **Available Actions:**
-🔍 Search User - Find user by ID/username
-📋 List Users - View recent users
-🚫 Ban/Unban - Manage user access
-📊 User Stats - View detailed statistics
+ 🔍 Search User - Find user by ID/username
+ 📋 List Users - View recent users
+ 🚫 Ban/Unban - Manage user access
+ 📊 User Stats - View detailed statistics
 
 _Select an action below:_
 """
@@ -1208,15 +1209,15 @@ _Select an action below:_
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(user_mgmt_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
-        
+
         elif query.data == "admin_settings":
             settings_text = """**⚙️ Admin Settings**
 
 • **Configuration Options:**
-🔔 Notifications - Toggle admin alerts
-🌐 Bot Settings - Configure bot behavior
-📢 Broadcast - Send message to all users
-🔄 Restart Bot - Restart bot service
+ 🔔 Notifications - Toggle admin alerts
+ 🌐 Bot Settings - Configure bot behavior
+ 📢 Broadcast - Send message to all users
+ 🔄 Restart Bot - Restart bot service
 
 _Select an option below:_
 """
@@ -1228,15 +1229,15 @@ _Select an option below:_
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(settings_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
-        
+
         elif query.data == "admin_premium":
             premium_text = """**💎 Premium Control**
 
 • **Premium Management:**
-➕ Add Premium - Grant premium access
-➖ Remove Premium - Revoke premium
-♾️ Set Lifetime - Grant lifetime access
-🎁 Add Credits - Give credits to user
+ ➕ Add Premium - Grant premium access
+ ➖ Remove Premium - Revoke premium
+ ♾️ Set Lifetime - Grant lifetime access
+ 🎁 Add Credits - Give credits to user
 
 _Select an action below:_
 """
@@ -1249,31 +1250,31 @@ _Select an action below:_
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(premium_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
-        
+
         elif query.data == "admin_reset_credits":
             await self.handle_admin_reset_credits(query, context)
-        
+
         elif query.data == "admin_reset_credits_confirm":
             await self.handle_admin_reset_credits_confirm(query, context)
-        
+
         elif query.data == "admin_back":
             from database import Database
             from datetime import datetime, timedelta
-            
+
             level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
             level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
-            
+
             db = Database()
             user_tz = db.get_user_timezone(user_id)
             tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
             offset = tz_offsets.get(user_tz, 7)
             local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
-            
+
             uptime_seconds = int(time.time() - self.start_time)
             hours, remainder = divmod(uptime_seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             uptime_str = f"{hours}h {minutes}m {seconds}s"
-            
+
             admin_panel_text = f"""**CryptoMentorAI V2.0** | Admin Panel
 
 • 📊 **STATUS**
@@ -1282,7 +1283,7 @@ _Select an action below:_
 {level_emoji} {level_name}
 🆔 `{user_id}`
 """
-            
+
             keyboard = [
                 [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")],
                 [InlineKeyboardButton("👥 User Management", callback_data="admin_user_mgmt")],
@@ -1291,7 +1292,7 @@ _Select an action below:_
                 [InlineKeyboardButton("💰 Reset All Credits", callback_data="admin_reset_credits")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             await query.edit_message_text(
                 admin_panel_text,
                 reply_markup=reply_markup,
@@ -1301,19 +1302,19 @@ _Select an action below:_
     async def handle_admin_reset_credits(self, query, context):
         """Show reset credits confirmation"""
         from database import Database
-        
+
         try:
             # Get current user counts
             db = Database()
             local_stats = db.get_user_stats()
-            
+
             supabase_users = 0
             try:
                 from supabase_client import get_live_user_count
                 supabase_users = get_live_user_count()
             except:
                 pass
-                
+
             warning_text = f"""⚠️ **RESET ALL CREDITS - CONFIRMATION REQUIRED**
 
 🎯 **Action:** Set 100 credits for ALL users
@@ -1337,7 +1338,7 @@ _Select an action below:_
                 [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             await query.edit_message_text(
                 warning_text,
                 reply_markup=reply_markup,
@@ -1353,7 +1354,7 @@ _Select an action below:_
     async def handle_admin_reset_credits_confirm(self, query, context):
         """Execute reset credits for all users"""
         from database import Database
-        
+
         try:
             # Show processing message
             await query.edit_message_text(
@@ -1363,12 +1364,12 @@ _Select an action below:_
                 "Please wait...",
                 parse_mode='MARKDOWN'
             )
-            
+
             db = Database()
             local_updated = 0
             supabase_updated = 0
             errors = []
-            
+
             # 1. Reset credits in Local SQLite
             try:
                 local_updated = db.set_all_user_credits(100)
@@ -1376,7 +1377,7 @@ _Select an action below:_
             except Exception as e:
                 errors.append(f"Local SQLite error: {str(e)}")
                 print(f"❌ Local SQLite error: {e}")
-            
+
             # 2. Reset credits in Supabase
             try:
                 from supabase_client import supabase
@@ -1390,15 +1391,15 @@ _Select an action below:_
             except Exception as e:
                 errors.append(f"Supabase error: {str(e)}")
                 print(f"❌ Supabase error: {e}")
-            
+
             # 3. Log the admin action
             admin_id = query.from_user.id
             db.log_user_activity(
-                admin_id, 
-                "admin_reset_all_credits", 
+                admin_id,
+                "admin_reset_all_credits",
                 f"Reset credits for Local:{local_updated}, Supabase:{supabase_updated}"
             )
-            
+
             # 4. Show results
             if errors:
                 result_text = f"""⚠️ **CREDIT RESET COMPLETED WITH WARNINGS**
@@ -1411,7 +1412,7 @@ _Select an action below:_
 """
                 for error in errors:
                     result_text += f"• {error}\n"
-                    
+
                 result_text += "\n💡 Check console logs for more details."
             else:
                 result_text = f"""✅ **CREDIT RESET COMPLETED SUCCESSFULLY**
@@ -1423,15 +1424,15 @@ _Select an action below:_
 
 🎯 All users now have 100 credits
 👑 Premium users maintain unlimited access"""
-            
+
             keyboard = [[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")]]
-            
+
             await query.edit_message_text(
                 result_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='MARKDOWN'
             )
-            
+
         except Exception as e:
             await query.edit_message_text(
                 f"❌ **CRITICAL ERROR**\n\n"
@@ -1463,7 +1464,7 @@ _Select an action below:_
             elif current_action == 'futures':
                 await update.message.reply_text(
                     f"📉 **Futures Analysis: {symbol}**\n\n"
-                    f"Select timeframe: 15m, 30m, 1h, 4h, 1d, 1w",
+                    f"Select timeframe: 15m, 30m, 1h, 4h, 1d",
                     parse_mode='MARKDOWN'
                 )
                 user_data['awaiting_timeframe'] = True
