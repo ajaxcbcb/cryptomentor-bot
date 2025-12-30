@@ -1604,13 +1604,10 @@ class Database:
             return 'id' # Default language
 
     def get_user_timezone(self, telegram_id):
-        """Get user's timezone preference (default: WIB)"""
+        """Get user's timezone preference"""
         try:
-            self.cursor.execute("SELECT timezone FROM users WHERE telegram_id = ?", (telegram_id,))
-            result = self.cursor.fetchone()
-            if result and result[0]:
-                return result[0]
-            return 'WIB'  # Default to Jakarta timezone
+            user = self.get_user(telegram_id)
+            return user.get('timezone', 'WIB') if user else 'WIB'
         except Exception as e:
             print(f"Error getting user timezone: {e}")
             return 'WIB'
