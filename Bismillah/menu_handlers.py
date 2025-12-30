@@ -835,72 +835,151 @@ Just type the number in your next message!"""
         await self.bot.price_command(fake_update, context)
 
     async def execute_analyze_command(self, query, context, symbol):
-        """Execute analyze command for selected symbol - DIRECT ANALYSIS"""
+        """Execute Spot Signal analysis with tiered DCA zones"""
         # Ensure symbol has USDT
         if not any(symbol.endswith(pair) for pair in ['USDT', 'BUSD', 'USDC']):
             symbol += 'USDT'
         
+        timeframe = "1h"
+        
         try:
-            await query.edit_message_text(f"🔄 **Analyzing {symbol}...**\n\n📊 Fetching Binance data...\n🎯 Detecting zones...", parse_mode='MARKDOWN')
+            await query.edit_message_text(
+                f"🔄 <b>Analyzing {symbol}...</b>\n\n"
+                f"📊 Fetching Binance data...\n"
+                f"🎯 Detecting S&D zones...",
+                parse_mode='HTML'
+            )
             
             from snd_zone_detector import detect_snd_zones
-            from ai_assistant import AIAssistant
-            from crypto_api import crypto_api
             
             # Get SnD analysis
-            snd_result = detect_snd_zones(symbol, "1h", limit=100)
+            snd_result = detect_snd_zones(symbol, timeframe, limit=100)
             
             if 'error' in snd_result:
                 await query.edit_message_text(
-                    f"❌ **Analysis Error for {symbol}:**\n{snd_result['error']}\n\n"
+                    f"❌ <b>Error:</b> {snd_result['error']}\n\n"
                     f"💡 Try a different symbol like BTC, ETH, etc.",
-                    parse_mode='MARKDOWN'
+                    parse_mode='HTML'
                 )
                 return
             
-            # Generate AI analysis
-            ai_assistant = AIAssistant()
-            analysis = await ai_assistant.get_comprehensive_analysis_async(
-                symbol.replace('USDT', ''),
-                crypto_api=crypto_api
-            )
+            current_price = snd_result.get('current_price', 0)
+            demand_zones = snd_result.get('demand_zones', [])
+            supply_zones = snd_result.get('supply_zones', [])
             
-            # Build SnD summary
-            snd_summary = f"\n\n🎯 **ENHANCED SnD ZONES (Binance Klines):**\n"
+            # Helper to format price safely
+            def fmt_price(p):
+                if p >= 1000:
+                    return f"${p:,.2f}"
+                elif p >= 1:
+                    return f"${p:,.4f}"
+                elif p >= 0.0001:
+                    return f"${p:.6f}"
+                else:
+                    return f"${p:.8f}"
             
-            if snd_result.get('demand_zones'):
-                snd_summary += f"🟢 **Demand Zones:** {len(snd_result['demand_zones'])}\n"
-                for zone in snd_result['demand_zones'][:2]:
-                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
+            # Determine trend based on price position relative to zones
+            avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
+            avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
             
-            if snd_result.get('supply_zones'):
-                snd_summary += f"🔴 **Supply Zones:** {len(snd_result['supply_zones'])}\n"
-                for zone in snd_result['supply_zones'][:2]:
-                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
-            
-            if snd_result.get('entry_signal'):
-                snd_summary += f"\n🚨 **SnD SIGNAL: {snd_result['entry_signal']}**\n"
-                snd_summary += f"💪 **Strength:** {snd_result['signal_strength']:.1f}%\n"
-                snd_summary += f"🎯 **Entry:** ${snd_result['entry_price']:.6f}\n"
-                snd_summary += f"🛑 **Stop:** ${snd_result['stop_loss']:.6f}\n"
-                snd_summary += f"🎯 **Target:** ${snd_result['take_profit']:.6f}"
+            if avg_demand and avg_supply:
+                mid_range = (avg_demand + avg_supply) / 2
+                if current_price > mid_range * 1.02:
+                    trend = "Bullish"
+                elif current_price < mid_range * 0.98:
+                    trend = "Bearish"
+                else:
+                    trend = "Sideways"
             else:
-                snd_summary += f"\n⏳ **No SnD Signal** - Wait for zone revisit"
+                trend = "Neutral"
             
-            full_analysis = analysis + snd_summary
-            
-            # Send result (split if too long)
-            if len(full_analysis) > 4000:
-                await query.edit_message_text(full_analysis[:4000], parse_mode='MARKDOWN')
-                await query.message.reply_text(full_analysis[4000:], parse_mode='MARKDOWN')
+            # Volume analysis based on zone strength
+            avg_strength = 0
+            if demand_zones:
+                avg_strength = sum(z.strength for z in demand_zones) / len(demand_zones)
+            if avg_strength >= 60:
+                volume_status = "Accumulation"
+            elif avg_strength >= 40:
+                volume_status = "Neutral"
             else:
-                await query.edit_message_text(full_analysis, parse_mode='MARKDOWN')
+                volume_status = "Distribution"
+            
+            # Calculate overall confidence
+            zone_count = len(demand_zones) + len(supply_zones)
+            base_confidence = min(85, 50 + (zone_count * 5))
+            if demand_zones:
+                base_confidence += min(15, demand_zones[0].strength / 5)
+            confidence = min(95, base_confidence)
+            
+            # Build response using user's exact format
+            display_symbol = symbol.replace('USDT', '')
+            
+            response = f"""📊 <b>Spot Signal – {display_symbol} ({timeframe.upper()})</b>
+
+💰 <b>Price:</b> {fmt_price(current_price)}
+
+🟢 <b>BUY ZONES</b>
+"""
+            
+            # Zone labels and allocations
+            zone_labels = [
+                ("A", "Strong", "40%"),
+                ("B", "Discount", "35%"),
+                ("C", "Deep", "25%")
+            ]
+            
+            # Sort demand zones by proximity to current price (closest first)
+            sorted_demands = sorted(demand_zones, key=lambda z: abs(current_price - z.midpoint))
+            
+            if sorted_demands:
+                for i, (label, desc, alloc) in enumerate(zone_labels):
+                    if i < len(sorted_demands):
+                        zone = sorted_demands[i]
+                        # Calculate TPs based on zone
+                        zone_width = zone.high - zone.low
+                        tp1 = zone.high + (zone_width * 1.5)
+                        tp2 = zone.high + (zone_width * 3.0)
+                        strength = zone.strength if hasattr(zone, 'strength') else 50
+                        
+                        response += f"""
+<b>Zone {label}</b> – {desc}
+Entry: {fmt_price(zone.low)} – {fmt_price(zone.high)}
+Allocation: {alloc}
+TP1: {fmt_price(tp1)}
+TP2: {fmt_price(tp2)}
+Strength: {strength:.0f}%
+"""
+            else:
+                response += "\n⏳ No active demand zones detected\n"
+            
+            # Add SELL ZONE (take profit area from supply)
+            response += "\n🔴 <b>SELL ZONE</b>\n"
+            if supply_zones:
+                best_supply = supply_zones[0]
+                response += f"{fmt_price(best_supply.low)} – {fmt_price(best_supply.high)} (Take Profit)\n"
+            else:
+                response += "No active supply zone\n"
+            
+            # Context section
+            response += f"""
+📈 <b>Context:</b>
+• Trend: {trend}
+• Volume: {volume_status}
+
+🔥 <b>Confidence:</b> {confidence:.0f}%
+💡 <b>Strategy:</b> DCA on demand zones
+
+<i>⚠️ Spot only • Entry range, not market buy</i>"""
+            
+            await query.edit_message_text(response, parse_mode='HTML')
         
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             await query.edit_message_text(
-                f"❌ **Error**: {str(e)[:100]}\n\n"
+                f"❌ <b>Error</b>: {str(e)[:100]}\n\n"
                 f"💡 Please try again or check symbol format",
-                parse_mode='MARKDOWN'
+                parse_mode='HTML'
             )
 
     async def handle_copy_referral_link(self, query, context):
