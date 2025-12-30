@@ -832,132 +832,66 @@ Just type the number in your next message!"""
         await self.bot.price_command(fake_update, context)
 
     async def execute_analyze_command(self, query, context, symbol):
-        """Execute analyze command for selected symbol - COMPREHENSIVE FUNDAMENTAL ANALYSIS"""
+        """Execute analyze command for selected symbol - DIRECT ANALYSIS"""
         # Ensure symbol has USDT
         if not any(symbol.endswith(pair) for pair in ['USDT', 'BUSD', 'USDC']):
             symbol += 'USDT'
         
         try:
-            await query.edit_message_text(f"🔄 **Analyzing {symbol}...**\n\n📊 Fetching Binance data...\n📈 Computing fundamentals...\n🎯 Detecting zones...", parse_mode='MARKDOWN')
+            await query.edit_message_text(f"🔄 **Analyzing {symbol}...**\n\n📊 Fetching Binance data...\n🎯 Detecting zones...", parse_mode='MARKDOWN')
             
             from snd_zone_detector import detect_snd_zones
-            from app.providers.binance_provider import get_enhanced_ticker_data, fetch_klines
-            
-            # Get comprehensive ticker data
-            ticker = get_enhanced_ticker_data(symbol)
-            current_price = ticker['price']
-            change_24h = ticker['change_24h']
-            volume_24h = ticker['volume_usd']
-            high_24h = ticker['high_24h']
-            low_24h = ticker['low_24h']
-            trade_count = ticker['trade_count']
-            spread = ticker['spread_percent']
-            
-            # Get klines for additional analysis
-            klines = fetch_klines(symbol, '1h', limit=100)
-            
-            # Calculate technical indicators
-            closes = [float(k[4]) for k in klines[-50:]]
-            highs = [float(k[2]) for k in klines[-50:]]
-            lows = [float(k[3]) for k in klines[-50:]]
-            
-            # Moving averages
-            ma_20 = sum(closes[-20:]) / 20
-            ma_50 = sum(closes[-50:]) / 50
-            
-            # Volatility (ATR approximation)
-            ranges = [h - l for h, l in zip(highs, lows)]
-            atr = sum(ranges[-14:]) / 14
-            volatility_percent = (atr / current_price * 100)
-            
-            # Support & Resistance
-            local_support = min(lows[-20:])
-            local_resistance = max(highs[-20:])
+            from ai_assistant import AIAssistant
+            from crypto_api import crypto_api
             
             # Get SnD analysis
             snd_result = detect_snd_zones(symbol, "1h", limit=100)
             
             if 'error' in snd_result:
                 await query.edit_message_text(
-                    f"❌ **Analysis Error for {symbol}:**\n{snd_result['error']}",
+                    f"❌ **Analysis Error for {symbol}:**\n{snd_result['error']}\n\n"
+                    f"💡 Try a different symbol like BTC, ETH, etc.",
                     parse_mode='MARKDOWN'
                 )
                 return
             
-            # Build comprehensive analysis
-            response = f"""📊 **SPOT ANALYSIS: {symbol}**
-━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💰 **PRICE & 24H METRICS:**
-• Price: ${current_price:,.2f}
-• 24h Change: {change_24h:+.2f}% {'📈' if change_24h >= 0 else '📉'}
-• 24h High: ${high_24h:,.2f}
-• 24h Low: ${low_24h:,.2f}
-• Range: {spread:.2f}%
-
-📈 **VOLUME ANALYSIS:**
-• 24h Volume: ${volume_24h:,.0f}
-• Trade Count: {trade_count:,} transactions
-• Liquidity: {'🟢 HIGH' if volume_24h > 1000000 else '🟡 MODERATE' if volume_24h > 100000 else '🔴 LOW'}
-
-📊 **TECHNICAL INDICATORS:**
-• MA-20: ${ma_20:,.2f}
-• MA-50: ${ma_50:,.2f}
-• Trend: {'🟢 BULLISH (Price > MA)' if current_price > ma_20 else '🔴 BEARISH (Price < MA)'}
-• Volatility: {volatility_percent:.2f}% ({'High' if volatility_percent > 3 else 'Moderate' if volatility_percent > 1 else 'Low'})
-
-🎯 **SUPPORT & RESISTANCE:**
-• Local Support: ${local_support:,.2f}
-• Local Resistance: ${local_resistance:,.2f}
-• Distance to Support: {((current_price - local_support) / current_price * 100):.2f}%
-• Distance to Resistance: {((local_resistance - current_price) / current_price * 100):.2f}%
-
-"""
+            # Generate AI analysis
+            ai_assistant = AIAssistant()
+            analysis = await ai_assistant.get_comprehensive_analysis_async(
+                symbol.replace('USDT', ''),
+                crypto_api=crypto_api
+            )
             
-            # Add SnD zones
-            response += f"🔶 **SUPPLY & DEMAND ZONES:**\n"
+            # Build SnD summary
+            snd_summary = f"\n\n🎯 **ENHANCED SnD ZONES (Binance Klines):**\n"
             
-            demand_zones = snd_result.get('demand_zones', [])
-            supply_zones = snd_result.get('supply_zones', [])
+            if snd_result.get('demand_zones'):
+                snd_summary += f"🟢 **Demand Zones:** {len(snd_result['demand_zones'])}\n"
+                for zone in snd_result['demand_zones'][:2]:
+                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
             
-            if demand_zones:
-                response += f"🟢 **Demand Zones (BUY):** {len(demand_zones)}\n"
-                for i, zone in enumerate(demand_zones[:2], 1):
-                    response += f"   {i}. ${zone.low:,.6f} - ${zone.high:,.6f} (Strength: {zone.strength:.0f}%)\n"
+            if snd_result.get('supply_zones'):
+                snd_summary += f"🔴 **Supply Zones:** {len(snd_result['supply_zones'])}\n"
+                for zone in snd_result['supply_zones'][:2]:
+                    snd_summary += f"   • ${zone.low:.6f} - ${zone.high:.6f} (S:{zone.strength:.0f}%)\n"
             
-            if supply_zones:
-                response += f"🔴 **Supply Zones (SELL):** {len(supply_zones)}\n"
-                for i, zone in enumerate(supply_zones[:2], 1):
-                    response += f"   {i}. ${zone.low:,.6f} - ${zone.high:,.6f} (Strength: {zone.strength:.0f}%)\n"
-            
-            # Add signal
             if snd_result.get('entry_signal'):
-                response += f"\n🚨 **ACTIVE SIGNAL:**\n"
-                response += f"• Type: {snd_result['entry_signal']}\n"
-                response += f"• Strength: {snd_result['signal_strength']:.0f}%\n"
-                response += f"• Entry: ${snd_result['entry_price']:,.6f}\n"
-                response += f"• StopLoss: ${snd_result['stop_loss']:,.6f}\n"
-                response += f"• TakeProfit: ${snd_result['take_profit']:,.6f}\n"
+                snd_summary += f"\n🚨 **SnD SIGNAL: {snd_result['entry_signal']}**\n"
+                snd_summary += f"💪 **Strength:** {snd_result['signal_strength']:.1f}%\n"
+                snd_summary += f"🎯 **Entry:** ${snd_result['entry_price']:.6f}\n"
+                snd_summary += f"🛑 **Stop:** ${snd_result['stop_loss']:.6f}\n"
+                snd_summary += f"🎯 **Target:** ${snd_result['take_profit']:.6f}"
             else:
-                response += f"\n⏳ **No Active Signal** - Waiting for confirmation\n"
+                snd_summary += f"\n⏳ **No SnD Signal** - Wait for zone revisit"
             
-            # Add recommendation
-            response += f"\n💡 **RECOMMENDATION:**\n"
-            if volume_24h > 1000000 and abs(change_24h) < 5:
-                response += f"• Liquidity is strong with stable price\n"
-            if volatility_percent < 2:
-                response += f"• Low volatility - good for range trading\n"
-            elif volatility_percent > 3:
-                response += f"• High volatility - risk management essential\n"
-            response += f"• Use SnD zones for precise entries\n"
-            response += f"• Always set StopLoss at zone boundaries\n"
+            full_analysis = analysis + snd_summary
             
-            # Send result
-            if len(response) > 4000:
-                await query.edit_message_text(response[:4000], parse_mode='MARKDOWN')
-                await query.message.reply_text(response[4000:], parse_mode='MARKDOWN')
+            # Send result (split if too long)
+            if len(full_analysis) > 4000:
+                await query.edit_message_text(full_analysis[:4000], parse_mode='MARKDOWN')
+                await query.message.reply_text(full_analysis[4000:], parse_mode='MARKDOWN')
             else:
-                await query.edit_message_text(response, parse_mode='MARKDOWN')
+                await query.edit_message_text(full_analysis, parse_mode='MARKDOWN')
         
         except Exception as e:
             await query.edit_message_text(
