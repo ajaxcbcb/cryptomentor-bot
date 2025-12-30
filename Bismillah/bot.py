@@ -1044,27 +1044,34 @@ Resistance: ${max(closes):.2f}"""
         uptime_str = f"{hours}h {minutes}m {seconds}s"
         
         admin_panel_text = f"""
-🤖 **CryptoMentorAI V2.0 Admin Panel**
+╔══════════════════════════════╗
+       🤖 **CryptoMentorAI V2.0**
+              Admin Panel
+╚══════════════════════════════╝
 
-⏰ **Time:** {local_time} {user_tz}
-🟢 **Status:** ONLINE ({uptime_str})
-{level_emoji} **Role:** {level_name}
-🆔 **Your ID:** `{user_id}`
+┌─ 📊 **STATUS** ─────────────────
+│  ⏰ {local_time} {user_tz}
+│  🟢 ONLINE • Uptime: {uptime_str}
+│  {level_emoji} {level_name}
+│  🆔 `{user_id}`
+└──────────────────────────────
 
-📋 **Available Commands:**
+┌─ 🛠 **COMMANDS** ───────────────
+│
+│  👥 **User Management**
+│  • `/set_premium <id> <days>`
+│  • `/remove_premium <id>`
+│  • `/grant_credits <id> <amt>`
+│
+│  📢 **Broadcast**
+│  • `/broadcast <message>`
+│
+└──────────────────────────────
 
-👥 **User Management:**
-   `/set_premium <id> <days/lifetime>`
-   `/remove_premium <id>`
-   `/grant_credits <id> <amount>`
-
-📢 **Communication:**
-   `/broadcast <message>`
-
-💡 **Examples:**
-`/set_premium 7079544380 lifetime`
-`/set_premium 7079544380 30`
-`/grant_credits 7079544380 100`
+┌─ 💡 **QUICK EXAMPLES** ─────────
+│  `/set_premium 123456 lifetime`
+│  `/grant_credits 123456 100`
+└──────────────────────────────
 """
         
         await update.effective_message.reply_text(
