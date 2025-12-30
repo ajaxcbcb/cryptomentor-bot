@@ -1088,32 +1088,33 @@ Resistance: ${max(closes):.2f}"""
         
         if query.data == "admin_db_status":
             try:
-                from supabase_client import supabase_service
+                from supabase_client import health_check, get_live_user_count, supabase as sb_client
                 
                 total_users = 0
                 premium_users = 0
-                active_today = 0
+                active_today = "N/A"
                 connection_status = "🔴 Disconnected"
                 
-                try:
-                    users_result = supabase_service.table('users').select('id', count='exact').execute()
-                    if users_result is not None:
-                        connection_status = "🟢 Connected"
-                        total_users = users_result.count if users_result.count else 0
+                is_healthy, status_msg = health_check()
+                if is_healthy and sb_client:
+                    connection_status = "🟢 Connected"
+                    total_users = get_live_user_count()
                     
-                    premium_result = supabase_service.table('users').select('id', count='exact').eq('is_premium', True).execute()
-                    premium_users = premium_result.count if premium_result.count else 0
-                except Exception as conn_err:
-                    print(f"[DB STATUS] Connection error: {conn_err}")
-                    connection_status = "🔴 Disconnected"
-                
-                from datetime import datetime, timedelta
-                try:
-                    today = datetime.utcnow().date().isoformat()
-                    active_result = supabase_service.table('users').select('id', count='exact').gte('last_active', today).execute()
-                    active_today = active_result.count if active_result.count else 0
-                except:
-                    active_today = "N/A"
+                    try:
+                        premium_result = sb_client.table('users').select('id', count='exact').eq('is_premium', True).execute()
+                        premium_users = premium_result.count if premium_result.count else 0
+                    except:
+                        premium_users = 0
+                    
+                    from datetime import datetime
+                    try:
+                        today = datetime.utcnow().date().isoformat()
+                        active_result = sb_client.table('users').select('id', count='exact').gte('last_active', today).execute()
+                        active_today = active_result.count if active_result.count else 0
+                    except:
+                        active_today = "N/A"
+                else:
+                    print(f"[DB STATUS] Health check failed: {status_msg}")
                 
                 db_text = f"""**🗄 Database Status**
 
