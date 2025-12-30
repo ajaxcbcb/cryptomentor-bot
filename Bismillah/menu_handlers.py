@@ -696,7 +696,7 @@ Just type the symbol in your next message!"""
                 symbol = symbol + 'USDT'
 
             try:
-                await query.edit_message_text(f"🔄 **Futures: {symbol} {timeframe}**\n\n📊 Analyzing Supply & Demand zones...", parse_mode='MARKDOWN')
+                await query.edit_message_text(f"🔄 <b>Futures: {symbol} {timeframe}</b>\n\n📊 Analyzing Supply & Demand zones...", parse_mode='HTML')
 
                 from snd_zone_detector import detect_snd_zones
 
@@ -706,7 +706,7 @@ Just type the symbol in your next message!"""
                 if 'error' in snd_result:
                     await query.edit_message_text(
                         f"❌ Error: {snd_result['error']}",
-                        parse_mode='MARKDOWN'
+                        parse_mode='HTML'
                     )
                     return
 
@@ -716,22 +716,28 @@ Just type the symbol in your next message!"""
                 signal_type = snd_result.get('entry_signal')
                 signal_strength = snd_result.get('signal_strength', 0)
 
-                # Build analysis response
-                response = f"""📊 **Futures: {symbol} ({timeframe})**
+                # Helper to format price safely
+                def fmt_price(p):
+                    if p >= 1:
+                        return f"${p:,.4f}"
+                    elif p >= 0.0001:
+                        return f"${p:.6f}"
+                    else:
+                        return f"${p:.8f}"
 
-💰 **Current Price:** ${current_price:.6f}
+                # Build analysis response using HTML (more reliable than MARKDOWN)
+                response = f"""📊 <b>Futures: {symbol} ({timeframe})</b>
+
+💰 <b>Current Price:</b> {fmt_price(current_price)}
 
 """
 
                 # Add demand zones (BUY ENTRIES)
                 if demand_zones:
-                    response += f"🟢 **DEMAND ZONES (BUY SETUP):** {len(demand_zones)} zone(s)\n"
+                    response += f"🟢 <b>DEMAND ZONES (BUY):</b> {len(demand_zones)} zone(s)\n"
                     for i, zone in enumerate(demand_zones[:3], 1):
                         entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
                         strength = zone.strength if hasattr(zone, 'strength') else 0
-                        response += f"\n**Zone {i}:** 💵 Entry ${entry:.6f}\n"
-                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
-                        response += f"  • Strength: {strength:.0f}%\n"
                         
                         # Calculate SL and TP
                         zone_width = zone.high - zone.low
@@ -739,21 +745,20 @@ Just type the symbol in your next message!"""
                         tp1 = current_price + (zone_width * 1.5)
                         tp2 = current_price + (zone_width * 2.5)
                         
-                        response += f"  • 🛑 StopLoss: ${sl:.6f}\n"
-                        response += f"  • 🎯 Target1: ${tp1:.6f}\n"
-                        response += f"  • 🎯 Target2: ${tp2:.6f}\n"
+                        response += f"\n<b>Zone {i}:</b> Entry {fmt_price(entry)}\n"
+                        response += f"  Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
+                        response += f"  Strength: {strength:.0f}%\n"
+                        response += f"  🛑 SL: {fmt_price(sl)}\n"
+                        response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
                 else:
-                    response += "🟢 **DEMAND ZONES:** No active demand zones\n"
+                    response += "🟢 <b>DEMAND ZONES:</b> No active zones\n"
 
                 # Add supply zones (SHORT ENTRIES)
                 if supply_zones:
-                    response += f"\n🔴 **SUPPLY ZONES (SHORT SETUP):** {len(supply_zones)} zone(s)\n"
+                    response += f"\n🔴 <b>SUPPLY ZONES (SHORT):</b> {len(supply_zones)} zone(s)\n"
                     for i, zone in enumerate(supply_zones[:3], 1):
                         entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
                         strength = zone.strength if hasattr(zone, 'strength') else 0
-                        response += f"\n**Zone {i}:** 📍 Entry ${entry:.6f}\n"
-                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
-                        response += f"  • Strength: {strength:.0f}%\n"
                         
                         # Calculate SL and TP for shorts
                         zone_width = zone.high - zone.low
@@ -761,33 +766,31 @@ Just type the symbol in your next message!"""
                         tp1 = current_price - (zone_width * 1.5)
                         tp2 = current_price - (zone_width * 2.5)
                         
-                        response += f"  • 🛑 StopLoss: ${sl:.6f}\n"
-                        response += f"  • 🎯 Target1: ${tp1:.6f}\n"
-                        response += f"  • 🎯 Target2: ${tp2:.6f}\n"
+                        response += f"\n<b>Zone {i}:</b> Entry {fmt_price(entry)}\n"
+                        response += f"  Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
+                        response += f"  Strength: {strength:.0f}%\n"
+                        response += f"  🛑 SL: {fmt_price(sl)}\n"
+                        response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
                 else:
-                    response += "\n🔴 **SUPPLY ZONES:** No active supply zones\n"
+                    response += "\n🔴 <b>SUPPLY ZONES:</b> No active zones\n"
 
                 # Add signal recommendation
-                response += f"\n⚡ **SIGNAL STATUS:**"
+                response += f"\n⚡ <b>SIGNAL:</b>"
                 if signal_type:
-                    response += f"\n✅ {signal_type}\n"
-                    response += f"📊 Strength: {signal_strength:.0f}%\n"
+                    response += f" ✅ {signal_type} ({signal_strength:.0f}%)\n"
                 else:
-                    response += f"\n⏳ Waiting for zone confirmation\n"
+                    response += f" ⏳ Waiting for zone entry\n"
 
-                response += f"\n💡 **Setup Guide:**\n"
-                response += f"• Enter at zone (not market)\n"
-                response += f"• Place SL below zone\n"
-                response += f"• Set TP at 1.5-2.5x risk:reward\n"
-                response += f"• Avoid breakout chasing"
+                response += f"\n💡 <b>Setup:</b> Enter at zone, SL below zone, TP 1.5-2.5x R:R"
 
-                await query.edit_message_text(response, parse_mode='MARKDOWN')
+                await query.edit_message_text(response, parse_mode='HTML')
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 await query.edit_message_text(
-                    f"❌ **Error**: {str(e)[:100]}\n\n"
-                    f"💡 Please try again",
-                    parse_mode='MARKDOWN'
+                    f"❌ <b>Error</b>: {str(e)[:100]}\n\n💡 Please try again",
+                    parse_mode='HTML'
                 )
 
     async def handle_add_coin_amount(self, query, context, symbol):
