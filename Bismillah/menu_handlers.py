@@ -25,9 +25,13 @@ class MenuCallbackHandler:
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Main callback query handler"""
         query = update.callback_query
-        await query.answer()
-
         callback_data = query.data
+        
+        # Skip admin callbacks - let them be handled by admin_button_handler in bot.py
+        if callback_data.startswith("admin_"):
+            return
+        
+        await query.answer()
         user_id = query.from_user.id
 
         try:

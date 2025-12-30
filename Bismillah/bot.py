@@ -1072,13 +1072,19 @@ Resistance: ${max(closes):.2f}"""
         
         query = update.callback_query
         user_id = query.from_user.id
+        
+        print(f"[ADMIN BUTTON] Received callback: {query.data} from user {user_id}")
+        
         admin_level = get_admin_level(user_id)
         
         if admin_level is None:
             await query.answer("❌ Access Denied", show_alert=True)
             return
         
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception as e:
+            print(f"[ADMIN BUTTON] Error answering query: {e}")
         
         if query.data == "admin_db_status":
             try:
@@ -1149,11 +1155,16 @@ Resistance: ${max(closes):.2f}"""
             keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.edit_message_text(
-                db_text,
-                reply_markup=reply_markup,
-                parse_mode='MARKDOWN'
-            )
+            try:
+                await query.edit_message_text(
+                    db_text,
+                    reply_markup=reply_markup,
+                    parse_mode='MARKDOWN'
+                )
+                print(f"[ADMIN BUTTON] Successfully edited message with db_text")
+            except Exception as e:
+                print(f"[ADMIN BUTTON] Error editing message: {e}")
+                await query.message.reply_text(db_text, reply_markup=reply_markup, parse_mode='MARKDOWN')
         
         elif query.data == "admin_back":
             from database import Database
