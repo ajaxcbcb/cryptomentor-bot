@@ -1363,6 +1363,84 @@ Choose an action:
             context.user_data['awaiting_input'] = 'admin_ban_user'
             context.user_data['message_id'] = msg.message_id
 
+        elif query.data == "admin_notif":
+            notif_text = """🔔 **Notifications Settings**
+
+Current status: Admin alerts enabled
+
+Choose action:
+"""
+            keyboard = [
+                [InlineKeyboardButton("✅ Enable", callback_data="admin_notif_enable")],
+                [InlineKeyboardButton("❌ Disable", callback_data="admin_notif_disable")],
+                [InlineKeyboardButton("◀️ Back", callback_data="admin_settings")]
+            ]
+            await query.edit_message_text(
+                notif_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='MARKDOWN'
+            )
+
+        elif query.data == "admin_notif_enable":
+            context.user_data['admin_notifications'] = True
+            await query.edit_message_text(
+                "✅ **Notifications Enabled**\n\nAdmin alerts are now ON",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back", callback_data="admin_settings")]]),
+                parse_mode='MARKDOWN'
+            )
+
+        elif query.data == "admin_notif_disable":
+            context.user_data['admin_notifications'] = False
+            await query.edit_message_text(
+                "❌ **Notifications Disabled**\n\nAdmin alerts are now OFF",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back", callback_data="admin_settings")]]),
+                parse_mode='MARKDOWN'
+            )
+
+        elif query.data == "admin_broadcast":
+            msg = await query.edit_message_text(
+                "📢 **Broadcast Message**\n\n"
+                "Type your message to send to ALL users:\n\n"
+                "⚠️ This will reach {} users!".format(
+                    sum([1, 571, 541])  # placeholder for user count
+                ),
+                parse_mode='MARKDOWN',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_settings")]])
+            )
+            context.user_data['awaiting_input'] = 'admin_broadcast'
+            context.user_data['message_id'] = msg.message_id
+
+        elif query.data == "admin_restart":
+            restart_text = """🔄 **Restart Bot Service**
+
+⚠️ **WARNING:**
+• Bot will go OFFLINE for ~10-15 seconds
+• All active connections will be terminated
+• Pending operations may be lost
+• Users cannot use bot during restart
+
+❓ **Are you sure?**"""
+            keyboard = [
+                [InlineKeyboardButton("✅ YES - Restart Now", callback_data="admin_restart_confirm")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="admin_settings")]
+            ]
+            await query.edit_message_text(
+                restart_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='MARKDOWN'
+            )
+
+        elif query.data == "admin_restart_confirm":
+            await query.edit_message_text(
+                "🔄 **Restarting bot...**\n\n"
+                "⏳ Please wait...",
+                parse_mode='MARKDOWN'
+            )
+            import os
+            import sys
+            print("[ADMIN] Bot restart initiated")
+            os.execv(sys.executable, ['python'] + sys.argv)
+
         elif query.data == "admin_back":
             from database import Database
             from datetime import datetime, timedelta
@@ -1555,6 +1633,42 @@ Choose an action:
 
         # Handle admin inputs
         awaiting = user_data.get('awaiting_input')
+        if awaiting == 'admin_broadcast':
+            broadcast_msg = text.strip()
+            from database import Database
+            db = Database()
+            try:
+                users = db.get_all_users()
+                success_count = 0
+                fail_count = 0
+                
+                for user in users:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user.get('telegram_id'),
+                            text=f"📢 **Admin Broadcast**\n\n{broadcast_msg}",
+                            parse_mode='MARKDOWN'
+                        )
+                        success_count += 1
+                    except Exception as e:
+                        fail_count += 1
+                        print(f"Failed to send to {user.get('telegram_id')}: {e}")
+                
+                await update.message.reply_text(
+                    f"✅ **Broadcast Complete**\n\n"
+                    f"✉️ Sent: {success_count}\n"
+                    f"❌ Failed: {fail_count}",
+                    parse_mode='MARKDOWN'
+                )
+            except Exception as e:
+                await update.message.reply_text(
+                    f"❌ Broadcast failed: {str(e)}",
+                    parse_mode='MARKDOWN'
+                )
+            user_data.pop('awaiting_input', None)
+            user_data.pop('message_id', None)
+            return
+
         if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_add_credits_manual', 'admin_search_user', 'admin_ban_user']:
             from database import Database
             from datetime import datetime, timedelta

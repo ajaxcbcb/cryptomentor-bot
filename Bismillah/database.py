@@ -2109,3 +2109,17 @@ class Database:
         except Exception as e:
             print(f"Error unbanning user: {e}")
             return False
+
+    def get_all_users(self):
+        """Get all users"""
+        try:
+            self.cursor.execute("SELECT * FROM users")
+            columns = [description[0] for description in self.cursor.description]
+            users = []
+            for row in self.cursor.fetchall():
+                user_dict = dict(zip(columns, row))
+                users.append(user_dict)
+            return users
+        except Exception as e:
+            print(f"Error getting all users: {e}")
+            return []
