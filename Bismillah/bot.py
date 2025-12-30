@@ -1092,7 +1092,8 @@ Resistance: ${max(closes):.2f}"""
                 
                 total_users = 0
                 premium_users = 0
-                active_today = "N/A"
+                lifetime_users = 0
+                active_today = 0
                 connection_status = "🔴 Disconnected"
                 
                 is_healthy, status_msg = health_check()
@@ -1106,13 +1107,19 @@ Resistance: ${max(closes):.2f}"""
                     except:
                         premium_users = 0
                     
+                    try:
+                        lifetime_result = sb_client.table('users').select('id', count='exact').eq('is_premium', True).is_('subscription_end', 'null').execute()
+                        lifetime_users = lifetime_result.count if lifetime_result.count else 0
+                    except:
+                        lifetime_users = 0
+                    
                     from datetime import datetime
                     try:
                         today = datetime.utcnow().date().isoformat()
                         active_result = sb_client.table('users').select('id', count='exact').gte('last_active', today).execute()
                         active_today = active_result.count if active_result.count else 0
                     except:
-                        active_today = "N/A"
+                        active_today = 0
                 else:
                     print(f"[DB STATUS] Health check failed: {status_msg}")
                 
@@ -1125,6 +1132,7 @@ Resistance: ${max(closes):.2f}"""
 • **Users**
 👥 Total Users: {total_users}
 👑 Premium Users: {premium_users}
+♾️ Lifetime Users: {lifetime_users}
 🟢 Active Today: {active_today}
 
 • **Storage**
