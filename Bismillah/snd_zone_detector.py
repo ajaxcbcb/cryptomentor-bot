@@ -200,7 +200,8 @@ class SnDZoneDetector:
             
             # Calculate zone strength based on multiple factors
             touch_count = len(cluster)
-            freshness = 1 - (min(s['index'] for s in cluster) / n_candles)  # Newer = stronger
+            latest_index = max(s['index'] for s in cluster)
+            freshness = latest_index / n_candles  # Newer zones (higher index) = stronger
             avg_cluster_volume = sum(s['volume'] for s in cluster) / len(cluster)
             volume_factor = min(avg_cluster_volume / avg_volume, 2.0) / 2.0 if avg_volume > 0 else 0.5
             avg_move = sum(s['move_magnitude'] for s in cluster) / len(cluster)

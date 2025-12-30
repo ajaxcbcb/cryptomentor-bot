@@ -4,9 +4,9 @@
 Telegram-based crypto signal bot using Supply & Demand (SnD) zone detection based on Binance klines only.
 
 ## Current Status
-- **Latest Update**: Dec 28, 2025
-- **Focus**: S&D Zone Detection Engine Implementation
-- **Status**: Core algorithm implemented and tested
+- **Latest Update**: Dec 30, 2025
+- **Focus**: S&D Zone Detection Algorithm v3.0 (Swing-Based)
+- **Status**: Algorithm redesigned and working for ALL coins
 
 ## Key Features
 - **SnD Zone Detection** using only Binance Klines (OHLCV)
@@ -27,30 +27,35 @@ Bismillah/
 └── ...other modules
 ```
 
-## Algorithm: S&D Zone Detection
+## Algorithm: S&D Zone Detection v3.0 (Swing-Based)
 
-### Three-Phase Pattern Recognition
-1. **IMPULSIVE MOVE**: Large candle (>1.5x avg range) with volume spike
-2. **BASE/CONSOLIDATION**: Price consolidates after impulse (low range)
-3. **DEPARTURE/BREAKOUT**: Price breaks out from consolidation zone
+### NEW Swing-Based Approach (Works for ALL volatility levels)
+1. **ATR CALCULATION**: Adaptive thresholds based on Average True Range
+2. **SWING DETECTION**: Find pivot highs (supply) and pivot lows (demand) using 3-candle windows
+3. **ZONE CLUSTERING**: Group nearby swings within 1.5 ATR into zones
+4. **ZONE SCORING**: Weight by freshness, touch count, volume, and move magnitude
+5. **ACTIVE ZONE SELECTION**: Find zones closest to current price for entry signals
 
 ### Zone Definitions
-- **DEMAND ZONE** (Support): Forms after downward impulse → consolidation → upward breakout
-  - High: Top of consolidation range
-  - Low: Bottom of consolidation range
-  - Entry: BUY when price revisits demand from above
+- **DEMAND ZONE** (Support): Cluster of swing lows where buying pressure emerged
+  - Entry: BUY when price revisits demand zone from above
+  - Stop Loss: Below zone low - 0.75 ATR
 
-- **SUPPLY ZONE** (Resistance): Forms after upward impulse → consolidation → downward breakdown
-  - High: Top of consolidation range  
-  - Low: Bottom of consolidation range
-  - Entry: SELL when price revisits supply from below
+- **SUPPLY ZONE** (Resistance): Cluster of swing highs where selling pressure emerged
+  - Entry: SELL when price revisits supply zone from below
+  - Stop Loss: Above zone high + 0.75 ATR
+
+### Zone Strength Scoring (0-100)
+- **Touch Count** (up to 45 points): More swing touches = stronger zone
+- **Freshness** (up to 25 points): Newer zones score higher
+- **Volume** (up to 20 points): Higher volume at zone = stronger
+- **Move Magnitude** (up to 20 points): Bigger moves from zone = stronger
 
 ### Validation Rules
-- **Zone is VALID if**: Pattern complete + volume spike confirmed
+- **Zone is VALID if**: Strength >= 40% and not broken by price
 - **Zone is INVALID if**: 
-  - Price closes beyond zone (not just touches)
+  - Price closes beyond zone boundary (0.5% buffer)
   - Zone completely broken through
-  - Time decay (too old, market has moved)
 
 ## Usage
 ```python
