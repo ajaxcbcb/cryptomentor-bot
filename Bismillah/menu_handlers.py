@@ -244,18 +244,34 @@ class MenuCallbackHandler:
         )
 
     async def handle_multi_coin_signals(self, query, context):
-        """Handle multi-coin signals - trigger /futures_signals"""
-        await query.edit_message_text("⏳ Generating futures signals...")
+        """Handle multi-coin signals with enhanced SnD analysis"""
+        await query.edit_message_text("⏳ Generating futures signals with Supply & Demand analysis...")
 
-        # Create fake update to trigger futures_signals command
-        fake_update = Update(
-            update_id=999999,
-            message=query.message,
-            callback_query=query
-        )
-
-        # Call futures_signals command directly
-        await self.bot.futures_signals_command(fake_update, context)
+        try:
+            from ai_assistant import AIAssistant
+            from crypto_api import crypto_api
+            
+            ai = AIAssistant()
+            
+            # Generate enhanced futures signals with SnD integration
+            signals_text = await ai.generate_futures_signals(
+                language='id',
+                crypto_api=crypto_api,
+                query_args=['4h']  # Default to 4h timeframe
+            )
+            
+            # Send the signals
+            await query.edit_message_text(
+                signals_text,
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            await query.edit_message_text(
+                f"❌ Error generating signals: {str(e)[:100]}...\n\n"
+                "Please try again in a few seconds.",
+                parse_mode='MARKDOWN'
+            )
 
     async def handle_auto_signal_info(self, query, context):
         """Handle auto signal info"""

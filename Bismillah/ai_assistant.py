@@ -978,7 +978,8 @@ class AIAssistant:
                             'signals': futures_signals,
                             'current_price': current_price,
                             'change_24h': change_24h,
-                            'volume_24h': volume_24h
+                            'volume_24h': volume_24h,
+                            'snd_zones': snd_zones  # Store SnD zones data
                         })
 
                     # Rate limiting
