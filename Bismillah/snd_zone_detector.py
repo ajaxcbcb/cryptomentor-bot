@@ -68,17 +68,17 @@ class SnDZoneDetector:
     
     # Enhanced timeframe configuration
     VALID_TIMEFRAMES = {
-        '1h': '1h', '4h': '4h',
-        '1H': '1h', '4H': '4h'  # Accept both formats
+        '1h': '1h', '4h': '4h', '15m': '15m', '30m': '30m', '1d': '1d', '1w': '1w',
+        '1H': '1h', '4H': '4h', '15M': '15m', '30M': '30m', '1D': '1d', '1W': '1w'  # Accept both formats
     }
     
-    # Algorithm parameters
-    IMPULSE_THRESHOLD = 1.8  # Candle must be 1.8x average range
-    VOLUME_SPIKE_THRESHOLD = 1.4  # Volume must be 1.4x average
-    CONSOLIDATION_RATIO = 0.4  # Base range should be <40% of impulse
-    MIN_BASE_CANDLES = 3  # Minimum consolidation period
-    MAX_BASE_CANDLES = 8  # Maximum consolidation period
-    ZONE_VALIDITY_PERIODS = {'1h': 24, '4h': 12}  # Max candles before zone expires
+    # Algorithm parameters - ADAPTIVE & FLEXIBLE for all coins
+    IMPULSE_THRESHOLD = 1.2  # Lowered from 1.8 to catch moves in low volatility coins
+    VOLUME_SPIKE_THRESHOLD = 1.1  # Lowered from 1.4 to be more inclusive
+    CONSOLIDATION_RATIO = 0.6  # Raised from 0.4 to allow wider consolidations
+    MIN_BASE_CANDLES = 2  # Lowered from 3 to allow shorter consolidations
+    MAX_BASE_CANDLES = 8  # Keep max
+    ZONE_VALIDITY_PERIODS = {'1h': 24, '4h': 12, '15m': 96, '30m': 48, '1d': 5, '1w': 1}  # Max candles before zone expires
     
     def __init__(self, symbol: str = "BTCUSDT", timeframe: str = "1h", use_futures: bool = False):
         self.symbol = symbol.upper()
@@ -452,8 +452,8 @@ class SnDZoneDetector:
                     zone.is_valid = False
                     zone.break_price = current_price
             
-            # Only keep zones with minimum strength
-            if zone.is_valid and zone.strength >= 60:
+            # Only keep zones with minimum strength (lowered from 60 to 45 for more coverage)
+            if zone.is_valid and zone.strength >= 45:
                 valid_zones.append(zone)
         
         # Sort by strength (strongest first)
