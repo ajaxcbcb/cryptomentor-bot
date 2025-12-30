@@ -390,9 +390,23 @@ Choose an option from the menu below:"""
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle market overview command - REAL DATA FROM BINANCE"""
         try:
+            import asyncio
             from app.providers.binance_provider import get_price, get_24h_change
             
-            await update.message.reply_text("⏳ Fetching market overview from Binance...")
+            # Show loading message with countdown
+            loading_msg = await update.message.reply_text(
+                "⏳ **Fetching market overview from Binance...**\n\n"
+                "📊 Loading prices... ⏱️ ~5 seconds",
+                parse_mode='MARKDOWN'
+            )
+            
+            # Update countdown while fetching
+            await asyncio.sleep(1)
+            await loading_msg.edit_text(
+                "⏳ **Fetching market overview from Binance...**\n\n"
+                "📊 Loading prices... ⏱️ ~4 seconds",
+                parse_mode='MARKDOWN'
+            )
             
             # Top coins to analyze (normalized names)
             coins = [('BTC', 'BTCUSDT'), ('ETH', 'ETHUSDT'), ('AVAX', 'AVAXUSDT'), ('BNB', 'BNBUSDT'), ('SOL', 'SOLUSDT')]
@@ -483,11 +497,16 @@ Choose an option from the menu below:"""
 • ETH showing neutral momentum - DeFi sentiment
 
 📡 Data Source: Binance Real-time
-🕐 Update: {datetime.now().strftime('%H:%M:%S')} WIB
 🔄 Refresh: Real-time market data
 
 ✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
             
+            # Add real timestamp
+            current_time = datetime.now().strftime('%H:%M:%S')
+            market_text += f"\n🕐 Update: {current_time} WIB"
+            
+            # Delete loading message and send final result
+            await loading_msg.delete()
             await update.message.reply_text(market_text, parse_mode='MARKDOWN')
             
         except Exception as e:
