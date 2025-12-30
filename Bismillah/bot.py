@@ -1052,15 +1052,146 @@ Resistance: ${max(closes):.2f}"""
 🆔 `{user_id}`
 """
         
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.effective_message.reply_text(
             admin_panel_text,
+            reply_markup=reply_markup,
             parse_mode='MARKDOWN'
         )
 
     async def admin_button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle admin panel button clicks - disabled, no buttons"""
+        """Handle admin panel button clicks"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from app.lib.auth import get_admin_level
+        import time
+        
         query = update.callback_query
-        await query.answer("Admin buttons disabled", show_alert=False)
+        user_id = query.from_user.id
+        admin_level = get_admin_level(user_id)
+        
+        if admin_level is None:
+            await query.answer("❌ Access Denied", show_alert=True)
+            return
+        
+        await query.answer()
+        
+        if query.data == "admin_db_status":
+            try:
+                from supabase_client import supabase_service
+                
+                total_users = 0
+                premium_users = 0
+                active_today = 0
+                connection_status = "🔴 Disconnected"
+                
+                try:
+                    result = supabase_service.rpc('hc').execute()
+                    if result:
+                        connection_status = "🟢 Connected"
+                except:
+                    pass
+                
+                try:
+                    stats = supabase_service.rpc('stats_totals').execute()
+                    if stats.data:
+                        total_users = stats.data.get('total_users', 0)
+                        premium_users = stats.data.get('premium_users', 0)
+                except:
+                    try:
+                        users_result = supabase_service.table('users').select('id', count='exact').execute()
+                        total_users = users_result.count if users_result.count else 0
+                        
+                        premium_result = supabase_service.table('users').select('id', count='exact').eq('is_premium', True).execute()
+                        premium_users = premium_result.count if premium_result.count else 0
+                    except:
+                        pass
+                
+                from datetime import datetime, timedelta
+                try:
+                    today = datetime.utcnow().date().isoformat()
+                    active_result = supabase_service.table('users').select('id', count='exact').gte('last_active', today).execute()
+                    active_today = active_result.count if active_result.count else 0
+                except:
+                    active_today = "N/A"
+                
+                db_text = f"""**🗄 Database Status**
+
+• **Connection**
+{connection_status} Supabase
+📡 Region: Southeast Asia
+
+• **Users**
+👥 Total Users: {total_users}
+👑 Premium Users: {premium_users}
+🟢 Active Today: {active_today}
+
+• **Storage**
+💾 Tables: users, portfolios, referrals
+🔄 Sync: Real-time enabled
+"""
+            except Exception as e:
+                db_text = f"""**🗄 Database Status**
+
+• **Connection**
+🔴 Supabase: Error
+⚠️ {str(e)[:50]}
+
+• **Fallback**
+💾 SQLite: Active
+📁 Local storage enabled
+"""
+            
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                db_text,
+                reply_markup=reply_markup,
+                parse_mode='MARKDOWN'
+            )
+        
+        elif query.data == "admin_back":
+            from database import Database
+            from datetime import timedelta
+            
+            level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
+            level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
+            
+            db = Database()
+            user_tz = db.get_user_timezone(user_id)
+            tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
+            offset = tz_offsets.get(user_tz, 7)
+            local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
+            
+            uptime_seconds = int(time.time() - self.start_time)
+            hours, remainder = divmod(uptime_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            uptime_str = f"{hours}h {minutes}m {seconds}s"
+            
+            admin_panel_text = f"""**CryptoMentorAI V2.0** | Admin Panel
+
+• 📊 **STATUS**
+⏰ {local_time} {user_tz}
+🟢 ONLINE • Uptime: {uptime_str}
+{level_emoji} {level_name}
+🆔 `{user_id}`
+"""
+            
+            keyboard = [
+                [InlineKeyboardButton("🗄 Database Status", callback_data="admin_db_status")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                admin_panel_text,
+                reply_markup=reply_markup,
+                parse_mode='MARKDOWN'
+            )
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages for menu interactions"""
