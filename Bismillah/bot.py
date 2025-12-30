@@ -1127,6 +1127,21 @@ Resistance: ${max(closes):.2f}"""
                 else:
                     print(f"[DB STATUS] Health check failed: {status_msg}")
                 
+                import json
+                import os
+                local_users = 0
+                try:
+                    local_db_path = os.path.join(os.path.dirname(__file__), 'data', 'users_local.json')
+                    if os.path.exists(local_db_path):
+                        with open(local_db_path, 'r') as f:
+                            local_data = json.load(f)
+                            local_users = len(local_data)
+                except Exception as le:
+                    print(f"[DB STATUS] Local DB error: {le}")
+                    local_users = 0
+                
+                combined_users = total_users + local_users
+                
                 db_text = f"""**🗄 Database Status**
 
 • **Connection**
@@ -1134,13 +1149,16 @@ Resistance: ${max(closes):.2f}"""
 📡 Region: Southeast Asia
 
 • **Users**
-👥 Total Users: {total_users}
+👥 Total Users: {combined_users}
+  ├ ☁️ Supabase (New): {total_users}
+  └ 💾 Local DB (Old): {local_users}
 👑 Premium Users: {premium_users}
 ♾️ Lifetime Users: {lifetime_users}
 🟢 Active Today: {active_today}
 
 • **Storage**
-💾 Tables: users, portfolios, referrals
+☁️ Supabase: users, portfolios, referrals
+💾 Local: users_local.json
 🔄 Sync: Real-time enabled
 """
             except Exception as e:
@@ -1232,7 +1250,7 @@ _Select an action below:_
         
         elif query.data == "admin_back":
             from database import Database
-            from datetime import timedelta
+            from datetime import datetime, timedelta
             
             level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
             level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
