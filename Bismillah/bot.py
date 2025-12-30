@@ -148,8 +148,51 @@ class TelegramBot:
         print("✅ Application handlers registered successfully")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command with menu integration"""
+        """Handle /start command with menu integration and referral processing"""
         user = update.effective_user
+        
+        # Initialize local database
+        from database import Database
+        db = Database()
+        
+        # Check for referral code in start command
+        referrer_id = None
+        if context.args:
+            ref_code = context.args[0]
+            if ref_code.startswith('ref_'):
+                # Free referral
+                code = ref_code[4:]  # Remove 'ref_' prefix
+                if code.startswith('F'):
+                    referrer_id = db.get_user_by_referral_code(code)
+                else:
+                    # Legacy format - direct user ID
+                    try:
+                        referrer_id = int(code)
+                    except:
+                        pass
+            elif ref_code.startswith('prem_'):
+                # Premium referral
+                code = ref_code[5:]  # Remove 'prem_' prefix
+                referrer_id = db.get_user_by_premium_referral_code(code)
+        
+        # Register user in local database
+        try:
+            user_created = db.create_user(
+                user.id,
+                user.username,
+                user.first_name,
+                user.last_name,
+                'id',
+                referrer_id
+            )
+            
+            if user_created and referrer_id:
+                # Process referral reward
+                db.process_referral_reward(referrer_id, user.id)
+                print(f"✅ Processed referral reward: {referrer_id} <- {user.id}")
+                
+        except Exception as e:
+            print(f"❌ User registration failed: {e}")
 
         # Register user if Supabase is available
         if SUPABASE_AVAILABLE:
@@ -659,22 +702,106 @@ Resistance: ${max(closes):.2f}"""
         )
 
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle referral command"""
+        """Handle referral command with enhanced tier system"""
+        from database import Database
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         user_id = update.effective_user.id
-        referral_link = f"https://t.me/your_bot?start={user_id}"
+        user_name = update.effective_user.first_name or "User"
+        
+        # Get bot username for referral link
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username or "CryptoMentorAI_bot"
+        
+        try:
+            db = Database()
+            
+            # Get user referral codes
+            referral_codes = db.get_user_referral_codes(user_id)
+            if not referral_codes:
+                # Create user if doesn't exist
+                db.create_user(user_id, update.effective_user.username, 
+                             update.effective_user.first_name, 
+                             update.effective_user.last_name)
+                referral_codes = db.get_user_referral_codes(user_id)
+            
+            free_referral_code = referral_codes.get('free_referral_code', 'INVALID')
+            premium_referral_code = referral_codes.get('premium_referral_code', 'INVALID')
+            
+            # Get detailed stats
+            detailed_stats = db.get_detailed_referral_stats(user_id)
+            earnings_summary = db.get_referral_earnings_summary(user_id)
+            tier_info = db.get_user_tier(user_id)
+            
+            # Build referral links
+            free_link = f"https://t.me/{bot_username}?start=ref_{free_referral_code}"
+            premium_link = f"https://t.me/{bot_username}?start=prem_{premium_referral_code}"
+            
+            referral_text = f"""🎁 **REFERRAL PROGRAM - {tier_info['tier']} TIER**
 
-        await update.effective_message.reply_text(
-            f"🎁 **Referral Program**\n\n"
-            f"👥 **Your Referral Link:**\n"
-            f"`{referral_link}`\n\n"
-            f"💰 **Rewards:**\n"
-            f"• 50 credits per referral\n"
-            f"• Premium users earn money\n\n"
-            f"📊 **Your Stats:**\n"
-            f"• Referrals: 0\n"
-            f"• Credits Earned: 0",
-            parse_mode='MARKDOWN'
-        )
+👤 **{user_name}** | Level {tier_info['level']}/5
+
+🔗 **YOUR REFERRAL LINKS:**
+
+🆓 **FREE REFERRAL:**
+`{free_link}`
+💰 Reward: {5 + int(5 * tier_info['bonus']/100)} credits per referral
+
+💎 **PREMIUM REFERRAL:**
+`{premium_link}`
+💰 Reward: Rp {int(10000 * tier_info['money_multiplier']):,} per premium subscriber
+
+📊 **CURRENT PERFORMANCE:**
+• Total Referrals: {earnings_summary['total_referrals']}
+• Free Referrals: {earnings_summary['free_referrals']} 
+• Premium Referrals: {earnings_summary['premium_referrals']}
+• Credits Earned: {earnings_summary['credit_earnings']}
+• Money Earned: Rp {earnings_summary['money_earnings']:,}
+
+🏆 **{tier_info['tier']} TIER BENEFITS:**
+• Credit Bonus: +{tier_info['bonus']}%
+• Money Multiplier: {tier_info['money_multiplier']}x
+• Next Tier: {10 if tier_info['level']==1 else 25 if tier_info['level']==2 else 50 if tier_info['level']==3 else 100 if tier_info['level']==4 else 'MAX'} referrals
+
+💡 **HOW TO EARN MORE:**
+1. Share free link for instant credits
+2. Premium link gives money when they subscribe
+3. Higher tiers = bigger rewards!"""
+            
+            # Create interactive buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Detailed Stats", callback_data="referral_stats"),
+                    InlineKeyboardButton("💡 Guide & Tips", callback_data="referral_guide")
+                ],
+                [
+                    InlineKeyboardButton("🎯 Tier System", callback_data="tier_system_guide"),
+                    InlineKeyboardButton("💰 Withdrawal", callback_data="referral_withdrawal")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.effective_message.reply_text(
+                referral_text,
+                reply_markup=reply_markup,
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            print(f"Error in referral command: {e}")
+            # Fallback to simple version
+            referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+            await update.effective_message.reply_text(
+                f"🎁 **Referral Program**\n\n"
+                f"👥 **Your Referral Link:**\n"
+                f"`{referral_link}`\n\n"
+                f"💰 **Rewards:**\n"
+                f"• 5+ credits per referral (tier bonus)\n"
+                f"• Premium users earn money\n\n"
+                f"📊 **Your Stats:**\n"
+                f"• Check /menu → Premium & Referral for details",
+                parse_mode='MARKDOWN'
+            )
 
     async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle language command"""

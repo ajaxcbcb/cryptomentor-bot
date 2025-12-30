@@ -298,14 +298,26 @@ class Database:
             import string
 
             # Generate free referral code
-            referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-            while self.get_user_by_referral_code(referral_code):
+            attempts = 0
+            while attempts < 10:
                 referral_code = 'F' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+                if not self.get_user_by_referral_code(referral_code):
+                    break
+                attempts += 1
+            
+            if attempts >= 10:
+                referral_code = f'F{telegram_id}{random.randint(1000,9999)}'
 
             # Generate premium referral code
-            premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-            while self.get_user_by_premium_referral_code(premium_referral_code):
+            attempts = 0
+            while attempts < 10:
                 premium_referral_code = 'P' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+                if not self.get_user_by_premium_referral_code(premium_referral_code):
+                    break
+                attempts += 1
+                
+            if attempts >= 10:
+                premium_referral_code = f'P{telegram_id}{random.randint(1000,9999)}'
 
             # Base credits: 100 for all users
             base_credits = 100
