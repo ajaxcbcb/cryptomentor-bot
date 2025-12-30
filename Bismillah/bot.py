@@ -39,12 +39,14 @@ class TelegramBot:
     """Main CryptoMentor AI Bot class with menu system integration"""
 
     def __init__(self):
+        import time
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
         if not self.token:
             raise ValueError("❌ TELEGRAM_BOT_TOKEN not found in environment variables")
 
         self.application = None
         self.admin_ids = self._load_admin_ids()
+        self.start_time = time.time()
         
         # Initialize AI assistant and crypto API
         try:
@@ -1036,32 +1038,18 @@ Resistance: ${max(closes):.2f}"""
         offset = tz_offsets.get(user_tz, 7)
         local_time = (datetime.utcnow() + timedelta(hours=offset)).strftime('%H:%M:%S')
         
-        if not hasattr(self, 'start_time'):
-            self.start_time = time.time()
         uptime_seconds = int(time.time() - self.start_time)
         hours, remainder = divmod(uptime_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime_str = f"{hours}h {minutes}m {seconds}s"
         
-        admin_panel_text = f"""
-        **CryptoMentorAI V2.0**
-              Admin Panel
+        admin_panel_text = f"""**CryptoMentorAI V2.0** | Admin Panel
 
 • 📊 **STATUS**
-      ⏰ {local_time} {user_tz}
-      🟢 ONLINE • Uptime: {uptime_str}
-      {level_emoji} {level_name}
-      🆔 `{user_id}`
-
-• 🛠 **COMMANDS**
-      👥 `/set_premium <id> <days>`
-      👥 `/remove_premium <id>`
-      💰 `/grant_credits <id> <amt>`
-      📢 `/broadcast <message>`
-
-• 💡 **EXAMPLES**
-      `/set_premium 123456 lifetime`
-      `/grant_credits 123456 100`
+⏰ {local_time} {user_tz}
+🟢 ONLINE • Uptime: {uptime_str}
+{level_emoji} {level_name}
+🆔 `{user_id}`
 """
         
         await update.effective_message.reply_text(
