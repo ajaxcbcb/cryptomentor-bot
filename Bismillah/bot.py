@@ -627,40 +627,88 @@ Choose an option from the menu below:"""
             symbol = symbol + 'USDT'
 
         try:
-            await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe}...")
+            await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...")
 
-            # Get klines data from binance
             try:
-                from app.providers.binance_provider import fetch_klines
-                klines = fetch_klines(symbol, timeframe, limit=100)
-                if not klines or len(klines) == 0:
-                    await update.message.reply_text(f"❌ No data for {symbol} {timeframe}")
+                from snd_zone_detector import detect_snd_zones
+                
+                # Get SnD zones
+                snd_result = detect_snd_zones(symbol, timeframe, limit=100)
+                
+                if 'error' in snd_result:
+                    await update.message.reply_text(f"❌ Analysis error: {snd_result['error']}")
                     return
 
-                # Extract OHLCV
-                closes = [float(k[4]) for k in klines[-20:]]  # Last 20 closes
+                current_price = snd_result.get('current_price', 0)
+                demand_zones = snd_result.get('demand_zones', [])
+                supply_zones = snd_result.get('supply_zones', [])
+                signal_type = snd_result.get('entry_signal')
+                signal_strength = snd_result.get('signal_strength', 0)
 
-                # Simple trend analysis
-                latest = float(klines[-1][4])
-                prev = float(klines[-2][4])
-                change = ((latest - prev) / prev * 100)
+                # Build SnD analysis response
+                response = f"""📊 **Futures: {symbol} ({timeframe})**
 
-                avg_20 = sum(closes) / len(closes)
-                trend = "📈 BULLISH" if latest > avg_20 else "📉 BEARISH"
+💰 **Current Price:** ${current_price:.6f}
 
-                response = f"""📊 **Futures: {symbol}**
+"""
 
-Price: ${latest:.2f}
-Change: {change:+.2f}%
-Trend: {trend}
-MA20: ${avg_20:.2f}
+                # Add demand zones (BUY ENTRIES)
+                if demand_zones:
+                    response += f"🟢 **DEMAND ZONES (BUY SETUP):** {len(demand_zones)} zone(s)\n"
+                    for i, zone in enumerate(demand_zones[:3], 1):
+                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
+                        strength = zone.strength if hasattr(zone, 'strength') else 0
+                        response += f"\n**Zone {i}:** 💵 Entry ${entry:.6f}\n"
+                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"  • Strength: {strength:.0f}%\n"
+                        
+                        # Calculate SL and TP
+                        zone_width = zone.high - zone.low
+                        sl = zone.low - (zone_width * 0.5)
+                        tp1 = current_price + (zone_width * 1.5)
+                        tp2 = current_price + (zone_width * 2.5)
+                        
+                        response += f"  • 🛑 SL: ${sl:.6f}\n"
+                        response += f"  • 🎯 TP1: ${tp1:.6f}\n"
+                        response += f"  • 🎯 TP2: ${tp2:.6f}\n"
+                else:
+                    response += "🟢 **DEMAND ZONES:** No active demand zones\n"
 
-Support: ${min(closes):.2f}
-Resistance: ${max(closes):.2f}"""
+                # Add supply zones (SHORT ENTRIES)
+                if supply_zones:
+                    response += f"\n🔴 **SUPPLY ZONES (SHORT SETUP):** {len(supply_zones)} zone(s)\n"
+                    for i, zone in enumerate(supply_zones[:3], 1):
+                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
+                        strength = zone.strength if hasattr(zone, 'strength') else 0
+                        response += f"\n**Zone {i}:** 📍 Entry ${entry:.6f}\n"
+                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"  • Strength: {strength:.0f}%\n"
+                        
+                        # Calculate SL and TP for shorts
+                        zone_width = zone.high - zone.low
+                        sl = zone.high + (zone_width * 0.5)
+                        tp1 = current_price - (zone_width * 1.5)
+                        tp2 = current_price - (zone_width * 2.5)
+                        
+                        response += f"  • 🛑 SL: ${sl:.6f}\n"
+                        response += f"  • 🎯 TP1: ${tp1:.6f}\n"
+                        response += f"  • 🎯 TP2: ${tp2:.6f}\n"
+                else:
+                    response += "\n🔴 **SUPPLY ZONES:** No active supply zones\n"
+
+                # Add signal status
+                response += f"\n⚡ **SIGNAL:**"
+                if signal_type:
+                    response += f" ✅ {signal_type}\n📊 Strength: {signal_strength:.0f}%\n"
+                else:
+                    response += f" ⏳ Awaiting confirmation\n"
 
                 await update.message.reply_text(response, parse_mode='MARKDOWN')
+                
+            except ImportError:
+                await update.message.reply_text(f"❌ SnD detector not available, please try again")
             except Exception as e:
-                await update.message.reply_text(f"❌ Data error: {str(e)[:80]}")
+                await update.message.reply_text(f"❌ Analysis error: {str(e)[:100]}")
 
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
