@@ -81,6 +81,23 @@ mode = "sequential"
 task = "shell.exec"
 args = "cd Bismillah && python main.py"
 
+[[workflows.workflow]]
+name = "Restart Bot Clean"
+author = 43938181
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pkill -f \"python.*main.py\" || true"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "sleep 3"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd Bismillah && python main.py"
+
 [agent]
 expertMode = true
 

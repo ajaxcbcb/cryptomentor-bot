@@ -326,16 +326,110 @@ Upgrade to Lifetime Premium via `/subscribe` to unlock this exclusive feature.
         await self.bot.subscribe_command(fake_update, context)
 
     async def handle_referral_program(self, query, context):
-        """Handle referral program - trigger /referral"""
-        await query.edit_message_text("⏳ Loading referral information...")
+        """Handle referral program - show comprehensive referral info"""
+        user_id = query.from_user.id
+        user_name = query.from_user.first_name or "User"
+        
+        # Get bot username for referral link
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username or "CryptoMentorAI_bot"
+        
+        try:
+            from database import Database
+            db = Database()
+            
+            # Ensure user exists
+            existing_user = db.get_user(user_id)
+            if not existing_user:
+                db.create_user(user_id, query.from_user.username, 
+                             query.from_user.first_name, 
+                             query.from_user.last_name)
+            
+            # Get user referral codes
+            referral_codes = db.get_user_referral_codes(user_id)
+            if not referral_codes:
+                await query.edit_message_text("❌ Error loading referral data. Please try /start first.")
+                return
+                
+            free_referral_code = referral_codes.get('free_referral_code', 'INVALID')
+            premium_referral_code = referral_codes.get('premium_referral_code', 'INVALID')
+            
+            # Get stats
+            earnings_summary = db.get_referral_earnings_summary(user_id)
+            tier_info = db.get_user_tier(user_id)
+            
+            # Build links
+            free_link = f"https://t.me/{bot_username}?start=ref_{free_referral_code}"
+            premium_link = f"https://t.me/{bot_username}?start=prem_{premium_referral_code}"
+            
+            # Calculate next tier requirement
+            next_requirement = 10 if tier_info['level']==1 else 25 if tier_info['level']==2 else 50 if tier_info['level']==3 else 100 if tier_info['level']==4 else 100
+            progress = min(100, (earnings_summary['total_referrals'] / next_requirement * 100))
+            
+            referral_text = f"""🎁 **REFERRAL PROGRAM - {tier_info['tier']} TIER**
 
-        fake_update = Update(
-            update_id=999999,
-            message=query.message,
-            callback_query=query
-        )
+👤 **{user_name}** | Level {tier_info['level']}/5
 
-        await self.bot.referral_command(fake_update, context)
+🔗 **YOUR REFERRAL LINKS:**
+
+🆓 **FREE REFERRAL:**
+`{free_link}`
+💰 Reward: {5 + int(5 * tier_info['bonus']/100)} credits per referral
+
+💎 **PREMIUM REFERRAL:**
+`{premium_link}`  
+💰 Reward: Rp {int(10000 * tier_info['money_multiplier']):,} per premium subscriber
+
+📊 **PERFORMANCE DASHBOARD:**
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Total Referrals: {earnings_summary['total_referrals']:>15} ┃
+┃ Free Referrals: {earnings_summary['free_referrals']:>16} ┃
+┃ Premium Referrals: {earnings_summary['premium_referrals']:>13} ┃
+┃ Credits Earned: {earnings_summary['credit_earnings']:>16} ┃
+┃ Money Earned: Rp {earnings_summary['money_earnings']:>13,} ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+🏆 **{tier_info['tier']} TIER STATUS:**
+• Credit Bonus: +{tier_info['bonus']}%
+• Money Multiplier: {tier_info['money_multiplier']}x
+• Progress to next tier: {progress:.1f}%
+{'▓' * int(progress/10)}{'░' * (10-int(progress/10))} {earnings_summary['total_referrals']}/{next_requirement}
+
+💡 **EARNING STRATEGIES:**
+1. Share free link in crypto groups
+2. Premium link for serious traders
+3. Build long-term referral network
+4. Higher tiers unlock bigger rewards"""
+            
+            # Create buttons
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Detailed Stats", callback_data="referral_stats"),
+                    InlineKeyboardButton("💡 Strategy Guide", callback_data="referral_guide")
+                ],
+                [
+                    InlineKeyboardButton("🎯 Tier System", callback_data="tier_system_guide"),
+                    InlineKeyboardButton("💰 Withdrawal", callback_data="referral_withdrawal")
+                ],
+                [
+                    InlineKeyboardButton("🔙 Back to Menu", callback_data=PREMIUM_REFERRAL)
+                ]
+            ]
+            
+            await query.edit_message_text(
+                referral_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='MARKDOWN'
+            )
+            
+        except Exception as e:
+            print(f"Error in referral program handler: {e}")
+            await query.edit_message_text(
+                f"❌ Error loading referral data: {str(e)[:100]}\n\n"
+                f"Please try /referral command directly.",
+                parse_mode='MARKDOWN'
+            )
 
     async def handle_premium_earnings(self, query, context):
         """Handle premium earnings"""
