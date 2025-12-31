@@ -2147,32 +2147,62 @@ Choose action:
             from services import get_database
             db = get_database()
             try:
-                users = db.get_all_users()
+                all_user_ids = set()
+                
+                local_users = db.get_all_users()
+                local_count = 0
+                for user in local_users:
+                    tid = user.get('telegram_id')
+                    if tid:
+                        all_user_ids.add(int(tid))
+                        local_count += 1
+                
+                supabase_count = 0
+                try:
+                    from supabase_client import supabase
+                    if supabase:
+                        result = supabase.table('users').select('telegram_id').execute()
+                        if result.data:
+                            for user in result.data:
+                                tid = user.get('telegram_id')
+                                if tid:
+                                    all_user_ids.add(int(tid))
+                                    supabase_count += 1
+                except Exception as e:
+                    print(f"Supabase fetch error: {e}")
+                
+                print(f"📢 Broadcast: {local_count} local, {supabase_count} supabase, {len(all_user_ids)} unique users")
+                
                 success_count = 0
                 fail_count = 0
                 
-                for user in users:
+                for user_id in all_user_ids:
                     try:
                         await context.bot.send_message(
-                            chat_id=user.get('telegram_id'),
-                            text=f"📢 **Admin Broadcast**\n\n{broadcast_msg}",
-                            parse_mode='MARKDOWN'
+                            chat_id=user_id,
+                            text=f"📢 <b>Admin Broadcast</b>\n\n{broadcast_msg}",
+                            parse_mode='HTML'
                         )
                         success_count += 1
                     except Exception as e:
                         fail_count += 1
-                        print(f"Failed to send to {user.get('telegram_id')}: {e}")
+                        print(f"Failed to send to {user_id}: {e}")
                 
                 await update.message.reply_text(
-                    f"✅ **Broadcast Complete**\n\n"
+                    f"✅ <b>Broadcast Complete</b>\n\n"
+                    f"📊 <b>Database Stats:</b>\n"
+                    f"• Local DB: {local_count} users\n"
+                    f"• Supabase: {supabase_count} users\n"
+                    f"• Unique: {len(all_user_ids)} users\n\n"
+                    f"📤 <b>Results:</b>\n"
                     f"✉️ Sent: {success_count}\n"
                     f"❌ Failed: {fail_count}",
-                    parse_mode='MARKDOWN'
+                    parse_mode='HTML'
                 )
             except Exception as e:
                 await update.message.reply_text(
                     f"❌ Broadcast failed: {str(e)}",
-                    parse_mode='MARKDOWN'
+                    parse_mode='HTML'
                 )
             user_data.pop('awaiting_input', None)
             user_data.pop('message_id', None)
