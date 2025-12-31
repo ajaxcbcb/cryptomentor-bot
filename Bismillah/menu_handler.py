@@ -660,12 +660,13 @@ async def check_credits_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def upgrade_premium_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show premium subscription packages with user's Telegram ID"""
+    """Show premium subscription packages with user's Telegram ID - identical to /subscribe"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
     
+    # Exact same text as /subscribe command in bot.py
     subscription_text = f"""🚀 <b>CryptoMentor AI 2.0 – Paket Berlangganan</b>
 
 Trading lebih terarah dengan AI berbasis Supply & Demand (SnD), data real-time Binance, dan sistem signal profesional tanpa hambatan credits (Unlimited access).
