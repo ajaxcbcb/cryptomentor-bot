@@ -776,21 +776,25 @@ Zone {label} – {desc}
                 signal_type = snd_result.get('entry_signal')
                 signal_strength = snd_result.get('signal_strength', 0)
 
-                # Build SnD analysis response
-                response = f"""📊 **Futures: {symbol} ({timeframe})**
-
-💰 **Current Price:** ${current_price:.6f}
-
-"""
+                # Helper function for price formatting
+                def fmt_price(p):
+                    if p >= 1000: return f"${p:,.2f}"
+                    elif p >= 1: return f"${p:.4f}"
+                    elif p >= 0.0001: return f"${p:.6f}"
+                    else: return f"${p:.8f}"
+                
+                # Build SnD analysis response with HTML formatting
+                response = f"📊 <b>Futures: {symbol} ({timeframe})</b>\n\n"
+                response += f"💰 <b>Current Price:</b> {fmt_price(current_price)}\n\n"
 
                 # Add demand zones (BUY ENTRIES)
                 if demand_zones:
-                    response += f"🟢 **DEMAND ZONES (BUY SETUP):** {len(demand_zones)} zone(s)\n"
+                    response += f"🟢 <b>DEMAND ZONES (BUY SETUP):</b> {len(demand_zones)} zone(s)\n"
                     for i, zone in enumerate(demand_zones[:3], 1):
                         entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
                         strength = zone.strength if hasattr(zone, 'strength') else 0
-                        response += f"\n**Zone {i}:** 💵 Entry ${entry:.6f}\n"
-                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"\n<b>Zone {i}:</b> 💵 Entry {fmt_price(entry)}\n"
+                        response += f"  • Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
                         response += f"  • Strength: {strength:.0f}%\n"
                         
                         # Calculate SL and TP
@@ -799,20 +803,20 @@ Zone {label} – {desc}
                         tp1 = current_price + (zone_width * 1.5)
                         tp2 = current_price + (zone_width * 2.5)
                         
-                        response += f"  • 🛑 SL: ${sl:.6f}\n"
-                        response += f"  • 🎯 TP1: ${tp1:.6f}\n"
-                        response += f"  • 🎯 TP2: ${tp2:.6f}\n"
+                        response += f"  • 🛑 SL: {fmt_price(sl)}\n"
+                        response += f"  • 🎯 TP1: {fmt_price(tp1)}\n"
+                        response += f"  • 🎯 TP2: {fmt_price(tp2)}\n"
                 else:
-                    response += "🟢 **DEMAND ZONES:** No active demand zones\n"
+                    response += "🟢 <b>DEMAND ZONES:</b> No active demand zones\n"
 
                 # Add supply zones (SHORT ENTRIES)
                 if supply_zones:
-                    response += f"\n🔴 **SUPPLY ZONES (SHORT SETUP):** {len(supply_zones)} zone(s)\n"
+                    response += f"\n🔴 <b>SUPPLY ZONES (SHORT SETUP):</b> {len(supply_zones)} zone(s)\n"
                     for i, zone in enumerate(supply_zones[:3], 1):
                         entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
                         strength = zone.strength if hasattr(zone, 'strength') else 0
-                        response += f"\n**Zone {i}:** 📍 Entry ${entry:.6f}\n"
-                        response += f"  • Range: ${zone.low:.6f} - ${zone.high:.6f}\n"
+                        response += f"\n<b>Zone {i}:</b> 📍 Entry {fmt_price(entry)}\n"
+                        response += f"  • Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
                         response += f"  • Strength: {strength:.0f}%\n"
                         
                         # Calculate SL and TP for shorts
@@ -821,20 +825,22 @@ Zone {label} – {desc}
                         tp1 = current_price - (zone_width * 1.5)
                         tp2 = current_price - (zone_width * 2.5)
                         
-                        response += f"  • 🛑 SL: ${sl:.6f}\n"
-                        response += f"  • 🎯 TP1: ${tp1:.6f}\n"
-                        response += f"  • 🎯 TP2: ${tp2:.6f}\n"
+                        response += f"  • 🛑 SL: {fmt_price(sl)}\n"
+                        response += f"  • 🎯 TP1: {fmt_price(tp1)}\n"
+                        response += f"  • 🎯 TP2: {fmt_price(tp2)}\n"
                 else:
-                    response += "\n🔴 **SUPPLY ZONES:** No active supply zones\n"
+                    response += "\n🔴 <b>SUPPLY ZONES:</b> No active supply zones\n"
 
                 # Add signal status
-                response += f"\n⚡ **SIGNAL:**"
+                response += f"\n⚡ <b>SIGNAL:</b>"
                 if signal_type:
                     response += f" ✅ {signal_type}\n📊 Strength: {signal_strength:.0f}%\n"
                 else:
                     response += f" ⏳ Awaiting confirmation\n"
+                
+                response += "\n<i>⚠️ Futures • LIMIT order at zone</i>"
 
-                await update.message.reply_text(response, parse_mode='MARKDOWN')
+                await update.message.reply_text(response, parse_mode='HTML')
                 
             except ImportError:
                 await update.message.reply_text(f"❌ SnD detector not available, please try again")
