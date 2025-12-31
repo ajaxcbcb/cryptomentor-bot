@@ -4,9 +4,18 @@
 Telegram-based crypto signal bot using Supply & Demand (SnD) zone detection based on Binance klines only.
 
 ## Current Status
-- **Latest Update**: Dec 30, 2025
-- **Focus**: S&D Zone Detection Algorithm v3.0 (Swing-Based)
-- **Status**: Algorithm redesigned and working for ALL coins
+- **Latest Update**: Dec 31, 2025
+- **Focus**: Sentiment-Based Entry Recommendations
+- **Status**: Futures Analysis fixed with sentiment-based LIMIT order recommendations
+
+## Recent Changes (Dec 31, 2025)
+- Fixed Futures Analysis parsing error (switched from MARKDOWN to plain text)
+- Added sentiment-based entry recommendations:
+  - BULLISH → LIMIT LONG at Demand Zone
+  - BEARISH → LIMIT SHORT at Supply Zone
+  - SIDEWAYS → Wait for Breakout
+- Updated Auto-Signals to show zone-based LIMIT orders instead of single entry prices
+- All signals now emphasize LIMIT orders at zones (no market orders)
 
 ## Key Features
 - **SnD Zone Detection** using only Binance Klines (OHLCV)

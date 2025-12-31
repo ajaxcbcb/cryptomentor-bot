@@ -677,14 +677,14 @@ Just type the symbol in your next message!"""
     async def show_futures_timeframe_selection(self, query, context, symbol):
         """Show timeframe selection for futures analysis"""
         await query.edit_message_text(
-            f"📉 **Futures Analysis for {symbol}**\n\n"
-            f"Select your preferred timeframe:",
+            f"📉 <b>Futures Analysis: {symbol}</b>\n\n"
+            f"Select timeframe: 15m, 30m, 1h, 4h, 1d",
             reply_markup=MenuBuilder.build_timeframe_selection(symbol),
-            parse_mode='MARKDOWN'
+            parse_mode='HTML'
         )
 
     async def handle_futures_timeframe_selection(self, query, context):
-        """Handle futures timeframe selection with SnD entry recommendations"""
+        """Handle futures timeframe selection with sentiment-based entry recommendations"""
         # Parse callback data: futures_SYMBOL_TIMEFRAME
         parts = query.data.split('_')
         if len(parts) >= 3:
@@ -696,7 +696,10 @@ Just type the symbol in your next message!"""
                 symbol = symbol + 'USDT'
 
             try:
-                await query.edit_message_text(f"🔄 <b>Futures: {symbol} {timeframe}</b>\n\n📊 Analyzing Supply & Demand zones...", parse_mode='HTML')
+                await query.edit_message_text(
+                    f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...",
+                    parse_mode=None
+                )
 
                 from snd_zone_detector import detect_snd_zones
 
@@ -705,92 +708,139 @@ Just type the symbol in your next message!"""
                 
                 if 'error' in snd_result:
                     await query.edit_message_text(
-                        f"❌ Error: {snd_result['error']}",
-                        parse_mode='HTML'
+                        f"Error: {snd_result['error']}",
+                        parse_mode=None
                     )
                     return
 
                 current_price = snd_result.get('current_price', 0)
                 demand_zones = snd_result.get('demand_zones', [])
                 supply_zones = snd_result.get('supply_zones', [])
-                signal_type = snd_result.get('entry_signal')
-                signal_strength = snd_result.get('signal_strength', 0)
 
                 # Helper to format price safely
                 def fmt_price(p):
-                    if p >= 1:
+                    if p >= 1000:
+                        return f"${p:,.2f}"
+                    elif p >= 1:
                         return f"${p:,.4f}"
                     elif p >= 0.0001:
                         return f"${p:.6f}"
                     else:
                         return f"${p:.8f}"
 
-                # Build analysis response using HTML (more reliable than MARKDOWN)
-                response = f"""📊 <b>Futures: {symbol} ({timeframe})</b>
+                # Determine market sentiment
+                avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
+                avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
+                
+                if avg_demand and avg_supply:
+                    mid_range = (avg_demand + avg_supply) / 2
+                    if current_price > mid_range * 1.02:
+                        sentiment = "BULLISH"
+                        sentiment_emoji = "🟢"
+                    elif current_price < mid_range * 0.98:
+                        sentiment = "BEARISH"
+                        sentiment_emoji = "🔴"
+                    else:
+                        sentiment = "SIDEWAYS"
+                        sentiment_emoji = "🟡"
+                else:
+                    sentiment = "NEUTRAL"
+                    sentiment_emoji = "⚪"
 
-💰 <b>Current Price:</b> {fmt_price(current_price)}
+                display_symbol = symbol.replace('USDT', '')
+                
+                # Build plain text response (no parsing issues)
+                response = f"""📊 FUTURES ANALYSIS: {display_symbol} ({timeframe.upper()})
+
+💰 Current Price: {fmt_price(current_price)}
+{sentiment_emoji} Market Sentiment: {sentiment}
 
 """
 
-                # Add demand zones (BUY ENTRIES)
-                if demand_zones:
-                    response += f"🟢 <b>DEMAND ZONES (BUY):</b> {len(demand_zones)} zone(s)\n"
-                    for i, zone in enumerate(demand_zones[:3], 1):
-                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
-                        strength = zone.strength if hasattr(zone, 'strength') else 0
-                        
-                        # Calculate SL and TP
-                        zone_width = zone.high - zone.low
-                        sl = zone.low - (zone_width * 0.5)
-                        tp1 = current_price + (zone_width * 1.5)
-                        tp2 = current_price + (zone_width * 2.5)
-                        
-                        response += f"\n<b>Zone {i}:</b> Entry {fmt_price(entry)}\n"
-                        response += f"  Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
-                        response += f"  Strength: {strength:.0f}%\n"
-                        response += f"  🛑 SL: {fmt_price(sl)}\n"
-                        response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
-                else:
-                    response += "🟢 <b>DEMAND ZONES:</b> No active zones\n"
+                # Sentiment-based recommendation
+                if sentiment == "BULLISH":
+                    response += f"""🎯 RECOMMENDED: LIMIT LONG at Demand Zone
 
-                # Add supply zones (SHORT ENTRIES)
-                if supply_zones:
-                    response += f"\n🔴 <b>SUPPLY ZONES (SHORT):</b> {len(supply_zones)} zone(s)\n"
-                    for i, zone in enumerate(supply_zones[:3], 1):
-                        entry = zone.entry_price if hasattr(zone, 'entry_price') else zone.midpoint
-                        strength = zone.strength if hasattr(zone, 'strength') else 0
+"""
+                    # Show demand zones for LONG entries
+                    if demand_zones:
+                        best_zone = demand_zones[0]
+                        zone_width = best_zone.high - best_zone.low
+                        sl = best_zone.low - (zone_width * 0.75)
+                        tp1 = current_price + (current_price - best_zone.midpoint) * 1.5
+                        tp2 = current_price + (current_price - best_zone.midpoint) * 2.5
                         
-                        # Calculate SL and TP for shorts
-                        zone_width = zone.high - zone.low
-                        sl = zone.high + (zone_width * 0.5)
-                        tp1 = current_price - (zone_width * 1.5)
-                        tp2 = current_price - (zone_width * 2.5)
+                        response += f"""🟢 ENTRY ZONE (LONG):
+📍 Demand Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}
+💪 Strength: {best_zone.strength:.0f}%
+🛑 Stop Loss: {fmt_price(sl)}
+🎯 TP1: {fmt_price(tp1)}
+🎯 TP2: {fmt_price(tp2)}
+
+"""
+                    else:
+                        response += "⚠️ No demand zones found for LONG entry\n\n"
                         
-                        response += f"\n<b>Zone {i}:</b> Entry {fmt_price(entry)}\n"
-                        response += f"  Range: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
-                        response += f"  Strength: {strength:.0f}%\n"
-                        response += f"  🛑 SL: {fmt_price(sl)}\n"
-                        response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
-                else:
-                    response += "\n🔴 <b>SUPPLY ZONES:</b> No active zones\n"
+                elif sentiment == "BEARISH":
+                    response += f"""🎯 RECOMMENDED: LIMIT SHORT at Supply Zone
 
-                # Add signal recommendation
-                response += f"\n⚡ <b>SIGNAL:</b>"
-                if signal_type:
-                    response += f" ✅ {signal_type} ({signal_strength:.0f}%)\n"
-                else:
-                    response += f" ⏳ Waiting for zone entry\n"
+"""
+                    # Show supply zones for SHORT entries
+                    if supply_zones:
+                        best_zone = supply_zones[0]
+                        zone_width = best_zone.high - best_zone.low
+                        sl = best_zone.high + (zone_width * 0.75)
+                        tp1 = current_price - (best_zone.midpoint - current_price) * 1.5
+                        tp2 = current_price - (best_zone.midpoint - current_price) * 2.5
+                        
+                        response += f"""🔴 ENTRY ZONE (SHORT):
+📍 Supply Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}
+💪 Strength: {best_zone.strength:.0f}%
+🛑 Stop Loss: {fmt_price(sl)}
+🎯 TP1: {fmt_price(tp1)}
+🎯 TP2: {fmt_price(tp2)}
 
-                response += f"\n💡 <b>Setup:</b> Enter at zone, SL below zone, TP 1.5-2.5x R:R"
+"""
+                    else:
+                        response += "⚠️ No supply zones found for SHORT entry\n\n"
+                        
+                else:  # SIDEWAYS or NEUTRAL
+                    response += f"""🎯 RECOMMENDED: Wait for Breakout
 
-                await query.edit_message_text(response, parse_mode='HTML')
+⚠️ Market is ranging - wait for clear direction
+
+"""
+                    # Show both zones
+                    if demand_zones:
+                        best_demand = demand_zones[0]
+                        response += f"""🟢 If Bullish Breakout → LONG at:
+📍 Demand: {fmt_price(best_demand.low)} - {fmt_price(best_demand.high)}
+
+"""
+                    if supply_zones:
+                        best_supply = supply_zones[0]
+                        response += f"""🔴 If Bearish Breakout → SHORT at:
+📍 Supply: {fmt_price(best_supply.low)} - {fmt_price(best_supply.high)}
+
+"""
+
+                # Risk management note
+                response += f"""⚠️ RISK MANAGEMENT:
+• Use LIMIT orders at zone levels
+• Do NOT use market orders
+• Risk max 1-2% per trade
+• Always set Stop Loss
+
+💡 Wait for price to enter zone before placing order"""
+
+                await query.edit_message_text(response, parse_mode=None)
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 await query.edit_message_text(
-                    f"❌ <b>Error</b>: {str(e)[:100]}\n\n💡 Please try again",
-                    parse_mode='HTML'
+                    f"Error: {str(e)[:100]}\n\nPlease try again",
+                    parse_mode=None
                 )
 
     async def handle_add_coin_amount(self, query, context, symbol):
