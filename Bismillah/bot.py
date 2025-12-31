@@ -3,6 +3,7 @@
 """
 CryptoMentor AI Bot - Main Bot Class
 Enhanced with button-based menu system and async support
+OPTIMIZED: Lazy imports, shared services, caching for performance
 """
 
 import os
@@ -19,21 +20,40 @@ from telegram.ext import (
     ContextTypes
 )
 
-# Import menu system
-from menu_handlers import register_menu_handlers
-from menu_system import MenuBuilder, get_menu_text, MAIN_MENU
-
-# Import existing handlers and utilities
-try:
-    from app.supabase_conn import get_supabase_client, health
-    from app.sb_repo import ensure_user_registered, get_user_by_telegram_id
-    from app.routers.sb_quickcheck import handlers as sb_handlers
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-    print("⚠️ Supabase integration not available, using local fallback")
-
 logger = logging.getLogger(__name__)
+
+# Lazy-loaded modules (imported when needed)
+_menu_handlers_loaded = False
+_supabase_available = None
+_sb_handlers = None
+
+
+def _lazy_load_menu():
+    """Lazy load menu system only when needed"""
+    global _menu_handlers_loaded
+    if not _menu_handlers_loaded:
+        from menu_handlers import register_menu_handlers
+        _menu_handlers_loaded = True
+        return register_menu_handlers
+    from menu_handlers import register_menu_handlers
+    return register_menu_handlers
+
+
+def _check_supabase():
+    """Lazy check for Supabase availability"""
+    global _supabase_available, _sb_handlers
+    if _supabase_available is None:
+        try:
+            from app.supabase_conn import get_supabase_client, health
+            from app.sb_repo import ensure_user_registered, get_user_by_telegram_id
+            from app.routers.sb_quickcheck import handlers as sb_handlers
+            _supabase_available = True
+            _sb_handlers = sb_handlers
+        except ImportError:
+            _supabase_available = False
+            _sb_handlers = None
+            print("⚠️ Supabase integration not available, using local fallback")
+    return _supabase_available, _sb_handlers
 
 class TelegramBot:
     """Main CryptoMentor AI Bot class with menu system integration"""
@@ -47,20 +67,27 @@ class TelegramBot:
         self.application = None
         self.admin_ids = self._load_admin_ids()
         self.start_time = time.time()
-
-        # Initialize AI assistant and crypto API
-        try:
-            from ai_assistant import AIAssistant
-            from crypto_api import crypto_api
-            self.ai_assistant = AIAssistant()
-            self.crypto_api = crypto_api
-            print("✅ AI Assistant and Crypto API initialized")
-        except Exception as e:
-            print(f"⚠️ AI Assistant initialization failed: {e}")
-            self.ai_assistant = None
-            self.crypto_api = None
-
+        
+        # Use lazy-loaded services (initialized on first access)
+        self._ai_assistant = None
+        self._crypto_api = None
         print(f"✅ Bot initialized with {len(self.admin_ids)} admin(s)")
+
+    @property
+    def ai_assistant(self):
+        """Lazy-load AI assistant on first access"""
+        if self._ai_assistant is None:
+            from services import get_ai_assistant
+            self._ai_assistant = get_ai_assistant()
+        return self._ai_assistant
+
+    @property
+    def crypto_api(self):
+        """Lazy-load crypto API on first access"""
+        if self._crypto_api is None:
+            from services import get_crypto_api
+            self._crypto_api = get_crypto_api()
+        return self._crypto_api
 
     def _load_admin_ids(self):
         """Load admin IDs from environment"""
@@ -123,7 +150,8 @@ class TelegramBot:
         self.application.add_handler(CallbackQueryHandler(self.admin_button_handler, pattern=r'^admin_'))
         self.application.add_handler(CallbackQueryHandler(self.signal_callback_handler, pattern=r'^signal_tf_'))
 
-        # Register menu system handlers
+        # Register menu system handlers (lazy load)
+        register_menu_handlers = _lazy_load_menu()
         register_menu_handlers(self.application, self)
 
         # Register admin auto signal handlers
@@ -137,8 +165,9 @@ class TelegramBot:
         except Exception as e:
             print(f"⚠️ Auto signal admin commands failed to register: {e}")
 
-        # Register Supabase handlers if available
-        if SUPABASE_AVAILABLE and sb_handlers:
+        # Register Supabase handlers if available (lazy check)
+        supabase_available, sb_handlers = _check_supabase()
+        if supabase_available and sb_handlers:
             for handler in sb_handlers:
                 self.application.add_handler(handler)
 
@@ -153,9 +182,9 @@ class TelegramBot:
         """Handle /start command with menu integration and referral processing"""
         user = update.effective_user
 
-        # Initialize local database
-        from database import Database
-        db = Database()
+        # Use shared database instance
+        from services import get_database
+        db = get_database()
 
         # Check for referral code in start command
         referrer_id = None
@@ -196,9 +225,11 @@ class TelegramBot:
         except Exception as e:
             print(f"❌ User registration failed: {e}")
 
-        # Register user if Supabase is available
-        if SUPABASE_AVAILABLE:
+        # Register user if Supabase is available (lazy check)
+        supabase_available, _ = _check_supabase()
+        if supabase_available:
             try:
+                from app.sb_repo import ensure_user_registered
                 ensure_user_registered(
                     user.id,
                     user.username,
@@ -207,6 +238,9 @@ class TelegramBot:
                 )
             except Exception as e:
                 logger.warning(f"User registration failed: {e}")
+
+        # Lazy load menu system
+        from menu_system import MenuBuilder, get_menu_text, MAIN_MENU
 
         welcome_text = f"""🤖 **Welcome to CryptoMentor AI 2.0**
 
@@ -234,6 +268,7 @@ Choose an option from the menu below:"""
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show main menu"""
+        from menu_system import MenuBuilder, get_menu_text, MAIN_MENU
         await update.message.reply_text(
             get_menu_text(MAIN_MENU),
             reply_markup=MenuBuilder.build_main_menu(),
@@ -245,8 +280,8 @@ Choose an option from the menu below:"""
         user_id = update.effective_user.id
 
         # Get user language
-        from database import Database
-        db = Database()
+        from services import get_database
+        db = get_database()
         user_lang = db.get_user_language(user_id)
 
         if user_lang == 'id':
@@ -312,8 +347,8 @@ Choose an option from the menu below:"""
         user_id = update.effective_user.id
 
         # Get user language
-        from database import Database
-        db = Database()
+        from services import get_database
+        db = get_database()
         user_lang = db.get_user_language(user_id)
 
         try:
@@ -504,8 +539,8 @@ Choose an option from the menu below:"""
 ✅ Premium aktif - Akses unlimited, kredit tidak terpakai"""
 
             # Get user timezone and calculate local time
-            from database import Database
-            db = Database()
+            from services import get_database
+            db = get_database()
             user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
             user_tz = db.get_user_timezone(user_id)
 
@@ -889,8 +924,8 @@ Strength: {strength:.0f}%
         user_id = update.effective_user.id
 
         # Get user language and credits
-        from database import Database
-        db = Database()
+        from services import get_database
+        db = get_database()
         user_lang = db.get_user_language(user_id)
         credits = db.get_user_credits(user_id)
 
@@ -937,7 +972,7 @@ Strength: {strength:.0f}%
 
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle referral command with enhanced tier system"""
-        from database import Database
+        from services import get_database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         user_id = update.effective_user.id
@@ -948,7 +983,7 @@ Strength: {strength:.0f}%
         bot_username = bot_info.username or "CryptoMentorAI_bot"
 
         try:
-            db = Database()
+            db = get_database()
 
             # Get user referral codes
             referral_codes = db.get_user_referral_codes(user_id)
@@ -1045,8 +1080,8 @@ Strength: {strength:.0f}%
         if not lang or lang not in ['en', 'id']:
             # Get current language from database
             try:
-                from database import Database
-                db = Database()
+                from services import get_database
+                db = get_database()
                 current_lang = db.get_user_language(user_id) or 'en'
                 current_name = {'en': 'English', 'id': 'Bahasa Indonesia'}.get(current_lang, 'English')
 
@@ -1073,8 +1108,8 @@ Strength: {strength:.0f}%
 
         # Update language in database
         try:
-            from database import Database
-            db = Database()
+            from services import get_database
+            db = get_database()
 
             # Ensure user exists first
             user = db.get_user(user_id)
@@ -1132,7 +1167,7 @@ Strength: {strength:.0f}%
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command - text-only admin panel"""
         from app.lib.auth import get_admin_level, get_admin_hierarchy
-        from database import Database
+        from services import get_database
         from datetime import timedelta
         import time
 
@@ -1149,7 +1184,7 @@ Strength: {strength:.0f}%
         level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
         level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
 
-        db = Database()
+        db = get_database()
         user_tz = db.get_user_timezone(user_id)
         tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
         offset = tz_offsets.get(user_tz, 7)
@@ -1445,8 +1480,8 @@ Choose an action:
             context.user_data['message_id'] = msg.message_id
 
         elif query.data == "admin_list_users":
-            from database import Database
-            db = Database()
+            from services import get_database
+            db = get_database()
             try:
                 # Get last 10 users
                 users = db.get_recent_users(limit=10)
@@ -1562,13 +1597,13 @@ Choose action:
             os.execv(sys.executable, ['python'] + sys.argv)
 
         elif query.data == "admin_back":
-            from database import Database
+            from services import get_database
             from datetime import datetime, timedelta
 
             level_emoji = {1: "👑", 2: "🔷", 3: "🔶"}.get(admin_level, "👤")
             level_name = {1: "ADMIN 1 (Owner)", 2: "ADMIN 2 (Manager)", 3: "ADMIN 3 (Moderator)"}.get(admin_level, "UNKNOWN")
 
-            db = Database()
+            db = get_database()
             user_tz = db.get_user_timezone(user_id)
             tz_offsets = {'WIB': 7, 'WITA': 8, 'WIT': 9, 'SGT': 8, 'MYT': 8, 'GST': 4, 'GMT': 0, 'EST': -5, 'PST': -8}
             offset = tz_offsets.get(user_tz, 7)
@@ -1605,12 +1640,12 @@ Choose action:
 
     async def handle_admin_reset_credits(self, query, context):
         """Show reset credits confirmation"""
-        from database import Database
+        from services import get_database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
             # Get current user counts
-            db = Database()
+            db = get_database()
             local_stats = db.get_user_stats()
 
             supabase_users = 0
@@ -1658,7 +1693,7 @@ Choose action:
 
     async def handle_admin_reset_credits_confirm(self, query, context):
         """Execute reset credits for all users to 200"""
-        from database import Database
+        from services import get_database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
@@ -1671,7 +1706,7 @@ Choose action:
                 parse_mode='MARKDOWN'
             )
 
-            db = Database()
+            db = get_database()
             local_updated = 0
             supabase_updated = 0
             errors = []
@@ -1758,11 +1793,11 @@ Choose action:
 
     async def handle_admin_reset_below_100(self, query, context):
         """Show confirmation for resetting credits ONLY for users below 100"""
-        from database import Database
+        from services import get_database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
-            db = Database()
+            db = get_database()
 
             # Count users below 100 credits in local DB
             try:
@@ -1823,7 +1858,7 @@ Choose action:
 
     async def handle_admin_reset_below_100_confirm(self, query, context):
         """Execute reset credits for users below 100"""
-        from database import Database
+        from services import get_database
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
@@ -1834,7 +1869,7 @@ Choose action:
                 parse_mode='MARKDOWN'
             )
 
-            db = Database()
+            db = get_database()
             local_updated = 0
             supabase_updated = 0
             errors = []
@@ -1926,8 +1961,8 @@ Choose action:
         awaiting = user_data.get('awaiting_input')
         if awaiting == 'admin_broadcast':
             broadcast_msg = text.strip()
-            from database import Database
-            db = Database()
+            from services import get_database
+            db = get_database()
             try:
                 users = db.get_all_users()
                 success_count = 0
@@ -1961,14 +1996,14 @@ Choose action:
             return
 
         if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_add_credits_manual', 'admin_search_user', 'admin_ban_user']:
-            from database import Database
+            from services import get_database
             from datetime import datetime, timedelta
             
             parts = text.strip().split()
             try:
                 if awaiting == 'admin_search_user':
                     search_query = parts[0]
-                    db = Database()
+                    db = get_database()
                     user = db.search_user(search_query)
                     if user:
                         user_text = f"""🔍 **User Found**
@@ -1987,7 +2022,7 @@ Choose action:
                 
                 elif awaiting == 'admin_ban_user':
                     user_id = int(parts[0])
-                    db = Database()
+                    db = get_database()
                     user = db.search_user(str(user_id))
                     if user:
                         if user.get('banned'):
@@ -2009,7 +2044,7 @@ Choose action:
                 
                 else:
                     user_id = int(parts[0])
-                    db = Database()
+                    db = get_database()
                     
                     if awaiting == 'admin_add_premium':
                         days = int(parts[1]) if len(parts) > 1 else 30

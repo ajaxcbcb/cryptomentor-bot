@@ -9,6 +9,12 @@ Telegram-based crypto signal bot using Supply & Demand (SnD) zone detection base
 - **Status**: Futures Analysis fixed with sentiment-based LIMIT order recommendations
 
 ## Recent Changes (Dec 31, 2025)
+- **PERFORMANCE OPTIMIZATION**: Refactored bot.py for faster, lighter operation
+  - Lazy loading of heavy modules (menu, AI, crypto API, Supabase)
+  - Shared database service with singleton pattern (services.py)
+  - Reduced startup time by deferring module imports
+  - All handlers now use shared database instance instead of creating new connections
+- Fixed "Reset All Credits" button to properly set credits to 200
 - Fixed Futures Analysis parsing error (switched from MARKDOWN to plain text)
 - Added sentiment-based entry recommendations:
   - BULLISH → LIMIT LONG at Demand Zone
