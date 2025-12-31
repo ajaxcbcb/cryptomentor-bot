@@ -579,6 +579,20 @@ Choose an option from the menu below:"""
             user_id = update.effective_user.id
             user_tz = get_user_timezone_from_context(context, user_id)
             est_time = get_estimated_time_message(5, user_tz)
+            
+            # Check and deduct credits (20 for Spot Analysis)
+            try:
+                from app.credits_guard import require_credits
+                ok, remain, msg = require_credits(user_id, 20)
+                if not ok:
+                    await update.effective_message.reply_text(
+                        f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
+                        parse_mode='HTML'
+                    )
+                    return
+            except Exception as e:
+                print(f"Credit check error: {e}")
+                # Continue if credit system fails (fallback)
 
             # Show loading message with HTML
             loading_msg = await update.effective_message.reply_text(
@@ -744,6 +758,21 @@ Strength: {strength:.0f}%
             user_id = update.effective_user.id
             user_tz = get_user_timezone_from_context(context, user_id)
             est_time = get_estimated_time_message(5, user_tz)
+            
+            # Check and deduct credits (20 for Futures Analysis)
+            try:
+                from app.credits_guard import require_credits
+                ok, remain, msg = require_credits(user_id, 20)
+                if not ok:
+                    await update.effective_message.reply_text(
+                        f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
+                        parse_mode='HTML'
+                    )
+                    return
+            except Exception as e:
+                print(f"Credit check error: {e}")
+                # Continue if credit system fails (fallback)
+            
             await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...\n{est_time}")
 
             try:

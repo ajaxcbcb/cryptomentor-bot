@@ -455,6 +455,23 @@ async def multi_coin_signals_callback(update: Update, context: ContextTypes.DEFA
     user_tz = get_user_timezone_from_context(context, user_id)
     est_time = get_estimated_time_message(10, user_tz)
     
+    # Check and deduct credits (60 for Multi-Coin Signals)
+    try:
+        from app.credits_guard import require_credits
+        ok, remain, msg = require_credits(user_id, 60)
+        if not ok:
+            keyboard = [[InlineKeyboardButton("⭐ Upgrade Premium", callback_data=UPGRADE_PREMIUM)],
+                        [InlineKeyboardButton("🔙 Back", callback_data=FUTURES_SIGNALS)]]
+            await query.edit_message_text(
+                text=f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+            return
+    except Exception as e:
+        print(f"Credit check error: {e}")
+        # Continue if credit system fails (fallback)
+    
     await query.edit_message_text(
         text=f"🔥 **Multi-Coin Futures Signals**\n\n⏳ Generating signals...\n{est_time}",
         reply_markup=None,
