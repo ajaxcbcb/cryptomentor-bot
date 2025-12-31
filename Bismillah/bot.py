@@ -1606,6 +1606,7 @@ Choose action:
     async def handle_admin_reset_credits(self, query, context):
         """Show reset credits confirmation"""
         from database import Database
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
             # Get current user counts
@@ -1621,7 +1622,7 @@ Choose action:
 
             warning_text = f"""⚠️ **RESET ALL CREDITS - CONFIRMATION REQUIRED**
 
-🎯 **Action:** Set 100 credits for ALL users
+🎯 **Action:** Set 200 credits for ALL users
 📊 **Scope:** Both Local SQLite & Supabase databases
 
 📈 **Current User Count:**
@@ -1630,7 +1631,7 @@ Choose action:
 • 💎 Premium users: Will keep unlimited access
 
 ⚠️ **WARNING:**
-• This will reset ALL free users to 100 credits
+• This will reset ALL free users to 200 credits
 • Premium users are unaffected
 • Action cannot be undone
 • Both databases will be updated
@@ -1638,7 +1639,7 @@ Choose action:
 ❓ **Are you sure you want to proceed?**"""
 
             keyboard = [
-                [InlineKeyboardButton("✅ YES - Reset All Credits", callback_data="admin_reset_credits_confirm")],
+                [InlineKeyboardButton("✅ YES - Reset All Credits to 200", callback_data="admin_reset_credits_confirm")],
                 [InlineKeyboardButton("❌ Cancel", callback_data="admin_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1656,13 +1657,14 @@ Choose action:
             )
 
     async def handle_admin_reset_credits_confirm(self, query, context):
-        """Execute reset credits for all users"""
+        """Execute reset credits for all users to 200"""
         from database import Database
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
             # Show processing message
             await query.edit_message_text(
-                "⏳ **Processing credit reset...**\n\n"
+                "⏳ **Processing credit reset to 200...**\n\n"
                 "📁 Updating Local SQLite database...\n"
                 "☁️ Updating Supabase database...\n\n"
                 "Please wait...",
@@ -1674,22 +1676,29 @@ Choose action:
             supabase_updated = 0
             errors = []
 
-            # 1. Reset credits in Local SQLite
+            # 1. Reset credits in Local SQLite to 200
             try:
-                local_updated = db.set_all_user_credits(100)
-                print(f"✅ Local SQLite: Updated {local_updated} users")
+                local_updated = db.set_all_user_credits(200)
+                print(f"✅ Local SQLite: Updated {local_updated} users to 200 credits")
             except Exception as e:
                 errors.append(f"Local SQLite error: {str(e)}")
                 print(f"❌ Local SQLite error: {e}")
 
-            # 2. Reset credits in Supabase
+            # 2. Reset credits in Supabase to 200
             try:
                 from supabase_client import supabase
                 if supabase:
-                    # Use RPC function to reset all user credits
-                    result = supabase.rpc('reset_all_user_credits', {'p_amount': 100}).execute()
-                    supabase_updated = result.data if isinstance(result.data, int) else 0
-                    print(f"✅ Supabase: Updated {supabase_updated} users via RPC")
+                    # Try RPC function first
+                    try:
+                        result = supabase.rpc('reset_all_user_credits', {'p_amount': 200}).execute()
+                        supabase_updated = result.data if isinstance(result.data, int) else 0
+                        print(f"✅ Supabase RPC: Updated {supabase_updated} users to 200 credits")
+                    except Exception as rpc_error:
+                        # Fallback: direct table update
+                        print(f"⚠️ RPC not available, using direct update: {rpc_error}")
+                        result = supabase.table('users').update({'credits': 200}).or_('is_premium.is.null,is_premium.eq.false').execute()
+                        supabase_updated = len(result.data) if result.data else 0
+                        print(f"✅ Supabase direct: Updated {supabase_updated} users to 200 credits")
                 else:
                     errors.append("Supabase client not available")
             except Exception as e:
@@ -1701,7 +1710,7 @@ Choose action:
             db.log_user_activity(
                 admin_id,
                 "admin_reset_all_credits",
-                f"Reset credits for Local:{local_updated}, Supabase:{supabase_updated}"
+                f"Reset credits to 200: Local:{local_updated}, Supabase:{supabase_updated}"
             )
 
             # 4. Show results
@@ -1711,6 +1720,7 @@ Choose action:
 ✅ **Successfully Updated:**
 • 📁 Local SQLite: {local_updated} users
 • ☁️ Supabase: {supabase_updated} users
+• 💰 New Balance: 200 credits
 
 ❌ **Errors Encountered:**
 """
@@ -1724,9 +1734,9 @@ Choose action:
 📊 **Updated User Counts:**
 • 📁 Local SQLite: {local_updated} users
 • ☁️ Supabase: {supabase_updated} users
-• 💰 New Credit Balance: 100 for all free users
+• 💰 New Credit Balance: 200 for all free users
 
-🎯 All users now have 100 credits
+🎯 All users now have 200 credits
 👑 Premium users maintain unlimited access"""
 
             keyboard = [[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_back")]]
