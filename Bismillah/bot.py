@@ -991,27 +991,29 @@ Zone {label} – {desc}
 
         if user_lang == 'id':
             await update.effective_message.reply_text(
-                f"💳 **Saldo Kredit**\n\n"
+                f"💳 <b>Saldo Kredit</b>\n\n"
                 f"👤 Pengguna: {user_name}\n"
+                f"🆔 UID Telegram: <code>{user_id}</code>\n"
                 f"💰 Kredit: {credits}\n\n"
-                f"📊 **Biaya Kredit:**\n"
+                f"📊 <b>Biaya Kredit:</b>\n"
                 f"• Analisis Spot: 20 kredit\n"
                 f"• Analisis Futures: 20 kredit\n"
                 f"• Sinyal Multi-Coin: 60 kredit\n\n"
                 f"⭐ Upgrade ke Premium untuk akses unlimited!",
-                parse_mode='MARKDOWN'
+                parse_mode='HTML'
             )
         else:
             await update.effective_message.reply_text(
-                f"💳 **Credit Balance**\n\n"
+                f"💳 <b>Credit Balance</b>\n\n"
                 f"👤 User: {user_name}\n"
+                f"🆔 Telegram UID: <code>{user_id}</code>\n"
                 f"💰 Credits: {credits}\n\n"
-                f"📊 **Credit Costs:**\n"
+                f"📊 <b>Credit Costs:</b>\n"
                 f"• Spot Analysis: 20 credits\n"
                 f"• Futures Analysis: 20 credits\n"
                 f"• Multi-Coin Signals: 60 credits\n\n"
                 f"⭐ Upgrade to Premium for unlimited access!",
-                parse_mode='MARKDOWN'
+                parse_mode='HTML'
             )
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
