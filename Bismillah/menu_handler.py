@@ -631,29 +631,31 @@ async def check_credits_callback(update: Update, context: ContextTypes.DEFAULT_T
     
     if user_lang == 'id':
         await query.edit_message_text(
-            text=f"💳 **Saldo Kredit**\n\n"
+            text=f"💳 <b>Saldo Kredit</b>\n\n"
                  f"👤 Pengguna: {user_name}\n"
+                 f"🆔 UID Telegram: <code>{user_id}</code>\n"
                  f"💰 Kredit: {credits}\n\n"
-                 f"📊 **Biaya Kredit:**\n"
+                 f"📊 <b>Biaya Kredit:</b>\n"
                  f"• Analisis Spot: 20 kredit\n"
                  f"• Analisis Futures: 20 kredit\n"
                  f"• Sinyal Multi-Coin: 60 kredit\n\n"
                  f"⭐ Upgrade ke Premium untuk akses unlimited!",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     else:
         await query.edit_message_text(
-            text=f"💳 **Credit Balance**\n\n"
+            text=f"💳 <b>Credit Balance</b>\n\n"
                  f"👤 User: {user_name}\n"
+                 f"🆔 Telegram UID: <code>{user_id}</code>\n"
                  f"💰 Credits: {credits}\n\n"
-                 f"📊 **Credit Costs:**\n"
+                 f"📊 <b>Credit Costs:</b>\n"
                  f"• Spot Analysis: 20 credits\n"
                  f"• Futures Analysis: 20 credits\n"
                  f"• Multi-Coin Signals: 60 credits\n\n"
                  f"⭐ Upgrade to Premium for unlimited access!",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
 
 
