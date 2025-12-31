@@ -1749,6 +1749,7 @@ Choose action:
     async def handle_admin_reset_below_100(self, query, context):
         """Show confirmation for resetting credits ONLY for users below 100"""
         from database import Database
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
             db = Database()
@@ -1811,6 +1812,7 @@ Choose action:
     async def handle_admin_reset_below_100_confirm(self, query, context):
         """Execute reset credits for users below 100"""
         from database import Database
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         try:
             await query.edit_message_text(

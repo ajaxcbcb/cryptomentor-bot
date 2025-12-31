@@ -1,0 +1,27 @@
+[ADMIN BUTTON] Received callback: admin_reset_users_credits from user 1234500009
+2025-12-31 07:37:11,728 - INFO - HTTP Request: POST https://api.telegram.org/bot<REDACTED_TELEGRAM_BOT_TOKEN>/answerCallbackQuery "HTTP/1.1 200 OK"
+Current table columns: ['id', 'telegram_id', 'first_name', 'last_name', 'username', 'language_code', 'is_premium', 'credits', 'subscription_end', 'referred_by', 'referral_code', 'created_at', 'restart_required', 'premium_referral_code', 'premium_earnings', 'banned', 'timezone']
+Error with user_activity table: near "FOREIGNKEY": syntax error
+✅ Database class integrated with Supabase service role client
+2025-12-31 07:37:12,304 - INFO - HTTP Request: GET https://xrbqnocovfymdikngaza.supabase.co/rest/v1/users?select=telegram_id&credits=lt.100&is_premium=eq.False "HTTP/2 200 OK"
+2025-12-31 07:37:12,305 - ERROR - No error handlers are registered, logging exception.
+Traceback (most recent call last):
+  File "/home/runner/workspace/Bismillah/bot.py", line 1794, in handle_admin_reset_below_100
+    [InlineKeyboardButton("✅ YES - Reset Users Below 100", callback_data="admin_reset_users_credits_confirm")],
+     ^^^^^^^^^^^^^^^^^^^^
+NameError: name 'InlineKeyboardButton' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/telegram/ext/_application.py", line 1315, in process_update
+    await coroutine
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/telegram/ext/_handlers/basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/Bismillah/bot.py", line 1426, in admin_button_handler
+    await self.handle_admin_reset_below_100(query, context)
+  File "/home/runner/workspace/Bismillah/bot.py", line 1807, in handle_admin_reset_below_100
+    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_add_credits")]]),
+                 ^^^^^^^^^^^^^^^^^^^^
+NameError: name 'InlineKeyboardMarkup' is not defined
