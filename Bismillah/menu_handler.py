@@ -8,10 +8,75 @@ Uses python-telegram-bot framework
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler
 from typing import Optional, List
+from datetime import datetime, timedelta
 import logging
 import asyncio
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# ESTIMATED TIME HELPER
+# =============================================================================
+
+def get_estimated_time_message(seconds: int, user_timezone: str = 'WIB') -> str:
+    """
+    Generate estimated time message with completion time
+    Format: ⏱️ Estimated: ~Xs (selesai 14:30:25 WIB)
+    """
+    try:
+        from pytz import timezone as tz_module
+        
+        # Map timezone codes to pytz
+        tz_map = {
+            'WIB': 'Asia/Jakarta',
+            'WITA': 'Asia/Makassar', 
+            'WIT': 'Asia/Jayapura',
+            'UTC': 'UTC',
+            'EST': 'America/New_York',
+            'PST': 'America/Los_Angeles',
+            'GMT': 'Europe/London',
+            'JST': 'Asia/Tokyo',
+            'KST': 'Asia/Seoul',
+            'SGT': 'Asia/Singapore',
+        }
+        
+        tz_name = tz_map.get(user_timezone, 'Asia/Jakarta')
+        user_tz = tz_module(tz_name)
+        
+        # Calculate completion time
+        now = datetime.now(user_tz)
+        completion_time = now + timedelta(seconds=seconds)
+        completion_str = completion_time.strftime('%H:%M:%S')
+        
+        return f"⏱️ Estimated: ~{seconds}s (selesai {completion_str} {user_timezone})"
+    except Exception as e:
+        logger.error(f"Error in get_estimated_time_message: {e}")
+        return f"⏱️ Estimated: ~{seconds}s"
+
+
+def get_user_timezone_from_context(context, user_id: int = None) -> str:
+    """Get user timezone from context, database, or default to WIB"""
+    try:
+        # First check context cache
+        cached_tz = context.user_data.get('timezone')
+        if cached_tz:
+            return cached_tz
+        
+        # Try to get from database if user_id available
+        if user_id:
+            try:
+                from services import get_database
+                db = get_database()
+                user_tz = db.get_user_timezone(user_id)
+                if user_tz:
+                    context.user_data['timezone'] = user_tz
+                    return user_tz
+            except Exception as e:
+                logger.debug(f"Could not get timezone from db: {e}")
+        
+        return 'WIB'
+    except:
+        return 'WIB'
 
 # =============================================================================
 # CALLBACK DATA CONSTANTS (for routing)
@@ -225,9 +290,13 @@ async def market_overview_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     try:
-        # Send loading message
+        # Send loading message with estimated time
+        user_id = update.effective_user.id
+        user_tz = get_user_timezone_from_context(context, user_id)
+        est_time = get_estimated_time_message(5, user_tz)
+        
         await query.edit_message_text(
-            text="📊 Fetching market data...",
+            text=f"📊 Fetching market data...\n{est_time}",
             reply_markup=None,
             parse_mode='HTML'
         )
@@ -382,9 +451,12 @@ async def multi_coin_signals_callback(update: Update, context: ContextTypes.DEFA
     
     chat_id = query.message.chat_id
     message_id = query.message.message_id
+    user_id = update.effective_user.id
+    user_tz = get_user_timezone_from_context(context, user_id)
+    est_time = get_estimated_time_message(10, user_tz)
     
     await query.edit_message_text(
-        text="🔥 **Multi-Coin Futures Signals**\n\n⏳ Generating signals... Please wait ~10 seconds",
+        text=f"🔥 **Multi-Coin Futures Signals**\n\n⏳ Generating signals...\n{est_time}",
         reply_markup=None,
         parse_mode='Markdown'
     )
@@ -470,9 +542,14 @@ async def my_portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     
+    user_id = update.effective_user.id
+    user_tz = get_user_timezone_from_context(context, user_id)
+    est_time = get_estimated_time_message(3, user_tz)
+    
     await query.edit_message_text(
-        text="📂 **My Portfolio**\n\nLoading your portfolio...",
-        reply_markup=None
+        text=f"📂 **My Portfolio**\n\nLoading your portfolio...\n{est_time}",
+        reply_markup=None,
+        parse_mode='Markdown'
     )
     
     context.user_data['action'] = 'portfolio'
@@ -498,9 +575,14 @@ async def check_credits_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     
+    user_id = update.effective_user.id
+    user_tz = get_user_timezone_from_context(context, user_id)
+    est_time = get_estimated_time_message(2, user_tz)
+    
     await query.edit_message_text(
-        text="💳 **Check Credits**\n\nLoading credit information...",
-        reply_markup=None
+        text=f"💳 **Check Credits**\n\nLoading credit information...\n{est_time}",
+        reply_markup=None,
+        parse_mode='Markdown'
     )
     
     context.user_data['action'] = 'credits'
@@ -511,9 +593,14 @@ async def upgrade_premium_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     
+    user_id = update.effective_user.id
+    user_tz = get_user_timezone_from_context(context, user_id)
+    est_time = get_estimated_time_message(2, user_tz)
+    
     await query.edit_message_text(
-        text="⭐ **Upgrade to Premium**\n\nLoading subscription options...",
-        reply_markup=None
+        text=f"⭐ **Upgrade to Premium**\n\nLoading subscription options...\n{est_time}",
+        reply_markup=None,
+        parse_mode='Markdown'
     )
     
     context.user_data['action'] = 'subscribe'

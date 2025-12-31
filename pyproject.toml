@@ -11,4 +11,5 @@ dependencies = [
     "h3>=4.4.1",
     "python-dotenv>=1.2.1",
     "openai>=2.14.0",
+    "pytz>=2025.2",
 ]

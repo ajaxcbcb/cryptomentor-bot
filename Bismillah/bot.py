@@ -429,21 +429,22 @@ Choose an option from the menu below:"""
         try:
             import asyncio
             from app.providers.binance_provider import get_price, get_24h_change
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
 
-            # Show loading message with countdown
+            # Get user timezone for estimated time
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(5, user_tz)
+            
+            # Show loading message with estimated time
             loading_msg = await update.message.reply_text(
-                "⏳ **Fetching market overview from Binance...**\n\n"
-                "📊 Loading prices... ⏱️ ~5 seconds",
+                f"⏳ **Fetching market overview from Binance...**\n\n"
+                f"📊 Loading prices...\n{est_time}",
                 parse_mode='MARKDOWN'
             )
 
-            # Update countdown while fetching
+            # Wait briefly while fetching
             await asyncio.sleep(1)
-            await loading_msg.edit_text(
-                "⏳ **Fetching market overview from Binance...**\n\n"
-                "📊 Loading prices... ⏱️ ~4 seconds",
-                parse_mode='MARKDOWN'
-            )
 
             # Top coins to analyze (normalized names)
             coins = [('BTC', 'BTCUSDT'), ('ETH', 'ETHUSDT'), ('AVAX', 'AVAXUSDT'), ('BNB', 'BNBUSDT'), ('SOL', 'SOLUSDT')]
@@ -572,12 +573,19 @@ Choose an option from the menu below:"""
 
         try:
             from snd_zone_detector import detect_snd_zones
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
+
+            # Get user timezone for estimated time
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(5, user_tz)
 
             # Show loading message with HTML
             loading_msg = await update.effective_message.reply_text(
                 f"🔄 <b>Analyzing {symbol}...</b>\n\n"
                 f"📊 Fetching Binance data...\n"
-                f"🎯 Detecting S&D zones...",
+                f"🎯 Detecting S&D zones...\n\n"
+                f"{est_time}",
                 parse_mode='HTML'
             )
 
@@ -731,7 +739,12 @@ Strength: {strength:.0f}%
             symbol = symbol + 'USDT'
 
         try:
-            await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...")
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
+            
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(5, user_tz)
+            await update.message.reply_text(f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...\n{est_time}")
 
             try:
                 from snd_zone_detector import detect_snd_zones
@@ -822,7 +835,12 @@ Strength: {strength:.0f}%
         """Handle futures signals command"""
         try:
             from futures_signal_generator import FuturesSignalGenerator
-            await update.message.reply_text("⏳ Generating multi-coin futures signals...")
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
+            
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(10, user_tz)
+            await update.message.reply_text(f"⏳ Generating multi-coin futures signals...\n{est_time}")
 
             generator = FuturesSignalGenerator()
             signals = await generator.generate_multi_signals()
@@ -875,7 +893,12 @@ Strength: {strength:.0f}%
         """Handle multi-coin signals command"""
         try:
             from futures_signal_generator import FuturesSignalGenerator
-            await update.message.reply_text("⏳ Generating multi-coin futures signals...")
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
+            
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(10, user_tz)
+            await update.message.reply_text(f"⏳ Generating multi-coin futures signals...\n{est_time}")
 
             generator = FuturesSignalGenerator()
             signals = await generator.generate_multi_signals()
@@ -898,8 +921,14 @@ Strength: {strength:.0f}%
         symbol = '_'.join(parts[3:])  # Handle symbol properly
 
         try:
+            from menu_handler import get_estimated_time_message, get_user_timezone_from_context
+            
+            user_id = update.effective_user.id
+            user_tz = get_user_timezone_from_context(context, user_id)
+            est_time = get_estimated_time_message(5, user_tz)
+            
             await query.answer("⏳ Generating signal...")
-            await query.edit_message_text("⏳ Generating professional signal...")
+            await query.edit_message_text(f"⏳ Generating professional signal...\n{est_time}")
 
             from futures_signal_generator import FuturesSignalGenerator
             generator = FuturesSignalGenerator()

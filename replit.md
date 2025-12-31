@@ -9,6 +9,15 @@ Telegram-based crypto signal bot using Supply & Demand (SnD) zone detection base
 - **Status**: Futures Analysis fixed with sentiment-based LIMIT order recommendations
 
 ## Recent Changes (Dec 31, 2025)
+- **ESTIMATED TIME FEATURE**: Added estimated completion time to all loading messages
+  - Format: "⏱️ Estimated: ~Xs (selesai 14:30:25 WIB)"
+  - Uses user's timezone preference (WIB, WITA, WIT, UTC, etc.)
+  - Applied to: Multi-coin signals, Market overview, Spot/Futures analysis, Portfolio, Credits
+  - Helper functions: `get_estimated_time_message()` and `get_user_timezone_from_context()`
+- **MULTI-COIN SIGNALS FIX**: Fixed callback timeout with async background processing
+  - Uses asyncio.create_task() to prevent blocking Telegram's 3-second timeout
+  - Fixed invalid symbols: DOL→DOT, MATIC→POL
+  - Optimized from 15 to 10 coins for faster ~10s response
 - **PERFORMANCE OPTIMIZATION**: Refactored bot.py for faster, lighter operation
   - Lazy loading of heavy modules (menu, AI, crypto API, Supabase)
   - Shared database service with singleton pattern (services.py)
