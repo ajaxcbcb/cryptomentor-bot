@@ -1095,10 +1095,25 @@ class AIAssistant:
                     else:
                         rr_rank = "⚠️ POOR"
 
-                    signals_text += f"""**{i}. {symbol} {direction_icon} {direction}** (Confidence: {confidence:.1f}%)
+                    # Calculate zone range (approximately 0.5% width)
+                    zone_width = entry * 0.005
+                    if direction == "LONG":
+                        # Demand zone for LONG - buy limit below current
+                        zone_low = entry - zone_width
+                        zone_high = entry
+                        zone_label = "Demand Zone"
+                        order_type = "LIMIT LONG"
+                    else:
+                        # Supply zone for SHORT - sell limit above current
+                        zone_low = entry
+                        zone_high = entry + zone_width
+                        zone_label = "Supply Zone"
+                        order_type = "LIMIT SHORT"
+
+                    signals_text += f"""**{i}. {symbol} {direction_icon} {order_type}** (Confidence: {confidence:.1f}%)
 
 🛑 **Stop Loss**: {format_signal_price(sl)}
-➡️ **Entry**: {format_signal_price(entry)}
+📍 **{zone_label}**: {format_signal_price(zone_low)} - {format_signal_price(zone_high)}
 🎯 **TP1**: {format_signal_price(tp1)} (+{tp1_pct:.1f}%)
 🎯 **TP2**: {format_signal_price(tp2)} (+{tp2_pct:.1f}%)
 🎯 **TP3**: {format_signal_price(tp3)} (+{tp3_pct:.1f}%)
@@ -1111,9 +1126,10 @@ class AIAssistant:
 
                 # Professional footer
                 signals_text += f"""⚠️ TRADING DISCLAIMER:
+• Place LIMIT orders at zone levels
+• Do NOT use market orders
 • Signals berbasis Supply & Demand analysis
 • Gunakan proper risk management
-• Position sizing sesuai risk level
 • DYOR sebelum trading
 
 📡 Next scan akan mengacak koin berbeda
