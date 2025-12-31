@@ -949,19 +949,36 @@ Strength: {strength:.0f}%
         )
 
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle credits command"""
+        """Handle credits command - fetch from Supabase"""
         user_id = update.effective_user.id
+        user_name = update.effective_user.first_name or "User"
 
-        # Get user language and credits
+        # Get user language and credits from Supabase
         from services import get_database
         db = get_database()
         user_lang = db.get_user_language(user_id)
-        credits = db.get_user_credits(user_id)
+        
+        # Fetch credits from Supabase
+        credits = 0
+        try:
+            from supabase_client import get_user as supabase_get_user
+            user_data = supabase_get_user(user_id)
+            if user_data:
+                credits = user_data.get('credits', 0) or 0
+                # Use Supabase first_name if available
+                if user_data.get('first_name'):
+                    user_name = user_data.get('first_name')
+            else:
+                # User not in Supabase, fallback to local
+                credits = db.get_user_credits(user_id)
+        except Exception as e:
+            print(f"Error fetching credits from Supabase: {e}")
+            credits = db.get_user_credits(user_id)
 
         if user_lang == 'id':
             await update.effective_message.reply_text(
                 f"💳 **Saldo Kredit**\n\n"
-                f"👤 Pengguna: {update.effective_user.first_name}\n"
+                f"👤 Pengguna: {user_name}\n"
                 f"💰 Kredit: {credits}\n\n"
                 f"📊 **Biaya Kredit:**\n"
                 f"• Analisis Spot: 20 kredit\n"
@@ -973,7 +990,7 @@ Strength: {strength:.0f}%
         else:
             await update.effective_message.reply_text(
                 f"💳 **Credit Balance**\n\n"
-                f"👤 User: {update.effective_user.first_name}\n"
+                f"👤 User: {user_name}\n"
                 f"💰 Credits: {credits}\n\n"
                 f"📊 **Credit Costs:**\n"
                 f"• Spot Analysis: 20 credits\n"

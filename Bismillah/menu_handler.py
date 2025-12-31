@@ -571,21 +571,67 @@ async def add_coin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_credits_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Trigger /credits command"""
+    """Show user credits - fetch from Supabase"""
     query = update.callback_query
     await query.answer()
     
     user_id = update.effective_user.id
-    user_tz = get_user_timezone_from_context(context, user_id)
-    est_time = get_estimated_time_message(2, user_tz)
+    user_name = update.effective_user.first_name or "User"
     
-    await query.edit_message_text(
-        text=f"💳 **Check Credits**\n\nLoading credit information...\n{est_time}",
-        reply_markup=None,
-        parse_mode='Markdown'
-    )
+    # Get user language
+    from services import get_database
+    db = get_database()
+    user_lang = db.get_user_language(user_id)
     
-    context.user_data['action'] = 'credits'
+    # Fetch credits from Supabase
+    credits = 0
+    try:
+        from supabase_client import get_user as supabase_get_user
+        user_data = supabase_get_user(user_id)
+        if user_data:
+            credits = user_data.get('credits', 0) or 0
+            # Use Supabase first_name if available
+            if user_data.get('first_name'):
+                user_name = user_data.get('first_name')
+        else:
+            # User not in Supabase, fallback to local
+            credits = db.get_user_credits(user_id)
+    except Exception as e:
+        print(f"Error fetching credits from Supabase: {e}")
+        credits = db.get_user_credits(user_id)
+    
+    # Build keyboard with upgrade option
+    keyboard = [
+        [InlineKeyboardButton("⭐ Upgrade Premium", callback_data=UPGRADE_PREMIUM)],
+        [InlineKeyboardButton("🔙 Back", callback_data=PORTFOLIO_CREDITS)]
+    ]
+    
+    if user_lang == 'id':
+        await query.edit_message_text(
+            text=f"💳 **Saldo Kredit**\n\n"
+                 f"👤 Pengguna: {user_name}\n"
+                 f"💰 Kredit: {credits}\n\n"
+                 f"📊 **Biaya Kredit:**\n"
+                 f"• Analisis Spot: 20 kredit\n"
+                 f"• Analisis Futures: 20 kredit\n"
+                 f"• Sinyal Multi-Coin: 60 kredit\n\n"
+                 f"⭐ Upgrade ke Premium untuk akses unlimited!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    else:
+        await query.edit_message_text(
+            text=f"💳 **Credit Balance**\n\n"
+                 f"👤 User: {user_name}\n"
+                 f"💰 Credits: {credits}\n\n"
+                 f"📊 **Credit Costs:**\n"
+                 f"• Spot Analysis: 20 credits\n"
+                 f"• Futures Analysis: 20 credits\n"
+                 f"• Multi-Coin Signals: 60 credits\n\n"
+                 f"⭐ Upgrade to Premium for unlimited access!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
 
 
 async def upgrade_premium_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
