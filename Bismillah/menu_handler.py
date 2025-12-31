@@ -999,25 +999,214 @@ async def symbol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     action = context.user_data.get('action')
     step = context.user_data.get('step')
+    user_id = update.effective_user.id
+    
+    # Add USDT if not present
+    if not any(symbol.endswith(pair) for pair in ['USDT', 'BUSD', 'USDC']):
+        symbol += 'USDT'
     
     # Different flows based on action
     if action == 'price':
         await query.edit_message_text(text=f"📈 Fetching price for {symbol}...", reply_markup=None)
         context.user_data['symbol'] = symbol
-        # Would call: await handle_price(update, context, symbol)
         
     elif action == 'analyze':
-        await query.edit_message_text(text=f"📊 Analyzing {symbol}...", reply_markup=None)
-        context.user_data['symbol'] = symbol
-        # Would call: await handle_analyze(update, context, symbol)
+        # Check and deduct credits (20 for Spot Analysis)
+        try:
+            from app.credits_guard import require_credits
+            ok, remain, msg = require_credits(user_id, 20)
+            if not ok:
+                keyboard = [[InlineKeyboardButton("⭐ Upgrade Premium", callback_data=UPGRADE_PREMIUM)],
+                            [InlineKeyboardButton("🔙 Back", callback_data=TRADING_ANALYSIS)]]
+                await query.edit_message_text(
+                    text=f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='HTML'
+                )
+                return
+        except Exception as e:
+            print(f"Credit check error: {e}")
+        
+        user_tz = get_user_timezone_from_context(context, user_id)
+        est_time = get_estimated_time_message(5, user_tz)
+        
+        await query.edit_message_text(
+            text=f"📊 <b>Analyzing {symbol}...</b>\n\n🔍 Detecting S&D zones...\n{est_time}",
+            reply_markup=None,
+            parse_mode='HTML'
+        )
+        
+        # Run actual spot analysis
+        try:
+            from snd_zone_detector import detect_snd_zones
+            snd_result = detect_snd_zones(symbol, "1h", limit=100)
+            
+            if 'error' in snd_result:
+                await context.bot.edit_message_text(
+                    chat_id=query.message.chat_id,
+                    message_id=query.message.message_id,
+                    text=f"❌ <b>Error:</b> {snd_result['error']}",
+                    parse_mode='HTML'
+                )
+                return
+            
+            current_price = snd_result.get('current_price', 0)
+            demand_zones = snd_result.get('demand_zones', [])
+            supply_zones = snd_result.get('supply_zones', [])
+            
+            def fmt_price(p):
+                if p >= 1000: return f"${p:,.2f}"
+                elif p >= 1: return f"${p:,.4f}"
+                elif p >= 0.0001: return f"${p:.6f}"
+                else: return f"${p:.8f}"
+            
+            display_symbol = symbol.replace('USDT', '')
+            response = f"📊 <b>Spot Signal – {display_symbol} (1H)</b>\n\n💰 <b>Price:</b> {fmt_price(current_price)}\n\n🟢 <b>BUY ZONES</b>\n"
+            
+            zone_labels = [("A", "Strong", "40%"), ("B", "Discount", "35%"), ("C", "Deep", "25%")]
+            sorted_demands = sorted(demand_zones, key=lambda z: abs(current_price - z.midpoint))
+            
+            for i, zone in enumerate(sorted_demands[:3]):
+                label, desc, alloc = zone_labels[i] if i < len(zone_labels) else ("", "", "")
+                response += f"\n<b>Zone {label}</b> ({desc}) — {alloc}\n"
+                response += f"  📍 Entry: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
+                sl = zone.low * 0.97
+                response += f"  🛑 SL: {fmt_price(sl)}\n"
+            
+            if not demand_zones:
+                response += "No active demand zones\n"
+            
+            response += "\n🔴 <b>TAKE PROFIT</b>\n"
+            if supply_zones:
+                closest_supply = min(supply_zones, key=lambda z: abs(current_price - z.midpoint))
+                response += f"  🎯 TP: {fmt_price(closest_supply.low)} - {fmt_price(closest_supply.high)}\n"
+            else:
+                response += "No active supply zone\n"
+            
+            response += f"\n💳 <i>Credit terpakai: 20 | Sisa: {remain}</i>"
+            response += "\n\n<i>⚠️ Spot only • LIMIT order at zone</i>"
+            
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=TRADING_ANALYSIS)]]
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=response,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"Spot analysis error: {e}")
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=f"❌ Error: {str(e)[:100]}",
+                parse_mode='HTML'
+            )
         
     elif action == 'futures':
-        await query.edit_message_text(text=f"📉 Analyzing futures for {symbol}...", reply_markup=None)
-        context.user_data['symbol'] = symbol
-        # Would call: await handle_futures(update, context, symbol)
+        # Check and deduct credits (20 for Futures Analysis)
+        try:
+            from app.credits_guard import require_credits
+            ok, remain, msg = require_credits(user_id, 20)
+            if not ok:
+                keyboard = [[InlineKeyboardButton("⭐ Upgrade Premium", callback_data=UPGRADE_PREMIUM)],
+                            [InlineKeyboardButton("🔙 Back", callback_data=TRADING_ANALYSIS)]]
+                await query.edit_message_text(
+                    text=f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='HTML'
+                )
+                return
+        except Exception as e:
+            print(f"Credit check error: {e}")
+        
+        user_tz = get_user_timezone_from_context(context, user_id)
+        est_time = get_estimated_time_message(5, user_tz)
+        
+        await query.edit_message_text(
+            text=f"📉 <b>Analyzing Futures {symbol}...</b>\n\n🔍 Detecting S&D zones...\n{est_time}",
+            reply_markup=None,
+            parse_mode='HTML'
+        )
+        
+        # Run actual futures analysis
+        try:
+            from snd_zone_detector import detect_snd_zones
+            snd_result = detect_snd_zones(symbol, "1h", limit=100)
+            
+            if 'error' in snd_result:
+                await context.bot.edit_message_text(
+                    chat_id=query.message.chat_id,
+                    message_id=query.message.message_id,
+                    text=f"❌ <b>Error:</b> {snd_result['error']}",
+                    parse_mode='HTML'
+                )
+                return
+            
+            current_price = snd_result.get('current_price', 0)
+            demand_zones = snd_result.get('demand_zones', [])
+            supply_zones = snd_result.get('supply_zones', [])
+            signal_type = snd_result.get('entry_signal')
+            
+            def fmt_price(p):
+                if p >= 1000: return f"${p:,.2f}"
+                elif p >= 1: return f"${p:,.4f}"
+                elif p >= 0.0001: return f"${p:.6f}"
+                else: return f"${p:.8f}"
+            
+            display_symbol = symbol.replace('USDT', '')
+            response = f"📉 <b>Futures Signal – {display_symbol} (1H)</b>\n\n💰 <b>Price:</b> {fmt_price(current_price)}\n"
+            
+            # Demand zones (LONG setup)
+            if demand_zones:
+                response += f"\n🟢 <b>LONG SETUP</b> ({len(demand_zones)} zone)\n"
+                for i, zone in enumerate(demand_zones[:2], 1):
+                    zone_width = zone.high - zone.low
+                    sl = zone.low - (zone_width * 0.5)
+                    tp1 = current_price + (zone_width * 1.5)
+                    tp2 = current_price + (zone_width * 2.5)
+                    response += f"\n<b>Zone {i}:</b>\n"
+                    response += f"  📍 Entry: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
+                    response += f"  🛑 SL: {fmt_price(sl)}\n"
+                    response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
+            
+            # Supply zones (SHORT setup)
+            if supply_zones:
+                response += f"\n🔴 <b>SHORT SETUP</b> ({len(supply_zones)} zone)\n"
+                for i, zone in enumerate(supply_zones[:2], 1):
+                    zone_width = zone.high - zone.low
+                    sl = zone.high + (zone_width * 0.5)
+                    tp1 = current_price - (zone_width * 1.5)
+                    tp2 = current_price - (zone_width * 2.5)
+                    response += f"\n<b>Zone {i}:</b>\n"
+                    response += f"  📍 Entry: {fmt_price(zone.low)} - {fmt_price(zone.high)}\n"
+                    response += f"  🛑 SL: {fmt_price(sl)}\n"
+                    response += f"  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}\n"
+            
+            if signal_type:
+                response += f"\n⚡ <b>Signal:</b> {signal_type}\n"
+            
+            response += f"\n💳 <i>Credit terpakai: 20 | Sisa: {remain}</i>"
+            response += "\n\n<i>⚠️ Futures • LIMIT order at zone</i>"
+            
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=TRADING_ANALYSIS)]]
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=response,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"Futures analysis error: {e}")
+            await context.bot.edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=f"❌ Error: {str(e)[:100]}",
+                parse_mode='HTML'
+            )
         
     elif action == 'add_coin' and step == 'symbol':
-        # Next step: ask for amount
         await query.edit_message_text(
             text=f"➕ **Add {symbol}**\n\n**Step 2:** How much {symbol} do you have?\n\nEnter amount (e.g., 1.5)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=MAIN_MENU)]])
