@@ -969,7 +969,7 @@ Zone {label} – {desc}
         )
 
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle credits command - fetch from Supabase"""
+        """Handle credits command - fetch from Supabase with different response for premium users"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name or "User"
 
@@ -978,49 +978,96 @@ Zone {label} – {desc}
         db = get_database()
         user_lang = db.get_user_language(user_id)
         
-        # Fetch credits from Supabase
+        # Check premium status
+        from app.users_repo import is_premium_active
+        is_premium = is_premium_active(user_id)
+        
+        # Fetch credits and user data from Supabase
         credits = 0
+        is_lifetime = False
+        premium_until = None
         try:
             from supabase_client import get_user as supabase_get_user
             user_data = supabase_get_user(user_id)
             if user_data:
                 credits = user_data.get('credits', 0) or 0
-                # Use Supabase first_name if available
+                is_lifetime = user_data.get('is_lifetime', False)
+                premium_until = user_data.get('premium_until')
                 if user_data.get('first_name'):
                     user_name = user_data.get('first_name')
             else:
-                # User not in Supabase, fallback to local
                 credits = db.get_user_credits(user_id)
         except Exception as e:
             print(f"Error fetching credits from Supabase: {e}")
             credits = db.get_user_credits(user_id)
 
-        if user_lang == 'id':
-            await update.effective_message.reply_text(
-                f"💳 <b>Saldo Kredit</b>\n\n"
-                f"👤 Pengguna: {user_name}\n"
-                f"🆔 UID Telegram: <code>{user_id}</code>\n"
-                f"💰 Kredit: {credits}\n\n"
-                f"📊 <b>Biaya Kredit:</b>\n"
-                f"• Analisis Spot: 20 kredit\n"
-                f"• Analisis Futures: 20 kredit\n"
-                f"• Sinyal Multi-Coin: 60 kredit\n\n"
-                f"⭐ Upgrade ke Premium untuk akses unlimited!",
-                parse_mode='HTML'
-            )
+        if is_premium:
+            # Premium user response
+            if is_lifetime:
+                premium_status = "♾️ LIFETIME"
+            elif premium_until:
+                premium_status = f"⏳ Until: {str(premium_until)[:10]}"
+            else:
+                premium_status = "✅ Active"
+            
+            if user_lang == 'id':
+                await update.effective_message.reply_text(
+                    f"👑 <b>Status Premium Aktif</b>\n\n"
+                    f"👤 Pengguna: {user_name}\n"
+                    f"🆔 UID Telegram: <code>{user_id}</code>\n"
+                    f"🏆 Status: {premium_status}\n\n"
+                    f"✨ <b>Keuntungan Premium:</b>\n"
+                    f"✔ Akses UNLIMITED ke semua fitur\n"
+                    f"✔ Tidak membutuhkan kredit\n"
+                    f"✔ Spot & Futures Analysis tanpa batas\n"
+                    f"✔ Multi-Coin Signals tanpa batas\n"
+                    f"✔ Auto Signal (Lifetime only)\n\n"
+                    f"🎉 Nikmati semua fitur tanpa batasan!",
+                    parse_mode='HTML'
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"👑 <b>Premium Status Active</b>\n\n"
+                    f"👤 User: {user_name}\n"
+                    f"🆔 Telegram UID: <code>{user_id}</code>\n"
+                    f"🏆 Status: {premium_status}\n\n"
+                    f"✨ <b>Premium Benefits:</b>\n"
+                    f"✔ UNLIMITED access to all features\n"
+                    f"✔ No credits required\n"
+                    f"✔ Unlimited Spot & Futures Analysis\n"
+                    f"✔ Unlimited Multi-Coin Signals\n"
+                    f"✔ Auto Signal (Lifetime only)\n\n"
+                    f"🎉 Enjoy all features without limits!",
+                    parse_mode='HTML'
+                )
         else:
-            await update.effective_message.reply_text(
-                f"💳 <b>Credit Balance</b>\n\n"
-                f"👤 User: {user_name}\n"
-                f"🆔 Telegram UID: <code>{user_id}</code>\n"
-                f"💰 Credits: {credits}\n\n"
-                f"📊 <b>Credit Costs:</b>\n"
-                f"• Spot Analysis: 20 credits\n"
-                f"• Futures Analysis: 20 credits\n"
-                f"• Multi-Coin Signals: 60 credits\n\n"
-                f"⭐ Upgrade to Premium for unlimited access!",
-                parse_mode='HTML'
-            )
+            # Free user response
+            if user_lang == 'id':
+                await update.effective_message.reply_text(
+                    f"💳 <b>Saldo Kredit</b>\n\n"
+                    f"👤 Pengguna: {user_name}\n"
+                    f"🆔 UID Telegram: <code>{user_id}</code>\n"
+                    f"💰 Kredit: {credits}\n\n"
+                    f"📊 <b>Biaya Kredit:</b>\n"
+                    f"• Analisis Spot: 20 kredit\n"
+                    f"• Analisis Futures: 20 kredit\n"
+                    f"• Sinyal Multi-Coin: 60 kredit\n\n"
+                    f"⭐ Upgrade ke Premium untuk akses unlimited!",
+                    parse_mode='HTML'
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"💳 <b>Credit Balance</b>\n\n"
+                    f"👤 User: {user_name}\n"
+                    f"🆔 Telegram UID: <code>{user_id}</code>\n"
+                    f"💰 Credits: {credits}\n\n"
+                    f"📊 <b>Credit Costs:</b>\n"
+                    f"• Spot Analysis: 20 credits\n"
+                    f"• Futures Analysis: 20 credits\n"
+                    f"• Multi-Coin Signals: 60 credits\n\n"
+                    f"⭐ Upgrade to Premium for unlimited access!",
+                    parse_mode='HTML'
+                )
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle subscribe command - show premium packages with user ID"""
