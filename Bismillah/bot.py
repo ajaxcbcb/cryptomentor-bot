@@ -984,19 +984,87 @@ Strength: {strength:.0f}%
             )
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle subscribe command"""
+        """Handle subscribe command - show premium packages with user ID"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
+        user_id = update.effective_user.id
+        
+        subscription_text = f"""🚀 <b>CryptoMentor AI 2.0 – Paket Berlangganan</b>
+
+Trading lebih terarah dengan AI berbasis Supply & Demand (SnD), data real-time Binance, dan sistem signal profesional tanpa hambatan credits (Unlimited access).
+
+💎 <b>PILIH PAKET PREMIUM</b>
+
+🔹 <b>Monthly</b>
+💰 Rp320.000 / bulan
+✔ Futures & Spot SnD Signals
+✔ Analisis on-demand
+✔ Semua fitur premium
+
+🔹 <b>2 Bulan</b>
+💰 Rp600.000 / 2 bulan
+✔ Lebih hemat dari bulanan
+✔ Semua fitur premium
+✔ Cocok untuk swing trader
+
+🔹 ⭐ <b>1 Tahun (Most Popular)</b>
+💰 Rp3.500.000 / tahun
+✔ Semua fitur premium
+✔ Lebih hemat & tanpa perpanjang bulanan
+
+🔥 <b>LIFETIME (LIMITED SLOT)</b>
+💰 Rp6.500.000 – Sekali Bayar
+
+🚀 Akses Seumur Hidup + Auto Signal
+
+<b>Benefit LIFETIME:</b>
+✔ Semua fitur premium (selamanya)
+✔ Auto Futures & Spot Signal (SnD Based)
+✔ Priority Signal (zona terbaik lebih dulu)
+✔ Akses SETIAP pembaruan fitur CryptoMentor AI ke depan
+✔ Tidak ada biaya bulanan / tahunan lagi
+
+💳 <b>METODE PEMBAYARAN</b>
+
+🏦 <b>Transfer Bank</b>
+Nama: NABIL FARREL AL FARI
+Bank: Mandiri
+No Rek: 1560018407074
+
+📱 <b>E-Money</b>
+ShopeePay / GoPay / DANA
+📞 0877-7927-4400
+
+⛓️ <b>On-Chain Crypto</b>
+Network: BEP20
+Address:
+<code>0xed7342ac9c22b1495af4d63f15a7c9768a028ea8</code>
+
+✅ <b>CARA AKTIVASI (WAJIB)</b>
+
+1️⃣ Lakukan pembayaran sesuai paket yang dipilih
+2️⃣ Kirim bukti pembayaran ke admin: 👉 @BillFarr
+3️⃣ Sertakan informasi berikut:
+
+✅ Paket yang dipilih (Monthly / 2 Bulan / 1 Tahun / Lifetime)
+✅ UID Telegram kamu: <code>{user_id}</code>
+
+4️⃣ Akun akan diaktifkan setelah dikonfirmasi admin
+
+📌 <b>CATATAN</b>
+📊 Signal berbasis Supply & Demand, bukan tebak-tebakan
+🤖 Data 100% dari Binance
+🧠 Cocok untuk pemula hingga advanced
+❌ Tidak menjanjikan profit, fokus probability & risk management"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📞 Contact Admin", url="https://t.me/BillFarr")],
+        ]
+        
         await update.effective_message.reply_text(
-            f"👑 **Premium Subscription**\n\n"
-            f"🎯 **Premium Benefits:**\n"
-            f"• Unlimited analysis credits\n"
-            f"• Priority signal delivery\n"
-            f"• Advanced market insights\n"
-            f"• Auto signal notifications\n\n"
-            f"💰 **Plans Available:**\n"
-            f"• Monthly: $19.99\n"
-            f"• Lifetime: $99.99\n\n"
-            f"💡 Contact admin to subscribe!",
-            parse_mode='MARKDOWN'
+            subscription_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
         )
 
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
