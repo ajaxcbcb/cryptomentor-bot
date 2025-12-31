@@ -992,7 +992,8 @@ async def symbol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if symbol == "CUSTOM":
         await query.answer("Type the symbol (e.g., BTCUSDT):")
-        context.user_data['awaiting_symbol'] = True
+        context.user_data['awaiting_manual_symbol'] = True
+        context.user_data['current_action'] = context.user_data.get('action', 'analyze')
         return
     
     await query.answer(f"Selected: {symbol}")
