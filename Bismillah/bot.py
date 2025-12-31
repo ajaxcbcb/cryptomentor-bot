@@ -564,6 +564,8 @@ Choose an option from the menu below:"""
 
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle analyze command with tiered DCA zones for Spot trading"""
+        import html as html_escape
+        
         symbol = context.args[0].upper() if context.args else "BTC"
         timeframe = "1h"
 
@@ -586,21 +588,17 @@ Choose an option from the menu below:"""
                 ok, remain, msg = require_credits(user_id, 20)
                 if not ok:
                     await update.effective_message.reply_text(
-                        f"❌ {msg}\n\n⭐ Upgrade ke Premium untuk akses unlimited!",
-                        parse_mode='HTML'
+                        f"❌ {html_escape.escape(str(msg))}\n\n⭐ Upgrade ke Premium untuk akses unlimited!"
                     )
                     return
             except Exception as e:
                 print(f"Credit check error: {e}")
-                # Continue if credit system fails (fallback)
+                remain = "N/A"
 
-            # Show loading message with HTML
+            # Show loading message
             loading_msg = await update.effective_message.reply_text(
-                f"🔄 <b>Analyzing {symbol}...</b>\n\n"
-                f"📊 Fetching Binance data...\n"
-                f"🎯 Detecting S&D zones...\n\n"
-                f"{est_time}",
-                parse_mode='HTML'
+                f"🔄 Analyzing {symbol} 1h with Supply & Demand zones...\n"
+                f"⏱️ {est_time}"
             )
 
             # Get SnD analysis
@@ -608,9 +606,8 @@ Choose an option from the menu below:"""
 
             if 'error' in snd_result:
                 await loading_msg.edit_text(
-                    f"❌ <b>Error:</b> {snd_result['error']}\n\n"
-                    f"💡 Try: /analyze btc or /analyze eth",
-                    parse_mode='HTML'
+                    f"❌ Error: {snd_result['error']}\n\n"
+                    f"💡 Try: /analyze btc or /analyze eth"
                 )
                 return
 
@@ -618,7 +615,6 @@ Choose an option from the menu below:"""
             demand_zones = snd_result.get('demand_zones', [])
             supply_zones = snd_result.get('supply_zones', [])
 
-            # Helper to format price safely
             def fmt_price(p):
                 if p >= 1000:
                     return f"${p:,.2f}"
@@ -629,7 +625,6 @@ Choose an option from the menu below:"""
                 else:
                     return f"${p:.8f}"
 
-            # Determine trend based on price position relative to zones
             avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
             avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
 
@@ -644,7 +639,6 @@ Choose an option from the menu below:"""
             else:
                 trend = "Neutral"
 
-            # Volume analysis based on zone strength
             avg_strength = 0
             if demand_zones:
                 avg_strength = sum(z.strength for z in demand_zones) / len(demand_zones)
@@ -655,82 +649,73 @@ Choose an option from the menu below:"""
             else:
                 volume_status = "Distribution"
 
-            # Calculate overall confidence
             zone_count = len(demand_zones) + len(supply_zones)
             base_confidence = min(85, 50 + (zone_count * 5))
             if demand_zones:
                 base_confidence += min(15, demand_zones[0].strength / 5)
             confidence = min(95, base_confidence)
 
-            # Build response using tiered DCA format
             display_symbol = symbol.replace('USDT', '')
 
-            response = f"""📊 <b>Spot Signal – {display_symbol} ({timeframe.upper()})</b>
+            response = f"""📊 Spot Signal – {display_symbol} ({timeframe.upper()})
 
-💰 <b>Price:</b> {fmt_price(current_price)}
+💰 Price: {fmt_price(current_price)}
 
-🟢 <b>BUY ZONES</b>
+🟢 BUY ZONES
 """
 
-            # Zone labels and allocations
             zone_labels = [
                 ("A", "Strong", "40%"),
                 ("B", "Discount", "35%"),
                 ("C", "Deep", "25%")
             ]
 
-            # Sort demand zones by proximity to current price (closest first)
             sorted_demands = sorted(demand_zones, key=lambda z: abs(current_price - z.midpoint))
 
             if sorted_demands:
                 for i, (label, desc, alloc) in enumerate(zone_labels):
                     if i < len(sorted_demands):
                         zone = sorted_demands[i]
-                        # Calculate TPs based on zone
                         zone_width = zone.high - zone.low
                         tp1 = zone.high + (zone_width * 1.5)
                         tp2 = zone.high + (zone_width * 3.0)
                         strength = zone.strength if hasattr(zone, 'strength') else 50
 
                         response += f"""
-<b>Zone {label}</b> – {desc}
-Entry: {fmt_price(zone.low)} – {fmt_price(zone.high)}
-Allocation: {alloc}
-TP1: {fmt_price(tp1)}
-TP2: {fmt_price(tp2)}
-Strength: {strength:.0f}%
+Zone {label} – {desc}
+  📍 Entry: {fmt_price(zone.low)} - {fmt_price(zone.high)}
+  💰 Allocation: {alloc}
+  🎯 TP1: {fmt_price(tp1)} | TP2: {fmt_price(tp2)}
+  📊 Strength: {strength:.0f}%
 """
             else:
                 response += "\n⏳ No active demand zones detected\n"
 
-            # Add SELL ZONE (take profit area from supply)
-            response += "\n🔴 <b>SELL ZONE</b>\n"
+            response += "\n🔴 SELL ZONE (Take Profit)\n"
             if supply_zones:
                 best_supply = supply_zones[0]
-                response += f"{fmt_price(best_supply.low)} – {fmt_price(best_supply.high)} (Take Profit)\n"
+                response += f"  🎯 {fmt_price(best_supply.low)} - {fmt_price(best_supply.high)}\n"
             else:
-                response += "No active supply zone\n"
+                response += "  No active supply zone\n"
 
-            # Context section
             response += f"""
-📈 <b>Context:</b>
-• Trend: {trend}
-• Volume: {volume_status}
+📈 Context:
+  • Trend: {trend}
+  • Volume: {volume_status}
+  • Confidence: {confidence:.0f}%
 
-🔥 <b>Confidence:</b> {confidence:.0f}%
-💡 <b>Strategy:</b> DCA on demand zones
+💳 Credit terpakai: 20 | Sisa: {remain}
 
-<i>⚠️ Spot only • Entry range, not market buy</i>"""
+⚠️ Spot only • LIMIT order at zone"""
 
-            await loading_msg.edit_text(response, parse_mode='HTML')
+            await loading_msg.edit_text(response)
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             await update.effective_message.reply_text(
-                f"❌ <b>Error</b>: {str(e)[:100]}\n\n"
-                f"💡 Try: /analyze btc or check symbol format",
-                parse_mode='HTML'
+                f"❌ Analysis error: {str(e)[:100]}\n\n"
+                f"💡 Try: /analyze btc or check symbol format"
             )
 
     async def futures_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
