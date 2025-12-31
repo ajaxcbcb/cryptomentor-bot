@@ -246,7 +246,7 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     paid_at TIMESTAMP,
                     FOREIGN KEY (referrer_id) REFERENCES users (telegram_id),
-                    FOREIGNKEY (referred_id) REFERENCES users (telegram_id)
+                    FOREIGN KEY (referred_id) REFERENCES users (telegram_id)
                 )
             """)
 
