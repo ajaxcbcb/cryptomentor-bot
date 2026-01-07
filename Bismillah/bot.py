@@ -1580,6 +1580,7 @@ _Select an action below:_
                 [InlineKeyboardButton("➕ Add Premium", callback_data="admin_add_premium")],
                 [InlineKeyboardButton("➖ Remove Premium", callback_data="admin_remove_premium")],
                 [InlineKeyboardButton("♾️ Set Lifetime", callback_data="admin_set_lifetime")],
+                [InlineKeyboardButton("📡 Grant Auto Signal", callback_data="admin_grant_autosignal")],
                 [InlineKeyboardButton("🎁 Manage Credits", callback_data="admin_add_credits")],
                 [InlineKeyboardButton("◀️ Back", callback_data="admin_back")]
             ]
@@ -1615,6 +1616,20 @@ _Select an action below:_
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_premium")]])
             )
             context.user_data['awaiting_input'] = 'admin_set_lifetime'
+            context.user_data['message_id'] = msg.message_id
+
+        elif query.data == "admin_grant_autosignal":
+            msg = await query.edit_message_text(
+                "📡 **Grant Auto Signal Access**\n\n"
+                "🆔 Reply with: `user_id days`\n\n"
+                "Example: `123456789 30` → 30 days\n"
+                "Example: `123456789` → default 30 days\n\n"
+                "⚠️ Akses akan berakhir sesuai waktu yang ditentukan\n"
+                "💡 Works even for non-premium users!",
+                parse_mode='MARKDOWN',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_premium")]])
+            )
+            context.user_data['awaiting_input'] = 'admin_grant_autosignal'
             context.user_data['message_id'] = msg.message_id
 
         elif query.data == "admin_add_credits":
@@ -2208,7 +2223,7 @@ Choose action:
             user_data.pop('message_id', None)
             return
 
-        if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_add_credits_manual', 'admin_search_user', 'admin_ban_user']:
+        if awaiting in ['admin_add_premium', 'admin_remove_premium', 'admin_set_lifetime', 'admin_grant_autosignal', 'admin_add_credits_manual', 'admin_search_user', 'admin_ban_user']:
             from services import get_database
             from datetime import datetime, timedelta
             
@@ -2263,28 +2278,97 @@ Choose action:
                         days = int(parts[1]) if len(parts) > 1 else 30
                         premium_until = datetime.utcnow() + timedelta(days=days)
                         db.add_user_premium(user_id, premium_until)
+                        
+                        try:
+                            from app.supabase_repo import set_premium_normalized
+                            result = set_premium_normalized(user_id, f"{days}d")
+                            supabase_status = f"✅ Supabase: is_premium={result.get('is_premium')}, until={str(result.get('premium_until', ''))[:10]}"
+                        except Exception as e:
+                            supabase_status = f"⚠️ Supabase error: {str(e)[:50]}"
+                        
                         await update.message.reply_text(
                             f"✅ Premium access added!\n\n"
                             f"🆔 User: {user_id}\n"
                             f"📅 Days: {days}\n"
-                            f"⏰ Until: {premium_until.strftime('%Y-%m-%d %H:%M:%S')}",
+                            f"⏰ Until: {premium_until.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                            f"📊 Database Sync:\n"
+                            f"✅ Local DB: Updated\n"
+                            f"{supabase_status}",
                             parse_mode='MARKDOWN'
                         )
                     
                     elif awaiting == 'admin_remove_premium':
                         db.remove_user_premium(user_id)
+                        
+                        try:
+                            from app.supabase_repo import revoke_premium
+                            result = revoke_premium(user_id)
+                            supabase_status = f"✅ Supabase: is_premium={result.get('is_premium')}, is_lifetime={result.get('is_lifetime')}"
+                        except Exception as e:
+                            supabase_status = f"⚠️ Supabase error: {str(e)[:50]}"
+                        
                         await update.message.reply_text(
                             f"✅ Premium access removed!\n\n"
-                            f"🆔 User: {user_id}",
+                            f"🆔 User: {user_id}\n\n"
+                            f"📊 Database Sync:\n"
+                            f"✅ Local DB: Updated\n"
+                            f"{supabase_status}",
                             parse_mode='MARKDOWN'
                         )
                     
                     elif awaiting == 'admin_set_lifetime':
                         db.set_user_lifetime(user_id, True)
+                        
+                        try:
+                            from app.supabase_repo import set_premium_normalized
+                            result = set_premium_normalized(user_id, 'lifetime')
+                            supabase_status = f"✅ Supabase: is_premium={result.get('is_premium')}, is_lifetime={result.get('is_lifetime')}"
+                        except Exception as e:
+                            supabase_status = f"⚠️ Supabase error: {str(e)[:50]}"
+                        
                         await update.message.reply_text(
                             f"✅ Lifetime access granted!\n\n"
                             f"🆔 User: {user_id}\n"
-                            f"♾️ Status: Lifetime Premium",
+                            f"♾️ Status: Lifetime Premium\n\n"
+                            f"📊 Database Sync:\n"
+                            f"✅ Local DB: Updated\n"
+                            f"{supabase_status}",
+                            parse_mode='MARKDOWN'
+                        )
+                    
+                    elif awaiting == 'admin_grant_autosignal':
+                        days = int(parts[1]) if len(parts) > 1 else 30
+                        expiry_date = datetime.utcnow() + timedelta(days=days)
+                        
+                        try:
+                            from supabase_client import supabase
+                            if supabase:
+                                existing = supabase.table('users').select('telegram_id').eq('telegram_id', user_id).execute()
+                                if not existing.data:
+                                    supabase.table('users').insert({
+                                        'telegram_id': user_id,
+                                        'has_autosignal': True,
+                                        'autosignal_until': expiry_date.isoformat()
+                                    }).execute()
+                                else:
+                                    supabase.table('users').update({
+                                        'has_autosignal': True,
+                                        'autosignal_until': expiry_date.isoformat()
+                                    }).eq('telegram_id', user_id).execute()
+                                supabase_status = f"✅ Supabase: Auto Signal granted until {expiry_date.strftime('%Y-%m-%d')}"
+                            else:
+                                supabase_status = "⚠️ Supabase not connected"
+                        except Exception as e:
+                            supabase_status = f"⚠️ Error: {str(e)[:50]}"
+                        
+                        await update.message.reply_text(
+                            f"✅ Auto Signal access granted!\n\n"
+                            f"🆔 User: {user_id}\n"
+                            f"📡 Feature: Auto Signal\n"
+                            f"📅 Days: {days}\n"
+                            f"⏰ Until: {expiry_date.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                            f"📊 Status:\n"
+                            f"{supabase_status}",
                             parse_mode='MARKDOWN'
                         )
                     
