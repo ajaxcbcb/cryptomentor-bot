@@ -100,7 +100,20 @@ class MenuCallbackHandler:
                 await self.handle_time_settings(query, context)
             elif callback_data.startswith("set_tz_"):
                 await self.handle_set_timezone(query, context)
-
+            
+            # Withdrawal handlers
+            elif callback_data == "wd_method_bank":
+                await self.handle_withdrawal_method(query, context, 'bank')
+            elif callback_data == "wd_method_ewallet":
+                await self.handle_withdrawal_method(query, context, 'ewallet')
+            elif callback_data == "wd_method_crypto":
+                await self.handle_withdrawal_method(query, context, 'crypto')
+            elif callback_data == "wd_cancel":
+                await self.handle_withdrawal_cancel(query, context)
+            elif callback_data.startswith("wd_approve_"):
+                await self.handle_admin_withdrawal_approve(query, context)
+            elif callback_data.startswith("wd_reject_"):
+                await self.handle_admin_withdrawal_reject(query, context)
 
             # Symbol selection handlers
             elif callback_data.startswith('symbol_'):
@@ -1137,8 +1150,9 @@ Needed: {max(0, next_tier['requirement'] - total_referrals)} more referrals
         )
 
     async def handle_referral_withdrawal(self, query, context):
-        """Handle referral withdrawal request"""
+        """Handle referral withdrawal request - Step 1: Show balance and options"""
         user_id = query.from_user.id
+        user_name = query.from_user.first_name or "User"
 
         try:
             from database import Database
@@ -1150,53 +1164,471 @@ Needed: {max(0, next_tier['requirement'] - total_referrals)} more referrals
 
         if total_earnings < 50000:
             await query.answer(
-                f"⚠️ Minimum withdrawal Rp 50,000\nSaldo Anda: Rp {total_earnings:,}",
+                f"Minimum withdrawal Rp 50,000\nSaldo Anda: Rp {total_earnings:,}",
                 show_alert=True
             )
             return
 
-        withdrawal_text = f"""💰 **WITHDRAWAL REFERRAL EARNINGS**
+        # Check for pending withdrawal
+        import json
+        import os
+        pending_file = os.path.join(os.path.dirname(__file__), 'pending_withdrawals.json')
+        has_pending = False
+        if os.path.exists(pending_file):
+            with open(pending_file, 'r') as f:
+                pending_data = json.load(f)
+            if str(user_id) in pending_data and pending_data[str(user_id)].get('status') == 'pending':
+                has_pending = True
+                pending_info = pending_data[str(user_id)]
 
-💳 **Saldo Tersedia:** Rp {total_earnings:,}
+        if has_pending:
+            withdrawal_text = f"""⏳ <b>WITHDRAWAL REQUEST PENDING</b>
 
-📝 **Metode Withdrawal:**
-• Bank Transfer (BCA, BNI, BRI, Mandiri)
-• E-Wallet (OVO, DANA, GoPay)
-• Crypto (USDT TRC20)
+👤 <b>User:</b> {user_name}
+🆔 <b>UID:</b> <code>{user_id}</code>
 
-⏱️ **Processing Time:**
-• Bank Transfer: 1-3 hari kerja
-• E-Wallet: Instant - 24 jam  
-• Crypto: 2-6 jam
+💰 <b>Jumlah:</b> Rp {pending_info.get('amount', 0):,}
+📝 <b>Metode:</b> {pending_info.get('method', 'N/A')}
+📋 <b>Detail:</b> {pending_info.get('account_info', 'N/A')}
+📅 <b>Tanggal Request:</b> {pending_info.get('requested_at', 'N/A')[:10]}
 
-💼 **Syarat Withdrawal:**
-• Minimum: Rp 50,000
-• Fee admin: Rp 2,500 (bank) / Rp 1,000 (e-wallet) / 1 USDT (crypto)
-• KYC: Wajib untuk withdrawal pertama
+⏳ <b>Status:</b> Menunggu verifikasi admin
 
-📋 **Cara Request Withdrawal:**
-1. Hubungi admin: @cryptomentor_admin
-2. Kirim: "WITHDRAWAL + JUMLAH + METODE"
-3. Upload bukti identitas (KTP/SIM)
-4. Tunggu konfirmasi dan transfer
+Anda sudah memiliki request withdrawal yang pending.
+Mohon tunggu admin memproses request Anda."""
 
-⚠️ **Penting:**
-• Pastikan data bank/e-wallet benar
-• Screenshot chat ini sebagai bukti
-• Withdrawal processed maksimal 7 hari kerja"""
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [InlineKeyboardButton("❌ Cancel Request", callback_data="wd_cancel")],
+                [InlineKeyboardButton("🔙 Back", callback_data="referral_program")],
+            ]
+            await query.edit_message_text(
+                text=withdrawal_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+            return
+
+        withdrawal_text = f"""💰 <b>WITHDRAWAL REFERRAL EARNINGS</b>
+
+👤 <b>User:</b> {user_name}
+🆔 <b>UID:</b> <code>{user_id}</code>
+
+💳 <b>Saldo Tersedia:</b> Rp {total_earnings:,}
+
+📝 <b>Pilih Metode Withdrawal:</b>
+
+🏦 <b>Bank Transfer</b>
+• Fee: Rp 2,500
+• Processing: 1-3 hari kerja
+
+📱 <b>E-Wallet</b> (OVO/DANA/GoPay)
+• Fee: Rp 1,000
+• Processing: Instant - 24 jam
+
+💎 <b>Crypto</b> (USDT BEP20)
+• Fee: 1 USDT
+• Processing: 2-6 jam
+
+⚠️ <b>Minimum withdrawal:</b> Rp 50,000"""
 
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
-            [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/cryptomentor_admin")],
-            [InlineKeyboardButton("📊 Check Balance", callback_data="referral_stats")],
+            [InlineKeyboardButton("🏦 Bank Transfer", callback_data="wd_method_bank")],
+            [InlineKeyboardButton("📱 E-Wallet", callback_data="wd_method_ewallet")],
+            [InlineKeyboardButton("💎 Crypto USDT", callback_data="wd_method_crypto")],
             [InlineKeyboardButton("🔙 Back", callback_data="referral_program")],
         ]
 
         await query.edit_message_text(
             text=withdrawal_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='MARKDOWN'
+            parse_mode='HTML'
         )
+
+    async def handle_withdrawal_method(self, query, context, method):
+        """Handle withdrawal method selection - Ask for account details"""
+        user_id = query.from_user.id
+        
+        try:
+            from database import Database
+            db = Database()
+            stats = db.get_referral_stats(user_id)
+            total_earnings = stats.get('total_earnings', 0)
+        except:
+            total_earnings = 0
+
+        method_info = {
+            'bank': {'name': 'Bank Transfer', 'fee': 2500, 'icon': '🏦', 'placeholder': 'Nama Bank + No Rekening + Nama Pemilik\nContoh: BCA 1234567890 John Doe'},
+            'ewallet': {'name': 'E-Wallet', 'fee': 1000, 'icon': '📱', 'placeholder': 'Jenis E-Wallet + Nomor\nContoh: DANA 081234567890'},
+            'crypto': {'name': 'Crypto USDT BEP20', 'fee': 15000, 'icon': '💎', 'placeholder': 'Alamat Wallet BEP20\nContoh: 0x1234...abcd'}
+        }
+        
+        info = method_info.get(method, method_info['bank'])
+        net_amount = total_earnings - info['fee']
+        
+        # Store the method selection in context
+        context.user_data['withdrawal_method'] = method
+        context.user_data['withdrawal_amount'] = total_earnings
+        context.user_data['withdrawal_fee'] = info['fee']
+        context.user_data['awaiting_withdrawal_details'] = True
+        
+        text = f"""{info['icon']} <b>WITHDRAWAL via {info['name']}</b>
+
+💰 <b>Saldo:</b> Rp {total_earnings:,}
+💸 <b>Fee:</b> Rp {info['fee']:,}
+✅ <b>Yang Diterima:</b> Rp {net_amount:,}
+
+📝 <b>Kirim detail akun Anda:</b>
+{info['placeholder']}
+
+⚠️ <b>PENTING:</b> Pastikan data benar karena tidak bisa diubah setelah submit!"""
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("❌ Cancel", callback_data="referral_withdrawal")],
+        ]
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+        
+        await query.answer("Silakan kirim detail akun pembayaran Anda")
+
+    async def process_withdrawal_details(self, update, context):
+        """Process user's withdrawal account details"""
+        user_id = update.effective_user.id
+        user_name = update.effective_user.first_name or "User"
+        username = update.effective_user.username or "no_username"
+        account_info = update.message.text
+        
+        method = context.user_data.get('withdrawal_method', 'bank')
+        amount = context.user_data.get('withdrawal_amount', 0)
+        fee = context.user_data.get('withdrawal_fee', 0)
+        net_amount = amount - fee
+        
+        # Clear the awaiting state
+        context.user_data['awaiting_withdrawal_details'] = False
+        
+        method_names = {'bank': 'Bank Transfer', 'ewallet': 'E-Wallet', 'crypto': 'Crypto USDT BEP20'}
+        method_name = method_names.get(method, 'Bank Transfer')
+        
+        # Save to pending withdrawals
+        import json
+        import os
+        from datetime import datetime
+        
+        pending_file = os.path.join(os.path.dirname(__file__), 'pending_withdrawals.json')
+        
+        if os.path.exists(pending_file):
+            with open(pending_file, 'r') as f:
+                pending_data = json.load(f)
+        else:
+            pending_data = {}
+        
+        pending_data[str(user_id)] = {
+            'user_id': user_id,
+            'user_name': user_name,
+            'username': username,
+            'amount': amount,
+            'fee': fee,
+            'net_amount': net_amount,
+            'method': method_name,
+            'account_info': account_info,
+            'status': 'pending',
+            'requested_at': datetime.utcnow().isoformat()
+        }
+        
+        with open(pending_file, 'w') as f:
+            json.dump(pending_data, f, indent=2)
+        
+        # Notify user
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
+        user_text = f"""✅ <b>WITHDRAWAL REQUEST SUBMITTED!</b>
+
+🆔 <b>UID:</b> <code>{user_id}</code>
+💰 <b>Jumlah:</b> Rp {amount:,}
+💸 <b>Fee:</b> Rp {fee:,}
+✅ <b>Yang Diterima:</b> Rp {net_amount:,}
+
+📝 <b>Metode:</b> {method_name}
+📋 <b>Detail:</b> {account_info}
+
+⏳ <b>Status:</b> Menunggu verifikasi admin
+
+Admin akan memproses withdrawal Anda dalam 1-3 hari kerja.
+Anda akan menerima notifikasi setelah pembayaran dikirim."""
+
+        keyboard = [[InlineKeyboardButton("🔙 Menu Utama", callback_data="main_menu")]]
+        
+        await update.message.reply_text(
+            text=user_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+        
+        # Notify all admins
+        import os
+        admin_ids = []
+        admin1 = os.environ.get('ADMIN1')
+        admin2 = os.environ.get('ADMIN2')
+        admin3 = os.environ.get('ADMIN3')
+        if admin1: admin_ids.append(int(admin1))
+        if admin2: admin_ids.append(int(admin2))
+        if admin3: admin_ids.append(int(admin3))
+        
+        admin_text = f"""🔔 <b>NEW WITHDRAWAL REQUEST</b>
+
+👤 <b>User:</b> {user_name} (@{username})
+🆔 <b>UID:</b> <code>{user_id}</code>
+
+💰 <b>Jumlah:</b> Rp {amount:,}
+💸 <b>Fee:</b> Rp {fee:,}
+✅ <b>Net Amount:</b> Rp {net_amount:,}
+
+📝 <b>Metode:</b> {method_name}
+📋 <b>Detail Akun:</b>
+<code>{account_info}</code>
+
+📅 <b>Tanggal:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC"""
+
+        admin_keyboard = [
+            [InlineKeyboardButton("✅ Approve (Sudah Transfer)", callback_data=f"wd_approve_{user_id}")],
+            [InlineKeyboardButton("❌ Reject", callback_data=f"wd_reject_{user_id}")],
+        ]
+        
+        for admin_id in admin_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_text,
+                    reply_markup=InlineKeyboardMarkup(admin_keyboard),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                print(f"Failed to notify admin {admin_id}: {e}")
+        
+        return True
+
+    async def handle_withdrawal_cancel(self, query, context):
+        """Cancel user's pending withdrawal request"""
+        user_id = query.from_user.id
+        
+        import json
+        import os
+        pending_file = os.path.join(os.path.dirname(__file__), 'pending_withdrawals.json')
+        
+        if os.path.exists(pending_file):
+            with open(pending_file, 'r') as f:
+                pending_data = json.load(f)
+            
+            if str(user_id) in pending_data:
+                del pending_data[str(user_id)]
+                with open(pending_file, 'w') as f:
+                    json.dump(pending_data, f, indent=2)
+                
+                await query.answer("Request withdrawal dibatalkan", show_alert=True)
+            else:
+                await query.answer("Tidak ada request withdrawal pending", show_alert=True)
+        
+        # Go back to referral program
+        await self.handle_referral_program(query, context)
+
+    async def handle_admin_withdrawal_approve(self, query, context):
+        """Admin approves withdrawal - Reset user's premium_earnings"""
+        admin_id = query.from_user.id
+        callback_data = query.data
+        
+        # Extract user_id from callback
+        target_user_id = int(callback_data.replace("wd_approve_", ""))
+        
+        import json
+        import os
+        from datetime import datetime
+        
+        pending_file = os.path.join(os.path.dirname(__file__), 'pending_withdrawals.json')
+        
+        if not os.path.exists(pending_file):
+            await query.answer("No pending withdrawals found", show_alert=True)
+            return
+        
+        with open(pending_file, 'r') as f:
+            pending_data = json.load(f)
+        
+        if str(target_user_id) not in pending_data:
+            await query.answer("Withdrawal request not found or already processed", show_alert=True)
+            return
+        
+        withdrawal_info = pending_data[str(target_user_id)]
+        
+        # Reset user's premium_earnings to 0 in both local DB and Supabase
+        try:
+            from database import Database
+            db = Database()
+            db.cursor.execute("""
+                UPDATE users SET premium_earnings = 0 WHERE telegram_id = ?
+            """, (target_user_id,))
+            db.conn.commit()
+            local_status = "Local DB reset"
+        except Exception as e:
+            local_status = f"Local DB error: {str(e)[:30]}"
+        
+        try:
+            from supabase_client import supabase
+            if supabase:
+                supabase.table('users').update({
+                    'premium_earnings': 0
+                }).eq('telegram_id', target_user_id).execute()
+                supabase_status = "Supabase reset"
+            else:
+                supabase_status = "Supabase not connected"
+        except Exception as e:
+            supabase_status = f"Supabase error: {str(e)[:30]}"
+        
+        # Mark as completed and remove from pending
+        withdrawal_info['status'] = 'approved'
+        withdrawal_info['approved_at'] = datetime.utcnow().isoformat()
+        withdrawal_info['approved_by'] = admin_id
+        
+        # Save to history (optional)
+        history_file = os.path.join(os.path.dirname(__file__), 'withdrawal_history.json')
+        if os.path.exists(history_file):
+            with open(history_file, 'r') as f:
+                history_data = json.load(f)
+        else:
+            history_data = []
+        history_data.append(withdrawal_info)
+        with open(history_file, 'w') as f:
+            json.dump(history_data, f, indent=2)
+        
+        # Remove from pending
+        del pending_data[str(target_user_id)]
+        with open(pending_file, 'w') as f:
+            json.dump(pending_data, f, indent=2)
+        
+        # Update admin message
+        await query.edit_message_text(
+            f"✅ <b>WITHDRAWAL APPROVED</b>\n\n"
+            f"👤 User: {withdrawal_info.get('user_name', 'N/A')} (@{withdrawal_info.get('username', 'N/A')})\n"
+            f"🆔 UID: <code>{target_user_id}</code>\n\n"
+            f"💰 Amount: Rp {withdrawal_info.get('amount', 0):,}\n"
+            f"📝 Method: {withdrawal_info.get('method', 'N/A')}\n"
+            f"📋 Account: {withdrawal_info.get('account_info', 'N/A')}\n\n"
+            f"✅ Premium earnings reset to Rp 0\n"
+            f"📊 {local_status} | {supabase_status}\n"
+            f"📅 Approved: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+            parse_mode='HTML'
+        )
+        
+        # Notify user
+        try:
+            user_text = f"""✅ <b>WITHDRAWAL APPROVED!</b>
+
+🎉 Pembayaran Anda telah diproses!
+
+💰 <b>Jumlah:</b> Rp {withdrawal_info.get('amount', 0):,}
+💸 <b>Fee:</b> Rp {withdrawal_info.get('fee', 0):,}
+✅ <b>Diterima:</b> Rp {withdrawal_info.get('net_amount', 0):,}
+
+📝 <b>Metode:</b> {withdrawal_info.get('method', 'N/A')}
+📋 <b>Ke:</b> {withdrawal_info.get('account_info', 'N/A')}
+
+💳 <b>Saldo Premium Earnings:</b> Rp 0
+(Reset setelah withdrawal)
+
+Terima kasih telah menggunakan CryptoMentor AI!
+Terus ajak teman untuk mendapatkan lebih banyak earnings!"""
+
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=user_text,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"Failed to notify user {target_user_id}: {e}")
+        
+        await query.answer("Withdrawal approved and user notified!", show_alert=True)
+
+    async def handle_admin_withdrawal_reject(self, query, context):
+        """Admin rejects withdrawal request"""
+        admin_id = query.from_user.id
+        callback_data = query.data
+        
+        # Extract user_id from callback
+        target_user_id = int(callback_data.replace("wd_reject_", ""))
+        
+        import json
+        import os
+        from datetime import datetime
+        
+        pending_file = os.path.join(os.path.dirname(__file__), 'pending_withdrawals.json')
+        
+        if not os.path.exists(pending_file):
+            await query.answer("No pending withdrawals found", show_alert=True)
+            return
+        
+        with open(pending_file, 'r') as f:
+            pending_data = json.load(f)
+        
+        if str(target_user_id) not in pending_data:
+            await query.answer("Withdrawal request not found or already processed", show_alert=True)
+            return
+        
+        withdrawal_info = pending_data[str(target_user_id)]
+        
+        # Remove from pending (earnings NOT reset)
+        del pending_data[str(target_user_id)]
+        with open(pending_file, 'w') as f:
+            json.dump(pending_data, f, indent=2)
+        
+        # Update admin message
+        await query.edit_message_text(
+            f"❌ <b>WITHDRAWAL REJECTED</b>\n\n"
+            f"👤 User: {withdrawal_info.get('user_name', 'N/A')} (@{withdrawal_info.get('username', 'N/A')})\n"
+            f"🆔 UID: <code>{target_user_id}</code>\n\n"
+            f"💰 Amount: Rp {withdrawal_info.get('amount', 0):,}\n"
+            f"📝 Method: {withdrawal_info.get('method', 'N/A')}\n\n"
+            f"⚠️ Premium earnings NOT reset (user can request again)\n"
+            f"📅 Rejected: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC",
+            parse_mode='HTML'
+        )
+        
+        # Notify user
+        try:
+            user_text = f"""❌ <b>WITHDRAWAL REJECTED</b>
+
+Maaf, request withdrawal Anda ditolak oleh admin.
+
+💰 <b>Jumlah:</b> Rp {withdrawal_info.get('amount', 0):,}
+📝 <b>Metode:</b> {withdrawal_info.get('method', 'N/A')}
+
+⚠️ <b>Alasan yang mungkin:</b>
+• Detail akun tidak valid
+• Informasi tidak lengkap
+• Perlu verifikasi tambahan
+
+💡 <b>Saran:</b>
+Silakan hubungi admin untuk klarifikasi atau submit ulang dengan data yang benar.
+
+Saldo premium earnings Anda TIDAK berubah.
+Anda dapat mengajukan withdrawal lagi."""
+
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [[InlineKeyboardButton("💰 Request Ulang", callback_data="referral_withdrawal")]]
+            
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=user_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"Failed to notify user {target_user_id}: {e}")
+        
+        await query.answer("Withdrawal rejected and user notified!", show_alert=True)
 
     def get_referral_tier_info(self, total_referrals):
         """Get comprehensive referral tier information"""

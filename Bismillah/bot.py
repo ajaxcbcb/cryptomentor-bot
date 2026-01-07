@@ -2194,6 +2194,21 @@ Choose action:
         user_data = context.user_data
         text = update.message.text
 
+        # Handle withdrawal details input
+        if user_data.get('awaiting_withdrawal_details'):
+            try:
+                from menu_handlers import MenuCallbackHandler
+                handler = MenuCallbackHandler(self)
+                await handler.process_withdrawal_details(update, context)
+                return
+            except Exception as e:
+                print(f"Error processing withdrawal details: {e}")
+                user_data['awaiting_withdrawal_details'] = False
+                await update.message.reply_text(
+                    "Terjadi kesalahan. Silakan coba lagi dari menu Referral Program."
+                )
+                return
+
         # Handle admin inputs
         awaiting = user_data.get('awaiting_input')
         if awaiting == 'admin_broadcast':
