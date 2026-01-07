@@ -2347,8 +2347,7 @@ Choose action:
                             f"⏰ Until: {premium_until.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                             f"📊 Database Sync:\n"
                             f"✅ Local DB: Updated\n"
-                            f"{supabase_status}",
-                            parse_mode='MARKDOWN'
+                            f"{supabase_status}"
                         )
                         
                         try:
@@ -2384,8 +2383,7 @@ Choose action:
                             f"🆔 User: {user_id}\n\n"
                             f"📊 Database Sync:\n"
                             f"✅ Local DB: Updated\n"
-                            f"{supabase_status}",
-                            parse_mode='MARKDOWN'
+                            f"{supabase_status}"
                         )
                     
                     elif awaiting == 'admin_set_lifetime':
@@ -2404,8 +2402,7 @@ Choose action:
                             f"♾️ Status: Lifetime Premium\n\n"
                             f"📊 Database Sync:\n"
                             f"✅ Local DB: Updated\n"
-                            f"{supabase_status}",
-                            parse_mode='MARKDOWN'
+                            f"{supabase_status}"
                         )
                         
                         try:

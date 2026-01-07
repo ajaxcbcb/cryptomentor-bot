@@ -2013,7 +2013,7 @@ class Database:
         try:
             self.cursor.execute("""
                 UPDATE users 
-                SET premium_until = ?, is_lifetime = 0
+                SET subscription_end = ?, is_premium = 1
                 WHERE telegram_id = ?
             """, (premium_until, user_id))
             self.conn.commit()
@@ -2027,7 +2027,7 @@ class Database:
         try:
             self.cursor.execute("""
                 UPDATE users 
-                SET premium_until = NULL, is_lifetime = 0
+                SET subscription_end = NULL, is_premium = 0
                 WHERE telegram_id = ?
             """, (user_id,))
             self.conn.commit()
@@ -2041,9 +2041,9 @@ class Database:
         try:
             self.cursor.execute("""
                 UPDATE users 
-                SET is_lifetime = ?, premium_until = NULL
+                SET is_premium = 1, subscription_end = NULL
                 WHERE telegram_id = ?
-            """, (1 if is_lifetime else 0, user_id))
+            """, (user_id,))
             self.conn.commit()
             return self.cursor.rowcount > 0
         except Exception as e:
