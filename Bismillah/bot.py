@@ -995,8 +995,6 @@ Zone {label} – {desc}
                 credits = user_data.get('credits', 0) or 0
                 is_lifetime = user_data.get('is_lifetime', False)
                 premium_until = user_data.get('premium_until')
-                has_autosignal = user_data.get('has_autosignal', False)
-                autosignal_until = user_data.get('autosignal_until')
                 if user_data.get('first_name'):
                     user_name = user_data.get('first_name')
             else:
@@ -1004,6 +1002,26 @@ Zone {label} – {desc}
         except Exception as e:
             print(f"Error fetching credits from Supabase: {e}")
             credits = db.get_user_credits(user_id)
+        
+        # Check Auto Signal status from local JSON file
+        try:
+            import json
+            import os
+            from datetime import datetime
+            autosignal_file = os.path.join(os.path.dirname(__file__), 'autosignal_users.json')
+            if os.path.exists(autosignal_file):
+                with open(autosignal_file, 'r') as f:
+                    autosignal_data = json.load(f)
+                user_autosignal = autosignal_data.get(str(user_id))
+                if user_autosignal:
+                    has_autosignal = user_autosignal.get('has_autosignal', False)
+                    autosignal_until = user_autosignal.get('autosignal_until')
+                    if autosignal_until:
+                        expiry = datetime.fromisoformat(autosignal_until.replace('Z', '+00:00').replace('+00:00', ''))
+                        if expiry < datetime.utcnow():
+                            has_autosignal = False
+        except Exception as e:
+            print(f"Error reading autosignal data: {e}")
 
         if is_premium:
             # Premium user response
@@ -2397,26 +2415,30 @@ Choose action:
                         days = int(parts[1]) if len(parts) > 1 else 30
                         expiry_date = datetime.utcnow() + timedelta(days=days)
                         
+                        db_status = "❌ Not saved"
                         try:
-                            from supabase_client import supabase
-                            if supabase:
-                                existing = supabase.table('users').select('telegram_id').eq('telegram_id', user_id).execute()
-                                if not existing.data:
-                                    supabase.table('users').insert({
-                                        'telegram_id': user_id,
-                                        'has_autosignal': True,
-                                        'autosignal_until': expiry_date.isoformat()
-                                    }).execute()
-                                else:
-                                    supabase.table('users').update({
-                                        'has_autosignal': True,
-                                        'autosignal_until': expiry_date.isoformat()
-                                    }).eq('telegram_id', user_id).execute()
-                                supabase_status = f"✅ Supabase: Auto Signal granted until {expiry_date.strftime('%Y-%m-%d')}"
+                            import json
+                            import os
+                            autosignal_file = os.path.join(os.path.dirname(__file__), 'autosignal_users.json')
+                            
+                            if os.path.exists(autosignal_file):
+                                with open(autosignal_file, 'r') as f:
+                                    autosignal_data = json.load(f)
                             else:
-                                supabase_status = "⚠️ Supabase not connected"
+                                autosignal_data = {}
+                            
+                            autosignal_data[str(user_id)] = {
+                                'has_autosignal': True,
+                                'autosignal_until': expiry_date.isoformat(),
+                                'granted_at': datetime.utcnow().isoformat()
+                            }
+                            
+                            with open(autosignal_file, 'w') as f:
+                                json.dump(autosignal_data, f, indent=2)
+                            
+                            db_status = f"✅ Local DB: Auto Signal granted until {expiry_date.strftime('%Y-%m-%d')}"
                         except Exception as e:
-                            supabase_status = f"⚠️ Error: {str(e)[:50]}"
+                            db_status = f"⚠️ Error: {str(e)[:50]}"
                         
                         await update.message.reply_text(
                             f"✅ Auto Signal access granted!\n\n"
@@ -2425,8 +2447,7 @@ Choose action:
                             f"📅 Days: {days}\n"
                             f"⏰ Until: {expiry_date.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                             f"📊 Status:\n"
-                            f"{supabase_status}",
-                            parse_mode='MARKDOWN'
+                            f"{db_status}"
                         )
                         
                         try:
