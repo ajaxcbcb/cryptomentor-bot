@@ -6,7 +6,7 @@ def require_credits(tg_id: int, cost: int, username: str = None, first: str = No
     """
     Check and deduct credits for non-premium users.
     - Premium users: bypass debit, unlimited access
-    - Non-premium: debit via RPC (atomic)
+    - Non-premium: debit via direct update (more reliable)
     Returns: (allowed, remaining, message)
     """
     # Pastikan user exists TANPA mengubah credits
@@ -18,7 +18,7 @@ def require_credits(tg_id: int, cost: int, username: str = None, first: str = No
         print(f"✅ Premium user {tg_id} - access granted (credits not deducted)")
         return True, remaining, "✅ **Premium aktif** - Akses unlimited, kredit tidak terpakai"
 
-    # Non-premium: check credits dan debit atomically
+    # Non-premium: check credits dan debit
     current = get_credits(tg_id)
     print(f"🔍 Credit check for free user {tg_id}: current={current}, cost={cost}")
     
@@ -26,34 +26,36 @@ def require_credits(tg_id: int, cost: int, username: str = None, first: str = No
         print(f"❌ Insufficient credits for user {tg_id}: {current} < {cost}")
         return False, current, f"❌ **Kredit tidak cukup**\n💳 Sisa: **{current}** | Biaya: **{cost}**\n\n💡 Gunakan `/credits` atau upgrade premium"
 
-    # Debit credits via RPC (atomic operation)
-    remaining = debit_credits_rpc(tg_id, cost)
-    
-    # CRITICAL: Verify debit actually happened
-    # If remaining equals current, debit failed (RPC returned 0 or same value)
-    if remaining == current or (remaining == 0 and current >= cost):
-        # Double-check by re-fetching credits
-        actual_remaining = get_credits(tg_id)
-        if actual_remaining == current:
-            # Debit did NOT happen - use fallback direct debit
-            print(f"⚠️ RPC debit failed for user {tg_id}, using fallback direct debit")
-            try:
-                from app.users_repo import debit_credits as fallback_debit
-                success = fallback_debit(tg_id, cost)
-                if success:
-                    remaining = get_credits(tg_id)
-                    print(f"✅ Fallback debit successful for user {tg_id}: {cost} credits, remaining: {remaining}")
-                else:
-                    print(f"❌ Fallback debit also failed for user {tg_id}")
-                    return False, current, "❌ **Gagal mengurangi kredit**\n\nSilakan coba lagi nanti."
-            except Exception as e:
-                print(f"❌ Fallback debit error for user {tg_id}: {e}")
-                return False, current, "❌ **Sistem kredit bermasalah**\n\nSilakan coba lagi nanti."
+    # Use direct debit first (more reliable than RPC)
+    try:
+        from app.users_repo import debit_credits as direct_debit
+        success = direct_debit(tg_id, cost)
+        if success:
+            remaining = get_credits(tg_id)
+            print(f"✅ Direct debit successful for user {tg_id}: {cost} credits, remaining: {remaining}")
+            return True, remaining, f"💳 **Credit terpakai**: {cost} | **Sisa**: {remaining}"
         else:
-            remaining = actual_remaining
+            print(f"⚠️ Direct debit returned False for user {tg_id}, trying RPC fallback")
+    except Exception as e:
+        print(f"⚠️ Direct debit error for user {tg_id}: {e}, trying RPC fallback")
     
-    print(f"✅ Credit deducted for user {tg_id}: {cost} credits, remaining: {remaining}")
-    return True, remaining, f"💳 **Credit terpakai**: {cost} | **Sisa**: {remaining}"
+    # Fallback to RPC if direct debit fails
+    try:
+        remaining = debit_credits_rpc(tg_id, cost)
+        
+        # Verify debit happened
+        actual_remaining = get_credits(tg_id)
+        expected_remaining = current - cost
+        
+        if abs(actual_remaining - expected_remaining) <= 1:  # Allow 1 credit tolerance
+            print(f"✅ RPC debit successful for user {tg_id}: {cost} credits, remaining: {actual_remaining}")
+            return True, actual_remaining, f"💳 **Credit terpakai**: {cost} | **Sisa**: {actual_remaining}"
+        else:
+            print(f"❌ RPC debit verification failed for user {tg_id}: expected {expected_remaining}, got {actual_remaining}")
+            return False, current, "❌ **Gagal mengurangi kredit**\n\nSilakan coba lagi nanti."
+    except Exception as e:
+        print(f"❌ RPC debit error for user {tg_id}: {e}")
+        return False, current, "❌ **Sistem kredit bermasalah**\n\nSilakan coba lagi nanti."
 
 def check_credits_balance(tg_id: int) -> Tuple[bool, int]:
     """

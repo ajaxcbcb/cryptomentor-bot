@@ -342,9 +342,11 @@ class SnDAutoSignals:
         return message
 
     def _get_eligible_users_supabase(self):
-        """Get eligible users from Supabase (admin + lifetime premium)"""
+        """Get eligible users from Supabase (admin + lifetime premium + autosignal_users.json)"""
         try:
             import os
+            import json
+            from datetime import datetime
             from app.supabase_conn import sb_list_users
 
             # Get admin IDs from environment
@@ -377,7 +379,37 @@ class SnDAutoSignals:
                 if user_id and user_id not in eligible_users:
                     eligible_users.append(user_id)
 
-            print(f"📊 Eligible users found: {len(eligible_users)} (Admins + Lifetime from Supabase)")
+            # Add users from autosignal_users.json (granted access via admin)
+            autosignal_file = os.path.join(os.path.dirname(__file__), 'autosignal_users.json')
+            try:
+                if os.path.exists(autosignal_file):
+                    with open(autosignal_file, 'r') as f:
+                        autosignal_data = json.load(f)
+                    
+                    now = datetime.utcnow()
+                    active_autosignal_users = 0
+                    
+                    for user_id_str, user_info in autosignal_data.items():
+                        if user_info.get('has_autosignal'):
+                            # Check if not expired
+                            until_str = user_info.get('autosignal_until')
+                            if until_str:
+                                try:
+                                    until_dt = datetime.fromisoformat(until_str.replace('Z', '+00:00').replace('+00:00', ''))
+                                    if until_dt > now:
+                                        user_id = int(user_id_str)
+                                        if user_id not in eligible_users:
+                                            eligible_users.append(user_id)
+                                            active_autosignal_users += 1
+                                except Exception as parse_err:
+                                    print(f"⚠️ Error parsing autosignal expiry for user {user_id_str}: {parse_err}")
+                    
+                    if active_autosignal_users > 0:
+                        print(f"📡 Added {active_autosignal_users} users from autosignal_users.json")
+            except Exception as json_err:
+                print(f"⚠️ Error reading autosignal_users.json: {json_err}")
+
+            print(f"📊 Eligible users found: {len(eligible_users)} (Admins + Lifetime + AutoSignal)")
             return eligible_users
 
         except Exception as e:
