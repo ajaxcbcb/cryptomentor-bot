@@ -317,8 +317,11 @@ class MenuCallbackHandler:
         )
 
     async def handle_multi_coin_signals(self, query, context):
-        """Handle multi-coin signals with enhanced SnD analysis"""
+        """Handle multi-coin signals with enhanced SnD analysis - NON-BLOCKING"""
+        import asyncio
         user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
         
         # Check and deduct credits (60 for Multi-Coin Signals)
         try:
@@ -345,33 +348,45 @@ class MenuCallbackHandler:
             )
             return
         
-        await query.edit_message_text("⏳ Generating futures signals with Supply & Demand analysis...")
+        await query.edit_message_text("⏳ Generating futures signals with Supply & Demand analysis...\n\n💡 Proses berjalan di background, bot tetap responsif untuk user lain.")
 
-        try:
-            from ai_assistant import AIAssistant
-            from crypto_api import crypto_api
-            
-            ai = AIAssistant()
-            
-            # Generate enhanced futures signals with SnD integration
-            signals_text = await ai.generate_futures_signals(
-                language='id',
-                crypto_api=crypto_api,
-                query_args=['4h']  # Default to 4h timeframe
-            )
-            
-            # Send the signals
-            await query.edit_message_text(
-                signals_text,
-                parse_mode='MARKDOWN'
-            )
-            
-        except Exception as e:
-            await query.edit_message_text(
-                f"❌ Error generating signals: {str(e)[:100]}...\n\n"
-                "Please try again in a few seconds.",
-                parse_mode='MARKDOWN'
-            )
+        # Run heavy operation in background task to not block other users
+        async def generate_signals_background():
+            try:
+                from ai_assistant import AIAssistant
+                from crypto_api import crypto_api
+                
+                ai = AIAssistant()
+                
+                # Generate enhanced futures signals with SnD integration
+                signals_text = await ai.generate_futures_signals(
+                    language='id',
+                    crypto_api=crypto_api,
+                    query_args=['4h']  # Default to 4h timeframe
+                )
+                
+                # Send the signals
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=signals_text,
+                    parse_mode='MARKDOWN'
+                )
+                
+            except Exception as e:
+                print(f"❌ Multi-coin signal error for user {user_id}: {e}", flush=True)
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=f"❌ Error generating signals: {str(e)[:100]}...\n\nPlease try again in a few seconds.",
+                        parse_mode='MARKDOWN'
+                    )
+                except:
+                    pass
+        
+        # Create background task - this returns immediately, allowing other users to use bot
+        asyncio.create_task(generate_signals_background())
 
     async def handle_auto_signal_info(self, query, context):
         """Handle auto signal info"""
@@ -724,8 +739,11 @@ Just type the symbol in your next message!"""
         )
 
     async def handle_futures_timeframe_selection(self, query, context):
-        """Handle futures timeframe selection with sentiment-based entry recommendations"""
+        """Handle futures timeframe selection with sentiment-based entry recommendations - NON-BLOCKING"""
+        import asyncio
         user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
         
         # Check and deduct credits (20 for Futures Analysis)
         try:
@@ -762,153 +780,100 @@ Just type the symbol in your next message!"""
             if not 'USDT' in symbol:
                 symbol = symbol + 'USDT'
 
-            try:
-                await query.edit_message_text(
-                    f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...",
-                    parse_mode=None
-                )
+            await query.edit_message_text(
+                f"⏳ Analyzing {symbol} {timeframe} with Supply & Demand zones...\n\n💡 Bot tetap responsif untuk user lain.",
+                parse_mode=None
+            )
 
-                from snd_zone_detector import detect_snd_zones
+            # Run analysis in background task
+            async def run_futures_analysis():
+                try:
+                    from snd_zone_detector import detect_snd_zones
 
-                # Get SnD zones
-                snd_result = detect_snd_zones(symbol, timeframe, limit=100)
-                
-                if 'error' in snd_result:
-                    await query.edit_message_text(
-                        f"Error: {snd_result['error']}",
-                        parse_mode=None
-                    )
-                    return
+                    # Get SnD zones (run in thread to avoid blocking)
+                    snd_result = await asyncio.to_thread(detect_snd_zones, symbol, timeframe, 100)
+                    
+                    if 'error' in snd_result:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id, message_id=message_id,
+                            text=f"Error: {snd_result['error']}", parse_mode=None
+                        )
+                        return
 
-                current_price = snd_result.get('current_price', 0)
-                demand_zones = snd_result.get('demand_zones', [])
-                supply_zones = snd_result.get('supply_zones', [])
+                    current_price = snd_result.get('current_price', 0)
+                    demand_zones = snd_result.get('demand_zones', [])
+                    supply_zones = snd_result.get('supply_zones', [])
 
-                # Helper to format price safely
-                def fmt_price(p):
-                    if p >= 1000:
-                        return f"${p:,.2f}"
-                    elif p >= 1:
-                        return f"${p:,.4f}"
-                    elif p >= 0.0001:
-                        return f"${p:.6f}"
+                    def fmt_price(p):
+                        if p >= 1000: return f"${p:,.2f}"
+                        elif p >= 1: return f"${p:,.4f}"
+                        elif p >= 0.0001: return f"${p:.6f}"
+                        else: return f"${p:.8f}"
+
+                    avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
+                    avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
+                    
+                    if avg_demand and avg_supply:
+                        mid_range = (avg_demand + avg_supply) / 2
+                        if current_price > mid_range * 1.02:
+                            sentiment, sentiment_emoji = "BULLISH", "🟢"
+                        elif current_price < mid_range * 0.98:
+                            sentiment, sentiment_emoji = "BEARISH", "🔴"
+                        else:
+                            sentiment, sentiment_emoji = "SIDEWAYS", "🟡"
                     else:
-                        return f"${p:.8f}"
+                        sentiment, sentiment_emoji = "NEUTRAL", "⚪"
 
-                # Determine market sentiment
-                avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
-                avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
-                
-                if avg_demand and avg_supply:
-                    mid_range = (avg_demand + avg_supply) / 2
-                    if current_price > mid_range * 1.02:
-                        sentiment = "BULLISH"
-                        sentiment_emoji = "🟢"
-                    elif current_price < mid_range * 0.98:
-                        sentiment = "BEARISH"
-                        sentiment_emoji = "🔴"
+                    display_symbol = symbol.replace('USDT', '')
+                    response = f"📊 FUTURES ANALYSIS: {display_symbol} ({timeframe.upper()})\n\n💰 Current Price: {fmt_price(current_price)}\n{sentiment_emoji} Market Sentiment: {sentiment}\n\n"
+
+                    if sentiment == "BULLISH":
+                        response += "🎯 RECOMMENDED: LIMIT LONG at Demand Zone\n\n"
+                        if demand_zones:
+                            best_zone = demand_zones[0]
+                            zone_width = best_zone.high - best_zone.low
+                            sl = best_zone.low - (zone_width * 0.75)
+                            tp1 = current_price + (current_price - best_zone.midpoint) * 1.5
+                            tp2 = current_price + (current_price - best_zone.midpoint) * 2.5
+                            response += f"🟢 ENTRY ZONE (LONG):\n📍 Demand Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}\n💪 Strength: {best_zone.strength:.0f}%\n🛑 Stop Loss: {fmt_price(sl)}\n🎯 TP1: {fmt_price(tp1)}\n🎯 TP2: {fmt_price(tp2)}\n\n"
+                        else:
+                            response += "⚠️ No demand zones found for LONG entry\n\n"
+                    elif sentiment == "BEARISH":
+                        response += "🎯 RECOMMENDED: LIMIT SHORT at Supply Zone\n\n"
+                        if supply_zones:
+                            best_zone = supply_zones[0]
+                            zone_width = best_zone.high - best_zone.low
+                            sl = best_zone.high + (zone_width * 0.75)
+                            tp1 = current_price - (best_zone.midpoint - current_price) * 1.5
+                            tp2 = current_price - (best_zone.midpoint - current_price) * 2.5
+                            response += f"🔴 ENTRY ZONE (SHORT):\n📍 Supply Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}\n💪 Strength: {best_zone.strength:.0f}%\n🛑 Stop Loss: {fmt_price(sl)}\n🎯 TP1: {fmt_price(tp1)}\n🎯 TP2: {fmt_price(tp2)}\n\n"
+                        else:
+                            response += "⚠️ No supply zones found for SHORT entry\n\n"
                     else:
-                        sentiment = "SIDEWAYS"
-                        sentiment_emoji = "🟡"
-                else:
-                    sentiment = "NEUTRAL"
-                    sentiment_emoji = "⚪"
+                        response += "🎯 RECOMMENDED: Wait for Breakout\n\n⚠️ Market is ranging - wait for clear direction\n\n"
+                        if demand_zones:
+                            best_demand = demand_zones[0]
+                            response += f"🟢 If Bullish Breakout → LONG at:\n📍 Demand: {fmt_price(best_demand.low)} - {fmt_price(best_demand.high)}\n\n"
+                        if supply_zones:
+                            best_supply = supply_zones[0]
+                            response += f"🔴 If Bearish Breakout → SHORT at:\n📍 Supply: {fmt_price(best_supply.low)} - {fmt_price(best_supply.high)}\n\n"
 
-                display_symbol = symbol.replace('USDT', '')
-                
-                # Build plain text response (no parsing issues)
-                response = f"""📊 FUTURES ANALYSIS: {display_symbol} ({timeframe.upper()})
+                    response += "⚠️ RISK MANAGEMENT:\n• Use LIMIT orders at zone levels\n• Do NOT use market orders\n• Risk max 1-2% per trade\n• Always set Stop Loss\n\n💡 Wait for price to enter zone before placing order"
 
-💰 Current Price: {fmt_price(current_price)}
-{sentiment_emoji} Market Sentiment: {sentiment}
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=response, parse_mode=None)
 
-"""
+                except Exception as e:
+                    print(f"❌ Futures analysis error: {e}", flush=True)
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id, message_id=message_id,
+                            text=f"Error: {str(e)[:100]}\n\nPlease try again", parse_mode=None
+                        )
+                    except:
+                        pass
 
-                # Sentiment-based recommendation
-                if sentiment == "BULLISH":
-                    response += f"""🎯 RECOMMENDED: LIMIT LONG at Demand Zone
-
-"""
-                    # Show demand zones for LONG entries
-                    if demand_zones:
-                        best_zone = demand_zones[0]
-                        zone_width = best_zone.high - best_zone.low
-                        sl = best_zone.low - (zone_width * 0.75)
-                        tp1 = current_price + (current_price - best_zone.midpoint) * 1.5
-                        tp2 = current_price + (current_price - best_zone.midpoint) * 2.5
-                        
-                        response += f"""🟢 ENTRY ZONE (LONG):
-📍 Demand Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}
-💪 Strength: {best_zone.strength:.0f}%
-🛑 Stop Loss: {fmt_price(sl)}
-🎯 TP1: {fmt_price(tp1)}
-🎯 TP2: {fmt_price(tp2)}
-
-"""
-                    else:
-                        response += "⚠️ No demand zones found for LONG entry\n\n"
-                        
-                elif sentiment == "BEARISH":
-                    response += f"""🎯 RECOMMENDED: LIMIT SHORT at Supply Zone
-
-"""
-                    # Show supply zones for SHORT entries
-                    if supply_zones:
-                        best_zone = supply_zones[0]
-                        zone_width = best_zone.high - best_zone.low
-                        sl = best_zone.high + (zone_width * 0.75)
-                        tp1 = current_price - (best_zone.midpoint - current_price) * 1.5
-                        tp2 = current_price - (best_zone.midpoint - current_price) * 2.5
-                        
-                        response += f"""🔴 ENTRY ZONE (SHORT):
-📍 Supply Zone: {fmt_price(best_zone.low)} - {fmt_price(best_zone.high)}
-💪 Strength: {best_zone.strength:.0f}%
-🛑 Stop Loss: {fmt_price(sl)}
-🎯 TP1: {fmt_price(tp1)}
-🎯 TP2: {fmt_price(tp2)}
-
-"""
-                    else:
-                        response += "⚠️ No supply zones found for SHORT entry\n\n"
-                        
-                else:  # SIDEWAYS or NEUTRAL
-                    response += f"""🎯 RECOMMENDED: Wait for Breakout
-
-⚠️ Market is ranging - wait for clear direction
-
-"""
-                    # Show both zones
-                    if demand_zones:
-                        best_demand = demand_zones[0]
-                        response += f"""🟢 If Bullish Breakout → LONG at:
-📍 Demand: {fmt_price(best_demand.low)} - {fmt_price(best_demand.high)}
-
-"""
-                    if supply_zones:
-                        best_supply = supply_zones[0]
-                        response += f"""🔴 If Bearish Breakout → SHORT at:
-📍 Supply: {fmt_price(best_supply.low)} - {fmt_price(best_supply.high)}
-
-"""
-
-                # Risk management note
-                response += f"""⚠️ RISK MANAGEMENT:
-• Use LIMIT orders at zone levels
-• Do NOT use market orders
-• Risk max 1-2% per trade
-• Always set Stop Loss
-
-💡 Wait for price to enter zone before placing order"""
-
-                await query.edit_message_text(response, parse_mode=None)
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                await query.edit_message_text(
-                    f"Error: {str(e)[:100]}\n\nPlease try again",
-                    parse_mode=None
-                )
+            # Create background task - returns immediately
+            asyncio.create_task(run_futures_analysis())
 
     async def handle_add_coin_amount(self, query, context, symbol):
         """Handle amount input for add coin"""
@@ -952,8 +917,11 @@ Just type the number in your next message!"""
         await self.bot.price_command(fake_update, context)
 
     async def execute_analyze_command(self, query, context, symbol):
-        """Execute Spot Signal analysis with tiered DCA zones"""
+        """Execute Spot Signal analysis with tiered DCA zones - NON-BLOCKING"""
+        import asyncio
         user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
         
         # Check and deduct credits (20 for Spot Analysis)
         try:
@@ -986,145 +954,100 @@ Just type the number in your next message!"""
         
         timeframe = "1h"
         
-        try:
-            await query.edit_message_text(
-                f"🔄 <b>Analyzing {symbol}...</b>\n\n"
-                f"📊 Fetching Binance data...\n"
-                f"🎯 Detecting S&D zones...",
-                parse_mode='HTML'
-            )
-            
-            from snd_zone_detector import detect_snd_zones
-            
-            # Get SnD analysis
-            snd_result = detect_snd_zones(symbol, timeframe, limit=100)
-            
-            if 'error' in snd_result:
-                await query.edit_message_text(
-                    f"❌ <b>Error:</b> {snd_result['error']}\n\n"
-                    f"💡 Try a different symbol like BTC, ETH, etc.",
-                    parse_mode='HTML'
-                )
-                return
-            
-            current_price = snd_result.get('current_price', 0)
-            demand_zones = snd_result.get('demand_zones', [])
-            supply_zones = snd_result.get('supply_zones', [])
-            
-            # Helper to format price safely
-            def fmt_price(p):
-                if p >= 1000:
-                    return f"${p:,.2f}"
-                elif p >= 1:
-                    return f"${p:,.4f}"
-                elif p >= 0.0001:
-                    return f"${p:.6f}"
-                else:
-                    return f"${p:.8f}"
-            
-            # Determine trend based on price position relative to zones
-            avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
-            avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
-            
-            if avg_demand and avg_supply:
-                mid_range = (avg_demand + avg_supply) / 2
-                if current_price > mid_range * 1.02:
-                    trend = "Bullish"
-                elif current_price < mid_range * 0.98:
-                    trend = "Bearish"
-                else:
-                    trend = "Sideways"
-            else:
-                trend = "Neutral"
-            
-            # Volume analysis based on zone strength
-            avg_strength = 0
-            if demand_zones:
-                avg_strength = sum(z.strength for z in demand_zones) / len(demand_zones)
-            if avg_strength >= 60:
-                volume_status = "Accumulation"
-            elif avg_strength >= 40:
-                volume_status = "Neutral"
-            else:
-                volume_status = "Distribution"
-            
-            # Calculate overall confidence
-            zone_count = len(demand_zones) + len(supply_zones)
-            base_confidence = min(85, 50 + (zone_count * 5))
-            if demand_zones:
-                base_confidence += min(15, demand_zones[0].strength / 5)
-            confidence = min(95, base_confidence)
-            
-            # Build response using user's exact format
-            display_symbol = symbol.replace('USDT', '')
-            
-            response = f"""📊 <b>Spot Signal – {display_symbol} ({timeframe.upper()})</b>
-
-💰 <b>Price:</b> {fmt_price(current_price)}
-
-🟢 <b>BUY ZONES</b>
-"""
-            
-            # Zone labels and allocations
-            zone_labels = [
-                ("A", "Strong", "40%"),
-                ("B", "Discount", "35%"),
-                ("C", "Deep", "25%")
-            ]
-            
-            # Sort demand zones by proximity to current price (closest first)
-            sorted_demands = sorted(demand_zones, key=lambda z: abs(current_price - z.midpoint))
-            
-            if sorted_demands:
-                for i, (label, desc, alloc) in enumerate(zone_labels):
-                    if i < len(sorted_demands):
-                        zone = sorted_demands[i]
-                        # Calculate TPs based on zone
-                        zone_width = zone.high - zone.low
-                        tp1 = zone.high + (zone_width * 1.5)
-                        tp2 = zone.high + (zone_width * 3.0)
-                        strength = zone.strength if hasattr(zone, 'strength') else 50
-                        
-                        response += f"""
-<b>Zone {label}</b> – {desc}
-Entry: {fmt_price(zone.low)} – {fmt_price(zone.high)}
-Allocation: {alloc}
-TP1: {fmt_price(tp1)}
-TP2: {fmt_price(tp2)}
-Strength: {strength:.0f}%
-"""
-            else:
-                response += "\n⏳ No active demand zones detected\n"
-            
-            # Add SELL ZONE (take profit area from supply)
-            response += "\n🔴 <b>SELL ZONE</b>\n"
-            if supply_zones:
-                best_supply = supply_zones[0]
-                response += f"{fmt_price(best_supply.low)} – {fmt_price(best_supply.high)} (Take Profit)\n"
-            else:
-                response += "No active supply zone\n"
-            
-            # Context section
-            response += f"""
-📈 <b>Context:</b>
-• Trend: {trend}
-• Volume: {volume_status}
-
-🔥 <b>Confidence:</b> {confidence:.0f}%
-💡 <b>Strategy:</b> DCA on demand zones
-
-<i>⚠️ Spot only • Entry range, not market buy</i>"""
-            
-            await query.edit_message_text(response, parse_mode='HTML')
+        await query.edit_message_text(
+            f"🔄 <b>Analyzing {symbol}...</b>\n\n📊 Fetching Binance data...\n🎯 Detecting S&D zones...\n\n💡 Bot tetap responsif untuk user lain.",
+            parse_mode='HTML'
+        )
         
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            await query.edit_message_text(
-                f"❌ <b>Error</b>: {str(e)[:100]}\n\n"
-                f"💡 Please try again or check symbol format",
-                parse_mode='HTML'
-            )
+        # Run analysis in background task
+        async def run_spot_analysis():
+            try:
+                from snd_zone_detector import detect_snd_zones
+                
+                # Get SnD analysis (run in thread to avoid blocking)
+                snd_result = await asyncio.to_thread(detect_snd_zones, symbol, timeframe, 100)
+                
+                if 'error' in snd_result:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id, message_id=message_id,
+                        text=f"❌ <b>Error:</b> {snd_result['error']}\n\n💡 Try a different symbol like BTC, ETH, etc.",
+                        parse_mode='HTML'
+                    )
+                    return
+                
+                current_price = snd_result.get('current_price', 0)
+                demand_zones = snd_result.get('demand_zones', [])
+                supply_zones = snd_result.get('supply_zones', [])
+                
+                def fmt_price(p):
+                    if p >= 1000: return f"${p:,.2f}"
+                    elif p >= 1: return f"${p:,.4f}"
+                    elif p >= 0.0001: return f"${p:.6f}"
+                    else: return f"${p:.8f}"
+                
+                avg_demand = sum(z.midpoint for z in demand_zones) / len(demand_zones) if demand_zones else 0
+                avg_supply = sum(z.midpoint for z in supply_zones) / len(supply_zones) if supply_zones else 0
+                
+                if avg_demand and avg_supply:
+                    mid_range = (avg_demand + avg_supply) / 2
+                    if current_price > mid_range * 1.02: trend = "Bullish"
+                    elif current_price < mid_range * 0.98: trend = "Bearish"
+                    else: trend = "Sideways"
+                else:
+                    trend = "Neutral"
+                
+                avg_strength = sum(z.strength for z in demand_zones) / len(demand_zones) if demand_zones else 0
+                if avg_strength >= 60: volume_status = "Accumulation"
+                elif avg_strength >= 40: volume_status = "Neutral"
+                else: volume_status = "Distribution"
+                
+                zone_count = len(demand_zones) + len(supply_zones)
+                base_confidence = min(85, 50 + (zone_count * 5))
+                if demand_zones: base_confidence += min(15, demand_zones[0].strength / 5)
+                confidence = min(95, base_confidence)
+                
+                display_symbol = symbol.replace('USDT', '')
+                response = f"📊 <b>Spot Signal – {display_symbol} ({timeframe.upper()})</b>\n\n💰 <b>Price:</b> {fmt_price(current_price)}\n\n🟢 <b>BUY ZONES</b>\n"
+                
+                zone_labels = [("A", "Strong", "40%"), ("B", "Discount", "35%"), ("C", "Deep", "25%")]
+                sorted_demands = sorted(demand_zones, key=lambda z: abs(current_price - z.midpoint))
+                
+                if sorted_demands:
+                    for i, (label, desc, alloc) in enumerate(zone_labels):
+                        if i < len(sorted_demands):
+                            zone = sorted_demands[i]
+                            zone_width = zone.high - zone.low
+                            tp1 = zone.high + (zone_width * 1.5)
+                            tp2 = zone.high + (zone_width * 3.0)
+                            strength = zone.strength if hasattr(zone, 'strength') else 50
+                            response += f"\n<b>Zone {label}</b> – {desc}\nEntry: {fmt_price(zone.low)} – {fmt_price(zone.high)}\nAllocation: {alloc}\nTP1: {fmt_price(tp1)}\nTP2: {fmt_price(tp2)}\nStrength: {strength:.0f}%\n"
+                else:
+                    response += "\n⏳ No active demand zones detected\n"
+                
+                response += "\n🔴 <b>SELL ZONE</b>\n"
+                if supply_zones:
+                    best_supply = supply_zones[0]
+                    response += f"{fmt_price(best_supply.low)} – {fmt_price(best_supply.high)} (Take Profit)\n"
+                else:
+                    response += "No active supply zone\n"
+                
+                response += f"\n📈 <b>Context:</b>\n• Trend: {trend}\n• Volume: {volume_status}\n\n🔥 <b>Confidence:</b> {confidence:.0f}%\n💡 <b>Strategy:</b> DCA on demand zones\n\n<i>⚠️ Spot only • Entry range, not market buy</i>"
+                
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=response, parse_mode='HTML')
+            
+            except Exception as e:
+                print(f"❌ Spot analysis error: {e}", flush=True)
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id, message_id=message_id,
+                        text=f"❌ <b>Error</b>: {str(e)[:100]}\n\n💡 Please try again or check symbol format",
+                        parse_mode='HTML'
+                    )
+                except:
+                    pass
+        
+        # Create background task - returns immediately
+        asyncio.create_task(run_spot_analysis())
 
     async def handle_copy_referral_link(self, query, context):
         """Handle copy referral link"""
