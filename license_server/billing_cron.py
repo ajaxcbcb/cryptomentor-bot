@@ -239,11 +239,17 @@ if __name__ == "__main__":
         logger.warning("BOT_TOKEN not set — Telegram notifications will be disabled.")
 
     scheduler = create_scheduler()
+    
+    # Create event loop for AsyncIOScheduler
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     scheduler.start()
     logger.info("Billing scheduler started. Next run: daily at 00:00 UTC.")
 
     try:
-        asyncio.get_event_loop().run_forever()
+        loop.run_forever()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Billing scheduler shutting down.")
         scheduler.shutdown()
+        loop.close()
