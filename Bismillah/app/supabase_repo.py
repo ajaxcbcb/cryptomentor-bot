@@ -228,3 +228,67 @@ def revoke_premium(tg_id: int):
 def ensure_user_exists(tg_id: int, username: str = None, first_name: str = None):
     """Legacy compatibility function"""
     return ensure_user_exists_no_credit(tg_id, username, first_name)
+
+# ------------------------------------------------------------------ #
+#  User API Key management (Bitunix, encrypted via pgcrypto)          #
+# ------------------------------------------------------------------ #
+
+_ENC_KEY = os.getenv('ENCRYPTION_KEY', '')
+
+
+def save_user_api_key(telegram_id: int, exchange: str,
+                      api_key: str, api_secret: str) -> bool:
+    """
+    Upsert encrypted API key to Supabase via RPC.
+    Encryption happens inside Postgres using pgp_sym_encrypt (AES-256).
+    The raw secret never touches the DB in plaintext.
+    """
+    if not _ENC_KEY:
+        raise RuntimeError("ENCRYPTION_KEY env var not set")
+    try:
+        s = _client()
+        s.rpc("upsert_user_api_key", {
+            "p_telegram_id": int(telegram_id),
+            "p_exchange": exchange,
+            "p_api_key": api_key,
+            "p_api_secret": api_secret,
+            "p_enc_key": _ENC_KEY,
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"save_user_api_key error: {e}")
+        return False
+
+
+def get_user_api_key(telegram_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Fetch and decrypt user API key from Supabase.
+    Returns dict with keys: exchange, api_key, api_secret, key_hint, is_active, created_at
+    """
+    if not _ENC_KEY:
+        raise RuntimeError("ENCRYPTION_KEY env var not set")
+    try:
+        s = _client()
+        res = s.rpc("get_user_api_key", {
+            "p_telegram_id": int(telegram_id),
+            "p_enc_key": _ENC_KEY,
+        }).execute()
+        if res.data:
+            return res.data[0]
+        return None
+    except Exception as e:
+        print(f"get_user_api_key error: {e}")
+        return None
+
+
+def delete_user_api_key(telegram_id: int) -> bool:
+    """Remove user API key from Supabase."""
+    try:
+        s = _client()
+        s.rpc("delete_user_api_key", {
+            "p_telegram_id": int(telegram_id),
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"delete_user_api_key error: {e}")
+        return False

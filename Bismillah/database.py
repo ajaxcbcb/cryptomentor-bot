@@ -476,7 +476,8 @@ class Database:
         try:
             self.cursor.execute("""
                 SELECT telegram_id, first_name, last_name, username, language_code, 
-                       is_premium, credits, subscription_end, referred_by, referral_code, created_at, banned
+                       is_premium, credits, subscription_end, referred_by, referral_code, 
+                       created_at, banned, premium_earnings
                 FROM users WHERE telegram_id = ?
             """, (telegram_id,))
             row = self.cursor.fetchone()
@@ -493,7 +494,8 @@ class Database:
                     'referred_by': row[8],
                     'referral_code': row[9],
                     'created_at': row[10],
-                    'banned': row[11]
+                    'banned': row[11],
+                    'premium_earnings': row[12] if len(row) > 12 else 0
                 }
             return None
         except Exception as e:
@@ -1229,28 +1231,172 @@ class Database:
             return False
 
     def get_all_users(self):
-        """Get all users for broadcast functionality"""
+        """Get all users for broadcast functionality - Enhanced version"""
         try:
+            # Enhanced query with proper filtering
             self.cursor.execute("""
-                SELECT telegram_id, first_name, username, is_premium, created_at
+                SELECT telegram_id, first_name, username, is_premium, created_at, banned
                 FROM users 
-                WHERE telegram_id IS NOT NULL AND telegram_id != 0
+                WHERE telegram_id IS NOT NULL 
+                AND telegram_id != 0
+                AND telegram_id != ''
+                AND (banned IS NULL OR banned = 0)
                 ORDER BY created_at DESC
             """)
 
             results = []
+            seen_ids = set()
+            
             for row in self.cursor.fetchall():
-                results.append({
-                    'user_id': row[0],
-                    'first_name': row[1],
-                    'username': row[2],
-                    'is_premium': row[3],
-                    'created_at': row[4]
-                })
+                telegram_id = row[0]
+                
+                # Skip duplicates and invalid IDs
+                if telegram_id and telegram_id not in seen_ids:
+                    try:
+                        tid = int(telegram_id)
+                        if tid > 0:  # Valid Telegram ID
+                            seen_ids.add(telegram_id)
+                            results.append({
+                                'telegram_id': tid,
+                                'user_id': tid,  # Alias for compatibility
+                                'first_name': row[1],
+                                'username': row[2],
+                                'is_premium': row[3],
+                                'created_at': row[4]
+                            })
+                    except (ValueError, TypeError):
+                        # Skip invalid telegram_id
+                        continue
+            
+            print(f"✅ Local DB: Found {len(results)} valid users")
             return results
         except Exception as e:
             print(f"Error getting all users: {e}")
             return []
+
+    def get_all_broadcast_users(self):
+        """
+        Get all users from both local and Supabase for broadcast
+        Returns: dict with 'local', 'supabase', 'unique_ids', and stats
+        """
+        print("[get_all_broadcast_users] Starting...")
+        
+        result = {
+            'local_users': [],
+            'supabase_users': [],
+            'unique_ids': set(),
+            'stats': {
+                'local_count': 0,
+                'supabase_count': 0,
+                'supabase_unique': 0,
+                'total_unique': 0,
+                'duplicates': 0
+            }
+        }
+        
+        try:
+            # Get local users
+            print("[get_all_broadcast_users] Fetching local users...")
+            local_users = self.get_all_users()
+            result['local_users'] = local_users
+            
+            for user in local_users:
+                tid = user.get('telegram_id') or user.get('user_id')
+                if tid and tid > 0:
+                    result['unique_ids'].add(int(tid))
+            
+            result['stats']['local_count'] = len(local_users)
+            print(f"[get_all_broadcast_users] Local users: {result['stats']['local_count']}")
+            
+            # Get Supabase users if available
+            print(f"[get_all_broadcast_users] Supabase enabled: {self.supabase_enabled}")
+            if self.supabase_enabled:
+                try:
+                    from supabase_client import supabase
+                    if supabase:
+                        # Enhanced query with filtering - check if banned column exists
+                        # IMPORTANT: Supabase has default limit of 1000 rows
+                        # We need to paginate to get ALL users
+                        all_supabase_users = []
+                        page_size = 1000
+                        offset = 0
+                        has_banned_column = True
+                        
+                        while True:
+                            try:
+                                # Try with banned column first
+                                supabase_result = supabase.table('users')\
+                                    .select('telegram_id, first_name, username, is_premium, banned')\
+                                    .not_.is_('telegram_id', 'null')\
+                                    .neq('telegram_id', 0)\
+                                    .range(offset, offset + page_size - 1)\
+                                    .execute()
+                            except Exception as e:
+                                # If banned column doesn't exist, query without it
+                                if 'banned does not exist' in str(e) or '42703' in str(e):
+                                    print("ℹ️  Supabase table doesn't have 'banned' column, querying without it")
+                                    has_banned_column = False
+                                    supabase_result = supabase.table('users')\
+                                        .select('telegram_id, first_name, username, is_premium')\
+                                        .not_.is_('telegram_id', 'null')\
+                                        .neq('telegram_id', 0)\
+                                        .range(offset, offset + page_size - 1)\
+                                        .execute()
+                                else:
+                                    raise e
+                            
+                            if not supabase_result.data:
+                                break  # No more data
+                            
+                            all_supabase_users.extend(supabase_result.data)
+                            
+                            # If we got less than page_size, we've reached the end
+                            if len(supabase_result.data) < page_size:
+                                break
+                            
+                            offset += page_size
+                            print(f"📄 Fetched {len(all_supabase_users)} users from Supabase so far...")
+                        
+                        supabase_result.data = all_supabase_users
+                        print(f"✅ Total Supabase users fetched: {len(all_supabase_users)}")
+                        
+                        if supabase_result.data:
+                            supabase_unique = 0
+                            for user in supabase_result.data:
+                                tid = user.get('telegram_id')
+                                is_banned = user.get('banned', 0) if has_banned_column else 0
+                                
+                                # Skip banned and invalid
+                                if tid and tid > 0 and not is_banned:
+                                    result['supabase_users'].append(user)
+                                    result['stats']['supabase_count'] += 1
+                                    
+                                    if tid not in result['unique_ids']:
+                                        supabase_unique += 1
+                                        result['unique_ids'].add(int(tid))
+                            
+                            result['stats']['supabase_unique'] = supabase_unique
+                        
+                        print(f"✅ Supabase: Found {result['stats']['supabase_count']} valid users, {result['stats']['supabase_unique']} unique")
+                except Exception as e:
+                    print(f"⚠️ Supabase fetch error in get_all_broadcast_users: {e}")
+            
+            # Calculate final stats
+            result['stats']['total_unique'] = len(result['unique_ids'])
+            result['stats']['duplicates'] = (result['stats']['local_count'] + 
+                                            result['stats']['supabase_count'] - 
+                                            result['stats']['total_unique'])
+            
+            print(f"📊 Broadcast Stats: {result['stats']['local_count']} local, "
+                  f"{result['stats']['supabase_count']} supabase, "
+                  f"{result['stats']['total_unique']} unique, "
+                  f"{result['stats']['duplicates']} duplicates")
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error in get_all_broadcast_users: {e}")
+            return result
 
     def get_user_by_premium_referral_code(self, premium_code):
         """Get user ID by premium referral code"""
@@ -2144,3 +2290,38 @@ class Database:
         except Exception as e:
             print(f"Error getting all users: {e}")
             return []
+
+    def has_automaton_access(self, telegram_id):
+        """Check if user has paid for Automaton access"""
+        try:
+            self.cursor.execute("""
+                SELECT automaton_access FROM users WHERE telegram_id = ?
+            """, (telegram_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return bool(row[0])
+            return False
+        except Exception as e:
+            print(f"DB Error (has_automaton_access): {e}")
+            return False
+    
+    def grant_automaton_access(self, telegram_id):
+        """Grant Automaton access to a user (after payment)"""
+        try:
+            self.cursor.execute("""
+                UPDATE users SET automaton_access = 1 WHERE telegram_id = ?
+            """, (telegram_id,))
+            self.conn.commit()
+            
+            # Log the access grant
+            self.log_user_activity(
+                telegram_id,
+                'automaton_access_granted',
+                'Automaton access granted (Rp2,000,000 payment)'
+            )
+            
+            print(f"✅ Granted Automaton access to user {telegram_id}")
+            return True
+        except Exception as e:
+            print(f"DB Error (grant_automaton_access): {e}")
+            return False

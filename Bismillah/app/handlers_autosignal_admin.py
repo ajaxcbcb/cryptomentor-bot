@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from app.lib.guards import admin_guard
-from app.autosignal import set_autosignal_enabled, autosignal_enabled, run_scan_once, SCAN_INTERVAL_SEC, TOP_N, MIN_CONFIDENCE, TIMEFRAME
+from app.autosignal_fast import set_autosignal_enabled, autosignal_enabled, run_scan_once, SCAN_INTERVAL_SEC, TOP_N, MIN_CONFIDENCE, TIMEFRAME
 from app.safe_send import safe_reply
 from .auth import is_admin, admin_denied_text
 

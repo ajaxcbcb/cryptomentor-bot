@@ -1,0 +1,12 @@
+bip_utils
+eth_account
+fastapi
+uvicorn[standard]
+slowapi
+apscheduler
+httpx
+supabase
+python-dotenv
+hypothesis
+pytest
+pytest-asyncio

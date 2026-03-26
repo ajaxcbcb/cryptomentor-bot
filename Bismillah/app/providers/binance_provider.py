@@ -110,6 +110,13 @@ class _HTTP:
                         self.invalid_symbols.add(params["symbol"])
                         logger.debug(f"Symbol {params['symbol']} is invalid (400), caching")
                     return r
+
+                # 451 = Unavailable For Legal Reasons (geo-block) - raise immediately, no retry
+                if r.status_code == 451:
+                    raise httpx.HTTPStatusError(
+                        f"451 Geo-blocked by Binance (region restriction)",
+                        request=r.request, response=r
+                    )
                 
                 # 429 = Rate Limited, 5xx = Server Error (retry with fallback)
                 if r.status_code in (429,) or r.status_code >= 500:
@@ -359,6 +366,10 @@ def fetch_klines(symbol: str, interval: str, limit: int = 200, futures: bool = F
     base = _base_url(futures)
     ep = "/fapi/v1/klines" if futures else "/api/v3/klines"
     r = _http.get(base + ep, params={"symbol": sym, "interval": interval, "limit": min(limit, 1500)})
+    if r is None:
+        raise ValueError(f"No response from Binance for {sym}")
+    if r.status_code != 200:
+        raise ValueError(f"Binance returned HTTP {r.status_code} for {sym}")
     return r.json()
 
 def exchange_info(symbol: Optional[str] = None, futures: bool = False) -> Dict[str, Any]:

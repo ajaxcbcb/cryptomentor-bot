@@ -35,6 +35,17 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Register basic handlers
+    from app.handlers_basic import cmd_start, cmd_help, cmd_status, callback_start_autotrade, callback_show_help
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("status", cmd_status))
+    
+    # Register callback handlers for start screen
+    from telegram.ext import CallbackQueryHandler
+    app.add_handler(CallbackQueryHandler(callback_start_autotrade, pattern="^start_autotrade$"))
+    app.add_handler(CallbackQueryHandler(callback_show_help, pattern="^show_help$"))
+
     # Register autotrade handlers
     from app.handlers_autotrade import (
         cmd_autotrade,

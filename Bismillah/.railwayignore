@@ -1,0 +1,65 @@
+# Files to ignore during Railway deployment
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Node.js (keep automaton/node_modules for deployment)
+# node_modules/ - DON'T ignore, needed for automaton
+
+# Testing
+.pytest_cache/
+.hypothesis/
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation (optional, can include if needed)
+*.md
+!README.md
+!COMBINED_DEPLOYMENT_GUIDE.md
+
+# Test files
+test_*.py
+*_test.py
+test/
+tests/
+
+# Local development
+.env.local
+.env.*.local
+attached_assets/
+signal_logs/
+
+# Backup files
+*.bak
+*.backup
+*.old

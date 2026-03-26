@@ -3,35 +3,69 @@ import sys
 from app.supabase_repo import ensure_user_exists_no_credit, get_credits, debit_credits_rpc
 
 def _check_premium(tg_id: int) -> bool:
-    """Check premium status using Supabase"""
+    """Check premium status - Supabase first, local DB fallback"""
+    import os
+    
+    # Admin always gets premium access
+    admin_ids = set()
+    for key in ("ADMIN_USER_ID", "ADMIN1", "ADMIN2", "ADMIN3"):
+        val = os.getenv(key)
+        if val and val.isdigit():
+            admin_ids.add(int(val))
+    if tg_id in admin_ids:
+        print(f"[_check_premium] Admin user {tg_id} - auto premium", flush=True)
+        return True
+
+    # Try Supabase first
     try:
         from app.supabase_repo import get_user_by_tid
         user = get_user_by_tid(tg_id)
-        if not user:
-            return False
-        
-        if user.get("is_lifetime"):
-            return True
-        if not user.get("is_premium"):
-            return False
-        
-        # Check expiry
-        premium_until = user.get("premium_until")
-        if not premium_until:
-            return user.get("is_premium", False)
-        
-        from datetime import datetime
-        try:
-            if isinstance(premium_until, str):
-                expiry = datetime.fromisoformat(premium_until.replace('Z', '+00:00').replace('+00:00', ''))
+        if user:
+            if user.get("is_lifetime"):
+                return True
+            if not user.get("is_premium"):
+                pass  # fall through to local DB check
             else:
-                expiry = premium_until
-            return expiry > datetime.utcnow()
-        except:
-            return user.get("is_premium", False)
+                premium_until = user.get("premium_until")
+                if not premium_until:
+                    return True
+                from datetime import datetime
+                try:
+                    if isinstance(premium_until, str):
+                        expiry = datetime.fromisoformat(premium_until.replace('Z', '+00:00').replace('+00:00', ''))
+                    else:
+                        expiry = premium_until
+                    return expiry > datetime.utcnow()
+                except:
+                    return True
     except Exception as e:
-        print(f"[_check_premium] Error: {e}", flush=True)
-        return False
+        print(f"[_check_premium] Supabase error: {e}", flush=True)
+
+    # Fallback: local DB
+    try:
+        from database import Database
+        db = Database()
+        user = db.get_user(tg_id)
+        if user:
+            if user.get("is_lifetime"):
+                return True
+            if user.get("is_premium"):
+                premium_until = user.get("premium_until")
+                if not premium_until:
+                    return True
+                from datetime import datetime
+                try:
+                    if isinstance(premium_until, str):
+                        expiry = datetime.fromisoformat(premium_until.replace('Z', '+00:00').replace('+00:00', ''))
+                    else:
+                        expiry = premium_until
+                    return expiry > datetime.utcnow()
+                except:
+                    return True
+    except Exception as e:
+        print(f"[_check_premium] Local DB error: {e}", flush=True)
+
+    return False
 
 def require_credits(tg_id: int, cost: int, username: str = None, first: str = None, last: str = None) -> Tuple[bool, int, str]:
     """
