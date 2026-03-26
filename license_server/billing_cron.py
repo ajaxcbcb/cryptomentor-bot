@@ -240,10 +240,12 @@ if __name__ == "__main__":
 
     scheduler = create_scheduler()
     
-    # Create event loop for AsyncIOScheduler
+    # Create and set event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
+    # Start scheduler in the loop
+    loop.run_until_complete(asyncio.sleep(0))  # Initialize loop
     scheduler.start()
     logger.info("Billing scheduler started. Next run: daily at 00:00 UTC.")
 
