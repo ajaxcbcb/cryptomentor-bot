@@ -73,6 +73,45 @@ class LicenseGuard:
         logger.warning("[LicenseGuard] API unreachable, trying cache fallback")
         return await self._handle_cache_fallback()
 
+    async def check_license_valid(self) -> bool:
+        """
+        Check apakah license valid saat ini (untuk middleware).
+        Returns True jika valid, False jika suspended/invalid.
+        Tidak mengirim notifikasi (sudah dikirim di startup_check).
+        """
+        # Development mode: skip license check
+        if not self._api_url or not self._wl_id or not self._secret_key:
+            return True
+
+        response = await self._call_api()
+
+        if response is not None:
+            # API berhasil dijangkau
+            self._save_cache(response)
+            
+            if response.get("valid") is True:
+                # Clear suspended notification flag jika license aktif kembali
+                self._clear_notif_flag("suspended")
+                return True
+            
+            return False
+
+        # API tidak bisa dijangkau — fallback ke cache
+        cache = self._load_cache()
+        if cache is None:
+            return False
+
+        cached_at = self._parse_cached_at(cache.get("cached_at"))
+        if cached_at is None:
+            return False
+
+        age_seconds = (datetime.now(timezone.utc) - cached_at).total_seconds()
+        
+        if age_seconds < self.CACHE_MAX_AGE:
+            return bool(cache.get("valid", False))
+        
+        return False
+
     async def periodic_check_loop(self):
         """Asyncio loop — check setiap CHECK_INTERVAL detik."""
         while True:

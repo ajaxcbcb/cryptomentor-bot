@@ -35,6 +35,12 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # ── Add license middleware to block users when suspended ────
+    from app.license_middleware import LicenseMiddleware
+    license_middleware = LicenseMiddleware(license_guard)
+    app.add_handler(license_middleware, group=-1)  # group=-1 = runs before all other handlers
+    logger.info("License middleware registered — will block users if license suspended")
+
     # Register basic handlers
     from app.handlers_basic import cmd_start, cmd_help, cmd_status, callback_start_autotrade, callback_show_help
     app.add_handler(CommandHandler("start", cmd_start))
