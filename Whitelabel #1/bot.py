@@ -42,10 +42,11 @@ async def main():
     logger.info("License middleware registered — will block users if license suspended")
 
     # Register basic handlers
-    from app.handlers_basic import cmd_start, cmd_help, cmd_status, callback_start_autotrade, callback_show_help
+    from app.handlers_basic import cmd_start, cmd_help, cmd_status, cmd_license_status, callback_start_autotrade, callback_show_help
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("license_status", cmd_license_status))
     
     # Register callback handlers for start screen
     from telegram.ext import CallbackQueryHandler

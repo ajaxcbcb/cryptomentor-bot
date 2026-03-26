@@ -283,14 +283,29 @@ class LicenseGuard:
         deposit_address = os.getenv("DEPOSIT_ADDRESS", "0xff680baa2BaaD50f3756efF778eF673d0fd8cAF9")
         
         msg = (
-            "🚫 *Bot Suspended*\n\n"
-            "Lisensi bot telah di-suspend karena balance habis.\n\n"
-            "📥 *Untuk Reaktivasi:*\n"
-            f"Kirim USDT (BSC Network) ke:\n"
+            "🚫 *Bot Suspended - Payment Required*\n\n"
+            "⚠️ Lisensi bot telah di-suspend karena balance habis.\n"
+            "👥 User tidak bisa menggunakan bot sampai Anda membayar.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💳 *CARA PEMBAYARAN (OTOMATIS)*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "1️⃣ Kirim USDT via *BSC Network* (Binance Smart Chain) ke:\n\n"
+            f"📍 *Wallet Address:*\n"
             f"`{deposit_address}`\n\n"
-            "Minimum: $10 USDT\n"
-            "Recommended: $50 USDT (5 bulan)\n\n"
-            "Bot akan otomatis aktif setelah deposit dikonfirmasi (5-10 menit)."
+            "2️⃣ Jumlah:\n"
+            "   • Minimum: *$10 USDT* (1 bulan)\n"
+            "   • Recommended: *$50 USDT* (5 bulan)\n"
+            "   • Biaya bulanan: *$10/bulan*\n\n"
+            "3️⃣ Setelah transfer:\n"
+            "   ✅ Bot akan *otomatis aktif* dalam 5-10 menit\n"
+            "   ✅ Tidak perlu konfirmasi manual\n"
+            "   ✅ User langsung bisa pakai bot\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️ *PENTING:*\n"
+            "• Gunakan *BSC Network* (BEP20)\n"
+            "• Jangan gunakan network lain (ETH/TRC20)\n"
+            "• Deposit akan terdeteksi otomatis\n\n"
+            "💡 Cek balance: /license_status"
         )
         await self._send_telegram(msg)
         
