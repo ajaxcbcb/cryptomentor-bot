@@ -17,7 +17,7 @@ from license_server.license_manager import LicenseManager
 async def main():
     # Isi sesuai WL yang mau didaftarkan
     ADMIN_TELEGRAM_ID = int(input("Masukkan Telegram ID admin WL#1: ").strip())
-    MONTHLY_FEE = 100.0  # USD per bulan
+    MONTHLY_FEE = 10.0  # USD per bulan (TEST MODE)
 
     print(f"\nRegistering WL dengan:")
     print(f"  Admin Telegram ID: {ADMIN_TELEGRAM_ID}")
