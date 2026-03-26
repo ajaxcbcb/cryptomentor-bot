@@ -1,0 +1,16 @@
+[Unit]
+Description=Whitelabel #1 CryptoMentor Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/cryptomentor-bot/Whitelabel #1
+ExecStart=/usr/bin/python3 /root/cryptomentor-bot/Whitelabel #1/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

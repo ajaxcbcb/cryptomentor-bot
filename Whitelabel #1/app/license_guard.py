@@ -41,6 +41,11 @@ class LicenseGuard:
         Dipanggil saat bot startup.
         Returns True jika bot boleh jalan, False jika harus halt.
         """
+        # Development mode: skip license check jika LICENSE_API_URL kosong
+        if not self._api_url:
+            logger.warning("[LicenseGuard] LICENSE_API_URL not set — running in DEV MODE (no license check)")
+            return True
+
         response = await self._call_api()
 
         if response is not None:
@@ -63,7 +68,7 @@ class LicenseGuard:
 
         # API tidak bisa dijangkau — fallback ke cache
         logger.warning("[LicenseGuard] API unreachable, trying cache fallback")
-        return self._handle_cache_fallback()
+        return await self._handle_cache_fallback()
 
     async def periodic_check_loop(self):
         """Asyncio loop — check setiap CHECK_INTERVAL detik."""
@@ -165,7 +170,7 @@ class LicenseGuard:
     # Internal helpers
     # ──────────────────────────────────────────────────────────────
 
-    def _handle_cache_fallback(self) -> bool:
+    async def _handle_cache_fallback(self) -> bool:
         """
         Gunakan cache jika cached_at < 48 jam.
         Halt (return False) jika cache > 48 jam atau tidak ada.
@@ -174,7 +179,7 @@ class LicenseGuard:
 
         if cache is None:
             logger.error("[LicenseGuard] No cache available and API unreachable — halting bot")
-            asyncio.get_event_loop().run_until_complete(self._notify_api_down_no_cache())
+            await self._notify_api_down_no_cache()
             return False
 
         cached_at = self._parse_cached_at(cache.get("cached_at"))
@@ -196,15 +201,7 @@ class LicenseGuard:
             "[LicenseGuard] Cache too old (%.0f s) and API unreachable — halting bot",
             age_seconds
         )
-        # Kirim notifikasi secara sync-safe
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._notify_api_down_stale_cache())
-            else:
-                loop.run_until_complete(self._notify_api_down_stale_cache())
-        except Exception as exc:
-            logger.error("[LicenseGuard] Failed to send stale cache notification: %s", exc)
+        await self._notify_api_down_stale_cache()
         return False
 
     @staticmethod
