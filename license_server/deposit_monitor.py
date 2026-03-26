@@ -193,7 +193,89 @@ class DepositMonitor:
             wl_id,
             tx_hash,
         )
+        
+        # Trigger billing setelah deposit
+        await self._trigger_billing(wl_id, amount_usdt)
+        
         await self._notify_deposit(wl_id, amount_usdt, tx_hash)
+
+    # ------------------------------------------------------------------
+    # _trigger_billing — Auto-billing setelah deposit
+    # ------------------------------------------------------------------
+
+    async def _trigger_billing(self, wl_id: str, deposited_amount: float) -> None:
+        """Trigger billing otomatis setelah deposit untuk aktivasi langsung."""
+        try:
+            logger.info("_trigger_billing: running billing for wl_id=%s after deposit of %.2f USDT", wl_id, deposited_amount)
+            
+            result = await self._license_manager.debit_billing(wl_id)
+            
+            if result.get("success"):
+                logger.info(
+                    "_trigger_billing: billing successful for wl_id=%s — status: %s, balance: %.2f",
+                    wl_id,
+                    result.get("new_status"),
+                    result.get("balance_after", 0),
+                )
+                
+                # Kirim notifikasi aktivasi jika status berubah ke active
+                if result.get("new_status") == "active":
+                    await self._notify_activation(wl_id, result)
+            else:
+                logger.warning(
+                    "_trigger_billing: billing failed for wl_id=%s — insufficient balance",
+                    wl_id,
+                )
+        except Exception:
+            logger.exception("_trigger_billing: failed for wl_id=%s — non-fatal", wl_id)
+
+    # ------------------------------------------------------------------
+    # _notify_activation — Notifikasi bot aktif kembali
+    # ------------------------------------------------------------------
+
+    async def _notify_activation(self, wl_id: str, billing_result: dict) -> None:
+        """Kirim notifikasi bahwa bot telah diaktifkan kembali."""
+        if not BOT_TOKEN:
+            return
+
+        try:
+            license_row = await self._license_manager.get_license(wl_id)
+            if not license_row:
+                return
+
+            admin_telegram_id: int = license_row["admin_telegram_id"]
+            balance_after = billing_result.get("balance_after", 0)
+            expires_at = billing_result.get("expires_at", "")
+            
+            # Parse expires_at untuk format yang lebih readable
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                expires_str = dt.strftime("%Y-%m-%d %H:%M UTC")
+            except:
+                expires_str = expires_at
+
+            message = (
+                f"✅ *Bot Diaktifkan Kembali*\n\n"
+                f"Lisensi bot Anda telah diaktifkan kembali setelah pembayaran berhasil.\n\n"
+                f"💰 Saldo Saat Ini: `${balance_after:.2f} USDT`\n"
+                f"📅 Berlaku Hingga: `{expires_str}`\n\n"
+                f"Bot Anda sekarang aktif dan siap digunakan!"
+            )
+
+            http = await self._get_http()
+            url = TELEGRAM_API_URL.format(token=BOT_TOKEN)
+            payload = {
+                "chat_id": admin_telegram_id,
+                "text": message,
+                "parse_mode": "Markdown",
+            }
+            resp = await http.post(url, json=payload)
+            resp.raise_for_status()
+            logger.info("_notify_activation: sent activation notification to %d", admin_telegram_id)
+
+        except Exception:
+            logger.warning("_notify_activation: failed — non-fatal", exc_info=True)
 
     # ------------------------------------------------------------------
     # _notify_deposit — Telegram notification via bot pusat

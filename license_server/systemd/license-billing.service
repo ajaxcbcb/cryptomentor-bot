@@ -1,0 +1,15 @@
+[Unit]
+Description=License Billing Cron
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/cryptomentor-bot/license_server
+Environment="PATH=/root/cryptomentor-bot/license_server/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/root/cryptomentor-bot/license_server/venv/bin/python billing_cron.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
