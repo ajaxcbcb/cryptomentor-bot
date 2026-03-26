@@ -220,6 +220,21 @@ def create_scheduler() -> AsyncIOScheduler:
     return scheduler
 
 
+async def main_loop():
+    """Main async loop untuk billing scheduler."""
+    scheduler = create_scheduler()
+    scheduler.start()
+    logger.info("Billing scheduler started. Next run: daily at 00:00 UTC.")
+    
+    try:
+        # Keep running forever
+        while True:
+            await asyncio.sleep(3600)  # Sleep 1 hour, scheduler runs in background
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        logger.info("Billing scheduler shutting down.")
+        scheduler.shutdown()
+
+
 # ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
@@ -238,20 +253,7 @@ if __name__ == "__main__":
     if not BOT_TOKEN:
         logger.warning("BOT_TOKEN not set — Telegram notifications will be disabled.")
 
-    scheduler = create_scheduler()
-    
-    # Create and set event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Start scheduler in the loop
-    loop.run_until_complete(asyncio.sleep(0))  # Initialize loop
-    scheduler.start()
-    logger.info("Billing scheduler started. Next run: daily at 00:00 UTC.")
-
     try:
-        loop.run_forever()
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Billing scheduler shutting down.")
-        scheduler.shutdown()
-        loop.close()
+        asyncio.run(main_loop())
+    except KeyboardInterrupt:
+        logger.info("Billing scheduler stopped by user.")
