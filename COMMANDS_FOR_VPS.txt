@@ -1,0 +1,114 @@
+=======================================================================
+COMMANDS TO RUN ON VPS - Copy paste satu per satu
+=======================================================================
+
+# ===== COMMAND 1: Register WL =====
+cd /root/cryptomentor-bot/license_server
+source venv/bin/activate
+python << 'EOF'
+import asyncio
+from license_manager import LicenseManager
+
+async def main():
+    result = await LicenseManager().register_wl(admin_telegram_id=1234500009, monthly_fee=10.0)
+    wl_id = result['wl_id']
+    secret = result['secret_key']
+    print(f"\n{'='*70}")
+    print("WL REGISTERED")
+    print(f"{'='*70}")
+    print(f"WL_ID={wl_id}")
+    print(f"WL_SECRET_KEY=<REDACTED_WL_SECRET_KEY>
+    print(f"DEPOSIT_ADDRESS={result['deposit_address']}")
+    print(f"{'='*70}\n")
+    print(f"SAVE THIS: {wl_id}|{secret}")
+
+asyncio.run(main())
+EOF
+
+# ===== SETELAH COMMAND 1, COPY WL_ID DAN SECRET_KEY! =====
+# Format output: WL_ID|SECRET_KEY (contoh: abc123-def456|xyz789-uvw012)
+
+
+# ===== COMMAND 2: Activate License =====
+# GANTI "PASTE_WL_ID_HERE" dengan WL_ID dari command 1
+python << 'EOF'
+import asyncio
+from datetime import datetime, timezone, timedelta
+from license_manager import LicenseManager
+
+WL_ID = "PASTE_WL_ID_HERE"
+
+async def main():
+    manager = LicenseManager()
+    print(f"Activating WL: {WL_ID}\n")
+    
+    # Deposit
+    await manager.credit_balance(wl_id=WL_ID, amount=50.0, tx_hash="0xVPS_FINAL_DEPLOY", block_number=99999999)
+    print("✅ Deposit: $50")
+    
+    # Billing
+    client = await manager._get_client()
+    license_row = await manager.get_license(wl_id=WL_ID)
+    balance = float(license_row['balance_usdt'])
+    monthly_fee = float(license_row['monthly_fee'])
+    new_balance = balance - monthly_fee
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    
+    await client.table('wl_licenses').update({
+        'balance_usdt': new_balance,
+        'status': 'active',
+        'expires_at': expires_at.isoformat()
+    }).eq('wl_id', WL_ID).execute()
+    
+    print(f"✅ Billing: -${monthly_fee}, Balance: ${new_balance}")
+    print(f"✅ Status: active")
+    print(f"✅ Expires: {expires_at}\n")
+
+asyncio.run(main())
+EOF
+
+
+# ===== COMMAND 3: Update .env =====
+cd /root/cryptomentor-bot/whitelabel-1
+
+# GANTI "PASTE_WL_ID_HERE" dan "PASTE_SECRET_KEY_HERE" dengan nilai dari command 1
+sed -i 's/^WL_ID=.*/WL_ID=PASTE_WL_ID_HERE/' .env
+sed -i 's/^WL_SECRET_KEY=<REDACTED_WL_SECRET_KEY> .env
+sed -i 's|^LICENSE_API_URL=.*|LICENSE_API_URL=http://147.93.156.165:8080|' .env
+
+# Verify
+echo "=== .env updated ==="
+cat .env | grep -E '(WL_ID|WL_SECRET_KEY|LICENSE_API_URL)'
+
+
+# ===== COMMAND 4: Restart Bot =====
+sudo systemctl restart whitelabel1
+sleep 5
+sudo systemctl status whitelabel1 --no-pager | head -20
+
+
+# ===== COMMAND 5: Check Logs =====
+sudo journalctl -u whitelabel1 -n 30 --no-pager | grep -E "(License|Started|ERROR|valid)"
+
+
+# ===== COMMAND 6: Test License API =====
+# GANTI "PASTE_WL_ID_HERE" dan "PASTE_SECRET_KEY_HERE"
+curl -X POST http://localhost:8080/api/license/check \
+  -H "Content-Type: application/json" \
+  -d '{"wl_id":"PASTE_WL_ID_HERE","secret_key":"<REDACTED_WL_SECRET_KEY>"}'
+
+
+=======================================================================
+EXPECTED RESULTS:
+=======================================================================
+
+Command 1: Should print WL_ID and SECRET_KEY (save these!)
+Command 2: Should print "✅ Status: active"
+Command 3: Should show updated .env values
+Command 4: Should show "active (running)"
+Command 5: Should show "[LicenseGuard] License valid — status: active"
+Command 6: Should return {"valid":true,"status":"active"}
+
+=======================================================================
+IF ALL PASS: Bot is ready! Test in Telegram with /start
+=======================================================================
