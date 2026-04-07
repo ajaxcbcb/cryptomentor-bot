@@ -63,20 +63,24 @@ def calculate_stackmentor_levels(
 def calculate_qty_splits(total_qty: float, precision: int = 3) -> Tuple[float, float, float]:
     """
     Split quantity into 3 tiers: 60%, 30%, 10%
+    Dynamically infers max precision from total_qty to prevent rounding errors
+    from breaking percentage expectations.
     
     Returns: (qty_tp1, qty_tp2, qty_tp3)
     """
     cfg = STACKMENTOR_CONFIG
     
+    # Analyze the actual precision of total_qty
+    qty_str = f"{total_qty:.8f}".rstrip('0')
+    if '.' in qty_str:
+        actual_prec = len(qty_str.split('.')[1])
+        precision = max(precision, actual_prec)
+    
     qty_tp1 = round(total_qty * cfg["tp1_pct"], precision)
     qty_tp2 = round(total_qty * cfg["tp2_pct"], precision)
-    qty_tp3 = round(total_qty * cfg["tp3_pct"], precision)
     
-    # Ensure sum equals total (handle rounding)
-    total_split = qty_tp1 + qty_tp2 + qty_tp3
-    if total_split != total_qty:
-        diff = total_qty - total_split
-        qty_tp1 += diff  # Add difference to TP1
+    # Give remaining directly to tp3 to ensure total sum is perfectly equal
+    qty_tp3 = round(total_qty - qty_tp1 - qty_tp2, precision)
     
     return (qty_tp1, qty_tp2, qty_tp3)
 
