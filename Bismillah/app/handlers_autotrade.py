@@ -1697,9 +1697,15 @@ async def callback_trade_history(update: Update, context: ContextTypes.DEFAULT_T
                 )
                 healed = reconcile_open_trades_with_exchange(user_id, client)
                 if healed:
-                    logger.info(f"[/history:{user_id}] reconciled {healed} stale open trades")
+                    import logging as _log
+                    _log.getLogger(__name__).info(
+                        f"[/history:{user_id}] reconciled {healed} stale open trades"
+                    )
         except Exception as _rec_err:
-            logger.warning(f"[/history:{user_id}] reconcile skipped: {_rec_err}")
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                f"[/history:{user_id}] reconcile skipped: {_rec_err}"
+            )
 
         trades = get_trade_history(user_id, limit=15)
 
