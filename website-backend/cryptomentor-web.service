@@ -1,0 +1,15 @@
+[Unit]
+Description=CryptoMentor Website Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/cryptomentor-bot/website-backend
+ExecStart=/root/cryptomentor-bot/website-backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+EnvironmentFile=/root/cryptomentor-bot/website-backend/.env
+
+[Install]
+WantedBy=multi-user.target
