@@ -1681,7 +1681,25 @@ async def callback_trade_history(update: Update, context: ContextTypes.DEFAULT_T
     ])
 
     try:
-        from app.trade_history import get_trade_history
+        from app.trade_history import get_trade_history, reconcile_open_trades_with_exchange
+
+        # Self-heal stale "open" rows before rendering. Pulls live positions
+        # from the user's exchange and closes any DB row that no longer has
+        # a matching position (orphans from restarts, manual closes, missed
+        # SL/TP fills, scalping closes the engine never persisted).
+        try:
+            keys = get_user_api_keys(user_id)
+            if keys and keys.get('api_key') and keys.get('api_secret'):
+                from app.bitunix_autotrade_client import BitunixAutoTradeClient
+                client = BitunixAutoTradeClient(
+                    api_key=keys['api_key'],
+                    api_secret=keys['api_secret'],
+                )
+                healed = reconcile_open_trades_with_exchange(user_id, client)
+                if healed:
+                    logger.info(f"[/history:{user_id}] reconciled {healed} stale open trades")
+        except Exception as _rec_err:
+            logger.warning(f"[/history:{user_id}] reconcile skipped: {_rec_err}")
 
         trades = get_trade_history(user_id, limit=15)
 

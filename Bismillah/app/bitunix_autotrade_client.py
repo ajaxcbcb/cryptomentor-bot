@@ -85,6 +85,19 @@ class BitunixAutoTradeClient:
         else:
             headers = {"Content-Type": "application/json"}
 
+        # Build the URL with a deterministic, alphabetically-sorted query
+        # string for GET requests so the wire matches the signature exactly.
+        # The HTTP layer would otherwise re-encode `params` in dict-insertion
+        # order, which can drift from the sorted order used to compute `sign`.
+        if method.upper() == 'GET' and params:
+            from urllib.parse import quote
+            sorted_qs = "&".join(
+                f"{quote(str(k), safe='')}={quote(str(v), safe='')}"
+                for k, v in sorted(params.items())
+            )
+            url = f"{url}?{sorted_qs}"
+            params = None  # already in URL — don't pass again
+
         # Proxy rotation — PROXY_URL bisa berisi satu atau beberapa URL dipisah koma
         # Contoh: http://user:pass@ip1:port,http://user:pass@ip2:port
         import re, random
@@ -291,8 +304,12 @@ class BitunixAutoTradeClient:
 
                 positions.append({
                     'symbol': pos.get('symbol'),
+                    # Bitunix returns LONG / SHORT (not BUY / SELL)
                     'side': pos.get('side', '').upper(),
                     'size': qty,
+                    'qty': qty,
+                    # Required to update TP/SL or close via tradeSide=CLOSE
+                    'position_id': pos.get('positionId'),
                     'entry_price': entry_price,
                     'mark_price': float(pos.get('markPrice') or pos.get('avgOpenPrice') or entry_price),
                     'pnl': float(pos.get('unrealizedPNL', 0)),
@@ -319,9 +336,14 @@ class BitunixAutoTradeClient:
             'symbol': symbol,
             'qty': str(qty),
             'side': side.upper(),
-            'tradeSide': 'OPEN' if not reduce_only else 'CLOSE',
+            # tradeSide=CLOSE per Bitunix doc requires positionId. Use
+            # reduceOnly=true with tradeSide=OPEN instead — semantically
+            # equivalent and avoids the lookup.
+            'tradeSide': 'OPEN',
             'orderType': order_type.upper(),
         }
+        if reduce_only:
+            body['reduceOnly'] = True
         if order_type.lower() == 'limit' and price:
             body['price'] = str(price)
 
@@ -337,17 +359,46 @@ class BitunixAutoTradeClient:
     # ------------------------------------------------------------------ #
 
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = "cross") -> Dict:
-        """Set leverage for a symbol. margin_mode: cross / isolated"""
+        """
+        Set leverage for a symbol.
+        Per Bitunix docs, change_leverage takes {symbol, leverage:int, marginCoin}.
+        Margin mode is configured via a SEPARATE endpoint (change_margin_mode).
+        We call both for backwards compatibility with the old API surface.
+        """
         body = {
             "symbol": symbol,
-            "leverage": str(leverage),
-            "marginMode": margin_mode.upper(),
+            "leverage": int(leverage),
+            "marginCoin": "USDT",
         }
         result = self._request('POST', '/api/v1/futures/account/change_leverage',
                                body=body, signed=True)
-        if result['success']:
-            return {'success': True, 'leverage': leverage, 'margin_mode': margin_mode}
-        return result
+        if not result['success']:
+            return result
+
+        # Best-effort margin mode change. Non-fatal if it fails.
+        if margin_mode:
+            try:
+                self.set_margin_mode(symbol, margin_mode)
+            except Exception:
+                pass
+
+        return {'success': True, 'leverage': leverage, 'margin_mode': margin_mode}
+
+    def set_margin_mode(self, symbol: str, margin_mode: str) -> Dict:
+        """Set margin mode (CROSSED / ISOLATION) for a symbol."""
+        mode = margin_mode.upper()
+        # Bitunix accepts CROSSED / ISOLATION
+        if mode in ("CROSS", "CROSSED"):
+            mode = "CROSSED"
+        elif mode in ("ISOLATED", "ISOLATION"):
+            mode = "ISOLATION"
+        body = {
+            "symbol": symbol,
+            "marginCoin": "USDT",
+            "marginMode": mode,
+        }
+        return self._request('POST', '/api/v1/futures/account/change_margin_mode',
+                             body=body, signed=True)
 
     def place_order_with_tpsl(self, symbol: str, side: str, qty: float,
                                tp_price: float, sl_price: float) -> Dict:
@@ -377,20 +428,77 @@ class BitunixAutoTradeClient:
             }
         return result
 
+    def _resolve_position(self, symbol: str) -> Optional[Dict]:
+        """Look up the live position for a symbol (returns the dict or None)."""
+        try:
+            res = self.get_positions()
+            if not res.get('success'):
+                return None
+            for p in res.get('positions', []):
+                if p.get('symbol') == symbol:
+                    return p
+        except Exception:
+            return None
+        return None
+
     def set_position_sl(self, symbol: str, sl_price: float) -> Dict:
         """
-        Update SL on an open position (used for breakeven after TP1 hit).
-        Bitunix endpoint: POST /api/v1/futures/position/set_tpsl
+        Update the SL on an open position (used for breakeven move after TP1).
+
+        Bitunix exposes TP/SL management via /api/v1/futures/tpsl/place_order
+        which requires `positionId` and `slQty`. We resolve both from the
+        live position list.
         """
+        pos = self._resolve_position(symbol)
+        if not pos:
+            return {'success': False, 'error': f'No open position for {symbol}'}
+
+        position_id = pos.get('position_id')
+        qty = float(pos.get('qty') or pos.get('size') or 0)
+        if not position_id or qty <= 0:
+            return {'success': False, 'error': f'Cannot resolve positionId/qty for {symbol}'}
+
         body = {
             "symbol": symbol,
+            "positionId": str(position_id),
             "slPrice": str(round(sl_price, 6)),
             "slStopType": "MARK_PRICE",
+            "slQty": str(qty),
         }
-        result = self._request('POST', '/api/v1/futures/position/set_tpsl',
+        result = self._request('POST', '/api/v1/futures/tpsl/place_order',
                                body=body, signed=True)
         if result['success']:
             return {'success': True, 'symbol': symbol, 'new_sl': sl_price}
+        return result
+
+    def set_position_tpsl(self, symbol: str, tp_price: float, sl_price: float) -> Dict:
+        """
+        Update both TP and SL on an open position in a single call.
+        Used by the trade_execution self-healing reconciler.
+        """
+        pos = self._resolve_position(symbol)
+        if not pos:
+            return {'success': False, 'error': f'No open position for {symbol}'}
+
+        position_id = pos.get('position_id')
+        qty = float(pos.get('qty') or pos.get('size') or 0)
+        if not position_id or qty <= 0:
+            return {'success': False, 'error': f'Cannot resolve positionId/qty for {symbol}'}
+
+        body = {
+            "symbol": symbol,
+            "positionId": str(position_id),
+            "tpPrice": str(round(tp_price, 6)),
+            "tpStopType": "MARK_PRICE",
+            "tpQty": str(qty),
+            "slPrice": str(round(sl_price, 6)),
+            "slStopType": "MARK_PRICE",
+            "slQty": str(qty),
+        }
+        result = self._request('POST', '/api/v1/futures/tpsl/place_order',
+                               body=body, signed=True)
+        if result['success']:
+            return {'success': True, 'symbol': symbol, 'new_tp': tp_price, 'new_sl': sl_price}
         return result
 
     def close_partial(self, symbol: str, side: str, qty: float) -> Dict:
@@ -403,7 +511,7 @@ class BitunixAutoTradeClient:
             "symbol": symbol,
             "qty": str(qty),
             "side": side.upper(),
-            "tradeSide": "CLOSE",
+            "tradeSide": "OPEN",      # reduceOnly carries the close semantics
             "orderType": "MARKET",
             "reduceOnly": True,
         }
@@ -505,9 +613,14 @@ class BitunixAutoTradeClient:
 
     def get_trade_history(self, user_id: int, limit: int = 10) -> Dict:
         result = self._request('GET', '/api/v1/futures/trade/get_history_orders',
-                               params={'pageSize': limit}, signed=True)
+                               params={'limit': limit}, signed=True)
         if result['success']:
-            orders = result['data'] or []
+            data = result['data'] or {}
+            # Bitunix returns {orderList: [...], total: n} (not a bare list)
+            if isinstance(data, dict):
+                orders = data.get('orderList', []) or []
+            else:
+                orders = data or []
             if not orders:
                 return {'success': True, 'response': "📈 No trade history yet."}
             lines = [f"📈 Trade History (last {limit})\n"]

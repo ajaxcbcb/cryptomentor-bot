@@ -821,112 +821,27 @@ class ScalpingEngine:
                     )
                     return False
                 
-                # Place market order
-                side_str = "BUY" if signal.side == "LONG" else "SELL"
-                
-                result = await asyncio.to_thread(
-                    self.client.place_order,
+                # ═══════════════════════════════════════════════════════════
+                # Unified entry path — see app/trade_execution.py
+                # Atomic order with TP1 + SL on exchange + StackMentor register
+                # ═══════════════════════════════════════════════════════════
+                from app.trade_execution import open_managed_position
+
+                exec_result = await open_managed_position(
+                    client=self.client,
+                    user_id=self.user_id,
                     symbol=signal.symbol,
-                    side=side_str,
-                    qty=quantity_adjusted,
-                    order_type='market'
+                    side=signal.side,                # "LONG" / "SHORT"
+                    entry_price=signal.entry_price,
+                    sl_price=signal.sl_price,
+                    quantity=quantity_adjusted,
+                    leverage=effective_leverage,
                 )
-                
-                if result.get('success'):
-                    # ═══════════════════════════════════════════════════════════
-                    # USE STACKMENTOR 3-TIER TP SYSTEM FOR SCALPING
-                    # Lebih aman karena TP/SL sudah ter-set dengan sistem proven
-                    # ═══════════════════════════════════════════════════════════
-                    
-                    from app.stackmentor import (
-                        calculate_stackmentor_levels,
-                        calculate_qty_splits,
-                        register_stackmentor_position
-                    )
-                    
-                    # Calculate StackMentor 3-tier TP levels
-                    levels = calculate_stackmentor_levels(
-                        entry_price=signal.entry_price,
-                        sl_price=signal.sl_price,
-                        side=side_str
-                    )
-                    
-                    if not levels:
-                        logger.error(f"[Scalping:{self.user_id}] Failed to calculate StackMentor levels")
-                        # Fallback to emergency close
-                        close_side = "SELL" if side_str == "BUY" else "BUY"
-                        await asyncio.to_thread(
-                            self.client.place_order,
-                            symbol=signal.symbol,
-                            side=close_side,
-                            qty=quantity_adjusted,
-                            order_type='market',
-                            reduce_only=True
-                        )
-                        await self._notify_user(
-                            f"🚨 <b>EMERGENCY CLOSE: {signal.symbol}</b>\n\n"
-                            f"Failed to calculate TP levels.\n"
-                            f"Position closed for safety. ✅"
-                        )
-                        return False
-                    
-                    # Calculate quantity splits (60%/30%/10%)
-                    qty_splits = calculate_qty_splits(quantity_adjusted, signal.symbol)
-                    
-                    # Set initial SL on exchange
-                    sl_result = await asyncio.to_thread(
-                        self.client.set_position_sl,
-                        signal.symbol,
-                        levels['sl']
-                    )
-                    
-                    if not sl_result.get('success'):
-                        logger.critical(
-                            f"[Scalping:{self.user_id}] CRITICAL: Failed to set SL for {signal.symbol}: "
-                            f"{sl_result.get('error')}"
-                        )
-                        # EMERGENCY: Close position immediately
-                        close_side = "SELL" if side_str == "BUY" else "BUY"
-                        await asyncio.to_thread(
-                            self.client.place_order,
-                            symbol=signal.symbol,
-                            side=close_side,
-                            qty=quantity_adjusted,
-                            order_type='market',
-                            reduce_only=True
-                        )
-                        await self._notify_user(
-                            f"🚨 <b>EMERGENCY CLOSE: {signal.symbol}</b>\n\n"
-                            f"Failed to set SL!\n"
-                            f"Position closed immediately for safety.\n\n"
-                            f"Your capital is protected. ✅"
-                        )
-                        return False
-                    
-                    logger.info(f"[Scalping:{self.user_id}] SL set @ {levels['sl']:.4f} ✅")
-                    
-                    # Register StackMentor position in database
-                    stackmentor_success = await asyncio.to_thread(
-                        register_stackmentor_position,
-                        telegram_id=self.user_id,
-                        symbol=signal.symbol,
-                        side=side_str,
-                        entry_price=signal.entry_price,
-                        quantity=quantity_adjusted,
-                        leverage=effective_leverage,
-                        tp1_price=levels['tp1'],
-                        tp2_price=levels['tp2'],
-                        tp3_price=levels['tp3'],
-                        sl_price=levels['sl'],
-                        qty1=qty_splits['qty1'],
-                        qty2=qty_splits['qty2'],
-                        qty3=qty_splits['qty3']
-                    )
-                    
-                    if not stackmentor_success:
-                        logger.error(f"[Scalping:{self.user_id}] Failed to register StackMentor position")
-                        # Position is open with SL, so don't close - just log error
-                    
+
+                if exec_result.success:
+                    levels = exec_result.levels
+                    side_str = "BUY" if signal.side == "LONG" else "SELL"
+
                     # Register position for local tracking
                     position = ScalpingPosition(
                         user_id=self.user_id,
@@ -935,48 +850,67 @@ class ScalpingEngine:
                         entry_price=signal.entry_price,
                         quantity=quantity_adjusted,
                         leverage=effective_leverage,
-                        tp_price=levels['tp1'],  # Use TP1 as primary TP
-                        sl_price=levels['sl'],
+                        tp_price=levels.tp1,
+                        sl_price=levels.sl,
                         opened_at=time.time(),
-                        breakeven_set=False
+                        breakeven_set=False,
                     )
-                    
                     self.positions[signal.symbol] = position
-                    
+
                     # Mark as sideways position if signal is MicroScalpSignal
                     from app.trading_mode import MicroScalpSignal as _MicroScalpSignal
                     if isinstance(signal, _MicroScalpSignal):
                         position.is_sideways = True
-                    
-                    # Save to database
+
+                    # Save to database + notify user
                     await self._save_position_to_db(position, signal)
-                    
-                    # Notify user with StackMentor details
-                    await self._notify_stackmentor_opened(position, signal, levels, qty_splits)
-                    
+                    await self._notify_stackmentor_opened(position, signal, levels)
+
                     logger.info(
-                        f"[Scalping:{self.user_id}] StackMentor position opened: {signal.symbol} {side_str} "
-                        f"@ {signal.entry_price:.4f}, Qty: {quantity_adjusted:.6f}, "
-                        f"TP1={levels['tp1']:.4f} TP2={levels['tp2']:.4f} TP3={levels['tp3']:.4f}"
+                        f"[Scalping:{self.user_id}] StackMentor position opened: "
+                        f"{signal.symbol} {side_str} @ {signal.entry_price:.4f}, "
+                        f"Qty: {quantity_adjusted:.6f}, "
+                        f"TP1={levels.tp1:.4f} TP2={levels.tp2:.4f} TP3={levels.tp3:.4f}"
                     )
-                    
                     return True
                 else:
-                    error_msg = result.get('error', 'Unknown error')
+                    error_msg = exec_result.error or "Unknown error"
+                    error_code = exec_result.error_code or ""
                     logger.warning(
-                        f"[Scalping:{self.user_id}] Order failed (attempt {attempt+1}): {error_msg}"
+                        f"[Scalping:{self.user_id}] Order failed (attempt {attempt+1}) "
+                        f"[{error_code}]: {error_msg}"
                     )
-                    
-                    # Check if error is retryable
-                    if 'insufficient balance' in error_msg.lower():
-                        await self._notify_user(f"❌ Order failed: Insufficient balance")
+
+                    # Non-retryable conditions
+                    if error_code == "insufficient_balance":
+                        await self._notify_user("❌ Order failed: Insufficient balance")
                         return False
-                    
+                    if error_code == "invalid_prices":
+                        await self._notify_user(
+                            f"⚠️ <b>Trade skipped: {signal.symbol}</b>\n\n"
+                            f"Market moved before entry: {error_msg}"
+                        )
+                        return False
+                    if error_code in ("auth", "ip_blocked"):
+                        await self._notify_user(
+                            f"⚠️ Exchange auth/IP error: {error_msg}\n"
+                            f"Engine continues; check API key & proxy."
+                        )
+                        return False
+                    if error_code == "reconcile_failed":
+                        await self._notify_user(
+                            f"🚨 <b>Position auto-closed: {signal.symbol}</b>\n\n"
+                            f"Self-healing check found the live position did not match "
+                            f"expected qty/TP/SL and could not be repaired. Position was "
+                            f"closed to protect your capital.\n\n"
+                            f"<code>{error_msg}</code>"
+                        )
+                        return False
                     if 'invalid symbol' in error_msg.lower():
                         await self._notify_user(f"❌ Order failed: Invalid symbol {signal.symbol}")
                         return False
-                    
-                    # Retryable error - wait and retry
+
+                    # Retryable error — backoff
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)
                         await asyncio.sleep(delay)
@@ -1009,15 +943,14 @@ class ScalpingEngine:
         
         # Use StackMentor monitoring for all positions
         from app.stackmentor import monitor_stackmentor_positions
-        
+
         try:
-            # Monitor all StackMentor positions for this user
-            await asyncio.to_thread(
-                monitor_stackmentor_positions,
+            # monitor_stackmentor_positions is async (bot, user_id, client, chat_id)
+            await monitor_stackmentor_positions(
+                self.bot,
                 self.user_id,
                 self.client,
-                self.bot,
-                self.notify_chat_id
+                self.notify_chat_id,
             )
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] Error in StackMentor monitoring: {e}")
@@ -1106,13 +1039,8 @@ class ScalpingEngine:
                 
                 # Update StackMentor tracking
                 try:
-                    from app.stackmentor import close_stackmentor_position
-                    await asyncio.to_thread(
-                        close_stackmentor_position,
-                        self.user_id,
-                        position.symbol,
-                        "max_hold_time"
-                    )
+                    from app.stackmentor import remove_stackmentor_position
+                    remove_stackmentor_position(self.user_id, position.symbol)
                 except Exception as sm_err:
                     logger.warning(f"[Scalping:{self.user_id}] Failed to update StackMentor: {sm_err}")
                 
@@ -1430,17 +1358,20 @@ class ScalpingEngine:
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] Error sending notification: {e}")
     
-    async def _notify_stackmentor_opened(self, position: ScalpingPosition, signal, levels: dict, qty_splits: dict):
-        """Notify user when StackMentor position opened"""
+    async def _notify_stackmentor_opened(self, position: ScalpingPosition, signal, levels):
+        """Notify user when StackMentor position opened.
+
+        `levels` is a `StackMentorLevels` dataclass from app.trade_execution.
+        """
         try:
             reasons_text = "\n".join(f"• {r}" for r in signal.reasons) if hasattr(signal, 'reasons') else "Signal detected"
-            
+
             # Calculate R:R ratios
-            sl_distance = abs(position.entry_price - levels['sl'])
-            rr1 = abs(levels['tp1'] - position.entry_price) / sl_distance if sl_distance > 0 else 0
-            rr2 = abs(levels['tp2'] - position.entry_price) / sl_distance if sl_distance > 0 else 0
-            rr3 = abs(levels['tp3'] - position.entry_price) / sl_distance if sl_distance > 0 else 0
-            
+            sl_distance = abs(position.entry_price - levels.sl)
+            rr1 = abs(levels.tp1 - position.entry_price) / sl_distance if sl_distance > 0 else 0
+            rr2 = abs(levels.tp2 - position.entry_price) / sl_distance if sl_distance > 0 else 0
+            rr3 = abs(levels.tp3 - position.entry_price) / sl_distance if sl_distance > 0 else 0
+
             await self.bot.send_message(
                 chat_id=self.notify_chat_id,
                 text=(
@@ -1450,10 +1381,10 @@ class ScalpingEngine:
                     f"Entry: {position.entry_price:.4f}\n"
                     f"Quantity: {position.quantity:.6f}\n\n"
                     f"🎯 <b>3-Tier Take Profit:</b>\n"
-                    f"TP1: {levels['tp1']:.4f} ({rr1:.1f}R) - {qty_splits['qty1']:.6f} (60%)\n"
-                    f"TP2: {levels['tp2']:.4f} ({rr2:.1f}R) - {qty_splits['qty2']:.6f} (30%)\n"
-                    f"TP3: {levels['tp3']:.4f} ({rr3:.1f}R) - {qty_splits['qty3']:.6f} (10%)\n\n"
-                    f"🛡️ <b>Stop Loss:</b> {levels['sl']:.4f}\n"
+                    f"TP1: {levels.tp1:.4f} ({rr1:.1f}R) - {levels.qty_tp1:.6f} (60%)\n"
+                    f"TP2: {levels.tp2:.4f} ({rr2:.1f}R) - {levels.qty_tp2:.6f} (30%)\n"
+                    f"TP3: {levels.tp3:.4f} ({rr3:.1f}R) - {levels.qty_tp3:.6f} (10%)\n\n"
+                    f"🛡️ <b>Stop Loss:</b> {levels.sl:.4f}\n"
                     f"💡 <b>Auto-Breakeven:</b> SL moves to entry when TP1 hit\n\n"
                     f"<b>Reasons:</b>\n{reasons_text}\n\n"
                     f"✅ TP/SL ter-set dengan StackMentor system!"

@@ -176,6 +176,141 @@ def get_all_open_trades() -> List[Dict]:
         return []
 
 
+def reconcile_open_trades_with_exchange(
+    telegram_id: int,
+    client,
+) -> int:
+    """
+    Self-healing reconciliation for stale "open" trades.
+
+    Compares trades that are still marked status="open" in the DB against
+    the actual open positions on the exchange. Any DB-open trade that has
+    no matching live position is closed in the DB with the appropriate
+    reason inferred from PnL sign and (if available) StackMentor TP-hit
+    flags.
+
+    Why this is needed
+    ------------------
+    The swing engine only marks trades closed inside its in-loop polling
+    (autotrade_engine._trade_loop) and only when its local
+    `had_open_position` flag was True. Across bot restarts, scalping-engine
+    closes, manual closes from outside the bot, or any TP/SL fill that
+    happened while the engine was down, the row stays stuck at "open"
+    forever and the user sees "Position still open" in /history for trades
+    that have actually been closed for hours/days.
+
+    This function is safe to call from:
+      * the /history command handler (lazy heal on view)
+      * engine startup / restore
+      * a periodic background task
+
+    Returns: number of trades that were healed (closed) by this call.
+    """
+    healed = 0
+    try:
+        open_trades = get_open_trades(telegram_id)
+        if not open_trades:
+            return 0
+
+        # Fetch live exchange positions ONCE for this user.
+        try:
+            pos_resp = client.get_positions()
+        except Exception as e:
+            logger.warning(
+                f"[Reconcile:{telegram_id}] get_positions raised: {e}"
+            )
+            return 0
+
+        if not pos_resp.get("success"):
+            logger.warning(
+                f"[Reconcile:{telegram_id}] get_positions failed: {pos_resp.get('error')}"
+            )
+            return 0
+
+        live_symbols = {
+            p.get("symbol")
+            for p in pos_resp.get("positions", [])
+            if float(p.get("qty") or p.get("size") or 0) > 0
+        }
+
+        for trade in open_trades:
+            symbol = trade.get("symbol")
+            if symbol in live_symbols:
+                continue  # still open on exchange — leave alone
+
+            # Orphan: DB says open, exchange says no position. Close it.
+            entry = float(trade.get("entry_price") or 0)
+            qty = float(trade.get("qty") or 0)
+            leverage = int(trade.get("leverage") or 1)
+            side = (trade.get("side") or "").upper()
+
+            # Try to fetch current price for a best-effort exit value.
+            exit_price = entry
+            try:
+                ticker = client.get_ticker(symbol)
+                if ticker.get("success"):
+                    exit_price = float(
+                        ticker.get("mark_price") or ticker.get("last_price") or entry
+                    )
+            except Exception:
+                pass
+
+            # Estimate PnL from price delta * qty * leverage direction.
+            if side == "LONG":
+                pnl = (exit_price - entry) * qty
+            else:
+                pnl = (entry - exit_price) * qty
+            pnl_with_lev = pnl * leverage
+
+            # Infer close reason. Prefer StackMentor tp-hit flags if any.
+            tp1_hit = bool(trade.get("tp1_hit"))
+            tp2_hit = bool(trade.get("tp2_hit"))
+            tp3_hit = bool(trade.get("tp3_hit"))
+            if tp3_hit:
+                reason = "closed_tp3"
+            elif tp2_hit:
+                reason = "closed_tp2"
+            elif tp1_hit:
+                reason = "closed_tp1"
+            elif pnl_with_lev >= 0:
+                reason = "closed_tp"
+            else:
+                reason = "closed_sl"
+
+            save_trade_close(
+                trade_id=trade["id"],
+                exit_price=exit_price,
+                pnl_usdt=pnl_with_lev,
+                close_reason=reason,
+                loss_reasoning=(
+                    "Reconciled from exchange — position no longer open"
+                    if pnl_with_lev < 0 else ""
+                ),
+            )
+            healed += 1
+            logger.warning(
+                f"[Reconcile:{telegram_id}] Healed orphan {symbol} #{trade['id']} "
+                f"as {reason} pnl={pnl_with_lev:.4f}"
+            )
+
+        # Also clear stale entries from the in-memory StackMentor registry
+        # so the monitor loop stops chasing dead positions.
+        if healed:
+            try:
+                from app.stackmentor import _stackmentor_positions, remove_stackmentor_position
+                user_positions = _stackmentor_positions.get(int(telegram_id), {})
+                for sym in list(user_positions.keys()):
+                    if sym not in live_symbols:
+                        remove_stackmentor_position(int(telegram_id), sym)
+            except Exception as e:
+                logger.warning(
+                    f"[Reconcile:{telegram_id}] StackMentor cleanup failed: {e}"
+                )
+    except Exception as e:
+        logger.error(f"[Reconcile:{telegram_id}] Reconciliation error: {e}")
+    return healed
+
+
 def get_trade_history(telegram_id: int, limit: int = 20) -> List[Dict]:
     """Ambil history trade terbaru untuk user."""
     try:
