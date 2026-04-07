@@ -327,9 +327,9 @@ async def callback_mode_manual(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Mode: Manual (Fixed Margin)\n"
         f"Your Balance: ${balance:.2f}\n\n"
         
-        "Berapa USDT yang mau Anda gunakan per trade?\n\n"
+        "How much USDT do you want to use per trade?\n\n"
         
-        "<b>Contoh:</b>\n"
+        "<b>Example:</b>\n"
         "• $5 - For balance $50-100\n"
         "• $10 - For balance $100-200\n"
         "• $20 - For balance $200-500\n\n"
