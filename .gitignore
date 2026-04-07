@@ -5,6 +5,15 @@
 Bismillah/.env
 Whitelabel*/.env
 license_server/.env
+website-backend/.env
+
+# Frontend build output
+website-frontend/dist/
+website-frontend/node_modules/
+
+# Backend test/debug files
+website-backend/test_auth.py
+website-backend/check_schema.py
 
 # Python
 __pycache__/
