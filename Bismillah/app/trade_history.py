@@ -30,6 +30,14 @@ def save_trade_open(
     signal: Dict,        # output dari _compute_signal_pro
     order_id: str = "",
     is_flip: bool = False,
+    # StackMentor fields
+    tp1_price: Optional[float] = None,
+    tp2_price: Optional[float] = None,
+    tp3_price: Optional[float] = None,
+    qty_tp1: Optional[float] = None,
+    qty_tp2: Optional[float] = None,
+    qty_tp3: Optional[float] = None,
+    strategy: str = "stackmentor",
 ) -> Optional[int]:
     """Simpan trade baru ke Supabase. Return trade_id."""
     try:
@@ -53,10 +61,27 @@ def save_trade_open(
             "is_flip":          is_flip,
             "order_id":         order_id,
             "opened_at":        datetime.utcnow().isoformat(),
+            # StackMentor fields
+            "strategy":         strategy,
         }
+        
+        # Add StackMentor fields if provided
+        if tp1_price is not None:
+            row["tp1_price"] = float(tp1_price)
+        if tp2_price is not None:
+            row["tp2_price"] = float(tp2_price)
+        if tp3_price is not None:
+            row["tp3_price"] = float(tp3_price)
+        if qty_tp1 is not None:
+            row["qty_tp1"] = float(qty_tp1)
+        if qty_tp2 is not None:
+            row["qty_tp2"] = float(qty_tp2)
+        if qty_tp3 is not None:
+            row["qty_tp3"] = float(qty_tp3)
+        
         res = _db().table("autotrade_trades").insert(row).execute()
         trade_id = res.data[0]["id"] if res.data else None
-        logger.info(f"[TradeHistory] Saved open trade #{trade_id} — {symbol} {side} @ {entry_price}")
+        logger.info(f"[TradeHistory] Saved open trade #{trade_id} — {symbol} {side} @ {entry_price} [{strategy}]")
         return trade_id
     except Exception as e:
         logger.error(f"[TradeHistory] Failed to save open trade: {e}")

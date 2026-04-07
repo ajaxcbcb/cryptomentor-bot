@@ -1,0 +1,222 @@
+{
+  "brand": {
+    "name": "CryptoMentor",
+    "tagline": "AI Trading Assistant",
+    "telegram": "@CryptoMentorID",
+    "accent1": "#00C8FF",
+    "accent2": "#6B4FFF",
+    "bg": "#0A0F1E"
+  },
+  "posts": [
+    {
+      "id": 1,
+      "type": "product",
+      "theme": "autotrade_hero",
+      "eyebrow": "AutoTrade · AI-Powered",
+      "headline": "The market\ndoesn't wait\nfor humans.",
+      "subtext": "While you hesitate, AI is already in position. CryptoMentor trades for you — 24/7, zero emotion, no experience needed.",
+      "pillars": [
+        { "num": "24/7", "label": "Always On", "desc": "Trades while you sleep." },
+        { "num": "0%", "label": "Emotion", "desc": "Pure logic, every trade." },
+        { "num": "Free", "label": "Forever", "desc": "No fees, ever." }
+      ],
+      "cta": "Start AutoTrading →"
+    },
+    {
+      "id": 2,
+      "type": "education",
+      "theme": "candlestick_basics",
+      "eyebrow": "Trading 101 · Candlestick",
+      "headline": "What does\na candle\ntell you?",
+      "subtext": "Every candle holds 4 secrets: Open, High, Low, Close. Master reading them and you read the market's emotion.",
+      "points": [
+        { "icon": "🟢", "label": "Green candle", "desc": "Buyers won — price closed higher than it opened." },
+        { "icon": "🔴", "label": "Red candle", "desc": "Sellers won — price closed lower than it opened." },
+        { "icon": "📏", "label": "Long wick", "desc": "Price was rejected — strong reversal signal." }
+      ],
+      "cta": "Learn More on Telegram →"
+    },
+    {
+      "id": 3,
+      "type": "education",
+      "theme": "support_resistance",
+      "eyebrow": "Trading 101 · Key Levels",
+      "headline": "Support &\nResistance:\nthe market's\nmemory.",
+      "subtext": "Price remembers where it bounced before. These levels are where battles between buyers and sellers repeat.",
+      "points": [
+        { "icon": "🛡️", "label": "Support", "desc": "A floor where buyers step in and stop the fall." },
+        { "icon": "🚧", "label": "Resistance", "desc": "A ceiling where sellers push price back down." },
+        { "icon": "🔄", "label": "Role reversal", "desc": "Broken support becomes new resistance, and vice versa." }
+      ],
+      "cta": "Join the Community →"
+    },
+    {
+      "id": 4,
+      "type": "product",
+      "theme": "autotrade_features",
+      "eyebrow": "Feature Spotlight · AutoTrade",
+      "headline": "Your bot\ntrades while\nyou live.",
+      "subtext": "Set it once. CryptoMentor handles entries, exits, and risk management automatically — connected directly to your exchange.",
+      "pillars": [
+        { "num": "Auto", "label": "Entry & Exit", "desc": "AI finds the best moment." },
+        { "num": "Built-in", "label": "Stop Loss", "desc": "Capital protected always." },
+        { "num": "Multi", "label": "Exchange", "desc": "Bitunix + more coming." }
+      ],
+      "cta": "Activate AutoTrade →"
+    },
+    {
+      "id": 5,
+      "type": "education",
+      "theme": "risk_management",
+      "eyebrow": "Trading 101 · Risk Management",
+      "headline": "Most traders\nlose not from\nbad entries —\nbut bad exits.",
+      "subtext": "Knowing when to cut losses is more valuable than knowing when to enter. Protect your capital first.",
+      "points": [
+        { "icon": "📐", "label": "1% Rule", "desc": "Never risk more than 1% of your capital on a single trade." },
+        { "icon": "🎯", "label": "Risk/Reward", "desc": "Only take trades where potential gain is 2x the potential loss." },
+        { "icon": "🛑", "label": "Stop Loss", "desc": "Set it before you enter. Never move it against you." }
+      ],
+      "cta": "Trade Smarter →"
+    },
+    {
+      "id": 6,
+      "type": "education",
+      "theme": "fomo_psychology",
+      "eyebrow": "Trading Psychology · FOMO",
+      "headline": "FOMO has\nwiped more\naccounts than\nbad analysis.",
+      "subtext": "Fear of Missing Out makes you buy tops and sell bottoms. The market will always have another opportunity.",
+      "points": [
+        { "icon": "😰", "label": "FOMO trigger", "desc": "Price pumps fast — you chase it at the top." },
+        { "icon": "📉", "label": "The result", "desc": "You buy high, panic sells low. Classic retail trap." },
+        { "icon": "🧠", "label": "The fix", "desc": "Have a plan. If you missed it, wait for the next setup." }
+      ],
+      "cta": "Let AI Handle It →"
+    },
+    {
+      "id": 7,
+      "type": "product",
+      "theme": "free_forever",
+      "eyebrow": "CryptoMentor · 100% Free",
+      "headline": "Professional\nAI trading.\nZero cost.",
+      "subtext": "No subscription. No hidden fees. No credit card. CryptoMentor AutoTrade is completely free — because everyone deserves a fair shot at the market.",
+      "pillars": [
+        { "num": "$0", "label": "Monthly Fee", "desc": "Free forever, no catch." },
+        { "num": "5min", "label": "Setup Time", "desc": "Connect & go." },
+        { "num": "∞", "label": "Trades", "desc": "Unlimited, always." }
+      ],
+      "cta": "Start Free Today →"
+    },
+    {
+      "id": 8,
+      "type": "education",
+      "theme": "trend_following",
+      "eyebrow": "Trading 101 · Trend",
+      "headline": "The trend\nis your only\ntrue friend.",
+      "subtext": "Trading against the trend is like swimming against a current. Identify it first, then trade with it.",
+      "points": [
+        { "icon": "📈", "label": "Uptrend", "desc": "Higher highs and higher lows — buyers in control." },
+        { "icon": "📉", "label": "Downtrend", "desc": "Lower highs and lower lows — sellers dominate." },
+        { "icon": "➡️", "label": "Sideways", "desc": "No clear direction — wait or trade the range." }
+      ],
+      "cta": "Learn More →"
+    },
+    {
+      "id": 9,
+      "type": "education",
+      "theme": "leverage_warning",
+      "eyebrow": "Trading 101 · Leverage",
+      "headline": "Leverage\namplifies\neverything —\nincluding losses.",
+      "subtext": "10x leverage means 10% move wipes your account. Most beginners learn this the hard way. You don't have to.",
+      "points": [
+        { "icon": "⚡", "label": "What it does", "desc": "Multiplies your buying power — and your risk." },
+        { "icon": "💀", "label": "The danger", "desc": "A 10x position gets liquidated at just 10% against you." },
+        { "icon": "✅", "label": "Safe approach", "desc": "Start with 2-3x max until you're consistently profitable." }
+      ],
+      "cta": "Trade Safely →"
+    },
+    {
+      "id": 10,
+      "type": "product",
+      "theme": "ai_vs_human",
+      "eyebrow": "AutoTrade · Why AI Wins",
+      "headline": "AI doesn't\npanic.\nAI doesn't\nhesitate.",
+      "subtext": "Human traders lose to emotion. AI executes the same strategy perfectly, every single time — at 0.1 second speed.",
+      "pillars": [
+        { "num": "0.1s", "label": "Execution", "desc": "Faster than any human." },
+        { "num": "0", "label": "Emotions", "desc": "No fear, no greed." },
+        { "num": "24/7", "label": "Discipline", "desc": "Never breaks the rules." }
+      ],
+      "cta": "Let AI Trade For You →"
+    },
+    {
+      "id": 11,
+      "type": "education",
+      "theme": "volume_analysis",
+      "eyebrow": "Trading 101 · Volume",
+      "headline": "Price moves\nmean nothing\nwithout volume.",
+      "subtext": "Volume is the fuel behind price movement. A breakout with high volume is real. Without volume, it's a trap.",
+      "points": [
+        { "icon": "🔊", "label": "High volume breakout", "desc": "Strong conviction — the move is likely to continue." },
+        { "icon": "🔇", "label": "Low volume breakout", "desc": "Weak move — likely to reverse (fake breakout)." },
+        { "icon": "📊", "label": "Volume divergence", "desc": "Price rising but volume falling = warning sign." }
+      ],
+      "cta": "Join Community →"
+    },
+    {
+      "id": 12,
+      "type": "product",
+      "theme": "exchanges",
+      "eyebrow": "CryptoMentor · Exchanges",
+      "headline": "One bot.\nMultiple\nexchanges.",
+      "subtext": "Start with Bitunix today. Binance, Bybit, and TokCrypto coming soon. One platform to rule your entire portfolio.",
+      "pillars": [
+        { "num": "Live", "label": "Bitunix", "desc": "Available now." },
+        { "num": "Soon", "label": "Binance", "desc": "Coming soon." },
+        { "num": "Soon", "label": "Bybit", "desc": "Coming soon." }
+      ],
+      "cta": "Connect Exchange →"
+    },
+    {
+      "id": 13,
+      "type": "education",
+      "theme": "market_cycles",
+      "eyebrow": "Trading 101 · Market Cycles",
+      "headline": "Every market\ngoes through\n4 phases.\nKnow them.",
+      "subtext": "Accumulation, markup, distribution, markdown. Understanding where we are in the cycle changes everything.",
+      "points": [
+        { "icon": "🌱", "label": "Accumulation", "desc": "Smart money buys quietly. Price is flat and boring." },
+        { "icon": "🚀", "label": "Markup", "desc": "Price rises. Retail starts to notice and FOMO in." },
+        { "icon": "🌾", "label": "Distribution", "desc": "Smart money sells to retail at the top." }
+      ],
+      "cta": "Learn More →"
+    },
+    {
+      "id": 14,
+      "type": "education",
+      "theme": "moving_averages",
+      "eyebrow": "Trading 101 · Indicators",
+      "headline": "Moving\naverages:\nthe simplest\nedge.",
+      "subtext": "MA shows you the average price over time. When price is above MA, trend is up. Below MA, trend is down. Simple.",
+      "points": [
+        { "icon": "📊", "label": "MA 20", "desc": "Short-term trend — good for swing trades." },
+        { "icon": "📈", "label": "MA 200", "desc": "Long-term trend — the big picture direction." },
+        { "icon": "✂️", "label": "Golden Cross", "desc": "MA 50 crosses above MA 200 = strong buy signal." }
+      ],
+      "cta": "Apply It Now →"
+    },
+    {
+      "id": 15,
+      "type": "product",
+      "theme": "beginner_friendly",
+      "eyebrow": "CryptoMentor · For Beginners",
+      "headline": "You don't\nneed to know\nhow to trade\nto profit.",
+      "subtext": "CryptoMentor was built for people who want results without spending years learning charts. The AI does the analysis. You collect the results.",
+      "pillars": [
+        { "num": "0", "label": "Experience Needed", "desc": "Start from zero." },
+        { "num": "5min", "label": "To Set Up", "desc": "Simple onboarding." },
+        { "num": "AI", "label": "Does The Work", "desc": "You just watch." }
+      ],
+      "cta": "Get Started Free →"
+    }
+  ]
+}

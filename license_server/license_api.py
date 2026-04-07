@@ -162,6 +162,166 @@ async def check_license(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/license/info  — get deposit address for a WL
+# ---------------------------------------------------------------------------
+
+@app.post("/api/license/info")
+@limiter.limit("30/minute")
+async def license_info(request: Request):
+    """
+    Get deposit address and full license info for a WL.
+    Body: {"wl_id": str, "secret_key": str}
+    Returns: deposit_address, balance, status, monthly_fee, expires_in_days
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_request"})
+
+    wl_id: str = body.get("wl_id", "")
+    secret_key: str = body.get("secret_key", "")
+    request.state._wl_id_for_ratelimit = wl_id or get_remote_address(request)
+
+    if not secret_key or not _is_valid_uuid4(secret_key):
+        return JSONResponse(status_code=400, content={"error": "invalid_request"})
+
+    try:
+        license_row = await license_manager.get_license(wl_id)
+    except Exception as exc:
+        logger.error("[%s] info wl_id=%s error=%s", timestamp, wl_id, exc)
+        return JSONResponse(status_code=503, content={"error": "service_unavailable"})
+
+    if license_row is None:
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+
+    if license_row.get("secret_key") != secret_key:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    expires_at_raw = license_row.get("expires_at")
+    expires_in_days = 0
+    if expires_at_raw:
+        try:
+            exp = datetime.fromisoformat(str(expires_at_raw))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            expires_in_days = max(0, (exp - datetime.now(timezone.utc)).days)
+        except Exception:
+            pass
+
+    return JSONResponse(status_code=200, content={
+        "deposit_address": license_row.get("deposit_address", ""),
+        "balance": float(license_row.get("balance_usdt", 0)),
+        "monthly_fee": float(license_row.get("monthly_fee", 10)),
+        "status": license_row.get("status", "inactive"),
+        "expires_in_days": expires_in_days,
+        "network": "BSC (BEP20)",
+        "token": "USDT",
+    })
+
+
+# ---------------------------------------------------------------------------
+# POST /api/license/deposit  — manual balance top-up by WL admin
+# ---------------------------------------------------------------------------
+
+@app.post("/api/license/deposit")
+@limiter.limit("20/minute")
+async def deposit_balance(request: Request):
+    """
+    Manually credit balance to a WL license (called from WL bot /admin).
+
+    Body: {"wl_id": str, "secret_key": str, "amount": float}
+
+    Returns:
+        200: {"success": true, "balance": float, "expires_in_days": int}
+        400: invalid request
+        401: unauthorized
+        404: not found
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_request"})
+
+    wl_id: str = body.get("wl_id", "")
+    secret_key: str = body.get("secret_key", "")
+    amount = body.get("amount", 0)
+
+    request.state._wl_id_for_ratelimit = wl_id or get_remote_address(request)
+
+    if not secret_key or not _is_valid_uuid4(secret_key):
+        return JSONResponse(status_code=400, content={"error": "invalid_request"})
+
+    try:
+        amount = float(amount)
+        if amount < 1:
+            return JSONResponse(status_code=400, content={"error": "amount_too_small"})
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "invalid_amount"})
+
+    try:
+        license_row = await license_manager.get_license(wl_id)
+    except Exception as exc:
+        logger.error("[%s] deposit wl_id=%s error=%s", timestamp, wl_id, exc)
+        return JSONResponse(status_code=503, content={"error": "service_unavailable"})
+
+    if license_row is None:
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+
+    if license_row.get("secret_key") != secret_key:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    # Credit balance using a unique tx_hash based on timestamp
+    import uuid as _uuid
+    tx_hash = f"manual_{wl_id}_{_uuid.uuid4().hex}"
+
+    try:
+        await license_manager.credit_balance(
+            wl_id=wl_id,
+            amount=amount,
+            tx_hash=tx_hash,
+            block_number=0,
+        )
+    except Exception as exc:
+        logger.error("[%s] deposit credit_balance error: %s", timestamp, exc)
+        return JSONResponse(status_code=503, content={"error": "service_unavailable"})
+
+    # If license was suspended/inactive, reactivate it via billing
+    current_status = license_row.get("status", "inactive")
+    if current_status in ("suspended", "inactive", "grace_period"):
+        try:
+            await license_manager.debit_billing(wl_id)
+        except Exception:
+            pass  # non-fatal — balance is already credited
+
+    # Fetch updated license
+    updated = await license_manager.get_license(wl_id)
+    new_balance = float(updated.get("balance_usdt", 0)) if updated else 0
+
+    expires_at_raw = updated.get("expires_at") if updated else None
+    expires_in_days = 0
+    if expires_at_raw:
+        try:
+            exp = datetime.fromisoformat(str(expires_at_raw))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            expires_in_days = max(0, (exp - datetime.now(timezone.utc)).days)
+        except Exception:
+            pass
+
+    logger.info("[%s] deposit wl_id=%s amount=%.2f new_balance=%.2f", timestamp, wl_id, amount, new_balance)
+
+    return JSONResponse(status_code=200, content={
+        "success": True,
+        "balance": new_balance,
+        "expires_in_days": expires_in_days,
+        "status": updated.get("status", "active") if updated else "active",
+    })
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

@@ -210,6 +210,25 @@ class BitunixAutoTradeClient:
                         'price': float(tickers[0].get('lastPrice', 0))}
         return result
 
+    def get_ticker(self, symbol: str) -> Dict:
+        """
+        Get ticker data including mark price (used for SL validation).
+        Returns: {'success': bool, 'mark_price': float, 'last_price': float}
+        """
+        result = self._request('GET', '/api/v1/futures/market/tickers',
+                               params={'symbols': symbol})
+        if result['success']:
+            tickers = result['data']
+            if tickers:
+                ticker = tickers[0]
+                return {
+                    'success': True,
+                    'symbol': symbol,
+                    'mark_price': float(ticker.get('markPrice', ticker.get('lastPrice', 0))),
+                    'last_price': float(ticker.get('lastPrice', 0)),
+                }
+        return result
+
     # ------------------------------------------------------------------ #
     #  Private endpoints                                                   #
     # ------------------------------------------------------------------ #
@@ -235,6 +254,21 @@ class BitunixAutoTradeClient:
                                         float(d.get('isolationUnrealizedPNL', 0)),
             }
         return result
+    
+    def get_balance(self) -> Dict:
+        """
+        Get account balance (wrapper for get_account_info for compatibility).
+        Returns available balance in USDT.
+        """
+        account_info = self.get_account_info()
+        if account_info.get('success'):
+            return {
+                'success': True,
+                'balance': account_info.get('available', 0),
+                'available': account_info.get('available', 0),
+                'total_unrealized_pnl': account_info.get('total_unrealized_pnl', 0),
+            }
+        return account_info
 
     def get_positions(self) -> Dict:
         """Get current open positions."""
@@ -247,15 +281,27 @@ class BitunixAutoTradeClient:
                 qty = float(pos.get('qty', 0))
                 if qty == 0:
                     continue
+
+                # Bitunix uses 'avgOpenPrice' for entry price (not 'openPrice')
+                entry_price = float(pos.get('avgOpenPrice') or pos.get('openPrice') or 0)
+
+                # TP/SL not returned by get_pending_positions — fetch from open orders if needed
+                tp_price = float(pos.get('tpPrice') or pos.get('takeProfitPrice') or 0)
+                sl_price = float(pos.get('slPrice') or pos.get('stopLossPrice') or 0)
+
                 positions.append({
                     'symbol': pos.get('symbol'),
                     'side': pos.get('side', '').upper(),
                     'size': qty,
-                    'entry_price': float(pos.get('openPrice', 0)),
-                    'mark_price': float(pos.get('markPrice', 0)),
+                    'entry_price': entry_price,
+                    'mark_price': float(pos.get('markPrice') or pos.get('avgOpenPrice') or entry_price),
                     'pnl': float(pos.get('unrealizedPNL', 0)),
                     'leverage': pos.get('leverage'),
                     'margin_mode': pos.get('marginMode'),
+                    'tp_price': tp_price,
+                    'sl_price': sl_price,
+                    'liq_price': float(pos.get('liqPrice') or 0),
+                    'realized_pnl': float(pos.get('realizedPNL') or 0),
                 })
             return {'success': True, 'positions': positions,
                     'total_positions': len(positions)}

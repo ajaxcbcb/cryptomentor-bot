@@ -1,0 +1,107 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║          🚀 DEPLOY DEMO USER UPDATE - READY TO GO 🚀          ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+📋 UPDATE SUMMARY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ Added new demo user: Telegram UID 1234500004 (Bitunix: 933383167)
+✅ Blocked Community Partners access for all demo users
+✅ Demo users can still use autotrade with $50 limit
+
+
+🚀 DEPLOY COMMANDS (PILIH SALAH SATU):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─ WINDOWS (TERMUDAH) ─────────────────────────────────────────┐
+│                                                               │
+│   Double-click file:                                          │
+│   deploy_demo_user_update.bat                                 │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+┌─ POWERSHELL ─────────────────────────────────────────────────┐
+│                                                               │
+│   .\deploy_demo_user_update.ps1                               │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+┌─ BASH / GIT BASH ────────────────────────────────────────────┐
+│                                                               │
+│   chmod +x deploy_demo_user_update.sh                         │
+│   ./deploy_demo_user_update.sh                                │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+┌─ MANUAL (COPY-PASTE) ────────────────────────────────────────┐
+│                                                               │
+│   scp -P 22 Bismillah/app/demo_users.py \                    │
+│       root@147.93.156.165:/root/CryptoMentor/Bismillah/app/  │
+│                                                               │
+│   scp -P 22 Bismillah/app/handlers_community.py \            │
+│       root@147.93.156.165:/root/CryptoMentor/Bismillah/app/  │
+│                                                               │
+│   ssh -p 22 root@147.93.156.165 \                            │
+│       "systemctl restart cryptomentor-bot"                    │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+
+📊 DEMO USER INFO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Telegram UID:        1234500004
+Bitunix UID:         933383167
+Balance Limit:       $50 USD
+Referral Required:   ❌ No (bypassed)
+Community Partners:  ❌ BLOCKED
+Autotrade:           ✅ Allowed
+
+
+🔍 VERIFY AFTER DEPLOY:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Check bot status:
+   ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor-bot"
+
+2. Monitor logs:
+   ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor-bot -f"
+
+3. Test with demo user (1234500004):
+   - Login to Telegram
+   - Type /autotrade
+   - Try to access "Partners" menu
+   - Should show: "Access Denied - Community Partners not available"
+
+
+🔙 ROLLBACK (IF NEEDED):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ssh -p 22 root@147.93.156.165
+cd /root/CryptoMentor/backups
+ls -la  # Find backup folder
+# Copy files back from backup
+systemctl restart cryptomentor-bot
+
+
+📁 DOCUMENTATION FILES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ README_DEPLOY_DEMO_USER.md        - Quick start guide
+✅ DEMO_USER_DEPLOYMENT_SUMMARY.md   - Complete summary
+✅ DEPLOY_DEMO_USER_GUIDE.md         - Detailed guide
+✅ DEPLOY_DEMO_USER_COMMANDS.txt     - Command reference
+✅ DEMO_USER_UPDATE.md               - Technical details
+
+
+🔐 VPS INFO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Host:     147.93.156.165
+User:     root
+Port:     22
+Path:     /root/CryptoMentor
+Service:  cryptomentor-bot
+
+
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║              ✅ EVERYTHING IS READY - DEPLOY NOW! ✅            ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝

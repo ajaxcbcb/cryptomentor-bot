@@ -40,6 +40,9 @@ BITUNIX_REFERRAL_URL  = _os.getenv(
 
 def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str):
     """Simpan API key + secret terenkripsi ke Supabase."""
+    from app.supabase_repo import ensure_user_exists_no_credit
+    # Pastikan user ada di tabel users dulu (FK constraint)
+    ensure_user_exists_no_credit(int(telegram_id))
     s = _client()
     row = {
         "telegram_id": int(telegram_id),

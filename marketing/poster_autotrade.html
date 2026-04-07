@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CryptoMentor AI — AutoTrade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&display=swap');
+
+  /*
+    Golden Ratio Layout (φ = 1.618)
+    Canvas: 1080 × 1080
+    Top zone:    1080 / φ = 667px
+    Bottom zone: 413px
+    Inner width: 1080 / φ = 668px (centered)
+
+    Brand colors extracted from logo:
+    --cyan:   #00C8FF  (left brain / circuit)
+    --purple: #6B4FFF  (right brain / candles)
+    --bg:     #0A0F1E  (logo background)
+  */
+
+  :root {
+    --cyan:    #00C8FF;
+    --purple:  #6B4FFF;
+    --violet:  #9B6FFF;
+    --bg:      #0A0F1E;
+    --bg2:     #0D1428;
+    --text:    #FFFFFF;
+    --muted:   #4A5A7A;
+    --line:    rgba(107,79,255,0.2);
+    --grad:    linear-gradient(135deg, #00C8FF 0%, #6B4FFF 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #060810;
+    display: flex;
+    justify-content: center;
+    padding: 48px 24px;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .poster {
+    width: 1080px;
+    height: 1080px;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Subtle dot grid */
+  .poster::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(107,79,255,0.18) 1px, transparent 1px);
+    background-size: 55px 55px;
+    z-index: 0;
+  }
+
+  /* Ambient glow — cyan top-left, purple bottom-right */
+  .glow-tl {
+    position: absolute;
+    top: -180px; left: -180px;
+    width: 600px; height: 600px;
+    background: radial-gradient(ellipse, rgba(0,200,255,0.08) 0%, transparent 65%);
+    z-index: 0;
+  }
+  .glow-br {
+    position: absolute;
+    bottom: -150px; right: -150px;
+    width: 700px; height: 700px;
+    background: radial-gradient(ellipse, rgba(107,79,255,0.1) 0%, transparent 65%);
+    z-index: 0;
+  }
+
+  /* φ divider at 667px */
+  .divider {
+    position: absolute;
+    top: 667px; left: 89px; right: 89px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(107,79,255,0.4), rgba(0,200,255,0.4), transparent);
+    z-index: 2;
+  }
+
+  /* ── CONTENT ── */
+  .inner {
+    position: relative;
+    z-index: 3;
+    width: 668px;   /* 1080/φ */
+    margin: 0 auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ══ TOP ZONE: 667px ══ */
+  .top {
+    height: 667px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-bottom: 34px;
+  }
+
+  /* Logo mark */
+  .logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 55px;
+  }
+  .logo-img {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+  }
+  .logo-text {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .logo-text span {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .logo-sub {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* Eyebrow */
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .eyebrow::before {
+    content: '';
+    display: block;
+    width: 28px; height: 2px;
+    background: var(--grad);
+    flex-shrink: 0;
+    -webkit-text-fill-color: initial;
+  }
+
+  /* Main headline */
+  h1 {
+    font-size: 82px;
+    font-weight: 900;
+    line-height: 0.95;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    margin-bottom: 34px;
+  }
+  h1 em {
+    font-style: normal;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .sub {
+    font-size: 17px;
+    font-weight: 300;
+    color: var(--muted);
+    line-height: 1.7;
+    max-width: 500px;
+  }
+  .sub strong {
+    color: var(--text);
+    font-weight: 400;
+  }
+
+  /* ══ BOTTOM ZONE: 413px ══ */
+  .bottom {
+    height: 413px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 50px;
+  }
+
+  /* 3 pillars */
+  .pillars {
+    display: flex;
+  }
+  .pillar {
+    flex: 1;
+    padding-right: 34px;
+    border-right: 1px solid var(--line);
+  }
+  .pillar:last-child {
+    border-right: none;
+    padding-right: 0;
+    padding-left: 34px;
+  }
+  .pillar:nth-child(2) {
+    padding-left: 34px;
+  }
+
+  .pillar-num {
+    font-size: 40px;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .pillar-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pillar-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* CTA row */
+  .cta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .cta-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--grad);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 16px 36px;
+    border-radius: 8px;
+    text-decoration: none;
+    box-shadow: 0 0 40px rgba(107,79,255,0.35);
+  }
+
+  /* Exchange chips */
+  .exchanges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+  }
+  .ex-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .ex-chips {
+    display: flex;
+    gap: 8px;
+  }
+  .ex {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 5px;
+    padding: 4px 10px;
+  }
+  .ex.on {
+    color: var(--cyan);
+    border-color: rgba(0,200,255,0.3);
+    background: rgba(0,200,255,0.06);
+  }
+
+  /* Responsive scale */
+  @media (max-width: 1140px) { .poster { transform: scale(0.82); transform-origin: top center; } }
+  @media (max-width: 920px)  { .poster { transform: scale(0.65); transform-origin: top center; } }
+  @media (max-width: 740px)  { .poster { transform: scale(0.50); transform-origin: top center; } }
+  @media (max-width: 580px)  { .poster { transform: scale(0.38); transform-origin: top center; } }
+</style>
+</head>
+<body>
+<div class="poster">
+  <div class="glow-tl"></div>
+  <div class="glow-br"></div>
+  <div class="divider"></div>
+
+  <div class="inner">
+
+    <!-- TOP: 667px -->
+    <div class="top">
+
+      <!-- Logo -->
+      <div class="logo-wrap">
+        <img class="logo-img" src="logo.png" alt="CryptoMentor Logo"
+             onerror="this.style.display='none'" />
+        <div>
+          <div class="logo-text">Crypto<span>Mentor</span></div>
+          <div class="logo-sub">AI Trading Assistant</div>
+        </div>
+      </div>
+
+      <div class="eyebrow">AutoTrade · AI-Powered</div>
+
+      <h1>
+        The market<br>
+        doesn't wait<br>
+        for <em>humans.</em>
+      </h1>
+
+      <p class="sub">
+        While you hesitate, <strong>AI is already in position.</strong><br>
+        CryptoMentor trades for you — 24/7, zero emotion,<br>
+        no experience needed.
+      </p>
+
+    </div>
+
+    <!-- BOTTOM: 413px -->
+    <div class="bottom">
+
+      <div class="pillars">
+        <div class="pillar">
+          <div class="pillar-num">24/7</div>
+          <div class="pillar-label">Always On</div>
+          <div class="pillar-desc">Trades while you sleep, work, or live your life.</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">0%</div>
+          <div class="pillar-label">Emotion</div>
+          <div class="pillar-desc">No panic. No FOMO. Pure logic on every trade.</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">Free</div>
+          <div class="pillar-label">Forever</div>
+          <div class="pillar-desc">No fees, no subscriptions. Start in minutes.</div>
+        </div>
+      </div>
+
+      <div class="cta-row">
+        <a class="cta-btn" href="#">
+          Start AutoTrading →
+        </a>
+
+        <div class="exchanges">
+          <span class="ex-label">Supported Exchanges</span>
+          <div class="ex-chips">
+            <span class="ex on">Bitunix</span>
+            <span class="ex">Binance</span>
+            <span class="ex">Bybit</span>
+            <span class="ex">TokCrypto</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

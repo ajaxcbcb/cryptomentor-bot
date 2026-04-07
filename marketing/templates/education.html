@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{brand.name}} — {{eyebrow}}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&display=swap');
+  :root {
+    --c1: {{brand.accent1}};
+    --c2: {{brand.accent2}};
+    --bg: {{brand.bg}};
+    --text: #FFFFFF;
+    --muted: #4A5A7A;
+    --line: rgba(107,79,255,0.2);
+    --card: rgba(255,255,255,0.03);
+    --grad: linear-gradient(135deg, {{brand.accent1}} 0%, {{brand.accent2}} 100%);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); font-family:'Inter',sans-serif; }
+  .poster { width:1080px; height:1350px; background:var(--bg); position:relative; overflow:hidden; }
+  .poster::before { content:''; position:absolute; inset:0; background-image:radial-gradient(circle,rgba(107,79,255,0.15) 1px,transparent 1px); background-size:55px 55px; }
+  .glow-tl { position:absolute; top:-180px; left:-180px; width:600px; height:600px; background:radial-gradient(ellipse,rgba(0,200,255,0.08) 0%,transparent 65%); }
+  .glow-br { position:absolute; bottom:-150px; right:-150px; width:700px; height:700px; background:radial-gradient(ellipse,rgba(107,79,255,0.1) 0%,transparent 65%); }
+  .divider { position:absolute; top:834px; left:89px; right:89px; height:1px; background:linear-gradient(90deg,transparent,rgba(107,79,255,0.4),rgba(0,200,255,0.4),transparent); z-index:2; }
+  .inner { position:relative; z-index:3; width:668px; margin:0 auto; height:1350px; display:flex; flex-direction:column; padding:70px 0 60px; }
+
+  /* TOP */
+  .top { flex:0 0 auto; display:flex; flex-direction:column; justify-content:flex-start; margin-bottom:0; }
+  .logo-wrap { display:flex; align-items:center; gap:12px; margin-bottom:32px; }
+  .logo-img { width:44px; height:44px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+  .logo-text { font-size:16px; font-weight:700; color:var(--text); }
+  .logo-text span { background:var(--grad); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .logo-sub { font-size:9px; color:var(--muted); letter-spacing:0.18em; text-transform:uppercase; margin-top:2px; }
+  .eyebrow { font-size:11px; font-weight:700; letter-spacing:0.22em; text-transform:uppercase; margin-bottom:18px; display:flex; align-items:center; gap:10px; background:var(--grad); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .eyebrow::before { content:''; display:block; width:24px; height:2px; background:var(--grad); flex-shrink:0; -webkit-text-fill-color:initial; }
+  h1 { font-size:58px; font-weight:900; line-height:0.95; color:var(--text); letter-spacing:-0.03em; margin-bottom:18px; white-space:pre-line; }
+  h1 em { font-style:normal; background:var(--grad); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .sub { font-size:14px; font-weight:300; color:var(--muted); line-height:1.6; max-width:520px; }
+
+  /* SPACER pushes bottom section down */
+  .spacer { flex:1; }
+
+  /* BOTTOM — edu cards */
+  .bottom { flex:0 0 auto; display:flex; flex-direction:column; gap:10px; }
+  .points { display:flex; flex-direction:column; gap:9px; margin-bottom:20px; }
+  .point-card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 18px; display:flex; align-items:flex-start; gap:14px; }
+  .point-icon { font-size:20px; flex-shrink:0; line-height:1; margin-top:2px; }
+  .point-label { font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px; letter-spacing:0.04em; }
+  .point-desc { font-size:12px; color:var(--muted); line-height:1.45; }
+  .cta-row { display:flex; align-items:center; justify-content:space-between; }
+  .cta-btn { display:inline-flex; align-items:center; gap:10px; background:var(--grad); color:#fff; font-size:13px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; padding:13px 28px; border-radius:8px; text-decoration:none; box-shadow:0 0 30px rgba(107,79,255,0.35); }
+  .tg-handle { font-size:12px; color:var(--muted); letter-spacing:0.08em; }
+</style>
+</head>
+<body>
+<div class="poster">
+  <div class="glow-tl"></div>
+  <div class="glow-br"></div>
+  <div class="divider"></div>
+  <div class="inner">
+    <div class="top">
+      <div class="logo-wrap">
+        <img class="logo-img" src="../logo.png" alt="Logo" onerror="this.style.display='none'">
+        <div>
+          <div class="logo-text">{{brand.name}}<span> AI</span></div>
+          <div class="logo-sub">{{brand.tagline}}</div>
+        </div>
+      </div>
+      <div class="eyebrow">{{eyebrow}}</div>
+      <h1>{{headline}}</h1>
+      <p class="sub">{{subtext}}</p>
+    </div>
+    <div class="spacer"></div>
+    <div class="bottom">
+      <div class="points">
+        {{points}}
+      </div>
+      <div class="cta-row">
+        <a class="cta-btn" href="#">{{cta}}</a>
+        <span class="tg-handle">{{brand.telegram}}</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

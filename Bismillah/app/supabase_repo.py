@@ -230,30 +230,30 @@ def ensure_user_exists(tg_id: int, username: str = None, first_name: str = None)
     return ensure_user_exists_no_credit(tg_id, username, first_name)
 
 # ------------------------------------------------------------------ #
-#  User API Key management (Bitunix, encrypted via pgcrypto)          #
+#  User API Key management (Bitunix, enkripsi AES-256-GCM di sisi app)#
 # ------------------------------------------------------------------ #
-
-_ENC_KEY = os.getenv('ENCRYPTION_KEY', '')
 
 
 def save_user_api_key(telegram_id: int, exchange: str,
                       api_key: str, api_secret: str) -> bool:
     """
-    Upsert encrypted API key to Supabase via RPC.
-    Encryption happens inside Postgres using pgp_sym_encrypt (AES-256).
-    The raw secret never touches the DB in plaintext.
+    Upsert encrypted API key ke Supabase (direct table, enkripsi di sisi app).
+    Pastikan user ada dulu untuk memenuhi FK constraint user_api_keys -> users.
     """
-    if not _ENC_KEY:
-        raise RuntimeError("ENCRYPTION_KEY env var not set")
+    from app.lib.crypto import encrypt
     try:
+        # Pastikan user ada di tabel users (FK constraint)
+        ensure_user_exists_no_credit(int(telegram_id))
+
         s = _client()
-        s.rpc("upsert_user_api_key", {
-            "p_telegram_id": int(telegram_id),
-            "p_exchange": exchange,
-            "p_api_key": api_key,
-            "p_api_secret": api_secret,
-            "p_enc_key": _ENC_KEY,
-        }).execute()
+        row = {
+            "telegram_id": int(telegram_id),
+            "exchange": exchange,
+            "api_key": api_key,
+            "api_secret_enc": encrypt(api_secret),
+            "key_hint": api_key[-4:] if len(api_key) >= 4 else api_key,
+        }
+        s.table("user_api_keys").upsert(row, on_conflict="telegram_id").execute()
         return True
     except Exception as e:
         print(f"save_user_api_key error: {e}")
@@ -262,33 +262,237 @@ def save_user_api_key(telegram_id: int, exchange: str,
 
 def get_user_api_key(telegram_id: int) -> Optional[Dict[str, Any]]:
     """
-    Fetch and decrypt user API key from Supabase.
-    Returns dict with keys: exchange, api_key, api_secret, key_hint, is_active, created_at
+    Fetch dan decrypt API key user dari Supabase.
+    Returns dict dengan keys: exchange, api_key, api_secret, key_hint, created_at
     """
-    if not _ENC_KEY:
-        raise RuntimeError("ENCRYPTION_KEY env var not set")
+    from app.lib.crypto import decrypt
     try:
         s = _client()
-        res = s.rpc("get_user_api_key", {
-            "p_telegram_id": int(telegram_id),
-            "p_enc_key": _ENC_KEY,
-        }).execute()
-        if res.data:
-            return res.data[0]
-        return None
+        res = s.table("user_api_keys").select("*").eq("telegram_id", int(telegram_id)).limit(1).execute()
+        if not res.data:
+            return None
+        row = res.data[0]
+        row["api_secret"] = decrypt(row["api_secret_enc"])
+        return row
     except Exception as e:
         print(f"get_user_api_key error: {e}")
         return None
 
 
 def delete_user_api_key(telegram_id: int) -> bool:
-    """Remove user API key from Supabase."""
+    """Hapus API key user dari Supabase."""
     try:
         s = _client()
-        s.rpc("delete_user_api_key", {
-            "p_telegram_id": int(telegram_id),
-        }).execute()
+        s.table("user_api_keys").delete().eq("telegram_id", int(telegram_id)).execute()
         return True
     except Exception as e:
         print(f"delete_user_api_key error: {e}")
         return False
+
+
+# ------------------------------------------------------------------ #
+#  StackMentor Eligibility (Balance-Based, No Manual Tracking)       #
+# ------------------------------------------------------------------ #
+
+def is_stackmentor_eligible_by_balance(balance: float) -> bool:
+    """
+    Check if user is eligible for StackMentor based on exchange balance.
+    ALL balances are eligible - no minimum requirement.
+    
+    This is called by autotrade engine after fetching user's balance from exchange.
+    No database tracking needed - pure balance check.
+    """
+    return True  # All users can use StackMentor regardless of balance
+
+
+# ------------------------------------------------------------------ #
+#  Risk Per Trade Management (Professional Money Management)         #
+# ------------------------------------------------------------------ #
+
+def get_risk_per_trade(telegram_id: int) -> float:
+    """
+    Get user's risk percentage per trade from database.
+    
+    Returns:
+        Risk percentage (e.g., 2.0 for 2%)
+        Default: 2.0% if not set
+    """
+    try:
+        s = _client()
+        res = s.table("autotrade_sessions").select("risk_per_trade").eq(
+            "telegram_id", int(telegram_id)
+        ).limit(1).execute()
+        
+        if res.data and res.data[0].get("risk_per_trade") is not None:
+            return float(res.data[0]["risk_per_trade"])
+        
+        # Default: 2% (moderate risk)
+        return 2.0
+    except Exception as e:
+        print(f"get_risk_per_trade error: {e}")
+        return 2.0  # Safe default
+
+
+def get_risk_mode(telegram_id: int) -> str:
+    """
+    Get user's risk management mode.
+    
+    Args:
+        telegram_id: User's Telegram ID
+    
+    Returns:
+        'risk_based' or 'manual'
+    """
+    try:
+        s = _client()
+        res = s.table("autotrade_sessions").select("risk_mode").eq(
+            "telegram_id", int(telegram_id)
+        ).limit(1).execute()
+        
+        if res.data and len(res.data) > 0:
+            mode = res.data[0].get("risk_mode", "risk_based")
+            return mode if mode in ["risk_based", "manual"] else "risk_based"
+        
+        return "risk_based"  # Default for new users
+    except Exception as e:
+        print(f"get_risk_mode error: {e}")
+        return "risk_based"  # Safe default
+
+
+def set_risk_mode(telegram_id: int, mode: str) -> Dict[str, Any]:
+    """
+    Update user's risk management mode.
+    
+    Args:
+        telegram_id: User's Telegram ID
+        mode: 'risk_based' or 'manual'
+    
+    Returns:
+        {
+            'success': bool,
+            'risk_mode': str,
+            'error': str (if failed)
+        }
+    """
+    try:
+        # Validate mode
+        if mode not in ["risk_based", "manual"]:
+            return {
+                'success': False,
+                'error': 'Mode must be risk_based or manual',
+                'risk_mode': ''
+            }
+        
+        # Ensure user exists
+        ensure_user_exists_no_credit(int(telegram_id))
+        
+        # Update risk mode
+        s = _client()
+        s.table("autotrade_sessions").upsert({
+            "telegram_id": int(telegram_id),
+            "risk_mode": mode,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }, on_conflict="telegram_id").execute()
+        
+        return {
+            'success': True,
+            'risk_mode': mode,
+            'error': None
+        }
+    except Exception as e:
+        print(f"set_risk_mode error: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'risk_mode': ''
+        }
+
+
+def set_risk_per_trade(telegram_id: int, risk_pct: float) -> Dict[str, Any]:
+    """
+    Update user's risk percentage per trade.
+    
+    Args:
+        telegram_id: User's Telegram ID
+        risk_pct: Risk percentage (0.5 - 10.0)
+    
+    Returns:
+        {
+            'success': bool,
+            'risk_per_trade': float,
+            'error': str (if failed)
+        }
+    """
+    try:
+        # Validate risk percentage
+        if risk_pct < 0.5 or risk_pct > 10.0:
+            return {
+                'success': False,
+                'error': 'Risk must be between 0.5% and 10%',
+                'risk_per_trade': 0
+            }
+        
+        # Ensure user exists
+        ensure_user_exists_no_credit(int(telegram_id))
+        
+        # Update risk percentage
+        s = _client()
+        s.table("autotrade_sessions").upsert({
+            "telegram_id": int(telegram_id),
+            "risk_per_trade": float(risk_pct),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }, on_conflict="telegram_id").execute()
+        
+        return {
+            'success': True,
+            'risk_per_trade': float(risk_pct),
+            'error': None
+        }
+    except Exception as e:
+        print(f"set_risk_per_trade error: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'risk_per_trade': 0
+        }
+
+
+def get_user_balance_from_exchange(telegram_id: int, exchange_id: str) -> float:
+    """
+    Get user's current balance from exchange API.
+    
+    This is a helper function that fetches balance using stored API keys.
+    Used for position sizing calculations.
+    
+    Args:
+        telegram_id: User's Telegram ID
+        exchange_id: Exchange identifier (bitunix, binance, bybit, bingx)
+    
+    Returns:
+        Available balance in USDT (0.0 if error)
+    """
+    try:
+        # Get user's API keys
+        from app.supabase_repo import get_user_api_key
+        keys = get_user_api_key(telegram_id)
+        
+        if not keys:
+            print(f"get_user_balance_from_exchange: No API keys for user {telegram_id}")
+            return 0.0
+        
+        # Get exchange client
+        from app.exchange_registry import get_client
+        client = get_client(exchange_id, keys["api_key"], keys["api_secret"])
+        
+        # Fetch balance
+        balance_result = client.get_balance()
+        
+        if balance_result.get('success'):
+            return float(balance_result.get('balance', 0))
+        else:
+            print(f"get_user_balance_from_exchange: API error - {balance_result.get('error')}")
+            return 0.0
+            
+    except Exception as e:
+        print(f"get_user_balance_from_exchange error: {e}")
+        return 0.0

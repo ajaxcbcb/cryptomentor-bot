@@ -490,3 +490,215 @@ def start_background_scheduler(application):
     jq.run_repeating(_tick, interval=SCAN_INTERVAL_SEC, first=10, name="autosignal_fast")
     print(f"[AutoSignal FAST] ✅ started (interval={SCAN_INTERVAL_SEC}s ≈ {SCAN_INTERVAL_SEC//60}m, top={TOP_N}, minConf={MIN_CONFIDENCE}%, tf={TIMEFRAME})")
     print(f"[AutoSignal FAST] 🧠 Using SMC Analysis (Order Blocks, FVG, Market Structure, EMA21)")
+
+
+
+# ============================================================
+# SCALPING MODE SIGNAL GENERATION (5M Timeframe)
+# ============================================================
+
+def _calc_ema(prices: List[float], period: int) -> float:
+    """Calculate Exponential Moving Average"""
+    if len(prices) < period:
+        return prices[-1] if prices else 0.0
+    
+    multiplier = 2 / (period + 1)
+    ema = sum(prices[:period]) / period  # Start with SMA
+    
+    for price in prices[period:]:
+        ema = (price - ema) * multiplier + ema
+    
+    return ema
+
+
+def _calc_rsi(prices: List[float], period: int = 14) -> float:
+    """Calculate Relative Strength Index"""
+    if len(prices) < period + 1:
+        return 50.0
+    
+    gains = []
+    losses = []
+    
+    for i in range(1, len(prices)):
+        change = prices[i] - prices[i-1]
+        if change > 0:
+            gains.append(change)
+            losses.append(0)
+        else:
+            gains.append(0)
+            losses.append(abs(change))
+    
+    if len(gains) < period:
+        return 50.0
+    
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+    
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    return rsi
+
+
+def _calc_atr(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+    """Calculate Average True Range"""
+    if len(highs) < period + 1 or len(lows) < period + 1 or len(closes) < period + 1:
+        return 0.0
+    
+    true_ranges = []
+    
+    for i in range(1, len(closes)):
+        high_low = highs[i] - lows[i]
+        high_close = abs(highs[i] - closes[i-1])
+        low_close = abs(lows[i] - closes[i-1])
+        
+        true_range = max(high_low, high_close, low_close)
+        true_ranges.append(true_range)
+    
+    if len(true_ranges) < period:
+        return 0.0
+    
+    atr = sum(true_ranges[-period:]) / period
+    
+    return atr
+
+
+def compute_signal_scalping(base_symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Generate scalping signal for 5M timeframe with 15M trend validation
+    
+    Algorithm:
+    1. Fetch 15M klines for trend direction
+    2. Fetch 5M klines for entry trigger
+    3. Validate 15M trend (EMA21, EMA50)
+    4. Check 5M RSI extreme + volume spike
+    5. Calculate TP/SL using ATR
+    6. Return signal if confidence >= 80%
+    
+    Args:
+        base_symbol: Base symbol (e.g., "BTC", "ETH")
+        
+    Returns:
+        Dict with signal data or None
+    """
+    try:
+        from app.providers.alternative_klines_provider import alternative_klines_provider
+        
+        symbol = base_symbol.upper()
+        full_symbol = f"{symbol}USDT"
+        
+        # ===== Step 1: Get 15M trend =====
+        klines_15m = alternative_klines_provider.get_klines(symbol, interval='15m', limit=100)
+        if not klines_15m or len(klines_15m) < 50:
+            return None
+        
+        c15 = [float(k[4]) for k in klines_15m]
+        ema21_15 = _calc_ema(c15, 21)
+        ema50_15 = _calc_ema(c15, 50)
+        price = c15[-1]
+        
+        # Determine 15M trend
+        if price > ema21_15 > ema50_15:
+            trend_15m = "LONG"
+        elif price < ema21_15 < ema50_15:
+            trend_15m = "SHORT"
+        else:
+            return None  # No clear trend
+        
+        # ===== Step 2: Get 5M entry trigger =====
+        klines_5m = alternative_klines_provider.get_klines(symbol, interval='5m', limit=60)
+        if not klines_5m or len(klines_5m) < 30:
+            return None
+        
+        c5 = [float(k[4]) for k in klines_5m]
+        h5 = [float(k[2]) for k in klines_5m]
+        l5 = [float(k[3]) for k in klines_5m]
+        v5 = [float(k[5]) for k in klines_5m]
+        
+        rsi_5m = _calc_rsi(c5)
+        atr_5m = _calc_atr(h5, l5, c5, 14)
+        vol_ratio = _calc_volume_ratio(v5, 20)
+        
+        # ===== Step 3: Signal logic =====
+        side = None
+        confidence = 80
+        reasons = []
+        
+        if trend_15m == "LONG" and rsi_5m < 30 and vol_ratio > 2.0:
+            side = "LONG"
+            reasons.append(f"15M uptrend + 5M oversold (RSI {rsi_5m:.0f})")
+            reasons.append(f"Volume spike {vol_ratio:.1f}x")
+            if vol_ratio > 3.0:
+                confidence += 5
+                reasons.append("Exceptional volume")
+        elif trend_15m == "SHORT" and rsi_5m > 70 and vol_ratio > 2.0:
+            side = "SHORT"
+            reasons.append(f"15M downtrend + 5M overbought (RSI {rsi_5m:.0f})")
+            reasons.append(f"Volume spike {vol_ratio:.1f}x")
+            if vol_ratio > 3.0:
+                confidence += 5
+                reasons.append("Exceptional volume")
+        
+        if side is None:
+            return None
+        
+        # ===== Step 4: Calculate TP/SL =====
+        sl_distance = atr_5m * 1.5
+        tp_distance = sl_distance * 1.5
+        
+        if side == "LONG":
+            sl = price - sl_distance
+            tp = price + tp_distance
+        else:
+            sl = price + sl_distance
+            tp = price - tp_distance
+        
+        # ===== Step 5: Validate signal quality =====
+        atr_pct = (atr_5m / price) * 100
+        
+        if atr_pct < 0.3:  # Market too flat
+            return None
+        
+        if atr_pct > 10.0:  # Market too volatile
+            return None
+        
+        if confidence < 80:  # Below minimum threshold
+            return None
+        
+        # ===== Step 6: Return signal =====
+        return {
+            "symbol": full_symbol,
+            "timeframe": "5m",
+            "side": side,
+            "confidence": int(confidence),
+            "entry_price": price,
+            "tp": tp,
+            "sl": sl,
+            "rr_ratio": 1.5,
+            "atr_pct": atr_pct,
+            "vol_ratio": vol_ratio,
+            "rsi_5m": rsi_5m,
+            "trend_15m": trend_15m,
+            "reasons": reasons
+        }
+    
+    except Exception as e:
+        print(f"Error computing scalping signal for {base_symbol}: {e}")
+        return None
+
+
+def _calc_volume_ratio(volumes: List[float], period: int = 20) -> float:
+    """Calculate current volume / MA(volume)"""
+    if len(volumes) < period + 1:
+        return 1.0
+    
+    current_vol = volumes[-1]
+    avg_vol = sum(volumes[-period-1:-1]) / period
+    
+    if avg_vol == 0:
+        return 1.0
+    
+    return current_vol / avg_vol

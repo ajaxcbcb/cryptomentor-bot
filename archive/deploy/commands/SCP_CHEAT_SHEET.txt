@@ -1,0 +1,174 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║              SCP DEPLOYMENT CHEAT SHEET                        ║
+║              CryptoMentor Bot - Quick Reference                ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────┐
+│ VPS INFO                                                       │
+└────────────────────────────────────────────────────────────────┘
+Host:     147.93.156.165
+User:     root
+Port:     22
+Path:     /root/cryptomentor-bot
+Service:  cryptomentor.service
+
+┌────────────────────────────────────────────────────────────────┐
+│ MOST USED COMMANDS                                             │
+└────────────────────────────────────────────────────────────────┘
+
+# Upload single file
+scp -P 22 Bismillah/app/demo_users.py root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+# Upload multiple files
+scp -P 22 Bismillah/app/{file1.py,file2.py} root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+# Restart service
+ssh -p 22 root@147.93.156.165 "systemctl restart cryptomentor"
+
+# Check status
+ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor"
+
+# View logs
+ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -f"
+
+┌────────────────────────────────────────────────────────────────┐
+│ ONE-LINER DEPLOYMENT                                           │
+└────────────────────────────────────────────────────────────────┘
+
+# Upload and restart
+scp -P 22 Bismillah/app/demo_users.py root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/ && ssh -p 22 root@147.93.156.165 "systemctl restart cryptomentor"
+
+┌────────────────────────────────────────────────────────────────┐
+│ COMMON FILE PATHS                                              │
+└────────────────────────────────────────────────────────────────┘
+
+demo_users.py:
+scp -P 22 Bismillah/app/demo_users.py root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+handlers_community.py:
+scp -P 22 Bismillah/app/handlers_community.py root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+handlers_autotrade.py:
+scp -P 22 Bismillah/app/handlers_autotrade.py root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+┌────────────────────────────────────────────────────────────────┐
+│ SERVICE MANAGEMENT                                             │
+└────────────────────────────────────────────────────────────────┘
+
+Start:    ssh -p 22 root@147.93.156.165 "systemctl start cryptomentor"
+Stop:     ssh -p 22 root@147.93.156.165 "systemctl stop cryptomentor"
+Restart:  ssh -p 22 root@147.93.156.165 "systemctl restart cryptomentor"
+Status:   ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor"
+
+┌────────────────────────────────────────────────────────────────┐
+│ LOG MONITORING                                                 │
+└────────────────────────────────────────────────────────────────┘
+
+Last 50:   ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -n 50"
+Last 100:  ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -n 100"
+Real-time: ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -f"
+Errors:    ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor | grep -i error"
+
+┌────────────────────────────────────────────────────────────────┐
+│ VERIFICATION                                                   │
+└────────────────────────────────────────────────────────────────┘
+
+# Check if file uploaded
+ssh -p 22 root@147.93.156.165 "ls -la /root/cryptomentor-bot/Bismillah/app/demo_users.py"
+
+# View file content
+ssh -p 22 root@147.93.156.165 "cat /root/cryptomentor-bot/Bismillah/app/demo_users.py"
+
+# Check service is running
+ssh -p 22 root@147.93.156.165 "systemctl is-active cryptomentor"
+
+┌────────────────────────────────────────────────────────────────┐
+│ BACKUP & ROLLBACK                                              │
+└────────────────────────────────────────────────────────────────┘
+
+# Create backup
+ssh -p 22 root@147.93.156.165 "cp /root/cryptomentor-bot/Bismillah/app/demo_users.py /root/cryptomentor-bot/backups/demo_users.py.bak"
+
+# List backups
+ssh -p 22 root@147.93.156.165 "ls -la /root/cryptomentor-bot/backups/"
+
+# Restore from backup
+ssh -p 22 root@147.93.156.165 "cp /root/cryptomentor-bot/backups/demo_users.py.bak /root/cryptomentor-bot/Bismillah/app/demo_users.py"
+
+┌────────────────────────────────────────────────────────────────┐
+│ TROUBLESHOOTING                                                │
+└────────────────────────────────────────────────────────────────┘
+
+# Service won't start
+ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -n 100"
+
+# Check Python syntax
+ssh -p 22 root@147.93.156.165 "python3 -m py_compile /root/cryptomentor-bot/Bismillah/app/demo_users.py"
+
+# Check disk space
+ssh -p 22 root@147.93.156.165 "df -h"
+
+# Check memory
+ssh -p 22 root@147.93.156.165 "free -h"
+
+┌────────────────────────────────────────────────────────────────┐
+│ COMPLETE DEPLOYMENT WORKFLOW                                   │
+└────────────────────────────────────────────────────────────────┘
+
+1. Upload files:
+   scp -P 22 Bismillah/app/{demo_users.py,handlers_community.py} root@147.93.156.165:/root/cryptomentor-bot/Bismillah/app/
+
+2. Restart service:
+   ssh -p 22 root@147.93.156.165 "systemctl restart cryptomentor"
+
+3. Check status:
+   ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor"
+
+4. Monitor logs:
+   ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor -f"
+
+┌────────────────────────────────────────────────────────────────┐
+│ EMERGENCY COMMANDS                                             │
+└────────────────────────────────────────────────────────────────┘
+
+# Force restart
+ssh -p 22 root@147.93.156.165 "systemctl stop cryptomentor && sleep 2 && systemctl start cryptomentor"
+
+# Check if bot is running
+ssh -p 22 root@147.93.156.165 "ps aux | grep python | grep bot"
+
+# Quick rollback
+ssh -p 22 root@147.93.156.165
+cd /root/cryptomentor-bot/backups
+cp BACKUP_FILE /root/cryptomentor-bot/Bismillah/app/
+systemctl restart cryptomentor
+
+┌────────────────────────────────────────────────────────────────┐
+│ DOCUMENTATION FILES                                            │
+└────────────────────────────────────────────────────────────────┘
+
+Quick Start:        README_DEPLOY_DEMO_USER.md
+Quick Reference:    SCP_QUICK_REFERENCE.md
+Complete Guide:     SCP_DEPLOYMENT_GUIDE.md
+All Commands:       SCP_COMMANDS_MASTER.txt
+Index:              INDEX_SCP_DOCUMENTATION.md
+Deployment Log:     DEPLOYMENT_LOG.md
+
+┌────────────────────────────────────────────────────────────────┐
+│ TIPS & TRICKS                                                  │
+└────────────────────────────────────────────────────────────────┘
+
+• Use -C flag for compression: scp -P 22 -C file.py ...
+• Use wildcards: scp -P 22 Bismillah/app/*.py ...
+• Chain commands with &&: upload && restart && status
+• Always check logs after deployment
+• Keep backups before major changes
+• Test locally before deploying
+
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║  Save this file for quick reference during deployments!        ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝

@@ -70,10 +70,19 @@ class TelegramBot:
         return admin_ids
 
     async def setup_application(self):
-        self.application = Application.builder().token(self.token).build()
+        from telegram.request import HTTPXRequest
+        # Optimasi koneksi: pool besar + timeout lebih tinggi untuk latency VPS
+        request = HTTPXRequest(
+            connection_pool_size=16,   # lebih banyak koneksi paralel
+            read_timeout=30,           # beri waktu lebih untuk Telegram reply
+            write_timeout=30,
+            connect_timeout=15,
+            pool_timeout=10,
+        )
+        self.application = Application.builder().token(self.token).request(request).build()
 
         # Core commands
-        self.application.add_handler(CommandHandler("start", self.start_command))
+        # NOTE: /start is handled by AutoTrade ConversationHandler (registered later)
         self.application.add_handler(CommandHandler("menu", self.menu_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("price", self.price_command))
@@ -127,6 +136,13 @@ class TelegramBot:
         except Exception as e:
             print(f"⚠️ AutoTrade handlers failed: {e}")
 
+        # Community Partners
+        try:
+            from app.handlers_community import register_community_handlers
+            register_community_handlers(self.application)
+        except Exception as e:
+            print(f"⚠️ Community handlers failed: {e}")
+
         # Menu system
         register_menu_handlers = _lazy_load_menu()
         register_menu_handlers(self.application, self)
@@ -169,73 +185,6 @@ class TelegramBot:
         )
         print("✅ All handlers registered")
 
-
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        try:
-            from app.chat_store import remember_chat
-            remember_chat(user.id, update.effective_chat.id)
-        except Exception:
-            pass
-
-        try:
-            from services import get_database
-            db = get_database()
-            referrer_id = None
-            if context.args:
-                ref_code = context.args[0]
-                if ref_code.startswith('ref_'):
-                    code = ref_code[4:]
-                    referrer_id = db.get_user_by_referral_code(code) if code.startswith('F') else (int(code) if code.isdigit() else None)
-                elif ref_code.startswith('prem_'):
-                    referrer_id = db.get_user_by_premium_referral_code(ref_code[5:])
-            db.create_user(user.id, user.username, user.first_name, user.last_name, 'id', referrer_id)
-            if referrer_id:
-                db.process_referral_reward(referrer_id, user.id)
-        except Exception as e:
-            print(f"⚠️ User registration error: {e}")
-
-        # Check if user already has Bitunix API key
-        has_api_key = False
-        try:
-            from app.handlers_autotrade import get_user_api_keys
-            keys = get_user_api_keys(user.id)
-            has_api_key = keys is not None
-        except Exception:
-            has_api_key = False
-
-        if has_api_key:
-            # User already set up — go straight to autotrade dashboard
-            from app.handlers_autotrade import cmd_autotrade
-            await cmd_autotrade(update, context)
-        else:
-            # New user — show auto trading intro in English
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤖 Start Auto Trading", callback_data="start_autotrade")],
-                [InlineKeyboardButton("📋 Main Menu", callback_data="main_menu")],
-            ])
-            await update.message.reply_text(
-                f"👋 <b>Welcome, {user.first_name}!</b>\n\n"
-                "Welcome to <b>CryptoMentor AI</b> — your 24/7 automated crypto trading bot.\n\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "🤖 <b>WHAT IS AUTO TRADING?</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "This bot trades <b>futures automatically</b> on Bitunix exchange using AI signals — "
-                "no need to watch charts all day.\n\n"
-                "⚡ <b>What the bot does for you:</b>\n"
-                "• Analyzes the market & detects entry/exit signals\n"
-                "• Opens & closes futures positions automatically\n"
-                "• Manages risk with stop loss & take profit\n"
-                "• Runs 24 hours a day, 7 days a week\n\n"
-                "🔧 <b>How to get started (3 steps):</b>\n"
-                "1️⃣ Register a Bitunix account via our referral link\n"
-                "2️⃣ Create an API key on Bitunix & connect it to the bot\n"
-                "3️⃣ Set your capital & leverage — the bot starts immediately!\n\n"
-                "Click the button below to begin setup. 👇",
-                parse_mode='HTML',
-                reply_markup=keyboard
-            )
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
@@ -916,9 +865,28 @@ class TelegramBot:
             print("✅ Scheduler started")
         except Exception as e:
             print(f"⚠️ Scheduler failed: {e}")
+        
+        # Start auto mode switcher
+        try:
+            from app.auto_mode_switcher import start_auto_mode_switcher
+            start_auto_mode_switcher(self.application.bot)
+            print("✅ Auto Mode Switcher started (checks every 15 min)")
+        except Exception as e:
+            print(f"⚠️ Auto Mode Switcher failed: {e}")
 
         print("✅ Bot is running!")
         await self.application.initialize()
         await self.application.start()
-        await self.application.updater.start_polling(drop_pending_updates=True)
+        
+        # Note: Engine restore is handled by scheduler.start_scheduler() above
+        # No need for redundant restore call here
+        
+        # timeout=1 = Telegram tunggu 1 detik sebelum return kosong (hemat bandwidth)
+        # poll_interval=0 = langsung poll lagi setelah dapat response
+        await self.application.updater.start_polling(
+            drop_pending_updates=True,
+            poll_interval=0.0,
+            timeout=1,
+            allowed_updates=["message", "callback_query", "inline_query"],
+        )
         await asyncio.Event().wait()

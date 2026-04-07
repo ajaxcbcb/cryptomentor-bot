@@ -1,0 +1,33 @@
+# Commands to run on VPS after file upload
+# SSH: ssh root@147.93.156.165
+# Password: <REDACTED_VPS_PASSWORD>
+
+# 1. Backup database
+cd /root/cryptomentor-bot
+pg_dump cryptomentor > backup_scalping_$(date +%Y%m%d_%H%M%S).sql
+echo "✅ Database backup created"
+
+# 2. Run database migration
+psql cryptomentor < db/add_trading_mode.sql
+echo "✅ Database migration complete"
+
+# 3. Verify migration
+psql cryptomentor -c "SELECT column_name, data_type, column_default FROM information_schema.columns WHERE table_name='autotrade_sessions' AND column_name='trading_mode';"
+
+# 4. Verify files uploaded
+ls -la Bismillah/app/trading_mode*.py
+ls -la Bismillah/app/scalping_engine.py
+
+# 5. Restart service
+systemctl restart cryptomentor.service
+
+# 6. Check service status
+systemctl status cryptomentor.service
+
+# 7. Monitor logs (press Ctrl+C to exit)
+journalctl -u cryptomentor.service -f
+
+# Expected log output:
+# - "✅ AutoTrade handlers registered"
+# - No import errors
+# - Bot starts successfully

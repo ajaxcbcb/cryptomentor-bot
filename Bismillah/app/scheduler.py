@@ -216,49 +216,97 @@ def start_scheduler(application):
         await asyncio.sleep(3)
 
         # ── Auto-restore autotrade engines ────────────────────────────
+        logger.info("="*80)
+        logger.info("[AutoRestore] Starting engine restoration process...")
+        logger.info("="*80)
+        
         try:
             from app.supabase_repo import _client
             from app.handlers_autotrade import get_user_api_keys
             from app.autotrade_engine import start_engine, is_running
+            from app.engine_restore import migrate_to_risk_based, set_scalping_mode
+            from app.skills_repo import has_skill
 
-            res = _client().table("autotrade_sessions").select("*").eq("status", "active").execute()
+            # Query sessions that should be restored (exclude stopped, pending, rejected)
+            # CRITICAL: Do NOT restore "stopped" engines - user explicitly stopped them
+            res = _client().table("autotrade_sessions").select("*").not_.in_(
+                "status", ["pending_verification", "uid_rejected", "pending", "stopped"]
+            ).execute()
             sessions = res.data or []
-            logger.info(f"[AutoTrade] Found {len(sessions)} active sessions to restore")
+            logger.info(f"[AutoRestore] Found {len(sessions)} active sessions to restore (excluding stopped)")
 
             restored = 0
+            skipped = 0
             failed_users = []
+            
+            logger.info(f"[AutoRestore] Processing {len(sessions)} sessions...")
 
             for session in sessions:
                 user_id = session.get("telegram_id")
                 if not user_id:
+                    logger.warning(f"[AutoRestore] Session missing telegram_id, skipping")
                     continue
+                
+                # Skip dummy/test users
+                if user_id >= 999999990:
+                    logger.debug(f"[AutoRestore] Skipping dummy user {user_id}")
+                    continue
+                
+                # Check if already running
                 if is_running(user_id):
-                    logger.info(f"[AutoTrade] Engine already running for user {user_id}, skip")
+                    logger.info(f"[AutoRestore] User {user_id} - Engine already running, skip")
+                    skipped += 1
                     continue
 
+                # Get API keys
                 keys = get_user_api_keys(user_id)
                 if not keys:
-                    logger.warning(f"[AutoTrade] No API keys for user {user_id}, skipping")
+                    logger.warning(f"[AutoRestore] User {user_id} - No API keys found, notifying user")
                     failed_users.append(user_id)
-                    # Beritahu user bahwa engine tidak bisa di-restore
-                    try:
-                        await application.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                "⚠️ <b>AutoTrade could not be resumed</b>\n\n"
-                                "API Key not found. Please set it up again:\n"
-                                "/autotrade → Input API Key"
-                            ),
-                            parse_mode='HTML'
-                        )
-                    except Exception:
-                        pass
+                    async def _notify_no_key(uid):
+                        try:
+                            await application.bot.send_message(
+                                chat_id=uid,
+                                text=(
+                                    "⚠️ <b>AutoTrade Could Not Resume</b>\n\n"
+                                    "Your engine was active but API keys are missing.\n\n"
+                                    "Please set up your API keys again:\n"
+                                    "/autotrade → Settings → Change API Key"
+                                ),
+                                parse_mode='HTML'
+                            )
+                        except Exception as e:
+                            logger.error(f"[AutoRestore] Failed to notify user {uid}: {e}")
+                    asyncio.create_task(_notify_no_key(user_id))
                     continue
 
-                amount   = float(session.get("initial_deposit") or 10)
+                # Get session settings
+                amount = float(session.get("initial_deposit") or 10)
                 leverage = int(session.get("leverage") or 10)
+                trading_mode = session.get("trading_mode", "swing")
+                exchange_id = keys.get("exchange", "bitunix")
+
+                logger.info(
+                    f"[AutoRestore] User {user_id} - Restoring: "
+                    f"{trading_mode} mode, {amount} USDT, {leverage}x, {exchange_id}"
+                )
 
                 try:
+                    # Migrate to risk-based mode for safety (if not already)
+                    migrate_to_risk_based(user_id)
+                    
+                    # Preserve user's trading mode preference (don't force scalping)
+                    # Only set scalping if they don't have a mode set
+                    if not trading_mode or trading_mode == "swing":
+                        logger.info(f"[AutoRestore] User {user_id} - Setting to scalping mode (default)")
+                        set_scalping_mode(user_id)
+                    else:
+                        logger.info(f"[AutoRestore] User {user_id} - Keeping {trading_mode} mode")
+                    
+                    # Check premium status
+                    is_premium = has_skill(user_id, "dual_tp_rr3")
+                    
+                    # Start engine
                     start_engine(
                         bot=application.bot,
                         user_id=user_id,
@@ -267,45 +315,112 @@ def start_scheduler(application):
                         amount=amount,
                         leverage=leverage,
                         notify_chat_id=user_id,
+                        is_premium=is_premium,
+                        silent=False,  # Send notification so user knows engine restarted
+                        exchange_id=exchange_id,
                     )
                     restored += 1
-                    logger.info(f"[AutoTrade] Engine restored for user {user_id} (amount={amount}, lev={leverage}x)")
+                    logger.info(f"[AutoRestore] User {user_id} - ✅ Engine started successfully")
 
-                    # Notify user that engine is active again
-                    await application.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            "🔄 <b>AutoTrade Engine Resumed</b>\n\n"
-                            "The bot just restarted and your engine is automatically active again.\n\n"
-                            f"💰 Capital: <b>{amount} USDT</b>\n"
-                            f"⚡ Leverage: <b>{leverage}x</b>\n"
-                            f"🤖 Status: <b>ACTIVE — Scanning market...</b>\n\n"
-                            "The engine is looking for high-quality setups. "
-                            "You'll receive a notification when an order is placed."
-                        ),
-                        parse_mode='HTML'
-                    )
+                    # Send detailed startup notification with full config (await directly)
+                    try:
+                        # Get trading mode details
+                        from app.trading_mode_manager import TradingMode
+                        is_scalping = trading_mode == "scalping"
+                        
+                        if is_scalping:
+                            # Scalping mode notification
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    "⚡ <b>Scalping Engine Active!</b>\n\n"
+                                    "Mode: <b>Scalping (5M)</b>\n\n"
+                                    "<b>Configuration:</b>\n"
+                                    "• Timeframe: <b>5m</b>\n"
+                                    "• Scan interval: <b>15s</b>\n"
+                                    "• Min confidence: <b>80%</b>\n"
+                                    "• Min R:R: <b>1:1.5</b>\n"
+                                    "• Max hold time: <b>30 minutes</b>\n"
+                                    f"• Max concurrent: <b>4 positions</b>\n"
+                                    "• Trading pairs: <b>10 pairs</b>\n\n"
+                                    f"💰 Capital: <b>{amount} USDT</b>\n"
+                                    f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                    "Bot will scan for high-probability setups every 15 seconds.\n"
+                                    "Patience = profit. 🎯"
+                                ),
+                                parse_mode='HTML'
+                            )
+                            logger.info(f"[AutoRestore] User {user_id} - ✅ Scalping notification sent")
+                        else:
+                            # Swing mode notification
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    "📊 <b>Swing Engine Active!</b>\n\n"
+                                    "Mode: <b>Swing (15M)</b>\n\n"
+                                    "<b>Configuration:</b>\n"
+                                    "• Timeframe: <b>15m</b>\n"
+                                    "• Scan interval: <b>45s</b>\n"
+                                    "• Min confidence: <b>68%</b>\n"
+                                    "• Min R:R: <b>1:2</b>\n"
+                                    f"• Max concurrent: <b>4 positions</b>\n"
+                                    "• Trading pairs: <b>10 pairs</b>\n\n"
+                                    f"💰 Capital: <b>{amount} USDT</b>\n"
+                                    f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                    "Bot will scan for high-quality setups every 45 seconds.\n"
+                                    "Professional trading = patience. 🎯"
+                                ),
+                                parse_mode='HTML'
+                            )
+                            logger.info(f"[AutoRestore] User {user_id} - ✅ Swing notification sent")
+                    except Exception as e:
+                        logger.error(f"[AutoRestore] Failed to notify user {user_id}: {e}")
 
                 except Exception as e:
-                    logger.error(f"[AutoTrade] Failed to restore engine for user {user_id}: {e}")
+                    logger.error(f"[AutoRestore] User {user_id} - ❌ Failed to restore: {e}")
+                    import traceback
+                    traceback.print_exc()
                     failed_users.append(user_id)
-                    try:
-                        await application.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"⚠️ <b>AutoTrade failed to resume</b>\n\n"
-                                f"Error: {e}\n\n"
-                                "Please restart manually: /autotrade"
-                            ),
-                            parse_mode='HTML'
-                        )
-                    except Exception:
-                        pass
+                    
+                    async def _notify_failed(uid, err):
+                        try:
+                            await application.bot.send_message(
+                                chat_id=uid,
+                                text=(
+                                    "⚠️ <b>AutoTrade Failed to Resume</b>\n\n"
+                                    f"Error: {str(err)[:100]}\n\n"
+                                    "Please restart manually: /autotrade"
+                                ),
+                                parse_mode='HTML'
+                            )
+                        except Exception as e2:
+                            logger.error(f"[AutoRestore] Failed to notify user {uid}: {e2}")
+                    asyncio.create_task(_notify_failed(user_id, e))
 
-            logger.info(f"[AutoTrade] Restore complete: {restored} restored, {len(failed_users)} failed")
+            logger.info("="*80)
+            logger.info(f"[AutoRestore] Restoration Summary:")
+            logger.info(f"  ✅ Restored: {restored}")
+            logger.info(f"  ⏭️  Skipped (already running): {skipped}")
+            logger.info(f"  ❌ Failed: {len(failed_users)}")
+            logger.info(f"  📊 Total sessions: {len(sessions)}")
+            if failed_users:
+                logger.info(f"  Failed users: {failed_users}")
+            logger.info("="*80)
 
         except Exception as e:
-            logger.error(f"[AutoTrade] Auto-restore failed: {e}")
+            logger.error(f"[AutoRestore] Critical error in restoration process: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # ── Send maintenance notifications to users with inactive engines ─
+        await asyncio.sleep(2)  # Wait for auto-restore to complete
+        try:
+            from app.maintenance_notifier import send_maintenance_notifications
+            await send_maintenance_notifications(application.bot)
+        except Exception as e:
+            logger.error(f"[Maintenance] Failed to send notifications: {e}")
+            import traceback
+            traceback.print_exc()
 
         # ── Startup: cek open trades di DB vs kondisi market sekarang ─
         await asyncio.sleep(5)  # beri waktu engine start dulu
@@ -315,7 +430,150 @@ def start_scheduler(application):
         task_scheduler.running = True
         logger.info("[ROCKET] Scheduler started")
 
+        # ── AutoTrade daily reminder ───────────────────────────────────
+        asyncio.create_task(_autotrade_reminder_task(application))
+        
+        # ── Engine health check (every 5 minutes) ──────────────────────
+        asyncio.create_task(_engine_health_check_task(application))
+
     asyncio.create_task(_start())
+
+
+async def _engine_health_check_task(application):
+    """
+    Periodic health check for autotrade engines.
+    Checks every 2 minutes if engines that should be running are still alive.
+    Auto-restarts if they stopped unexpectedly.
+    """
+    from datetime import timedelta
+    
+    CHECK_INTERVAL_SECONDS = 120  # 2 minutes (reduced from 5 for faster detection)
+    
+    while True:
+        try:
+            await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+            
+            from app.supabase_repo import _client
+            from app.autotrade_engine import is_running, start_engine
+            from app.handlers_autotrade import get_user_api_keys
+            from app.skills_repo import has_skill
+            
+            # Get sessions that should be running (exclude stopped, pending, rejected)
+            # CRITICAL: Do NOT restart "stopped" engines - user explicitly stopped them
+            res = _client().table("autotrade_sessions").select("*").not_.in_(
+                "status", ["pending_verification", "uid_rejected", "pending", "stopped"]
+            ).execute()
+            sessions = res.data or []
+            
+            if not sessions:
+                continue
+            
+            dead_engines = []
+            
+            # Check each session
+            for session in sessions:
+                user_id = session.get("telegram_id")
+                if not user_id:
+                    continue
+                
+                # Skip dummy/test users (IDs like 999999999)
+                if user_id >= 999999990:
+                    continue
+                
+                # Check if engine is running
+                if not is_running(user_id):
+                    dead_engines.append(user_id)
+                    logger.warning(f"[HealthCheck] User {user_id} - Engine should be running but is DEAD!")
+            
+            if dead_engines:
+                logger.warning(f"[HealthCheck] ⚠️ Found {len(dead_engines)} DEAD engines: {dead_engines}")
+                logger.warning(f"[HealthCheck] Attempting auto-restart for {len(dead_engines)} users...")
+                
+                for user_id in dead_engines:
+                    try:
+                        # Get session info
+                        session = next((s for s in sessions if s.get("telegram_id") == user_id), None)
+                        if not session:
+                            continue
+                        
+                        # Get API keys
+                        keys = get_user_api_keys(user_id)
+                        if not keys:
+                            logger.error(f"[HealthCheck] User {user_id} - No API keys, cannot restart")
+                            # Notify user
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                    "Your engine stopped unexpectedly and cannot auto-restart because API keys are missing.\n\n"
+                                    "Please restart manually: /autotrade"
+                                ),
+                                parse_mode='HTML'
+                            )
+                            continue
+                        
+                        # Get settings
+                        amount = float(session.get("initial_deposit") or 10)
+                        leverage = int(session.get("leverage") or 10)
+                        trading_mode = session.get("trading_mode", "scalping")
+                        exchange_id = keys.get("exchange", "bitunix")
+                        is_premium = has_skill(user_id, "dual_tp_rr3")
+                        
+                        # Restart engine
+                        start_engine(
+                            bot=application.bot,
+                            user_id=user_id,
+                            api_key=keys["api_key"],
+                            api_secret=keys["api_secret"],
+                            amount=amount,
+                            leverage=leverage,
+                            notify_chat_id=user_id,
+                            is_premium=is_premium,
+                            silent=False,
+                            exchange_id=exchange_id,
+                        )
+                        
+                        logger.info(f"[HealthCheck] User {user_id} - ✅ Engine restarted")
+                        
+                        # Notify user
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                "🔄 <b>AutoTrade Engine Auto-Restarted</b>\n\n"
+                                "Your engine stopped unexpectedly and has been automatically restarted.\n\n"
+                                f"📊 Mode: <b>{trading_mode.title()}</b>\n"
+                                f"💰 Capital: <b>{amount} USDT</b>\n"
+                                f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                "If this happens frequently, please contact support.\n\n"
+                                "Use /autotrade to check status."
+                            ),
+                            parse_mode='HTML'
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"[HealthCheck] Failed to restart user {user_id}: {e}")
+                        # Notify user of failure
+                        try:
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                    "Your engine stopped and auto-restart failed.\n\n"
+                                    "Please restart manually: /autotrade"
+                                ),
+                                parse_mode='HTML'
+                            )
+                        except:
+                            pass
+            else:
+                logger.info(f"[HealthCheck] All {len(sessions)} engines are healthy ✅")
+        
+        except Exception as e:
+            logger.error(f"[HealthCheck] Error in health check task: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue running despite errors
+            await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
 
 async def _check_stale_positions(application):
@@ -398,3 +656,32 @@ async def _check_stale_positions(application):
     except Exception as e:
         logger.error(f"[StartupCheck] Failed: {e}")
 
+
+
+async def _autotrade_reminder_task(application):
+    """
+    Task harian: kirim reminder autotrade ke user yang belum daftar.
+    Jalan setiap hari jam 10:00 WIB (03:00 UTC).
+    """
+    from datetime import timedelta
+
+    REMINDER_HOUR_UTC = 3   # 10:00 WIB = 03:00 UTC
+    REMINDER_MINUTE   = 0
+
+    while True:
+        try:
+            now = datetime.utcnow()
+            target = now.replace(hour=REMINDER_HOUR_UTC, minute=REMINDER_MINUTE, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+
+            wait_seconds = (target - now).total_seconds()
+            logger.info(f"[Reminder] Next autotrade reminder in {wait_seconds/3600:.1f} hours")
+            await asyncio.sleep(wait_seconds)
+
+            from app.autotrade_reminder import send_autotrade_reminders
+            await send_autotrade_reminders(application.bot)
+
+        except Exception as e:
+            logger.error(f"[Reminder] Task error: {e}")
+            await asyncio.sleep(3600)  # retry 1 jam kemudian kalau error

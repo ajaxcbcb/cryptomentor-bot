@@ -1,7 +1,14 @@
 """
 Alternative Klines Provider
-Menggunakan Bitunix, CryptoCompare, dan CoinGecko sebagai sumber data OHLCV.
-Prioritas: Bitunix (exchange utama) → CryptoCompare → CoinGecko
+Multi-source OHLCV data provider dengan fallback chain untuk reliability maksimal.
+
+Priority chain:
+1. Bitunix (exchange utama) - Futures data langsung
+2. Binance Futures (fallback terbaik) - Gratis, reliable, semua pair
+3. CryptoCompare (jika ada API key) - Spot data
+4. CoinGecko (last resort) - Spot data, limited pairs
+
+Dengan 4 sources, kita pastikan data selalu tersedia untuk push trading volume.
 """
 import os
 import requests
@@ -14,6 +21,7 @@ class AlternativeKlinesProvider:
     
     def __init__(self):
         self.bitunix_api      = os.getenv('BITUNIX_BASE_URL', 'https://fapi.bitunix.com')
+        self.binance_api      = "https://fapi.binance.com"  # Binance Futures public API
         self.coingecko_api    = "https://api.coingecko.com/api/v3"
         self.cryptocompare_api = "https://min-api.cryptocompare.com/data/v2"
         self.cryptocompare_key = os.getenv('CRYPTOCOMPARE_API_KEY', '')
@@ -31,14 +39,20 @@ class AlternativeKlinesProvider:
         if klines:
             return klines
 
-        # 2. CryptoCompare
+        # 2. Binance Futures (fallback terbaik — gratis, reliable, semua pair)
+        klines = self._get_from_binance(full_symbol, interval, limit)
+        if klines:
+            print(f"✅ Got {len(klines)} candles from Binance for {symbol}")
+            return klines
+
+        # 3. CryptoCompare
         if self.cryptocompare_key:
             klines = self._get_from_cryptocompare(clean_symbol, interval, limit)
             if klines:
                 print(f"✅ Got {len(klines)} candles from CryptoCompare for {symbol}")
                 return klines
 
-        # 3. CoinGecko
+        # 4. CoinGecko
         klines = self._get_from_coingecko(clean_symbol, interval, limit)
         if klines:
             print(f"✅ Got {len(klines)} candles from CoinGecko for {symbol}")
@@ -106,6 +120,67 @@ class AlternativeKlinesProvider:
 
         except Exception as e:
             print(f"Bitunix klines error ({symbol}): {e}")
+            return []
+    
+    def _get_from_binance(self, symbol: str, interval: str, limit: int) -> List:
+        """
+        Get OHLCV dari Binance Futures public API — gratis, tidak perlu auth.
+        Binance support semua pair yang kita trade dan sangat reliable.
+        """
+        try:
+            # Binance interval mapping (sudah standar)
+            # Supported: 1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d 3d 1w 1M
+            interval_map = {
+                '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+                '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h',
+                '8h': '8h', '12h': '12h', '1d': '1d', '1w': '1w',
+            }
+            bn_interval = interval_map.get(interval)
+            if not bn_interval:
+                return []
+
+            # Binance max limit per request = 1500
+            fetch_limit = min(limit, 1500)
+
+            url = f"{self.binance_api}/fapi/v1/klines"
+            params = {
+                'symbol':   symbol,
+                'interval': bn_interval,
+                'limit':    fetch_limit,
+            }
+
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code != 200:
+                return []
+
+            klines = resp.json()
+            
+            # Binance response sudah dalam format yang kita butuhkan:
+            # [timestamp, open, high, low, close, volume, close_time, quote_volume, ...]
+            if isinstance(klines, list) and len(klines) >= 10:
+                # Convert all values to string for consistency
+                formatted_klines = []
+                for k in klines:
+                    formatted_klines.append([
+                        int(k[0]),      # timestamp
+                        str(k[1]),      # open
+                        str(k[2]),      # high
+                        str(k[3]),      # low
+                        str(k[4]),      # close
+                        str(k[5]),      # volume
+                        int(k[6]),      # close_time
+                        str(k[7]),      # quote_volume
+                        int(k[8]),      # number of trades
+                        str(k[9]),      # taker buy base volume
+                        str(k[10]),     # taker buy quote volume
+                        str(k[11])      # ignore
+                    ])
+                return formatted_klines
+
+            return []
+
+        except Exception as e:
+            print(f"Binance klines error ({symbol}): {e}")
             return []
     
     def _get_from_cryptocompare(self, symbol: str, interval: str, limit: int) -> List:
@@ -185,6 +260,7 @@ class AlternativeKlinesProvider:
                 'DOT': 'polkadot',
                 'MATIC': 'matic-network',
                 'AVAX': 'avalanche-2',
+                'DOGE': 'dogecoin',
                 'UNI': 'uniswap',
                 'LINK': 'chainlink',
                 'LTC': 'litecoin',

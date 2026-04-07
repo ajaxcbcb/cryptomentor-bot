@@ -6,6 +6,7 @@ Strategy: Multi-timeframe confluence + SMC + Risk Management
 - Volatility filter (no trade in low-volatility ranging market)
 - Confidence threshold >= 68 (only high-quality setups)
 - Max 1 position per symbol, max 3 concurrent positions
+- StackMentor: 3-tier TP strategy (50%/40%/10% at R:R 1:2/1:3/1:10)
 """
 import asyncio
 import logging
@@ -13,6 +14,15 @@ from typing import Dict, Optional, List
 from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
+
+# Import StackMentor system
+from app.stackmentor import (
+    STACKMENTOR_CONFIG,
+    calculate_stackmentor_levels,
+    calculate_qty_splits,
+    register_stackmentor_position,
+    monitor_stackmentor_positions,
+)
 
 _running_tasks: Dict[int, asyncio.Task] = {}
 
@@ -23,17 +33,18 @@ _tp1_hit_positions: Dict[int, set] = {}
 #  Engine config (professional defaults)
 # ─────────────────────────────────────────────
 ENGINE_CONFIG = {
-    "symbols":            ["BTC", "ETH", "SOL", "BNB"],
+    "symbols":            ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "DOT", "MATIC", "LINK", "UNI", "ATOM"],  # 13 pairs sama seperti scalping
     "scan_interval":      45,       # detik antar scan
     "min_confidence":     68,       # hanya sinyal berkualitas tinggi
-    "max_trades_per_day": 6,        # batasi overtrading
-    "max_concurrent":     4,        # max 4 posisi bersamaan (1 per pair)
+    "max_trades_per_day": 999,       # unlimited — push trading volume
+    "max_concurrent":     4,        # max 4 posisi bersamaan (tetap 4 untuk risk management)
     "min_rr_ratio":       2.0,      # minimum Risk:Reward 1:2 (untuk validasi entry)
     "daily_loss_limit":   0.05,     # circuit breaker: stop jika -5% dari modal
     "atr_sl_multiplier":  2.0,      # SL = 2.0x ATR (lebih lebar, tahan manipulasi candle)
-    "atr_tp1_multiplier": 4.0,      # TP1 = 4.0x ATR → R:R 1:2 (ambil 75% posisi)
-    "atr_tp2_multiplier": 6.0,      # TP2 = 6.0x ATR → R:R 1:3 (sisa 25% posisi)
-    "tp1_close_pct":      0.75,     # tutup 75% posisi di TP1
+    "use_stackmentor":    True,     # Enable StackMentor 3-tier TP for ALL users
+    "atr_tp1_multiplier": 4.0,      # TP1 = 4.0x ATR → R:R 1:2 (ambil 75% posisi) [LEGACY]
+    "atr_tp2_multiplier": 6.0,      # TP2 = 6.0x ATR → R:R 1:3 (sisa 25% posisi) [LEGACY]
+    "tp1_close_pct":      0.75,     # tutup 75% posisi di TP1 [LEGACY]
     "min_atr_pct":        0.4,      # filter: skip jika ATR < 0.4% (market flat)
     "max_atr_pct":        8.0,      # filter: skip jika ATR > 8% (terlalu volatile)
     "rsi_long_max":       65,       # jangan LONG jika RSI > 65 (overbought)
@@ -44,7 +55,8 @@ ENGINE_CONFIG = {
 
 QTY_PRECISION = {
     "BTCUSDT": 3, "ETHUSDT": 2, "SOLUSDT": 1, "BNBUSDT": 2,
-    "XRPUSDT": 0, "ADAUSDT": 0, "DOGEUSDT": 0,
+    "XRPUSDT": 0, "ADAUSDT": 0, "DOGEUSDT": 0, "AVAXUSDT": 2,
+    "DOTUSDT": 1, "MATICUSDT": 0,
 }
 
 # Cooldown tracker: symbol → timestamp terakhir flip
@@ -383,16 +395,17 @@ def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None) -> Op
     symbol = base_symbol.upper() + "USDT"
     cfg = ENGINE_CONFIG
     
-    # ── BTC Bias Filter (skip altcoin if BTC indecisive) ──────────────
+    # ── BTC Bias Filter (relaxed for swing trade) ──────────────
     btc_is_sideways = False
     if btc_bias:
         btc_bias_dir = btc_bias.get("bias", "NEUTRAL")
         btc_strength = btc_bias.get("strength", 0)
-        btc_is_sideways = (btc_bias_dir == "NEUTRAL" or btc_strength < 60)
+        btc_is_sideways = (btc_bias_dir == "NEUTRAL" or btc_strength < 50)  # Lowered from 60 to 50
 
-    if base_symbol.upper() != "BTC" and btc_is_sideways:
+    # Only skip altcoins if BTC is VERY weak (strength < 40)
+    if base_symbol.upper() != "BTC" and btc_bias and btc_bias.get("strength", 100) < 40:
         logger.info(
-            f"[Signal] {symbol} SKIPPED — BTC sideways "
+            f"[Signal] {symbol} SKIPPED — BTC very weak "
             f"(bias={btc_bias.get('bias','?')} strength={btc_bias.get('strength',0)}%)"
         )
         return None
@@ -688,25 +701,80 @@ def stop_engine(user_id: int):
     if t and not t.done():
         t.cancel()
         logger.info(f"AutoTrade stopped for user {user_id}")
+    
+    # Update engine_active flag in database
+    try:
+        from app.supabase_repo import _client
+        s = _client()
+        s.table("autotrade_sessions").upsert({
+            "telegram_id": int(user_id),
+            "engine_active": False
+        }, on_conflict="telegram_id").execute()
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
 
 
 def start_engine(bot, user_id: int, api_key: str, api_secret: str,
                  amount: float, leverage: int, notify_chat_id: int,
-                 is_premium: bool = False):
+                 is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
     stop_engine(user_id)
+    
+    # Load trading mode
+    from app.trading_mode_manager import TradingModeManager, TradingMode
+    trading_mode = TradingModeManager.get_mode(user_id)
+    
+    # Get exchange client
+    from app.exchange_registry import get_client
+    client = get_client(exchange_id, api_key, api_secret)
 
     def _done_cb(task: asyncio.Task):
+        # Update engine_active flag when engine stops
+        try:
+            from app.supabase_repo import _client
+            s = _client()
+            s.table("autotrade_sessions").upsert({
+                "telegram_id": int(user_id),
+                "engine_active": False
+            }, on_conflict="telegram_id").execute()
+        except Exception as e:
+            logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
+        
         if task.cancelled():
             logger.info(f"AutoTrade cancelled for user {user_id}")
         elif task.exception():
             logger.error(f"AutoTrade CRASHED for user {user_id}: {task.exception()}", exc_info=task.exception())
 
-    task = asyncio.create_task(
-        _trade_loop(bot, user_id, api_key, api_secret, amount, leverage, notify_chat_id, is_premium)
-    )
+    # Start appropriate engine based on mode
+    if trading_mode == TradingMode.SCALPING:
+        from app.scalping_engine import ScalpingEngine
+        engine = ScalpingEngine(
+            user_id=user_id,
+            client=client,
+            bot=bot,
+            notify_chat_id=notify_chat_id
+        )
+        task = asyncio.create_task(engine.run())
+        logger.info(f"[AutoTrade:{user_id}] Started SCALPING engine (exchange={exchange_id})")
+    else:
+        # Existing swing trading logic
+        task = asyncio.create_task(
+            _trade_loop(bot, user_id, api_key, api_secret, amount, leverage, notify_chat_id, is_premium, silent, exchange_id)
+        )
+        logger.info(f"[AutoTrade:{user_id}] Started SWING engine (exchange={exchange_id}, amount={amount}, leverage={leverage}x, premium={is_premium})")
+    
     task.add_done_callback(_done_cb)
     _running_tasks[user_id] = task
-    logger.info(f"AutoTrade PRO started for user {user_id}, amount={amount}, leverage={leverage}x, premium={is_premium}")
+    
+    # Update engine_active flag in database
+    try:
+        from app.supabase_repo import _client
+        s = _client()
+        s.table("autotrade_sessions").upsert({
+            "telegram_id": int(user_id),
+            "engine_active": True
+        }, on_conflict="telegram_id").execute()
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -714,18 +782,22 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
 # ─────────────────────────────────────────────
 async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                       amount: float, leverage: int, notify_chat_id: int,
-                      is_premium: bool = False):
+                      is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
     import sys, os
     bismillah_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if bismillah_root not in sys.path:
         sys.path.insert(0, bismillah_root)
 
-    from app.bitunix_autotrade_client import BitunixAutoTradeClient
+    from app.exchange_registry import get_client, get_exchange
     from app.supabase_repo import _client
     from app.bitunix_ws_pnl import start_pnl_tracker, stop_pnl_tracker, is_tracking
 
-    client = BitunixAutoTradeClient(api_key=api_key, api_secret=api_secret)
+    # Get exchange-specific client
+    ex_cfg = get_exchange(exchange_id)
+    client = get_client(exchange_id, api_key, api_secret)
     cfg    = ENGINE_CONFIG
+
+    logger.info(f"[Engine:{user_id}] Using exchange: {ex_cfg['name']} ({exchange_id})")
 
     # Premium user: RR 1:3 dengan dual TP (75%/25%) + breakeven SL
     # Free user: RR 1:2 single TP (behaviour lama)
@@ -746,37 +818,146 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         _tp1_hit_positions[user_id] = set()
 
     def calc_qty(symbol: str, notional: float, price: float) -> float:
+        """Legacy position sizing (fixed margin) - kept for backward compatibility"""
         precision = QTY_PRECISION.get(symbol, 3)
         qty = round(notional / price, precision)
         min_qty = 10 ** (-precision) if precision > 0 else 1
         return qty if qty >= min_qty else 0.0
+    
+    def calc_qty_with_risk(symbol: str, entry: float, sl: float, leverage: int) -> tuple:
+        """
+        Calculate position size using risk-based sizing that respects user's max loss per trade.
+        
+        CRITICAL: This function ensures that if SL hits, user loses EXACTLY risk_percentage of balance.
+        Leverage is used to calculate margin required, NOT to amplify position size beyond risk limit.
+        
+        Formula:
+        1. Risk Amount = Balance * Risk%
+        2. SL Distance = |Entry - SL|
+        3. Position Size (in base currency) = Risk Amount / SL Distance
+        4. Margin Required = (Position Size * Entry Price) / Leverage
+        
+        Returns:
+            (qty, used_risk_sizing): tuple of (quantity, whether risk sizing was used)
+        """
+        try:
+            # Get risk percentage from database
+            from app.supabase_repo import get_risk_per_trade
+            risk_pct = get_risk_per_trade(user_id)
+            
+            # Get current balance from exchange
+            bal_result = client.get_balance()
+            if not bal_result.get('success'):
+                raise Exception(f"Balance fetch failed: {bal_result.get('error')}")
+            
+            balance = bal_result.get('balance', 0)
+            if balance <= 0:
+                raise Exception(f"Invalid balance: {balance}")
+            
+            # Calculate position size using risk calculator
+            from app.risk_calculator import calculate_position_size as calc_risk
+            
+            calc = calc_risk(
+                last_balance=balance,
+                risk_percentage=risk_pct,
+                entry_price=entry,
+                stop_loss_price=sl
+            )
+            
+            if calc['status'] != 'success':
+                raise Exception(f"Risk calculation failed: {calc['error_message']}")
+            
+            # Get position size in base currency (e.g., BTC amount)
+            position_size = calc['position_size']
+            
+            # Round to exchange precision
+            precision = QTY_PRECISION.get(symbol, 3)
+            qty = round(position_size, precision)
+            
+            # Validate minimum quantity
+            min_qty = 10 ** (-precision) if precision > 0 else 1
+            if qty < min_qty:
+                raise Exception(f"Quantity {qty} below minimum {min_qty}")
+            
+            # Calculate margin required (for logging only - exchange handles this)
+            position_value = qty * entry
+            margin_required = position_value / leverage
+            
+            # Validate margin available
+            if margin_required > balance:
+                raise Exception(
+                    f"Insufficient margin: need ${margin_required:.2f}, have ${balance:.2f}. "
+                    f"Reduce risk % or increase balance."
+                )
+            
+            logger.info(
+                f"[RiskCalc:{user_id}] {symbol} - "
+                f"Balance=${balance:.2f}, Risk={risk_pct}%, "
+                f"Entry=${entry:.2f}, SL=${sl:.2f}, "
+                f"Risk_Amt=${calc['risk_amount']:.2f}, "
+                f"Position_Size={position_size:.8f}, "
+                f"Qty={qty}, "
+                f"Position_Value=${position_value:.2f}, "
+                f"Margin_Required=${margin_required:.2f} (Leverage={leverage}x), "
+                f"Max_Loss_If_SL=${calc['risk_amount']:.2f}"
+            )
+            
+            return qty, True  # Success - used risk-based sizing
+            
+        except Exception as e:
+            logger.warning(
+                f"[RiskSizing:{user_id}] FAILED: {e} - Falling back to fixed margin system"
+            )
+            
+            # FALLBACK: Use old fixed margin system for backward compatibility
+            qty_fallback = calc_qty(symbol, amount * leverage, entry)
+            
+            logger.info(
+                f"[RiskSizing:{user_id}] FALLBACK - Using fixed margin: "
+                f"amount=${amount}, leverage={leverage}x, qty={qty_fallback}"
+            )
+            
+            return qty_fallback, False  # Fallback used
 
     logger.info(f"[Engine:{user_id}] PRO ENGINE STARTED — symbols={cfg['symbols']}, "
                 f"min_conf={cfg['min_confidence']}, min_rr={cfg['min_rr_ratio']}, "
                 f"daily_loss_limit={daily_loss_limit:.2f} USDT")
 
-    await bot.send_message(
-        chat_id=notify_chat_id,
-        text=(
-            "🤖 <b>AutoTrade PRO Engine Active!</b>\n\n"
-            f"📊 Strategy: Multi-timeframe (1H trend + 15M entry)\n"
-            f"🎯 Min Confidence: {cfg['min_confidence']}%\n"
-            + (
-                f"⚖️ R:R: 1:2 (TP1, 75%) → 1:3 (TP2, 25%)\n"
-                f"🔒 Breakeven: SL geser ke entry setelah TP1 hit\n"
-                f"👑 Mode: <b>PREMIUM</b>\n"
-                if is_premium else
-                f"⚖️ Min R:R Ratio: 1:{cfg['min_rr_ratio']}\n"
+    try:
+        if not silent:
+            await asyncio.sleep(1)
+            await bot.send_message(
+                chat_id=notify_chat_id,
+                text=(
+                    "🤖 <b>AutoTrade PRO Engine Active!</b>\n\n"
+                    f"📊 Strategy: Multi-timeframe (1H trend + 15M entry)\n"
+                    f"🎯 Min Confidence: {cfg['min_confidence']}%\n"
+                    + (
+                        f"⚖️ R:R: 1:2 (TP1, 75%) → 1:3 (TP2, 25%)\n"
+                        f"🔒 Breakeven: SL geser ke entry setelah TP1 hit\n"
+                        f"👑 Mode: <b>PREMIUM</b>\n"
+                        if is_premium else
+                        f"⚖️ Min R:R Ratio: 1:{cfg['min_rr_ratio']}\n"
+                    )
+                    + f"🛡 Daily Loss Limit: {daily_loss_limit:.2f} USDT ({cfg['daily_loss_limit']*100:.0f}%)\n"
+                    f"📈 Mode: <b>Unlimited trades/day</b>\n\n"
+                    "Bot only executes high-quality setups. Patience = profit."
+                ),
+                parse_mode='HTML'
             )
-            + f"🛡 Daily Loss Limit: {daily_loss_limit:.2f} USDT ({cfg['daily_loss_limit']*100:.0f}%)\n"
-            f"📈 Max Trades/Day: {cfg['max_trades_per_day']}\n\n"
-            "Bot only executes high-quality setups. Patience = profit."
-        ),
-        parse_mode='HTML'
-    )
+    except Exception as _startup_err:
+        logger.warning(f"[Engine:{user_id}] Startup notification failed (non-fatal): {_startup_err}")
 
     while True:
         try:
+            # ── Check if engine stop requested ────────────────────────
+            try:
+                if asyncio.current_task().cancelled():
+                    logger.info(f"[Engine:{user_id}] Task cancelled, exiting loop")
+                    break
+            except Exception:
+                pass  # Ignore check errors
+            
             # ── Reset harian ──────────────────────────────────────────
             today = date.today()
             if today != last_trade_date:
@@ -851,10 +1032,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     for db_trade in open_db_trades:
                         sym_base = db_trade["symbol"].replace("USDT", "")
                         # Ambil harga terakhir untuk estimasi exit
+                        # FIXED: Gunakan mark price dari exchange, bukan klines
                         try:
-                            klines = alternative_klines_provider.get_klines(sym_base, interval='1m', limit=2)
-                            exit_px = float(klines[-1][4]) if klines else float(db_trade.get("entry_price", 0))
-                        except Exception:
+                            # Try to get current mark price from exchange
+                            ticker_result = await asyncio.to_thread(client.get_ticker, db_trade["symbol"])
+                            if ticker_result.get('success') and ticker_result.get('mark_price'):
+                                exit_px = float(ticker_result['mark_price'])
+                            else:
+                                # Fallback to klines
+                                klines = alternative_klines_provider.get_klines(sym_base, interval='1m', limit=2)
+                                exit_px = float(klines[-1][4]) if klines else float(db_trade.get("entry_price", 0))
+                        except Exception as e:
+                            logger.warning(f"[Engine:{user_id}] Failed to get exit price for {sym_base}: {e}")
+                            # Last resort: use entry price (will result in 0 PnL)
                             exit_px = float(db_trade.get("entry_price", 0))
 
                         entry_px = float(db_trade.get("entry_price", 0))
@@ -884,14 +1074,34 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             loss_reasoning=loss_reason,
                         )
                         daily_pnl_usdt += pnl_usdt
+
+                        # Broadcast profit besar ke semua user (social proof)
+                        if pnl_usdt >= 5.0 and close_status == "closed_tp":
+                            try:
+                                from app.social_proof import broadcast_profit
+                                from app.supabase_repo import get_user_by_tid
+                                user_data = get_user_by_tid(user_id)
+                                fname = user_data.get("first_name", "User") if user_data else "User"
+                                asyncio.create_task(broadcast_profit(
+                                    bot=bot,
+                                    user_id=user_id,
+                                    first_name=fname,
+                                    symbol=db_trade.get("symbol", ""),
+                                    side=db_trade.get("side", "LONG"),
+                                    pnl_usdt=pnl_usdt,
+                                    leverage=db_trade.get("leverage", leverage),
+                                ))
+                            except Exception as _bp_err:
+                                logger.warning(f"[Engine:{user_id}] broadcast_profit failed: {_bp_err}")
+
                 except Exception as _he:
                     logger.warning(f"[Engine:{user_id}] trade_history close failed: {_he}")
                 await bot.send_message(
                     chat_id=notify_chat_id,
                     text=(
                         f"🔔 <b>Position Closed</b> (TP/SL hit)\n\n"
-                        f"📊 Trades today: <b>{trades_today}/{cfg['max_trades_per_day']}</b>\n"
-                        f"{'🔄 Looking for next setup...' if trades_today < cfg['max_trades_per_day'] else '🛑 Daily limit reached.'}"
+                        f"📊 Trades today: <b>{trades_today}</b>\n"
+                        f"🔄 Looking for next setup..."
                     ),
                     parse_mode='HTML'
                 )
@@ -899,8 +1109,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             if open_positions:
                 had_open_position = True
 
+            # ── StackMentor Monitor: Check TP2/TP3 hits ──────────────
+            if cfg.get("use_stackmentor", True):
+                try:
+                    await monitor_stackmentor_positions(
+                        bot=bot,
+                        user_id=user_id,
+                        client=client,
+                        notify_chat_id=notify_chat_id
+                    )
+                except Exception as _sm_err:
+                    logger.warning(f"[StackMentor:{user_id}] Monitor error: {_sm_err}")
+
             # ── TP1 Monitor: cek apakah harga sudah melewati TP1 ─────
-            # Hanya untuk premium user (dual TP mode)
+            # Hanya untuk premium user (dual TP mode) [LEGACY - will be replaced by StackMentor]
             if _dual_tp_enabled and open_positions and user_id in _tp1_hit_positions:
                 for pos in open_positions:
                     pos_symbol = pos.get("symbol", "")
@@ -1124,11 +1346,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             parse_mode='HTML'
                         )
 
-            # ── Batas harian & concurrent positions ───────────────────
-            if trades_today >= cfg["max_trades_per_day"]:
-                await asyncio.sleep(300)
-                continue
-
+            # ── Concurrent positions limit ─────────────────────────────
             if len(open_positions) >= cfg["max_concurrent"]:
                 logger.info(f"[Engine:{user_id}] Max concurrent positions ({cfg['max_concurrent']}) reached")
                 await asyncio.sleep(cfg["scan_interval"])
@@ -1185,27 +1403,113 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             confidence = sig['confidence']
             rr_ratio   = sig['rr_ratio']
 
-            # ── Hitung qty ────────────────────────────────────────────
-            qty = calc_qty(symbol, amount * leverage, entry)
+            # ── Hitung qty dengan risk-based sizing (Phase 2) ─────────────
+            # Try risk-based position sizing first, fallback to fixed margin if fails
+            qty, used_risk_sizing = calc_qty_with_risk(symbol, entry, sl, leverage)
+            
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
                 await asyncio.sleep(cfg["scan_interval"])
                 continue
+            
+            # Log which method was used
+            if used_risk_sizing:
+                logger.info(f"[Engine:{user_id}] Using RISK-BASED position sizing for {symbol}")
+            else:
+                logger.info(f"[Engine:{user_id}] Using FIXED MARGIN position sizing for {symbol} (fallback)")
 
-            # Split qty: 75% untuk TP1, 25% untuk TP2 (PREMIUM ONLY)
+            # ── StackMentor: Calculate 3-tier TP levels ───────────────
+            # All users are eligible for StackMentor (no minimum balance)
+            from app.supabase_repo import is_stackmentor_eligible_by_balance
+            
+            stackmentor_enabled = False
+            try:
+                # Get user's current balance from exchange
+                bal_result = await asyncio.to_thread(client.get_balance)
+                user_balance = bal_result.get('balance', 0) if bal_result.get('success') else 0
+                
+                # All users are eligible for StackMentor
+                stackmentor_enabled = cfg.get("use_stackmentor", True) and is_stackmentor_eligible_by_balance(user_balance)
+                
+                if stackmentor_enabled:
+                    logger.info(f"[StackMentor:{user_id}] Enabled for balance ${user_balance:.2f} ✅")
+                else:
+                    logger.info(f"[StackMentor:{user_id}] Disabled in config (balance: ${user_balance:.2f})")
+            except Exception as _sm_check_err:
+                logger.warning(f"[StackMentor:{user_id}] Balance check failed: {_sm_check_err}")
+                stackmentor_enabled = False
+            
             precision  = QTY_PRECISION.get(symbol, 3)
-            if _dual_tp_enabled:
+            if stackmentor_enabled:
+                # StackMentor: 3-tier TP strategy (50%/40%/10%)
+                tp1_sm, tp2_sm, tp3_sm = calculate_stackmentor_levels(
+                    entry_price=entry,
+                    sl_price=sl,
+                    side=side
+                )
+                qty_tp1, qty_tp2, qty_tp3 = calculate_qty_splits(qty, precision)
+                
+                # Override signal TP with StackMentor levels
+                tp1 = tp1_sm
+                tp2 = tp2_sm
+                tp3 = tp3_sm
+                
+                logger.info(
+                    f"[StackMentor:{user_id}] {symbol} {side} — "
+                    f"TP1={tp1:.4f}(50%) TP2={tp2:.4f}(40%) TP3={tp3:.4f}(10%)"
+                )
+            elif _dual_tp_enabled:
+                # Legacy premium: 75%/25% split
                 qty_tp1 = round(qty * cfg["tp1_close_pct"], precision)
                 qty_tp2 = round(qty - qty_tp1, precision)
+                qty_tp3 = 0
+                tp3 = tp2
                 if qty_tp1 <= 0 or qty_tp2 <= 0:
                     qty_tp1 = qty
-                    qty_tp2 = 0  # fallback: single TP jika qty terlalu kecil
+                    qty_tp2 = 0
+                    qty_tp3 = 0
             else:
+                # Legacy free: single TP
                 qty_tp1 = qty
                 qty_tp2 = 0
+                qty_tp3 = 0
+                tp3 = tp1
 
             # ── Set leverage ──────────────────────────────────────────
             await asyncio.to_thread(client.set_leverage, symbol, leverage)
+
+            # ── Validate SL price before placing order ────────────────
+            # Get current mark price to ensure SL is valid
+            try:
+                ticker_result = await asyncio.to_thread(client.get_ticker, symbol)
+                if ticker_result.get('success'):
+                    current_mark_price = float(ticker_result.get('mark_price', entry))
+                    
+                    # Validate SL based on side
+                    if side == "LONG":
+                        # For LONG: SL must be BELOW mark price
+                        if sl >= current_mark_price:
+                            logger.warning(f"[Engine:{user_id}] Invalid SL for LONG: {sl:.4f} >= {current_mark_price:.4f}, adjusting...")
+                            sl = current_mark_price * 0.98  # Set SL 2% below current price
+                    else:  # SHORT
+                        # For SHORT: SL must be ABOVE mark price
+                        if sl <= current_mark_price:
+                            logger.warning(f"[Engine:{user_id}] Invalid SL for SHORT: {sl:.4f} <= {current_mark_price:.4f}, adjusting...")
+                            sl = current_mark_price * 1.02  # Set SL 2% above current price
+                    
+                    # Also validate TP
+                    if side == "LONG":
+                        if tp1 <= current_mark_price:
+                            logger.warning(f"[Engine:{user_id}] Invalid TP for LONG: {tp1:.4f} <= {current_mark_price:.4f}, skipping trade")
+                            await asyncio.sleep(cfg["scan_interval"])
+                            continue
+                    else:  # SHORT
+                        if tp1 >= current_mark_price:
+                            logger.warning(f"[Engine:{user_id}] Invalid TP for SHORT: {tp1:.4f} >= {current_mark_price:.4f}, skipping trade")
+                            await asyncio.sleep(cfg["scan_interval"])
+                            continue
+            except Exception as _val_err:
+                logger.warning(f"[Engine:{user_id}] SL validation failed: {_val_err}, proceeding with original SL")
 
             # ── Place order dengan TP1 sebagai TP utama ───────────────
             # Premium: TP2 dimonitor manual oleh engine (setelah TP1 hit, SL geser ke entry)
@@ -1220,6 +1524,22 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             if not order_result.get('success'):
                 err = order_result.get('error', 'Unknown')
                 logger.error(f"[Engine:{user_id}] Order FAILED: {err}")
+
+                # Handle SL price validation error (30029)
+                if '30029' in str(err) or 'SL price must be' in str(err):
+                    logger.warning(f"[Engine:{user_id}] SL price validation error, skipping this trade")
+                    await bot.send_message(
+                        chat_id=notify_chat_id,
+                        text=(
+                            f"⚠️ <b>Trade skipped</b>\n\n"
+                            f"Market moved too fast - SL price became invalid.\n"
+                            f"Bot will look for next setup.\n\n"
+                            f"This is normal in volatile markets."
+                        ),
+                        parse_mode='HTML'
+                    )
+                    await asyncio.sleep(cfg["scan_interval"])
+                    continue
 
                 # Cek apakah ini benar-benar API key invalid (bukan transient error)
                 is_auth_error = 'TOKEN_INVALID' in str(err) or 'SIGNATURE_ERROR' in str(err)
@@ -1244,12 +1564,25 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
-                                    "❌ <b>AutoTrade stopped — API Key issue</b>\n\n"
-                                    "Bitunix rejected the request after 2 attempts.\n"
-                                    "Possible causes:\n"
-                                    "• API Key has IP restriction — delete and create a new one without IP\n"
-                                    "• API Key has expired or been deleted\n\n"
-                                    "Re-setup: /autotrade → Change API Key"
+                                    "❌ <b>AutoTrade Dihentikan - API Key Salah</b>\n\n"
+                                    "⚠️ <b>Masalah:</b> API Key atau Secret Key yang Anda masukkan salah atau tidak valid.\n\n"
+                                    "🔧 <b>Penyebab Umum:</b>\n"
+                                    "• API Key/Secret Key salah saat input\n"
+                                    "• API Key memiliki IP restriction (harus tanpa IP)\n"
+                                    "• API Key sudah expired atau dihapus\n"
+                                    "• Permissions tidak lengkap (harus ada Futures Trading)\n\n"
+                                    "✅ <b>Cara Memperbaiki:</b>\n"
+                                    "1. Buka Bitunix → API Management\n"
+                                    "2. Hapus API Key lama\n"
+                                    "3. Buat API Key baru:\n"
+                                    "   • <b>TANPA IP Restriction</b>\n"
+                                    "   • Enable <b>Futures Trading</b>\n"
+                                    "   • Copy API Key & Secret Key dengan benar\n"
+                                    "4. Ketik /autotrade → Change API Key\n"
+                                    "5. Paste API Key & Secret Key yang baru\n\n"
+                                    "❓ <b>Butuh Bantuan?</b>\n"
+                                    "Hubungi Admin: @BillFarr\n"
+                                    "Admin akan membantu Anda setup API Key dengan benar."
                                 ),
                                 parse_mode='HTML'
                             )
@@ -1317,6 +1650,24 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 _tp1_hit_positions[user_id] = set()
             _tp1_hit_positions[user_id].discard(symbol)
 
+            # ── Register with StackMentor for monitoring ──────────────
+            if stackmentor_enabled:
+                register_stackmentor_position(
+                    user_id=user_id,
+                    symbol=symbol,
+                    entry_price=entry,
+                    sl_price=sl,
+                    tp1=tp1,
+                    tp2=tp2,
+                    tp3=tp3,
+                    total_qty=qty,
+                    qty_tp1=qty_tp1,
+                    qty_tp2=qty_tp2,
+                    qty_tp3=qty_tp3,
+                    side=side,
+                    leverage=leverage
+                )
+
             # ── Simpan ke trade history ───────────────────────────────
             try:
                 from app.trade_history import save_trade_open
@@ -1332,6 +1683,14 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     signal=sig,
                     order_id=order_id,
                     is_flip=False,
+                    # StackMentor fields
+                    tp1_price=tp1,
+                    tp2_price=tp2,
+                    tp3_price=tp3,
+                    qty_tp1=qty_tp1,
+                    qty_tp2=qty_tp2,
+                    qty_tp3=qty_tp3,
+                    strategy="stackmentor" if stackmentor_enabled else "legacy",
                 )
             except Exception as _he:
                 logger.warning(f"[Engine:{user_id}] trade_history save failed: {_he}")
@@ -1340,9 +1699,17 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             sl_pct      = abs(entry - sl)  / entry * 100
             tp1_pct     = abs(tp1 - entry) / entry * 100
             tp2_pct     = abs(tp2 - entry) / entry * 100
-            risk_usdt   = amount * (sl_pct  / 100) * leverage
-            reward_tp1  = amount * (tp1_pct / 100) * leverage
-            reward_tp2  = amount * (tp2_pct / 100) * leverage
+            
+            # Get actual balance and risk info for notification
+            from app.supabase_repo import get_risk_per_trade
+            risk_pct = get_risk_per_trade(user_id)
+            bal_result = await asyncio.to_thread(client.get_balance)
+            current_balance = bal_result.get('balance', 0) if bal_result.get('success') else 0
+            risk_amount = current_balance * (risk_pct / 100) if current_balance > 0 else (amount * (sl_pct / 100) * leverage)
+            
+            # Calculate potential profit based on actual position size
+            reward_tp1  = qty * abs(tp1 - entry)
+            reward_tp2  = qty * abs(tp2 - entry)
 
             trend_1h   = sig.get('trend_1h', '-')
             struct      = sig.get('market_structure', 'ranging')
@@ -1359,35 +1726,54 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             await bot.send_message(
                 chat_id=notify_chat_id,
                 text=(
-                    f"✅ <b>ORDER EXECUTED</b>  [{trades_today}/{cfg['max_trades_per_day']} today]\n\n"
-                    f"📊 {symbol} | {side} | {leverage}x\n"
+                    f"✅ <b>ORDER EXECUTED</b>  [#{trades_today} today]\n\n"
+                    f"📊 {symbol} | {side}\n"
                     f"💵 Entry: <code>{entry:.4f}</code>\n"
                     + (
-                        f"🎯 TP1: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%) — 75% posisi\n"
-                        f"🎯 TP2: <code>{tp2:.4f}</code> (+{tp2_pct:.1f}%) — 25% posisi\n"
-                        f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
-                        f"📦 Qty: {qty} (TP1: {qty_tp1} | TP2: {qty_tp2})\n\n"
-                        f"⚖️ R:R: <b>1:2 → 1:3</b> (dual TP)\n"
-                        f"🔒 Setelah TP1 hit → SL geser ke entry (breakeven)\n"
-                        if _dual_tp_enabled else
-                        f"🎯 TP: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%)\n"
+                        f"🎯 TP1: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%) — 50% posisi\n"
+                        f"🎯 TP2: <code>{tp2:.4f}</code> (+{tp2_pct:.1f}%) — 40% posisi\n"
+                        f"🎯 TP3: <code>{tp3:.4f}</code> (+{abs(tp3 - entry) / entry * 100:.1f}%) — 10% posisi\n"
                         f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
                         f"📦 Qty: {qty}\n\n"
-                        f"⚖️ R:R Ratio: <b>1:{rr_ratio:.1f}</b>\n"
+                        f"⚖️ R:R: <b>1:2 → 1:3 → 1:10</b> (StackMentor 🎯)\n"
+                        f"🤖 <i>Partial close otomatis saat harga hit TP</i>\n"
+                        f"🔒 Setelah TP1 hit → SL geser ke entry (breakeven)\n"
+                        if stackmentor_enabled else
+                        (
+                            f"🎯 TP1: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%) — 75% posisi\n"
+                            f"🎯 TP2: <code>{tp2:.4f}</code> (+{tp2_pct:.1f}%) — 25% posisi\n"
+                            f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
+                            f"📦 Qty: {qty}\n\n"
+                            f"⚖️ R:R: <b>1:2 → 1:3</b> (dual TP)\n"
+                            f"🤖 <i>Partial close otomatis saat harga hit TP</i>\n"
+                            f"🔒 Setelah TP1 hit → SL geser ke entry (breakeven)\n"
+                            if _dual_tp_enabled else
+                            f"🎯 TP: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%)\n"
+                            f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
+                            f"📦 Qty: {qty}\n\n"
+                            f"⚖️ R:R Ratio: <b>1:{rr_ratio:.1f}</b>\n"
+                        )
                     )
                     + f"{trend_emoji} 1H Trend: <b>{trend_1h}</b>\n"
                     f"{struct_emoji} Structure: <b>{struct}</b>\n"
                     f"📊 RSI 15M: {rsi_15} | ATR: {atr_pct:.2f}% | Vol: {vol_ratio:.1f}x\n\n"
                     f"🧠 Reasons:\n{reasons_text}\n\n"
                     + (
-                        f"💰 TP1 profit: +{reward_tp1:.2f} USDT\n"
-                        f"💰 TP2 profit: +{reward_tp2:.2f} USDT\n"
-                        if _dual_tp_enabled else
+                        f"💰 Potential profit: +{reward_tp2:.2f} USDT (full TP)\n"
+                        if _dual_tp_enabled or stackmentor_enabled else
                         f"💰 Potential profit: +{reward_tp1:.2f} USDT\n"
                     )
-                    + f"⚠️ Max loss: -{risk_usdt:.2f} USDT\n"
-                    f"🧠 Confidence: {confidence}%\n"
-                    f"🔖 Order ID: <code>{order_id}</code>"
+                    + f"⚠️ Max loss: -{risk_amount:.2f} USDT\n"
+                    + (f"💼 Balance: ${current_balance:.2f} | Risk: {risk_pct}%\n" if current_balance > 0 else "")
+                    + f"🧠 Confidence: {confidence}%\n"
+                    + (
+                        f"🎯 <b>StackMentor Active</b> (3-tier TP)\n"
+                        if stackmentor_enabled else
+                        f"💡 StackMentor disabled in config\n"
+                        if not _dual_tp_enabled else
+                        ""
+                    )
+                    + f"🔖 Order ID: <code>{order_id}</code>"
                 ),
                 parse_mode='HTML'
             )

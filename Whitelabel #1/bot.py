@@ -47,6 +47,10 @@ async def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("license_status", cmd_license_status))
+
+    # Register admin handlers
+    from app.handlers_admin import register_admin_handlers
+    register_admin_handlers(app)
     
     # Register callback handlers for start screen
     from telegram.ext import CallbackQueryHandler

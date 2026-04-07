@@ -1,0 +1,92 @@
+# ============================================================
+# Quick Deploy Commands - Demo User Update
+# ============================================================
+
+# WINDOWS - Double click file ini:
+deploy_demo_user_update.bat
+
+# ATAU PowerShell:
+.\deploy_demo_user_update.ps1
+
+# ATAU Git Bash/WSL:
+chmod +x deploy_demo_user_update.sh
+./deploy_demo_user_update.sh
+
+# ============================================================
+# Manual Deploy (jika script tidak work)
+# ============================================================
+
+# 1. Upload files ke VPS
+scp -P 22 Bismillah/app/demo_users.py root@147.93.156.165:/root/CryptoMentor/Bismillah/app/
+scp -P 22 Bismillah/app/handlers_community.py root@147.93.156.165:/root/CryptoMentor/Bismillah/app/
+
+# 2. Restart bot di VPS
+ssh -p 22 root@147.93.156.165 "systemctl restart cryptomentor-bot"
+
+# 3. Check status
+ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor-bot"
+
+# ============================================================
+# Monitoring Commands
+# ============================================================
+
+# Monitor logs real-time
+ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor-bot -f"
+
+# Check last 100 lines
+ssh -p 22 root@147.93.156.165 "journalctl -u cryptomentor-bot -n 100"
+
+# Check bot status
+ssh -p 22 root@147.93.156.165 "systemctl status cryptomentor-bot"
+
+# ============================================================
+# Rollback Commands (jika ada masalah)
+# ============================================================
+
+# 1. SSH ke VPS
+ssh -p 22 root@147.93.156.165
+
+# 2. List backups
+cd /root/CryptoMentor/backups
+ls -la
+
+# 3. Restore (ganti BACKUP_DIR dengan folder backup yang sesuai)
+cd /root/CryptoMentor
+cp backups/demo_user_update_YYYYMMDD_HHMMSS/demo_users.py Bismillah/app/
+cp backups/demo_user_update_YYYYMMDD_HHMMSS/handlers_community.py Bismillah/app/
+
+# 4. Restart
+systemctl restart cryptomentor-bot
+systemctl status cryptomentor-bot
+
+# ============================================================
+# Testing Commands
+# ============================================================
+
+# Test Python syntax
+ssh -p 22 root@147.93.156.165 "cd /root/CryptoMentor && python3 -m py_compile Bismillah/app/demo_users.py"
+ssh -p 22 root@147.93.156.165 "cd /root/CryptoMentor && python3 -m py_compile Bismillah/app/handlers_community.py"
+
+# Check disk space
+ssh -p 22 root@147.93.156.165 "df -h"
+
+# Check memory
+ssh -p 22 root@147.93.156.165 "free -h"
+
+# ============================================================
+# Demo User Info
+# ============================================================
+
+# New Demo User:
+# Telegram UID: 1234500004
+# Bitunix UID: 933383167
+# Balance Limit: $50 USD
+# Community Partners: BLOCKED ❌
+
+# Test dengan user ini:
+# 1. Login ke Telegram dengan akun tersebut
+# 2. Ketik /autotrade
+# 3. Coba akses menu "Partners"
+# 4. Harus muncul error "Access Denied"
+
+# ============================================================
