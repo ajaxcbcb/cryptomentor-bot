@@ -167,7 +167,7 @@ async def reconcile_position(
     expected_qty: float,
     expected_tp: float,
     expected_sl: float,
-) -> Tuple[bool, list]:
+) -> Tuple[bool, list, float]:
     """
     Verify the live exchange position matches expectations and self-heal.
 
@@ -188,11 +188,11 @@ async def reconcile_position(
         pos_resp = await asyncio.to_thread(client.get_positions)
     except Exception as e:
         notes.append(f"get_positions raised: {e}")
-        return False, notes
+        return False, notes, 0.0
 
     if not pos_resp.get("success"):
         notes.append(f"get_positions failed: {pos_resp.get('error')}")
-        return False, notes
+        return False, notes, 0.0
 
     # Find the matching position
     matching = None
@@ -203,7 +203,7 @@ async def reconcile_position(
 
     if not matching:
         notes.append("no_position_on_exchange")
-        return False, notes
+        return False, notes, 0.0
 
     actual_qty = float(matching.get("qty") or matching.get("size") or 0)
     actual_tp = float(matching.get("tp_price") or 0)
@@ -212,31 +212,16 @@ async def reconcile_position(
     # 1. Quantity check ────────────────────────────────────────────────────────
     if not _within_pct(actual_qty, expected_qty, QTY_TOLERANCE_PCT):
         notes.append(
-            f"qty_mismatch actual={actual_qty} expected={expected_qty}"
+            f"qty_mismatch_ignored actual={actual_qty} expected={expected_qty}"
         )
-        # Cannot safely repair qty after entry. Close to protect user.
-        try:
-            close_side = "SELL" if side.upper() == "LONG" else "BUY"
-            await asyncio.to_thread(
-                client.place_order,
-                symbol,
-                close_side,
-                actual_qty,
-                'market',
-                None,
-                True,  # reduce_only
-            )
-            notes.append("emergency_closed")
-        except Exception as e:
-            notes.append(f"emergency_close_failed: {e}")
-        return False, notes
+        # We ignore qty mismatch for self-healing and update the actual_qty later.
 
     # 2. TP / SL check + repair ────────────────────────────────────────────────
     tp_ok = actual_tp > 0 and _within_pct(actual_tp, expected_tp, PRICE_TOLERANCE_PCT)
     sl_ok = actual_sl > 0 and _within_pct(actual_sl, expected_sl, PRICE_TOLERANCE_PCT)
 
     if tp_ok and sl_ok:
-        return True, notes
+        return True, notes, actual_qty
 
     notes.append(
         f"tpsl_drift actual_tp={actual_tp} expected_tp={expected_tp} "
@@ -269,7 +254,7 @@ async def reconcile_position(
 
     if repair_ok:
         notes.append("tpsl_repaired")
-        return True, notes
+        return True, notes, actual_qty
 
     # Repair failed completely — emergency close to protect user.
     notes.append("repair_failed_emergency_close")
@@ -286,7 +271,7 @@ async def reconcile_position(
         )
     except Exception as e:
         notes.append(f"emergency_close_failed: {e}")
-    return False, notes
+    return False, notes, actual_qty
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -453,7 +438,7 @@ async def open_managed_position(
         if reconcile_delay_s > 0:
             await asyncio.sleep(reconcile_delay_s)
         try:
-            healthy, reconcile_notes = await reconcile_position(
+            healthy, reconcile_notes, actual_qty = await reconcile_position(
                 client=client,
                 user_id=user_id,
                 symbol=symbol,
@@ -462,6 +447,9 @@ async def open_managed_position(
                 expected_tp=levels.tp1,
                 expected_sl=levels.sl,
             )
+            # Retrieve the update of the quantity after the position check
+            if actual_qty > 0:
+                quantity = actual_qty
             if not healthy:
                 logger.error(
                     "[trade_execution:%s] reconciliation FAILED for %s: %s",
