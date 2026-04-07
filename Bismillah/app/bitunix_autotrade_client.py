@@ -283,24 +283,62 @@ class BitunixAutoTradeClient:
             }
         return account_info
 
+    def get_open_orders(self) -> Dict:
+        """Fetch all pending open/conditional orders."""
+        return self._request('GET', '/api/v1/futures/trade/open_orders', signed=True)
+
     def get_positions(self) -> Dict:
         """Get current open positions."""
         result = self._request('GET', '/api/v1/futures/position/get_pending_positions',
                                signed=True)
         if result['success']:
             raw = result['data'] or []
+            # Fetch open orders once to map TP/SL externally
+            open_orders = []
+            try:
+                oo_req = self.get_open_orders()
+                if oo_req.get('success'):
+                    oop = oo_req.get('data') or []
+                    open_orders = oop.get('orderList', []) if isinstance(oop, dict) else oop
+            except Exception:
+                pass
+
             positions = []
             for pos in raw:
                 qty = float(pos.get('qty', 0))
                 if qty == 0:
                     continue
 
-                # Bitunix uses 'avgOpenPrice' for entry price (not 'openPrice')
+                # Bitunix uses 'avgOpenPrice' for entry price
                 entry_price = float(pos.get('avgOpenPrice') or pos.get('openPrice') or 0)
 
-                # TP/SL not returned by get_pending_positions — fetch from open orders if needed
+                # Base TP/SL
                 tp_price = float(pos.get('tpPrice') or pos.get('takeProfitPrice') or 0)
                 sl_price = float(pos.get('slPrice') or pos.get('stopLossPrice') or 0)
+                
+                # Cross-reference with open orders if missing
+                if tp_price == 0 or sl_price == 0:
+                    sym = pos.get('symbol')
+                    for o in open_orders:
+                        if o.get('symbol') != sym:
+                            continue
+                        
+                        # Direct property extraction if available
+                        o_tp = float(o.get('tpPrice', 0))
+                        o_sl = float(o.get('slPrice', 0))
+                        if o_tp > 0 and tp_price == 0: tp_price = o_tp
+                        if o_sl > 0 and sl_price == 0: sl_price = o_sl
+                        
+                        # Heuristic based on trigger/price
+                        price = float(o.get('triggerPrice') or o.get('price') or 0)
+                        if price > 0:
+                            is_long = str(pos.get('side', '')).upper() in ("LONG", "BUY")
+                            if is_long:
+                                if price > entry_price and tp_price == 0: tp_price = price
+                                if price < entry_price and sl_price == 0: sl_price = price
+                            else:
+                                if price < entry_price and tp_price == 0: tp_price = price
+                                if price > entry_price and sl_price == 0: sl_price = price
 
                 positions.append({
                     'symbol': pos.get('symbol'),
@@ -332,9 +370,11 @@ class BitunixAutoTradeClient:
         side: BUY / SELL
         order_type: market / limit
         """
+        qty_f = float(qty)
+        qty_str = str(int(qty_f)) if int(qty_f) == qty_f else str(qty)
         body = {
             'symbol': symbol,
-            'qty': str(qty),
+            'qty': qty_str,
             'side': side.upper(),
             # tradeSide=CLOSE per Bitunix doc requires positionId. Use
             # reduceOnly=true with tradeSide=OPEN instead — semantically
@@ -403,9 +443,11 @@ class BitunixAutoTradeClient:
     def place_order_with_tpsl(self, symbol: str, side: str, qty: float,
                                tp_price: float, sl_price: float) -> Dict:
         """Place market order with TP and SL attached."""
+        qty_f = float(qty)
+        qty_str = str(int(qty_f)) if int(qty_f) == qty_f else str(qty)
         body = {
             "symbol": symbol,
-            "qty": str(qty),
+            "qty": qty_str,
             "side": side.upper(),          # BUY / SELL
             "tradeSide": "OPEN",
             "orderType": "MARKET",
@@ -458,12 +500,14 @@ class BitunixAutoTradeClient:
         if not position_id or qty <= 0:
             return {'success': False, 'error': f'Cannot resolve positionId/qty for {symbol}'}
 
+        qty_f = float(qty)
+        qty_str = str(int(qty_f)) if int(qty_f) == qty_f else str(qty)
         body = {
             "symbol": symbol,
             "positionId": str(position_id),
             "slPrice": str(round(sl_price, 6)),
             "slStopType": "MARK_PRICE",
-            "slQty": str(qty),
+            "slQty": qty_str,
         }
         result = self._request('POST', '/api/v1/futures/tpsl/place_order',
                                body=body, signed=True)
@@ -485,15 +529,17 @@ class BitunixAutoTradeClient:
         if not position_id or qty <= 0:
             return {'success': False, 'error': f'Cannot resolve positionId/qty for {symbol}'}
 
+        qty_f = float(qty)
+        qty_str = str(int(qty_f)) if int(qty_f) == qty_f else str(qty)
         body = {
             "symbol": symbol,
             "positionId": str(position_id),
             "tpPrice": str(round(tp_price, 6)),
             "tpStopType": "MARK_PRICE",
-            "tpQty": str(qty),
+            "tpQty": qty_str,
             "slPrice": str(round(sl_price, 6)),
             "slStopType": "MARK_PRICE",
-            "slQty": str(qty),
+            "slQty": qty_str,
         }
         result = self._request('POST', '/api/v1/futures/tpsl/place_order',
                                body=body, signed=True)
@@ -507,9 +553,11 @@ class BitunixAutoTradeClient:
         Used to take TP1 profit on 75% of position.
         side: BUY to close SHORT, SELL to close LONG
         """
+        qty_f = float(qty)
+        qty_str = str(int(qty_f)) if int(qty_f) == qty_f else str(qty)
         body = {
             "symbol": symbol,
-            "qty": str(qty),
+            "qty": qty_str,
             "side": side.upper(),
             "tradeSide": "OPEN",      # reduceOnly carries the close semantics
             "orderType": "MARKET",

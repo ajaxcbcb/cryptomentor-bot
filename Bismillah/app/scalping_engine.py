@@ -365,14 +365,31 @@ class ScalpingEngine:
                 logger.debug(f"[Scalping:{self.user_id}] {symbol} Sideways confidence too low: {confidence}")
                 return None
 
+            # Calculate ATR (14 periods) to dynamically pad SL buffer
+            atr = 0
+            if len(candles_5m) > 14:
+                tr_list = []
+                for i in range(1, len(candles_5m)):
+                    c = candles_5m[i]
+                    p = candles_5m[i-1]
+                    high = c['high']
+                    low = c['low']
+                    prev_close = p['close']
+                    tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+                    tr_list.append(tr)
+                atr = sum(tr_list[-14:]) / 14 if len(tr_list) >= 14 else 0
+
             # Step 6: Calculate TP/SL
             entry = price
+            # Dynamic volatility buffer: 0.75x ATR. If ATR fails, fallback to 0.35%
+            sl_buffer_price = (atr * 0.75) if atr > 0 else (entry * 0.0035)
+
             if direction == "LONG":
                 tp = entry + 0.70 * (range_result.resistance - entry)
-                sl = range_result.support * (1 - 0.0015)
+                sl = range_result.support - sl_buffer_price
             else:  # SHORT
                 tp = entry - 0.70 * (entry - range_result.support)
-                sl = range_result.resistance * (1 + 0.0015)
+                sl = range_result.resistance + sl_buffer_price
 
             # Step 7: Validate R:R
             if direction == "LONG":
