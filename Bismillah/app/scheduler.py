@@ -413,10 +413,17 @@ def start_scheduler(application):
             traceback.print_exc()
 
         # ── Send maintenance notifications to users with inactive engines ─
-        await asyncio.sleep(2)  # Wait for auto-restore to complete
+        # Wait longer for engines to fully start before checking status
+        # Engine tasks are created but need time to initialize
+        await asyncio.sleep(30)  # Give engines 30s to fully start and register
         try:
             from app.maintenance_notifier import send_maintenance_notifications
-            await send_maintenance_notifications(application.bot)
+            # Pass restored users so notifier knows who was successfully restored
+            await send_maintenance_notifications(application.bot, restored_user_ids=set(
+                s.get("telegram_id") for s in sessions
+                if s.get("telegram_id") and s.get("telegram_id") < 999999990
+                and s.get("status") not in ("stopped", "pending_verification", "uid_rejected", "pending")
+            ))
         except Exception as e:
             logger.error(f"[Maintenance] Failed to send notifications: {e}")
             import traceback
