@@ -380,23 +380,23 @@ async def callback_switch_risk_mode(update: Update, context: ContextTypes.DEFAUL
     
     if new_mode == "risk_based":
         text = (
-            "✅ <b>Mode Berhasil Diubah</b>\n\n"
-            "Mode baru: 🎯 Rekomendasi (Risk Per Trade)\n\n"
-            "System akan otomatis menghitung margin dari balance Anda.\n"
-            "Position size akan adjust otomatis saat balance naik.\n\n"
-            "Silakan set risk % Anda di Settings → Risk Management"
+            "✅ <b>Mode Successfully Changed</b>\n\n"
+            "New mode: 🎯 Recommended (Risk Per Trade)\n\n"
+            "The system will automatically calculate margin from your balance.\n"
+            "Position size will adjust automatically as balance increases.\n\n"
+            "Please set your risk % in Settings → Risk Management"
         )
     else:
         text = (
-            "✅ <b>Mode Berhasil Diubah</b>\n\n"
-            "Mode baru: ⚙️ Manual (Fixed Margin)\n\n"
-            "Anda perlu set margin per trade secara manual.\n"
-            "Position size akan tetap fixed.\n\n"
-            "Silakan set margin Anda di Settings → Change Margin"
+            "✅ <b>Mode Successfully Changed</b>\n\n"
+            "New mode: ⚙️ Manual (Fixed Margin)\n\n"
+            "You need to manually set margin per trade.\n"
+            "Position size will remain fixed.\n\n"
+            "Please set your margin in Settings → Change Margin"
         )
     
     keyboard = [
-        [InlineKeyboardButton("« Kembali ke Settings", callback_data="at_settings")],
+        [InlineKeyboardButton("« Back to Settings", callback_data="at_settings")],
     ]
     
     await query.edit_message_text(
