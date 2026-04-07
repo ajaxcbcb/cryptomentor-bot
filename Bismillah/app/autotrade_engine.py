@@ -742,7 +742,8 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
         if task.cancelled():
             logger.info(f"AutoTrade cancelled for user {user_id}")
         elif task.exception():
-            logger.error(f"AutoTrade CRASHED for user {user_id}: {task.exception()}", exc_info=task.exception())
+            exc = task.exception()
+            logger.error(f"AutoTrade CRASHED for user {user_id}: {exc}", exc_info=exc)
 
     # Start appropriate engine based on mode
     if trading_mode == TradingMode.SCALPING:
@@ -950,6 +951,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
     while True:
         try:
+            # ── Initialize btc_bias for this iteration ────────────────
+            btc_bias = {"bias": "NEUTRAL", "strength": 0, "reasons": []}
+            
             # ── Check if engine stop requested ────────────────────────
             try:
                 if asyncio.current_task().cancelled():
@@ -995,7 +999,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     )
                     if acc_info.get('success'):
                         total_balance = acc_info.get('available', 0) + acc_info.get('total_unrealized_pnl', 0)
-                        if total_balance > DEMO_BALANCE_LIMIT:
+                        # Only stop if balance significantly exceeds limit (10% buffer)
+                        if total_balance > (DEMO_BALANCE_LIMIT * 1.1):
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
@@ -1007,9 +1012,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 parse_mode='HTML'
                             )
                             stop_engine(user_id)
+                            logger.info(f"[Engine:{user_id}] Demo user stopped: balance ${total_balance:.2f} > ${DEMO_BALANCE_LIMIT:.0f}")
                             return
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"[Engine:{user_id}] Failed to check demo balance: {e}")
 
             # ── Cek posisi terbuka ────────────────────────────────────
             pos_result     = await asyncio.to_thread(client.get_positions)

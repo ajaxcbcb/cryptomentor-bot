@@ -210,7 +210,7 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Main autotrade logic
     keys = get_user_api_keys(user_id)
     session = get_autotrade_session(user_id)
-    is_active = session and session.get("status") == "active"
+    is_active = session and session.get("status") in ("active", "uid_verified")
 
     if keys and is_active:
         from app.autotrade_engine import is_running as engine_running
@@ -1931,7 +1931,7 @@ async def callback_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
     keys = get_user_api_keys(user_id)
     session = get_autotrade_session(user_id)
-    is_active = session and session.get("status") == "active"
+    is_active = session and session.get("status") in ("active", "uid_verified")
 
     if keys:
         from app.autotrade_engine import is_running as engine_running
@@ -2042,7 +2042,7 @@ async def callback_restart_engine(update: Update, context: ContextTypes.DEFAULT_
     keys = get_user_api_keys(user_id)
     session = get_autotrade_session(user_id)
 
-    if not keys or not session or session.get("status") != "active":
+    if not keys or not session or session.get("status") not in ("active", "uid_verified"):
         await query.edit_message_text(
             "❌ No active session. Use /autotrade to start.",
             parse_mode='HTML'

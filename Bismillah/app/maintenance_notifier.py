@@ -10,10 +10,14 @@ from typing import List, Dict
 logger = logging.getLogger(__name__)
 
 
-async def send_maintenance_notifications(bot):
+async def send_maintenance_notifications(bot, restored_user_ids: set = None):
     """
     Send notifications to users with autotrade sessions after bot restart.
     Notifies about engine status (active/inactive).
+    
+    Args:
+        restored_user_ids: Set of user IDs that were attempted to be restored.
+                          If provided, only notify these users.
     """
     logger.info("=" * 80)
     logger.info("[Maintenance] Sending notifications to users with autotrade sessions...")
@@ -24,9 +28,7 @@ async def send_maintenance_notifications(bot):
         from app.autotrade_engine import is_running
         
         # Query ALL autotrade sessions (any status - notify everyone who ever used autotrade)
-        # This includes: active, stopped, uid_verified, etc.
         result = _client().table("autotrade_sessions").select("*").execute()
-        
         sessions = result.data or []
         
         if not sessions:
@@ -35,7 +37,6 @@ async def send_maintenance_notifications(bot):
         
         logger.info(f"[Maintenance] Found {len(sessions)} autotrade sessions")
         
-        # Send notifications to ALL users
         sent = 0
         failed = 0
         active_count = 0
@@ -46,36 +47,53 @@ async def send_maintenance_notifications(bot):
             if not user_id:
                 continue
             
-            # Check if engine is running
+            # Skip dummy/test users
+            if user_id >= 999999990:
+                continue
+            
+            status = session.get("status", "")
+            
+            # Check if engine is actually running now
             engine_running = is_running(user_id)
             
             if engine_running:
                 active_count += 1
-                # Send notification for active engine
                 message = (
                     "🔧 <b>Pemberitahuan Maintenance</b>\n\n"
                     "Bot baru saja selesai maintenance.\n\n"
                     "📊 <b>Status Engine Anda:</b>\n"
                     "• Engine: <b>✅ Active</b>\n"
                     "• Trading: <b>Running</b>\n\n"
-                    "💡 <b>Apa artinya?</b>\n"
-                    "Engine AutoTrade Anda sudah aktif kembali secara otomatis dan siap trading.\n\n"
+                    "💡 Engine AutoTrade Anda sudah aktif kembali secara otomatis dan siap trading.\n\n"
                     "Gunakan <code>/autotrade</code> untuk melihat status lengkap."
                 )
-            else:
+            elif status == "stopped":
+                # User explicitly stopped - don't send "inactive" alarm, just info
                 inactive_count += 1
-                # Send notification for inactive engine
                 message = (
                     "🔧 <b>Pemberitahuan Maintenance</b>\n\n"
-                    "Bot baru saja selesai maintenance dan engine AutoTrade Anda saat ini <b>tidak aktif</b>.\n\n"
-                    "📊 <b>Status:</b>\n"
+                    "Bot baru saja selesai maintenance.\n\n"
+                    "📊 <b>Status Engine Anda:</b>\n"
+                    "• Engine: <b>⏸️ Stopped</b>\n"
+                    "• Trading: <b>Paused (by you)</b>\n\n"
+                    "💡 Engine Anda sebelumnya dimatikan secara manual.\n"
+                    "Ketik <code>/autotrade</code> jika ingin mengaktifkan kembali."
+                )
+            elif status in ("pending_verification", "uid_rejected", "pending"):
+                # Skip pending users - no notification needed
+                continue
+            else:
+                # Was supposed to be active but engine not running
+                inactive_count += 1
+                message = (
+                    "🔧 <b>Pemberitahuan Maintenance</b>\n\n"
+                    "Bot baru saja selesai maintenance.\n\n"
+                    "📊 <b>Status Engine Anda:</b>\n"
                     "• Engine: <b>❌ Inactive</b>\n"
                     "• Trading: <b>Stopped</b>\n\n"
-                    "💡 <b>Apa yang harus dilakukan?</b>\n"
-                    "Untuk melanjutkan trading, silakan aktifkan kembali engine Anda secara manual:\n\n"
-                    "👉 Ketik: <code>/autotrade</code>\n\n"
-                    "Kemudian pilih <b>Start Engine</b> untuk mengaktifkan kembali.\n\n"
-                    "⚠️ <b>Penting:</b> Engine tidak akan trading sampai Anda mengaktifkannya kembali."
+                    "⚠️ Engine Anda tidak berhasil di-restart otomatis.\n\n"
+                    "👉 Ketik: <code>/autotrade</code>\n"
+                    "Kemudian pilih <b>Start Engine</b> untuk mengaktifkan kembali."
                 )
             
             try:
@@ -85,8 +103,9 @@ async def send_maintenance_notifications(bot):
                     parse_mode='HTML'
                 )
                 sent += 1
-                status = "Active" if engine_running else "Inactive"
-                logger.info(f"[Maintenance] ✅ Notified user {user_id} (Engine: {status})")
+                status_label = "Active" if engine_running else ("Stopped" if status == "stopped" else "Inactive")
+                logger.info(f"[Maintenance] ✅ Notified user {user_id} (Engine: {status_label})")
+                await asyncio.sleep(0.05)  # Rate limiting
                 
             except Exception as e:
                 failed += 1
@@ -101,10 +120,17 @@ async def send_maintenance_notifications(bot):
         logger.info(f"  📊 Total users: {len(sessions)}")
         logger.info("=" * 80)
         
-        # Schedule follow-up reminder for inactive engines (1 hour later)
-        if inactive_count > 0:
-            logger.info(f"[Maintenance] Scheduling follow-up reminder in 1 hour for {inactive_count} inactive engines")
-            asyncio.create_task(_send_delayed_reminder(bot, sessions))
+        # Schedule follow-up reminder ONLY for users that should be active but aren't
+        # Don't remind users who explicitly stopped their engine
+        truly_inactive = [
+            s for s in sessions
+            if s.get("telegram_id") and s.get("telegram_id") < 999999990
+            and not is_running(s.get("telegram_id"))
+            and s.get("status") not in ("stopped", "pending_verification", "uid_rejected", "pending")
+        ]
+        if truly_inactive:
+            logger.info(f"[Maintenance] Scheduling follow-up reminder in 1 hour for {len(truly_inactive)} inactive engines")
+            asyncio.create_task(_send_delayed_reminder(bot, truly_inactive))
         
     except Exception as e:
         logger.error(f"[Maintenance] Critical error: {e}")

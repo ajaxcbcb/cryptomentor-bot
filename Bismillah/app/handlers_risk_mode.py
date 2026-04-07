@@ -437,32 +437,18 @@ async def callback_switch_risk_mode(update: Update, context: ContextTypes.DEFAUL
     
     if new_mode == "risk_based":
         text = (
-            "✅ <b>Mode Successfully Changed</b>
-
-"
-            "New mode: 🎯 Recommended (Risk Per Trade)
-
-"
-            "The system will automatically calculate margin from your balance.
-"
-            "Position size will adjust automatically as balance increases.
-
-"
+            "✅ <b>Mode Successfully Changed</b>\n\n"
+            "New mode: 🎯 Recommended (Risk Per Trade)\n\n"
+            "The system will automatically calculate margin from your balance.\n"
+            "Position size will adjust automatically as balance increases.\n\n"
             "Please set your risk % in Settings → Risk Management"
         )
     else:
         text = (
-            "✅ <b>Mode Successfully Changed</b>
-
-"
-            "New mode: ⚙️ Manual (Fixed Margin)
-
-"
-            "You need to manually set margin per trade.
-"
-            "Position size will remain fixed.
-
-"
+            "✅ <b>Mode Successfully Changed</b>\n\n"
+            "New mode: ⚙️ Manual (Fixed Margin)\n\n"
+            "You need to manually set margin per trade.\n"
+            "Position size will remain fixed.\n\n"
             "Please set your margin in Settings → Change Margin"
         )
     
