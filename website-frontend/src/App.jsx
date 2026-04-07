@@ -32,10 +32,12 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('portfolio');
-  const [positions] = useState(INITIAL_POSITIONS);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [realPositions, setRealPositions] = useState([]);
   const [realPnl, setRealPnl] = useState(0);
+  const [liveBalance, setLiveBalance] = useState(null);
+  const [liveUnrealizedPnl, setLiveUnrealizedPnl] = useState(null);
+  const [bitunixLinked, setBitunixLinked] = useState(false);
   const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate' });
 
   useEffect(() => {
@@ -52,9 +54,10 @@ export default function App() {
       .then(res => res.ok ? res.json() : res.text().then(t => Promise.reject(t)))
       .then(data => {
         localStorage.setItem('cm_token', data.access_token);
+        const token = data.access_token;
         // Fetch real dashboard data
         return fetch('/api/dashboard/portfolio', {
-          headers: { 'Authorization': `Bearer ${data.access_token}` }
+          headers: { 'Authorization': `Bearer ${token}` }
         })
           .then(r => r.json())
           .then(dashboard => {
@@ -74,8 +77,40 @@ export default function App() {
               riskMode: dashboard.engine.risk_mode || 'moderate',
               isActive: dashboard.engine.is_active,
             });
-            setRealPositions(dashboard.portfolio.positions || []);
             setRealPnl(dashboard.portfolio.pnl_30d || 0);
+
+            // Fetch live Bitunix data jika API keys tersambung
+            if (dashboard.bitunix?.linked) {
+              setBitunixLinked(true);
+              fetch('/api/bitunix/portfolio', {
+                headers: { 'Authorization': `Bearer ${token}` }
+              })
+                .then(r => r.ok ? r.json() : null)
+                .then(bx => {
+                  if (bx) {
+                    setLiveBalance(bx.account?.balance ?? 0);
+                    setLiveUnrealizedPnl(bx.unrealized_pnl ?? 0);
+                    const mapped = (bx.positions || []).map((p, i) => ({
+                      id: i + 1,
+                      pair: p.symbol || p.pair || 'UNKNOWN',
+                      side: (p.side || p.direction || 'LONG').toUpperCase(),
+                      entry: `$${parseFloat(p.entry_price || p.entryPrice || 0).toFixed(2)}`,
+                      current: `$${parseFloat(p.mark_price || p.markPrice || p.entry_price || 0).toFixed(2)}`,
+                      margin: `$${parseFloat(p.margin || p.initial_margin || 0).toFixed(2)}`,
+                      leverage: `${p.leverage || 1}x`,
+                      pnl: `${parseFloat(p.pnl || p.unrealized_pnl || 0) >= 0 ? '+' : ''}$${parseFloat(p.pnl || p.unrealized_pnl || 0).toFixed(2)}`,
+                      pnlPercent: `${parseFloat(p.pnl_pct || p.roe || 0) >= 0 ? '+' : ''}${parseFloat(p.pnl_pct || p.roe || 0).toFixed(2)}%`,
+                      isProfitable: parseFloat(p.pnl || p.unrealized_pnl || 0) >= 0,
+                      tp: { tp1: { price: '-', hit: false }, tp2: { price: '-', hit: false }, tp3: { price: '-', hit: false } }
+                    }));
+                    setRealPositions(mapped);
+                  }
+                })
+                .catch(() => {});
+            } else {
+              // Fallback ke data Supabase
+              setRealPositions(dashboard.portfolio.positions || []);
+            }
             setIsLoggedIn(true);
           });
       })
@@ -185,7 +220,7 @@ export default function App() {
 
         {/* MAIN CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full relative z-0 pb-20 md:pb-10 custom-scrollbar">
-          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : INITIAL_POSITIONS} engineState={engineState} pnl30d={realPnl} hasRealData={realPositions.length > 0} />}
+          {activeTab === 'portfolio' && <PortfolioTab positions={bitunixLinked ? realPositions : (realPositions.length > 0 ? realPositions : INITIAL_POSITIONS)} engineState={engineState} pnl30d={realPnl} hasRealData={bitunixLinked || realPositions.length > 0} liveBalance={liveBalance} liveUnrealizedPnl={liveUnrealizedPnl} bitunixLinked={bitunixLinked} />}
           {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'settings' && <SettingsTab />}
@@ -197,11 +232,19 @@ export default function App() {
   );
 }
 
-function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
+function PortfolioTab({ positions, engineState, pnl30d, hasRealData, liveBalance, liveUnrealizedPnl, bitunixLinked }) {
+  const balanceDisplay = liveBalance !== null
+    ? `$${parseFloat(liveBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '$0.00';
+
   const pnlDisplay = hasRealData
     ? (pnl30d >= 0 ? `+$${pnl30d.toFixed(2)}` : `-$${Math.abs(pnl30d).toFixed(2)}`)
-    : '+$1,450.20';
-  const pnlPct = hasRealData ? '' : '+13.2%';
+    : (liveUnrealizedPnl !== null
+        ? (liveUnrealizedPnl >= 0 ? `+$${liveUnrealizedPnl.toFixed(2)}` : `-$${Math.abs(liveUnrealizedPnl).toFixed(2)}`)
+        : '$0.00');
+
+  const pnlPct = '';
+  const isPnlPositive = pnl30d >= 0 || (liveUnrealizedPnl !== null && liveUnrealizedPnl >= 0);
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
@@ -212,9 +255,9 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
         </div>
       </header>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="Total Balance" value="$12,450.00" icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
-        <StatCard title="Total PnL (30d)" value={pnlDisplay} subtext={pnlPct} isPositive={pnl30d >= 0} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
-        <StatCard title="Open Positions" value={positions.length.toString()} icon={<Target className="text-fuchsia-400 w-6 h-6" />} glowColor="fuchsia" />
+        <StatCard title="Total Balance" value={liveBalance !== null ? balanceDisplay : '$0.00'} icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
+        <StatCard title="Total PnL (30d)" value={pnlDisplay} subtext={pnlPct} isPositive={isPnlPositive} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
+        <StatCard title="Open Positions" value={positions.length > 0 && hasRealData ? positions.length.toString() : (bitunixLinked ? positions.length.toString() : '0')} icon={<Target className="text-fuchsia-400 w-6 h-6" />} glowColor="fuchsia" />
       </div>
       <div className="pt-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
@@ -222,7 +265,15 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
           {engineState.stackMentorActive && <div className="w-fit flex items-center gap-2 text-xs font-bold text-fuchsia-400 bg-fuchsia-500/10 px-3 py-1.5 rounded-lg border border-fuchsia-500/20"><Layers size={14} /> STACKMENTOR TRACKING</div>}
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
-          {positions.map(pos => <PositionCard key={pos.id} position={pos} stackMentorActive={engineState.stackMentorActive} />)}
+          {positions.length > 0 ? (
+            positions.map(pos => <PositionCard key={pos.id} position={pos} stackMentorActive={engineState.stackMentorActive} />)
+          ) : (
+            <div className="col-span-2 bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] border border-white/5 p-10 flex flex-col items-center justify-center text-center">
+              <Target className="text-slate-600 w-12 h-12 mb-4" />
+              <p className="text-slate-400 font-bold text-lg mb-1">No Open Positions</p>
+              <p className="text-slate-600 text-sm">{bitunixLinked ? 'No active trades on Bitunix right now.' : 'Connect your Bitunix API via the Telegram bot to see live positions.'}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

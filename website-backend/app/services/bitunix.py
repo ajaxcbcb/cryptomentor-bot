@@ -24,8 +24,20 @@ _BISMILLAH_PATH = os.path.abspath(
 if _BISMILLAH_PATH not in sys.path:
     sys.path.insert(0, _BISMILLAH_PATH)
 
-from app.bitunix_autotrade_client import BitunixAutoTradeClient  # type: ignore
-from app.lib.crypto import decrypt  # type: ignore
+# Also add Bismillah/app to path for direct imports
+_BISMILLAH_APP_PATH = os.path.join(_BISMILLAH_PATH, "app")
+if _BISMILLAH_APP_PATH not in sys.path:
+    sys.path.insert(0, _BISMILLAH_APP_PATH)
+
+try:
+    from bitunix_autotrade_client import BitunixAutoTradeClient  # type: ignore
+    from lib.crypto import decrypt  # type: ignore
+    _BITUNIX_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARNING] Bitunix client not available: {e}")
+    BitunixAutoTradeClient = None
+    decrypt = None
+    _BITUNIX_AVAILABLE = False
 
 
 # ---------------------------------------------------------------- keys ---- #
@@ -44,6 +56,8 @@ def get_user_api_keys(telegram_id: int) -> Optional[Dict[str, str]]:
     if not res.data:
         return None
     row = res.data[0]
+    if not _BITUNIX_AVAILABLE or decrypt is None:
+        return None
     try:
         secret = decrypt(row["api_secret_enc"])
     except Exception:
@@ -56,7 +70,9 @@ def get_user_api_keys(telegram_id: int) -> Optional[Dict[str, str]]:
     }
 
 
-def _client_for(telegram_id: int) -> BitunixAutoTradeClient:
+def _client_for(telegram_id: int) -> "BitunixAutoTradeClient":
+    if not _BITUNIX_AVAILABLE or BitunixAutoTradeClient is None:
+        raise PermissionError("Bitunix client not available on this server")
     keys = get_user_api_keys(telegram_id)
     if not keys:
         raise PermissionError("Bitunix API keys not configured for this user")
