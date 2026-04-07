@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(git init:*)",
+      "Bash(git remote:*)",
+      "Bash(git pull:*)",
+      "Bash(python -m py_compile app/trade_execution.py app/scalping_engine.py)",
+      "Bash(py -m py_compile app/trade_execution.py app/scalping_engine.py)",
+      "Bash(python3 -m py_compile app/trade_execution.py app/scalping_engine.py)",
+      "Bash(grep -E \"\\\\.\\(py|sql\\)$\")",
+      "WebFetch(domain:www.bitunix.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(for file:*)",
+      "Bash(do echo:*)",
+      "Read(//d/cryptomentorAI/**)",
+      "Bash(done)",
+      "Bash(for f:*)",
+      "Bash(find /d/cryptomentorAI/website-frontend -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js -o -name *.json \\\\\\))",
+      "Bash(find /d/cryptomentorAI -type f -name *telegram* -o -name *bot*)",
+      "Bash(find /d/cryptomentorAI -type f \\\\\\(-name *bitunix* -o -name *client* -o -name *api* \\\\\\))",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}
