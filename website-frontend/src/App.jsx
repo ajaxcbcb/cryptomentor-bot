@@ -99,6 +99,7 @@ export default function App() {
   const [cumulativePnl, setCumulativePnl] = useState(0);
   const [hasCumulativePnl, setHasCumulativePnl] = useState(false);
   const [equity, setEquity] = useState(null);
+  const [connectorStatus, setConnectorStatus] = useState({ linked: null, online: null, error: null });
   const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate' });
   const [botRunning, setBotRunning] = useState(false);
   const [botBusy, setBotBusy] = useState(false);
@@ -278,14 +279,21 @@ export default function App() {
           setCumulativePnl(d.portfolio.pnl_30d);
           setHasCumulativePnl(true);
         }
-        if (d.bitunix && d.bitunix.account) {
-          const a = d.bitunix.account;
-          // Equity = available + frozen + position margin + unrealized PnL
-          const eq = Number(a.available || 0)
-            + Number(a.frozen || 0)
-            + Number(a.margin || 0)
-            + Number(a.total_unrealized_pnl || 0);
-          setEquity(eq);
+        if (d.bitunix) {
+          setConnectorStatus({
+            linked: !!d.bitunix.linked,
+            online: !!d.bitunix.account,
+            error: d.bitunix.error || null,
+          });
+          if (d.bitunix.account) {
+            const a = d.bitunix.account;
+            // Equity = available + frozen + position margin + unrealized PnL
+            const eq = Number(a.available || 0)
+              + Number(a.frozen || 0)
+              + Number(a.margin || 0)
+              + Number(a.total_unrealized_pnl || 0);
+            setEquity(eq);
+          }
         }
         if (d.engine) {
           setEngineState(prev => ({
@@ -408,7 +416,7 @@ export default function App() {
 
         {/* MAIN CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full relative z-0 pb-20 md:pb-10 custom-scrollbar">
-          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : []} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} botBusy={botBusy} />}
+          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : []} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} botBusy={botBusy} connectorStatus={connectorStatus} />}
           {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'settings' && <SettingsTab onBotConnected={handleBotConnected} />}
@@ -420,15 +428,36 @@ export default function App() {
   );
 }
 
-function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy }) {
+function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy, connectorStatus }) {
   const pnlAbs = Math.abs(unrealizedPnl).toFixed(2);
   const pnlDisplay = hasRealData ? `${unrealizedPnl >= 0 ? '+' : '-'}$${pnlAbs}` : '$0.00';
   const realizedAbs = Math.abs(cumulativePnl).toFixed(2);
   const realizedDisplay = `${cumulativePnl >= 0 ? '+' : '-'}$${realizedAbs}`;
   const equityDisplay = equity !== null && equity !== undefined ? `$${Number(equity).toFixed(2)}` : '—';
 
+  // Connector status banner helpers
+  const cs = connectorStatus || {};
+  const showOffline = cs.linked === false;
+  const showError   = cs.linked === true && cs.online === false;
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
+      {showOffline && (
+        <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 px-4 py-3 rounded-xl text-amber-300 text-sm font-bold">
+          <span>⚠️</span>
+          <span>Bitunix API keys not configured. Go to <strong>API Bridges</strong> to link your account.</span>
+        </div>
+      )}
+      {showError && (
+        <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 px-4 py-3 rounded-xl text-rose-300 text-sm font-bold">
+          <span className="mt-0.5 shrink-0">🔴</span>
+          <div>
+            <p>Bitunix connector offline — live data unavailable.</p>
+            {cs.error && <p className="text-xs font-normal text-rose-400/80 mt-1 font-mono">{cs.error}</p>}
+            <p className="text-xs font-normal text-rose-400/60 mt-1">Check your API keys in <strong>API Bridges</strong> or verify your Bitunix account status.</p>
+          </div>
+        </div>
+      )}
       <header className="mb-8 md:mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">Portfolio Status</h2>

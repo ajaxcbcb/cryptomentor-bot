@@ -265,11 +265,17 @@ async def get_portfolio(tg_id: int = Depends(get_current_user)):
                     "isolation_unrealized_pnl": acc.get("isolation_unrealized_pnl", 0),
                     "total_unrealized_pnl": acc.get("total_unrealized_pnl", 0),
                 }
+            else:
+                bitunix_error = acc.get("message") or acc.get("error") or "Account fetch returned failure"
             pos = await bsvc.fetch_positions(tg_id)
             if pos.get("success"):
                 live_positions = pos.get("positions", [])
+            elif not bitunix_error:
+                bitunix_error = pos.get("message") or pos.get("error") or "Positions fetch returned failure"
         except Exception as e:
             bitunix_error = str(e)
+    else:
+        bitunix_error = "API keys not found or could not be decrypted"
 
     # Merge: prefer live values when available.
     current_balance = (
