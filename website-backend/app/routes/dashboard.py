@@ -217,6 +217,31 @@ async def get_performance(tg_id: int = Depends(get_current_user)):
     }
 
 
+@router.get("/debug")
+async def debug_connector(tg_id: int = Depends(get_current_user)):
+    """Diagnostic endpoint — shows exactly what's failing for this user."""
+    s = _client()
+    keys = bsvc.get_user_api_keys(tg_id)
+    result = {
+        "tg_id": tg_id,
+        "keys_found": keys is not None,
+        "key_hint": keys.get("key_hint") if keys else None,
+        "bismillah_available": bsvc._BITUNIX_AVAILABLE,
+        "account": None,
+        "positions": None,
+        "error": None,
+    }
+    if keys:
+        try:
+            acc = await bsvc.fetch_account(tg_id)
+            result["account"] = {"success": acc.get("success"), "available": acc.get("available"), "msg": acc.get("message")}
+            pos = await bsvc.fetch_positions(tg_id)
+            result["positions"] = {"success": pos.get("success"), "count": len(pos.get("positions", [])), "msg": pos.get("message")}
+        except Exception as e:
+            result["error"] = str(e)
+    return result
+
+
 @router.get("/portfolio")
 async def get_portfolio(tg_id: int = Depends(get_current_user)):
     s = _client()

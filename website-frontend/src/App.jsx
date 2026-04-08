@@ -231,7 +231,12 @@ export default function App() {
     const load = async () => {
       try {
         const r = await apiFetch('/bitunix/positions');
-        if (!r.ok) return;
+        if (!r.ok) {
+          let detail = `HTTP ${r.status}`;
+          try { const e = await r.json(); detail = e.detail || detail; } catch {}
+          setConnectorStatus(prev => prev.online === false ? prev : { linked: prev.linked, online: false, error: detail });
+          return;
+        }
         const d = await r.json();
         if (cancelled) return;
         const positions = (d.positions || []).map((p, i) => {
@@ -272,7 +277,14 @@ export default function App() {
     const load = async () => {
       try {
         const r = await apiFetch('/dashboard/portfolio');
-        if (!r.ok) return;
+        if (cancelled) return;
+        if (!r.ok) {
+          // Surface HTTP errors (401 token expired, 502 backend crash, etc.)
+          let detail = `HTTP ${r.status}`;
+          try { const e = await r.json(); detail = e.detail || detail; } catch {}
+          setConnectorStatus({ linked: null, online: false, error: detail });
+          return;
+        }
         const d = await r.json();
         if (cancelled) return;
         if (d.portfolio && typeof d.portfolio.pnl_30d === 'number') {
@@ -287,7 +299,6 @@ export default function App() {
           });
           if (d.bitunix.account) {
             const a = d.bitunix.account;
-            // Equity = available + frozen + position margin + unrealized PnL
             const eq = Number(a.available || 0)
               + Number(a.frozen || 0)
               + Number(a.margin || 0)
@@ -307,7 +318,9 @@ export default function App() {
             isActive: d.engine.is_active ?? prev.isActive,
           }));
         }
-      } catch {}
+      } catch (err) {
+        if (!cancelled) setConnectorStatus({ linked: null, online: false, error: `Network error: ${err.message}` });
+      }
     };
     load();
     const id = setInterval(load, 5000);
@@ -437,11 +450,22 @@ function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, eq
 
   // Connector status banner helpers
   const cs = connectorStatus || {};
-  const showOffline = cs.linked === false;
-  const showError   = cs.linked === true && cs.online === false;
+  const showOffline  = cs.linked === false;
+  const showError    = cs.linked === true  && cs.online === false;
+  const showNetError = cs.linked === null  && cs.online === false && cs.error;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
+      {showNetError && (
+        <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 px-4 py-3 rounded-xl text-rose-300 text-sm font-bold">
+          <span className="mt-0.5 shrink-0">🔴</span>
+          <div>
+            <p>Backend unreachable — could not load portfolio data.</p>
+            <p className="text-xs font-normal text-rose-400/80 mt-1 font-mono">{cs.error}</p>
+            <p className="text-xs font-normal text-rose-400/60 mt-1">The API server may be restarting. Retrying every 5 seconds…</p>
+          </div>
+        </div>
+      )}
       {showOffline && (
         <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 px-4 py-3 rounded-xl text-amber-300 text-sm font-bold">
           <span>⚠️</span>
