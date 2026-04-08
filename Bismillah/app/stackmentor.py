@@ -223,22 +223,20 @@ async def handle_tp1_hit(bot, user_id: int, client, notify_chat_id: int,
     side = pos_data['side']
     qty_tp1 = pos_data['qty_tp1']
     
-    # 1. Close 60% position
+    # 1. Close 60% position via reduce-only close_partial
     close_side = "SELL" if side == "LONG" else "BUY"
     close_result = await asyncio.to_thread(
-        client.place_order,
+        client.close_partial,
         symbol,
         close_side,
         qty_tp1,
-        order_type='market',
-        reduce_only=True
     )
     
     if not close_result.get('success'):
         logger.error(f"[StackMentor:{user_id}] TP1 close failed: {close_result.get('error')}")
         return
     
-    logger.info(f"[StackMentor:{user_id}] TP1 closed 50% @ {mark_price:.4f}")
+    logger.info(f"[StackMentor:{user_id}] TP1 closed 60% @ {mark_price:.4f}")
     
     # 2. Move SL to breakeven
     await asyncio.sleep(0.5)  # Give exchange time to process
@@ -313,39 +311,40 @@ async def handle_tp1_hit(bot, user_id: int, client, notify_chat_id: int,
         logger.error(f"[StackMentor:{user_id}] DB update failed: {e}")
     
     # 5. Notify user
+    profit_tp1 = abs(mark_price - entry) * qty_tp1
     profit_pct = abs(mark_price - entry) / entry * 100 * pos_data['leverage']
     
     # Build SL status message
     if sl_result.get('success'):
-        sl_status = "✅ Stop Loss dipindah ke Breakeven"
+        sl_status = "✅ Stop Loss moved to Breakeven"
         sl_detail = (
-            f"📍 Harga Breakeven: <code>{entry:.4f}</code>\n"
-            f"💡 Artinya: Jika market berbalik, posisi akan ditutup di harga entry (tidak rugi)"
+            f"📍 Breakeven price: <code>{entry:.4f}</code>\n"
+            f"💡 If market reverses, position closes at entry (no loss)"
         )
     else:
         sl_error = sl_result.get('error', 'Unknown error')
         if 'market moved too far' in sl_error or 'validation failed' in sl_error:
-            sl_status = "⚠️ Stop Loss tetap di level awal"
+            sl_status = "⚠️ Stop Loss kept at original level"
             sl_detail = (
-                "Market bergerak terlalu cepat - SL breakeven tidak bisa diset.\n"
-                "Tapi tenang, 60% profit sudah terkunci!"
+                "Market moved too fast — breakeven SL could not be set.\n"
+                "Don't worry, 60% profit is already locked!"
             )
         else:
-            sl_status = "⚠️ Gagal update Stop Loss"
-            sl_detail = f"Tapi 60% profit sudah aman! Error: {sl_error[:50]}"
+            sl_status = "⚠️ Failed to update Stop Loss"
+            sl_detail = f"60% profit is safe though! Error: {sl_error[:50]}"
     
     await bot.send_message(
         chat_id=notify_chat_id,
         text=(
-            f"🎯 <b>Target Profit 1 Tercapai! — {symbol}</b>\n\n"
-            f"✅ Tutup 60% posisi @ <code>{mark_price:.4f}</code>\n"
-            f"💰 Profit terkunci: <b>+${profit_tp1:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
+            f"🎯 <b>Take Profit 1 Hit! — {symbol}</b>\n\n"
+            f"✅ Closed 60% position @ <code>{mark_price:.4f}</code>\n"
+            f"💰 Profit locked: <b>+${profit_tp1:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
             f"🔒 <b>{sl_status}</b>\n"
             f"{sl_detail}\n\n"
-            f"⏳ Sisa 40% posisi masih berjalan ke TP2 & TP3...\n\n"
-            f"💡 <b>Apa artinya?</b>\n"
-            f"{'✅ Posisi Anda sekarang BEBAS RISIKO! Bahkan jika market berbalik, Anda tidak akan rugi.' if sl_result.get('success') else '⚠️ SL masih di level awal. Profit sudah terkunci 60%.'}\n\n"
-            f"🎯 StackMentor: Strategi profit bertahap untuk maksimalkan hasil!"
+            f"⏳ Remaining 40% still running to TP2 & TP3...\n\n"
+            f"💡 <b>What this means:</b>\n"
+            f"{'✅ Your position is now RISK-FREE! Even if market reverses, you cannot lose.' if sl_result.get('success') else '⚠️ SL still at original level. 60% profit is locked in.'}\n\n"
+            f"🎯 StackMentor: Staged profit-taking to maximize your gains!"
         ),
         parse_mode='HTML'
     )
@@ -362,22 +361,20 @@ async def handle_tp2_hit(bot, user_id: int, client, notify_chat_id: int,
     side = pos_data['side']
     qty_tp2 = pos_data['qty_tp2']
     
-    # Close 30%
+    # Close 30% via reduce-only close_partial
     close_side = "SELL" if side == "LONG" else "BUY"
     close_result = await asyncio.to_thread(
-        client.place_order,
+        client.close_partial,
         symbol,
         close_side,
         qty_tp2,
-        order_type='market',
-        reduce_only=True
     )
     
     if not close_result.get('success'):
         logger.error(f"[StackMentor:{user_id}] TP2 close failed: {close_result.get('error')}")
         return
     
-    logger.info(f"[StackMentor:{user_id}] TP2 closed 40% @ {mark_price:.4f}")
+    logger.info(f"[StackMentor:{user_id}] TP2 closed 30% @ {mark_price:.4f}")
     
     # Update position data
     pos_data['tp2_hit'] = True
@@ -403,16 +400,16 @@ async def handle_tp2_hit(bot, user_id: int, client, notify_chat_id: int,
     await bot.send_message(
         chat_id=notify_chat_id,
         text=(
-            f"🎯🎯 <b>Target Profit 2 Tercapai! — {symbol}</b>\n\n"
-            f"✅ Tutup 30% posisi @ <code>{mark_price:.4f}</code>\n"
-            f"💰 Profit tambahan: <b>+${profit_tp2:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
-            f"🔒 SL tetap di breakeven (entry price)\n"
-            f"⏳ Sisa 10% terakhir menuju TP3 (target 1:5)...\n\n"
+            f"🎯🎯 <b>Take Profit 2 Hit! — {symbol}</b>\n\n"
+            f"✅ Closed 30% position @ <code>{mark_price:.4f}</code>\n"
+            f"💰 Additional profit: <b>+${profit_tp2:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
+            f"🔒 SL remains at breakeven (entry price)\n"
+            f"⏳ Final 10% still running to TP3 (target 1:5)...\n\n"
             f"💡 <b>Status:</b>\n"
-            f"✅ 90% posisi sudah ditutup dengan profit\n"
-            f"✅ 10% terakhir = bonus jika market terus naik\n"
-            f"✅ Tidak ada risiko rugi (SL di breakeven)\n\n"
-            f"🎯 StackMentor: Profit aman, bonus masih jalan!"
+            f"✅ 90% of position closed with profit\n"
+            f"✅ Last 10% = bonus if market continues\n"
+            f"✅ Zero loss risk (SL at breakeven)\n\n"
+            f"🎯 StackMentor: Profit secured, bonus trade still running!"
         ),
         parse_mode='HTML'
     )
@@ -429,15 +426,13 @@ async def handle_tp3_hit(bot, user_id: int, client, notify_chat_id: int,
     side = pos_data['side']
     qty_tp3 = pos_data['qty_tp3']
     
-    # Close final 10%
+    # Close final 10% via reduce-only close_partial
     close_side = "SELL" if side == "LONG" else "BUY"
     close_result = await asyncio.to_thread(
-        client.place_order,
+        client.close_partial,
         symbol,
         close_side,
         qty_tp3,
-        order_type='market',
-        reduce_only=True
     )
     
     if not close_result.get('success'):
@@ -482,20 +477,20 @@ async def handle_tp3_hit(bot, user_id: int, client, notify_chat_id: int,
     await bot.send_message(
         chat_id=notify_chat_id,
         text=(
-            f"🎉🎉🎉 <b>JACKPOT! Target Profit 3 Tercapai! — {symbol}</b>\n\n"
-            f"✅ Tutup 10% terakhir @ <code>{mark_price:.4f}</code>\n"
-            f"💰 Profit TP3: <b>+${profit_tp3:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
-            f"🏆 <b>TOTAL PROFIT TRADE INI:</b>\n"
+            f"🎉🎉🎉 <b>JACKPOT! Take Profit 3 Hit! — {symbol}</b>\n\n"
+            f"✅ Closed final 10% @ <code>{mark_price:.4f}</code>\n"
+            f"💰 TP3 profit: <b>+${profit_tp3:.2f} USDT</b> (+{profit_pct:.1f}%)\n\n"
+            f"🏆 <b>TOTAL PROFIT THIS TRADE:</b>\n"
             f"💵 <b>+${total_profit:.2f} USDT</b>\n\n"
-            f"📊 <b>Rincian Profit Bertahap:</b>\n"
-            f"• TP1 (60% posisi): +${profit_tp1:.2f} ✅\n"
-            f"• TP2 (30% posisi): +${profit_tp2:.2f} ✅\n"
-            f"• TP3 (10% posisi): +${profit_tp3:.2f} ✅\n\n"
-            f"💡 <b>Kenapa strategi ini bagus?</b>\n"
-            f"✅ Profit dikunci bertahap (tidak serakah)\n"
-            f"✅ Risiko diminimalkan (SL ke breakeven)\n"
-            f"✅ Tetap dapat bonus jika market lanjut naik\n\n"
-            f"🎯 StackMentor: Eksekusi sempurna! Semua target tercapai! 🔥"
+            f"📊 <b>Staged Profit Breakdown:</b>\n"
+            f"• TP1 (60% position): +${profit_tp1:.2f} ✅\n"
+            f"• TP2 (30% position): +${profit_tp2:.2f} ✅\n"
+            f"• TP3 (10% position): +${profit_tp3:.2f} ✅\n\n"
+            f"💡 <b>Why this strategy works:</b>\n"
+            f"✅ Profit taken in stages (not greedy)\n"
+            f"✅ Risk minimized (SL moved to breakeven)\n"
+            f"✅ Still captured bonus if market kept running\n\n"
+            f"🎯 StackMentor: Perfect execution! All targets hit! 🔥"
         ),
         parse_mode='HTML'
     )

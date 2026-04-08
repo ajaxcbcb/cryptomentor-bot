@@ -669,7 +669,9 @@ function MiniStat({ title, value, subtitle, highlight, glow }) {
 }
 
 function PositionCard({ position, stackMentorActive }) {
-  const isLong = position.side === 'LONG';
+  // Normalize: API returns "BUY"/"SELL", mock data uses "LONG"/"SHORT"
+  const isLong = position.side === 'LONG' || position.side === 'BUY';
+  const sideLabel = isLong ? 'LONG' : 'SHORT';
   return (
     <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-5 md:p-7 flex flex-col transition-all duration-500 md:hover:-translate-y-1 hover:border-white/20 relative overflow-hidden group">
       <div className={`absolute top-0 left-0 w-1.5 h-full ${isLong ? 'bg-gradient-to-b from-lime-400 to-lime-600' : 'bg-gradient-to-b from-rose-400 to-rose-600'}`} />
@@ -679,7 +681,7 @@ function PositionCard({ position, stackMentorActive }) {
             <div className="flex items-center gap-3 mb-2">
               <h4 className="text-white font-black text-xl tracking-tight">{position.pair}</h4>
               <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-black tracking-wider ${isLong ? 'bg-lime-500/10 text-lime-400 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
-                {isLong ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {position.side} • {position.leverage}
+                {isLong ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {sideLabel} • {position.leverage}
               </div>
             </div>
             <p className="text-slate-400 text-xs font-medium">Margin Alloc: <span className="text-white font-bold bg-white/5 px-2 py-0.5 rounded-md border border-white/5">{position.margin}</span></p>
