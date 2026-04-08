@@ -18,12 +18,22 @@ app = FastAPI(
 )
 
 # CORS - izinkan frontend domain
+_ALLOWED_ORIGINS = list({
+    FRONTEND_URL,
+    "https://cryptomentor.id",
+    "https://www.cryptomentor.id",
+    "http://localhost:3000",
+    "http://localhost:5173",
+})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "https://cryptomentor.id", "https://www.cryptomentor.id"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+    expose_headers=["Content-Type"],
+    max_age=600,
 )
 
 app.include_router(auth_router)

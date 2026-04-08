@@ -16,11 +16,26 @@ TZ_UTC8 = timezone(timedelta(hours=8))
 from typing import List, Dict, Any
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.db.supabase import _client
 from app.routes.dashboard import get_current_user
 from app.services import bitunix as bsvc
+from app.auth.jwt import decode_token
+
+_bearer = HTTPBearer(auto_error=False)
+
+def _optional_user(
+    request: Request,
+    creds: HTTPAuthorizationCredentials = Depends(_bearer),
+) -> int | None:
+    """Return tg_id if a valid JWT is present, else None (public access)."""
+    if creds and creds.credentials:
+        payload = decode_token(creds.credentials)
+        if payload:
+            return int(payload["sub"])
+    return None
 
 # Window during which a freshly announced signal can still be entered via
 # 1-click. The position size is dynamically scaled by the live SL distance
@@ -160,7 +175,7 @@ def _trade_status_by_symbol(tg_id: int) -> Dict[str, Dict[str, Any]]:
 
 
 @router.get("/signals")
-async def get_signals(tg_id: int = Depends(get_current_user)):
+async def get_signals(tg_id: int | None = Depends(_optional_user)):
     symbols = [w[1] for w in _WATCHLIST]
     # Binance accepts a JSON-encoded array via the `symbols` query param.
     params = {"symbols": '["' + '","'.join(symbols) + '"]'}
@@ -173,7 +188,7 @@ async def get_signals(tg_id: int = Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Market data unavailable: {e}")
 
     try:
-        trade_status = _trade_status_by_symbol(tg_id)
+        trade_status = _trade_status_by_symbol(tg_id) if tg_id else {}
     except Exception:
         trade_status = {}
 
