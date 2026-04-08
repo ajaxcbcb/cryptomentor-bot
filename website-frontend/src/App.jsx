@@ -13,11 +13,15 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const apiFetch = (path, opts = {}) => {
   const token = localStorage.getItem('cm_token');
+  if (!token) console.warn('[apiFetch] No token for:', path);
   const headers = {
     ...(opts.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  return fetch(`${API_BASE}${path}`, { ...opts, headers });
+  return fetch(`${API_BASE}${path}`, { ...opts, headers }).then(r => {
+    if (r.status === 401) console.error('[apiFetch] 401 Unauthorized:', path);
+    return r;
+  });
 };
 
 const INITIAL_POSITIONS = [
@@ -76,7 +80,17 @@ export default function App() {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-  const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('cm_user'));
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    // Only consider logged in if BOTH cm_user AND cm_token exist
+    const hasUser = !!localStorage.getItem('cm_user');
+    const hasToken = !!localStorage.getItem('cm_token');
+    if (hasUser && !hasToken) {
+      // Stale session — clear it so user re-authenticates properly
+      try { localStorage.removeItem('cm_user'); } catch {}
+      return false;
+    }
+    return hasUser && hasToken;
+  });
   const [activeTab, setActiveTab] = useState('portfolio');
   const [positions] = useState(INITIAL_POSITIONS);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -110,6 +124,9 @@ export default function App() {
         const data = await resp.json();
         if (data.access_token) {
           localStorage.setItem('cm_token', data.access_token);
+          console.log('[Auth] JWT token saved, length:', data.access_token.length);
+        } else {
+          console.warn('[Auth] No access_token in response:', data);
         }
         if (data.user) {
           const nextUser = {
@@ -124,12 +141,15 @@ export default function App() {
           try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
         }
       } else {
+        const errText = await resp.text().catch(() => '');
+        console.error('[Auth] Backend auth failed:', resp.status, errText);
         // Fallback: store user without token (limited functionality)
         const nextUser = { id: String(telegramUser.id), first_name: telegramUser.first_name, username: telegramUser.username || telegramUser.first_name, photo_url: photoUrl, is_premium: false, credits: 0 };
         setUser(nextUser);
         try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
       }
-    } catch {
+    } catch (err) {
+      console.error('[Auth] Network error:', err);
       // Network error fallback
       const nextUser = { id: String(telegramUser.id), first_name: telegramUser.first_name, username: telegramUser.username || telegramUser.first_name, photo_url: photoUrl, is_premium: false, credits: 0 };
       setUser(nextUser);
