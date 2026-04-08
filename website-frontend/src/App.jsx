@@ -9,19 +9,46 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const _CONFIGURED_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const _FALLBACK_BASE = '/api';
 
-const apiFetch = (path, opts = {}) => {
+// Tracks which base URL is confirmed working so we don't retry every call.
+// null = untested, string = confirmed working base.
+let _resolvedBase = null;
+
+const apiFetch = async (path, opts = {}) => {
   const token = localStorage.getItem('cm_token');
-  if (!token) console.warn('[apiFetch] No token for:', path);
   const headers = {
     ...(opts.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  return fetch(`${API_BASE}${path}`, { ...opts, headers }).then(r => {
-    if (r.status === 401) console.error('[apiFetch] 401 Unauthorized:', path);
+
+  // If we already confirmed a working base, use it directly.
+  if (_resolvedBase) {
+    return fetch(`${_resolvedBase}${path}`, { ...opts, headers });
+  }
+
+  // Try the configured base first.
+  try {
+    const r = await fetch(`${_CONFIGURED_BASE}${path}`, { ...opts, headers });
+    _resolvedBase = _CONFIGURED_BASE; // mark as working
+    if (r.status === 401) console.warn('[apiFetch] 401 on:', path);
     return r;
-  });
+  } catch (_networkErr) {
+    // Configured base is unreachable (wrong domain, CORS block, etc.).
+    // Fall back to same-origin /api which nginx proxies to the backend.
+    if (_CONFIGURED_BASE !== _FALLBACK_BASE) {
+      console.warn(`[apiFetch] ${_CONFIGURED_BASE} unreachable, falling back to ${_FALLBACK_BASE}`);
+      try {
+        const r = await fetch(`${_FALLBACK_BASE}${path}`, { ...opts, headers });
+        _resolvedBase = _FALLBACK_BASE; // remember fallback works
+        return r;
+      } catch (fallbackErr) {
+        throw fallbackErr;
+      }
+    }
+    throw _networkErr;
+  }
 };
 
 const INITIAL_POSITIONS = [
