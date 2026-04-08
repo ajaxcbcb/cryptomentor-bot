@@ -2,7 +2,16 @@
 
 All notable changes to the CryptoMentor Artificial Intelligence Trading project will be documented in this file.
 
-## [Unreleased / Latest] - 2026-04-08
+## [Unreleased / Latest] - 2026-04-09
+
+### Bug Fixes — Web Dashboard
+- 🛠️ **Fixed: "Start Bot" Button Error (`No module named 'app.autotrade_engine'`)**: Resolved a Python `sys.path` namespace collision in the web backend (`website-backend/app/routes/engine.py`). The web backend hosts its own `app/` package — when `autotrade_engine.py` internally ran `from app.stackmentor import ...`, Python resolved `app` against the *web backend's* package instead of Bismillah's, causing the import to fail. Fixed by:
+  - Forcing `Bismillah/` to `sys.path[0]` (removing and re-inserting to guarantee priority over the web backend's `app/` namespace).
+  - Loading `autotrade_engine` via `importlib.util.spec_from_file_location` under the alias `bismillah.autotrade_engine`, completely sidestepping the namespace conflict.
+  - Caching the module in `sys.modules` so the in-memory `_running_tasks` dict (which tracks engine state per user) persists across HTTP requests.
+  - Fixed a scope bug where `ae` was consumed outside its `try` block — now loaded once and reused for both `is_running()` check and `start_engine()` call.
+
+
 
 ### AI Intelligence Hub — Live Signals
 - 🔥 **Live Signals Pipeline**: Replaced the hardcoded `MOCK_SIGNALS` on the dashboard with a real-time `GET /dashboard/signals` endpoint that derives direction, confidence, entry zone, TPs and SL from Binance public 24h ticker data for BTC/ETH/AVAX. Auto-refreshes every 30 seconds with a "Updated HH:MM:SS" stamp.
