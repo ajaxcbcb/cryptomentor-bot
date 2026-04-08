@@ -21,7 +21,10 @@
       "Bash(find /d/cryptomentorAI/website-frontend -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js -o -name *.json \\\\\\))",
       "Bash(find /d/cryptomentorAI -type f -name *telegram* -o -name *bot*)",
       "Bash(find /d/cryptomentorAI -type f \\\\\\(-name *bitunix* -o -name *client* -o -name *api* \\\\\\))",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"localhost:8000\\\\|/api\\\\|API\" /d/cryptomentorAI/website-frontend/.env*)",
+      "Bash(python -m py_compile website-backend/app/routes/signals.py)",
+      "Bash(py -m py_compile website-backend/app/routes/signals.py)"
     ]
   }
 }
