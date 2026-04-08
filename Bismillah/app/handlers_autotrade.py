@@ -501,14 +501,14 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"{progress}\n\n"
         text += f"✅ <b>API Key Connected - {ex_cfg['name']}</b>\n"
         text += f"{balance_text}\n"
-        text += "🎯 <b>Pilih Mode Trading</b>\n\n"
+        text += "🎯 <b>Choose Trading Mode</b>\n\n"
         text += recommended_card + "\n"
         text += manual_card + "\n"
-        text += "💡 <b>Rekomendasi kami:</b> Pilih Rekomendasi untuk hasil terbaik!\n"
-        
+        text += "💡 <b>Our recommendation:</b> Choose Recommended for the best results!\n"
+
         keyboard = [
-            [InlineKeyboardButton("🌟 Pilih Rekomendasi", callback_data="at_mode_risk_based")],
-            [InlineKeyboardButton("⚙️ Pilih Manual", callback_data="at_mode_manual")],
+            [InlineKeyboardButton("🌟 Choose Recommended", callback_data="at_mode_risk_based")],
+            [InlineKeyboardButton("⚙️ Choose Manual", callback_data="at_mode_manual")],
             [InlineKeyboardButton("🔑 Change API Key", callback_data="at_change_key")],
         ]
         
@@ -1500,7 +1500,7 @@ async def callback_start_engine_now(update: Update, context: ContextTypes.DEFAUL
         risk_pct = session.get("risk_per_trade", 2.0)
         risk_amount = amount * (risk_pct / 100)
 
-        mode_text = "🎯 Rekomendasi" if risk_mode == "risk_based" else "⚙️ Manual"
+        mode_text = "🎯 Recommended" if risk_mode == "risk_based" else "⚙️ Manual"
 
         # Use success message component
         success_text = success_message(
@@ -1516,7 +1516,7 @@ async def callback_start_engine_now(update: Update, context: ContextTypes.DEFAUL
         
         success_text += (
             "\n🤖 Bot is now monitoring the market. You'll receive a notification every time a trade is placed.\n\n"
-            "💡 System akan otomatis hitung margin dan position size per trade\n\n"
+            "💡 The system will automatically calculate margin and position size per trade.\n\n"
             "Use /autotrade to check status or stop."
         )
 
