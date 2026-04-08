@@ -34,21 +34,55 @@ if _BISMILLAH_APP not in sys.path:
     sys.path.insert(1, _BISMILLAH_APP)
 
 
+def _load_bismillah_submodule(rel_name: str, alias: str):
+    """Load a Bismillah app submodule by file path and register it under
+    both `alias` (e.g. 'bismillah.app.stackmentor') AND the short
+    `app.<rel_name>` key so that internal `from app.X import ...` calls
+    inside autotrade_engine resolve to the Bismillah version rather than
+    the web backend's own `app` package.
+    """
+    short_key = f"app.{rel_name}"
+    if short_key in sys.modules:
+        return sys.modules[short_key]
+
+    file_path = os.path.join(_BISMILLAH_APP, f"{rel_name}.py")
+    if not os.path.isfile(file_path):
+        return None  # optional module — skip silently
+
+    spec = importlib.util.spec_from_file_location(alias, file_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[alias] = mod
+    sys.modules[short_key] = mod   # <-- this is the key fix
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _get_engine():
     """
     Load autotrade_engine from its absolute path using importlib.
-    This avoids any `app.*` namespace collision between the web backend
-    and Bismillah, while still allowing internal `from app.X import ...`
-    calls inside the engine to resolve via Bismillah's sys.path entries.
+
+    Root cause of 'No module named app.stackmentor':
+    sys.modules['app'] is already the web-backend package. When
+    autotrade_engine.py runs `from app.stackmentor import ...`, Python
+    resolves `app` to the web backend and fails to find `stackmentor`.
+
+    Fix: pre-register each Bismillah app.* submodule that the engine (and
+    its transitive imports) needs under *both* 'bismillah.app.X' and the
+    bare 'app.X' key. Subsequent imports hit sys.modules directly — the
+    web backend's `app` package is never consulted for these names.
     """
     module_path = os.path.join(_BISMILLAH_APP, "autotrade_engine.py")
     if not os.path.isfile(module_path):
         raise ImportError(f"autotrade_engine.py not found at: {module_path}")
 
-    # Reuse cached module if already loaded to preserve in-memory state
-    # (_running_tasks dict must persist across requests)
+    # Reuse cached module to preserve in-memory _running_tasks state.
     if "bismillah.autotrade_engine" in sys.modules:
         return sys.modules["bismillah.autotrade_engine"]
+
+    # Pre-load every app.* module the engine or its deps import.
+    # Order matters: leaves first (no internal app.* deps), then consumers.
+    for submod in ("trading_mode", "supabase_repo", "stackmentor", "scalping_engine"):
+        _load_bismillah_submodule(submod, f"bismillah.app.{submod}")
 
     spec = importlib.util.spec_from_file_location("bismillah.autotrade_engine", module_path)
     ae = importlib.util.module_from_spec(spec)
