@@ -12,6 +12,7 @@ encrypted with the shared ENCRYPTION_KEY env var).
 import os
 import sys
 import asyncio
+from datetime import datetime
 from typing import Dict, Any, Optional
 
 from app.db.supabase import _client
@@ -24,9 +25,21 @@ _BISMILLAH_PATH = os.path.abspath(
 if _BISMILLAH_PATH not in sys.path:
     sys.path.insert(0, _BISMILLAH_PATH)
 
-from app.bitunix_autotrade_client import BitunixAutoTradeClient  # type: ignore
-from app.lib.crypto import decrypt, encrypt  # type: ignore
-from datetime import datetime
+# Also add Bismillah/app to path for direct imports
+_BISMILLAH_APP_PATH = os.path.join(_BISMILLAH_PATH, "app")
+if _BISMILLAH_APP_PATH not in sys.path:
+    sys.path.insert(0, _BISMILLAH_APP_PATH)
+
+try:
+    from bitunix_autotrade_client import BitunixAutoTradeClient  # type: ignore
+    from lib.crypto import decrypt, encrypt  # type: ignore
+    _BITUNIX_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARNING] Bitunix client not available: {e}")
+    BitunixAutoTradeClient = None
+    decrypt = None
+    encrypt = None
+    _BITUNIX_AVAILABLE = False
 
 
 # ---------------------------------------------------------------- keys ---- #
@@ -45,6 +58,8 @@ def get_user_api_keys(telegram_id: int) -> Optional[Dict[str, str]]:
     if not res.data:
         return None
     row = res.data[0]
+    if not _BITUNIX_AVAILABLE or decrypt is None:
+        return None
     try:
         secret = decrypt(row["api_secret_enc"])
     except Exception:
@@ -58,6 +73,9 @@ def get_user_api_keys(telegram_id: int) -> Optional[Dict[str, str]]:
 
 
 def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str, exchange: str = "bitunix"):
+    """Encrypt and upsert API keys into Supabase."""
+    if not _BITUNIX_AVAILABLE or encrypt is None:
+        raise PermissionError("Bitunix crypto module not available on this server")
     s = _client()
     row = {
         "telegram_id": int(telegram_id),
@@ -71,11 +89,14 @@ def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str, exchange
 
 
 def delete_user_api_keys(telegram_id: int, exchange: str = "bitunix"):
+    """Remove stored API keys for a user."""
     s = _client()
     s.table("user_api_keys").delete().eq("telegram_id", int(telegram_id)).eq("exchange", exchange).execute()
 
 
-def _client_for(telegram_id: int) -> BitunixAutoTradeClient:
+def _client_for(telegram_id: int) -> "BitunixAutoTradeClient":
+    if not _BITUNIX_AVAILABLE or BitunixAutoTradeClient is None:
+        raise PermissionError("Bitunix client not available on this server")
     keys = get_user_api_keys(telegram_id)
     if not keys:
         raise PermissionError("Bitunix API keys not configured for this user")
