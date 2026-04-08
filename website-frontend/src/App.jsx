@@ -7,7 +7,18 @@ import {
   Menu, X, Crosshair, ArrowUpRight, ArrowDownRight,
   PlayCircle, BookOpen, Lock, Clock, Power, StopCircle
 } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+
+const apiFetch = (path, opts = {}) => {
+  const token = localStorage.getItem('cm_token');
+  const headers = {
+    ...(opts.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  return fetch(`${API_BASE}${path}`, { ...opts, headers });
+};
 
 const INITIAL_POSITIONS = [
   { id: 1, pair: "BTC/USDT", side: "LONG", entry: "$64,230.50", current: "$65,100.00", margin: "$1,000", leverage: "10x", pnl: "+$124.50", pnlPercent: "+12.45%", isProfitable: true, tp: { tp1: { price: "$64,800", hit: true }, tp2: { price: "$65,500", hit: false }, tp3: { price: "$66,000", hit: false } } },
@@ -59,15 +70,25 @@ const MOCK_COURSES = [
 ];
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem('cm_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('cm_user'));
   const [activeTab, setActiveTab] = useState('portfolio');
   const [positions] = useState(INITIAL_POSITIONS);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [realPositions, setRealPositions] = useState([]);
   const [realPnl, setRealPnl] = useState(0);
+  const [cumulativePnl, setCumulativePnl] = useState(0);
+  const [hasCumulativePnl, setHasCumulativePnl] = useState(false);
+  const [equity, setEquity] = useState(null);
   const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate' });
   const [botRunning, setBotRunning] = useState(false);
+  const [botBusy, setBotBusy] = useState(false);
+  const [botError, setBotError] = useState(null);
   const [showBotStartModal, setShowBotStartModal] = useState(false);
 
   useEffect(() => {
@@ -80,14 +101,16 @@ export default function App() {
     const photoUrl = telegramUser.photo_url ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(telegramUser.first_name)}&background=d946ef&color=fff&bold=true`;
 
-    setUser({
+    const nextUser = {
       id: String(telegramUser.id),
       first_name: telegramUser.first_name,
       username: telegramUser.username || telegramUser.first_name,
       photo_url: photoUrl,
       is_premium: false,
       credits: 0,
-    });
+    };
+    setUser(nextUser);
+    try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
 
     setEngineState({
       autoModeEnabled: true,
@@ -123,12 +146,126 @@ export default function App() {
     }
   }, []);
 
-  const handleLogout = () => { setIsLoggedIn(false); setUser(null); setBotRunning(false); };
+  const handleLogout = () => {
+    try { localStorage.removeItem('cm_user'); } catch {}
+    setIsLoggedIn(false); setUser(null); setBotRunning(false);
+  };
   const navigateTo = (tab) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
   const handleBotConnected = () => setShowBotStartModal(true);
-  const handleStartBot = () => { setBotRunning(true); setShowBotStartModal(false); };
+
+  const callEngine = async (action) => {
+    setBotBusy(true);
+    setBotError(null);
+    try {
+      const resp = await apiFetch(`/dashboard/engine/${action}`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || `Failed to ${action} engine`);
+      setBotRunning(!!data.running);
+      return true;
+    } catch (e) {
+      setBotError(e.message);
+      return false;
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  const handleStartBot = async () => {
+    const ok = await callEngine('start');
+    if (ok) setShowBotStartModal(false);
+  };
   const handleCancelStart = () => setShowBotStartModal(false);
-  const handleToggleBot = () => setBotRunning(prev => !prev);
+  const handleToggleBot = () => callEngine(botRunning ? 'stop' : 'start');
+
+  // Hydrate engine running state on login
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    apiFetch('/dashboard/engine/state')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && !cancelled) setBotRunning(!!d.running); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoggedIn]);
+
+  // Live unrealized PnL + positions polling
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch('/bitunix/positions');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        const positions = (d.positions || []).map((p, i) => {
+          const pnlNum = Number(p.pnl ?? p.unrealizedPNL ?? 0);
+          const sideRaw = String(p.side || p.positionSide || '').toUpperCase();
+          const side = sideRaw === 'BUY' || sideRaw === 'LONG' ? 'LONG' : 'SHORT';
+          return {
+            id: p.positionId || p.id || `${p.symbol}-${i}`,
+            pair: p.symbol || p.pair || '—',
+            side,
+            entry: `$${Number(p.entryValue || p.avgOpenPrice || p.entry_price || 0).toLocaleString()}`,
+            current: `$${Number(p.markPrice || p.current_price || 0).toLocaleString()}`,
+            margin: `$${Number(p.margin || 0).toLocaleString()}`,
+            leverage: `${p.leverage || 0}x`,
+            pnl: `${pnlNum >= 0 ? '+' : '-'}$${Math.abs(pnlNum).toFixed(2)}`,
+            pnlPercent: '',
+            isProfitable: pnlNum >= 0,
+            tp: { tp1: { price: '', hit: false }, tp2: { price: '', hit: false }, tp3: { price: '', hit: false } },
+          };
+        });
+        setRealPositions(positions);
+        setRealPnl(Number(d.total_unrealized_pnl || 0));
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [isLoggedIn]);
+
+  // Cumulative PnL (closed trades, last 30d) + balance
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch('/dashboard/portfolio');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        if (d.portfolio && typeof d.portfolio.pnl_30d === 'number') {
+          setCumulativePnl(d.portfolio.pnl_30d);
+          setHasCumulativePnl(true);
+        }
+        if (d.bitunix && d.bitunix.account) {
+          const a = d.bitunix.account;
+          // Equity = available + frozen + position margin + unrealized PnL
+          const eq = Number(a.available || 0)
+            + Number(a.frozen || 0)
+            + Number(a.margin || 0)
+            + Number(a.total_unrealized_pnl || 0);
+          setEquity(eq);
+        }
+        if (d.engine) {
+          setEngineState(prev => ({
+            ...prev,
+            current_balance: d.engine.current_balance ?? prev.current_balance,
+            total_profit: d.engine.total_profit ?? prev.total_profit,
+            tradingMode: d.engine.trading_mode || prev.tradingMode,
+            stackMentorActive: d.engine.stackmentor_active ?? prev.stackMentorActive,
+            autoModeEnabled: d.engine.auto_mode_enabled ?? prev.autoModeEnabled,
+            riskMode: d.engine.risk_mode || prev.riskMode,
+            isActive: d.engine.is_active ?? prev.isActive,
+          }));
+        }
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [isLoggedIn]);
 
   if (!isLoggedIn) {
     return (
@@ -184,7 +321,7 @@ export default function App() {
           <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
           <div className="hidden md:flex p-8 items-center gap-4 relative z-10 border-b border-white/5">
             <div className="w-14 h-14 rounded-[1.25rem] bg-gradient-to-tr from-fuchsia-500 via-purple-500 to-cyan-500 p-[1px] shadow-[0_0_20px_rgba(217,70,239,0.3)]"><div className="w-full h-full bg-[#050505] rounded-[19px] flex items-center justify-center"><Bot size={28} className="text-white" /></div></div>
-            <div><h1 className="text-2xl font-black text-white tracking-tight leading-tight">CryptoMentor</h1><p className="text-cyan-400 text-xs font-bold tracking-[0.2em] uppercase mt-0.5">AI System v2.0</p></div>
+            <div><h1 className="text-2xl font-black text-white tracking-tight leading-tight">CryptoMentor AI</h1><p className="text-cyan-400 text-xs font-bold tracking-[0.2em] uppercase mt-0.5">Your virtual cockpit</p></div>
           </div>
           <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto py-6 relative z-10 custom-scrollbar mt-4 md:mt-0">
             <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">AutoTrade Hub</p>
@@ -207,21 +344,23 @@ export default function App() {
             {/* Bot Start/Stop Button */}
             <button
               onClick={handleToggleBot}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-black rounded-xl transition-all mb-3 ${
+              disabled={botBusy}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-black rounded-xl transition-all mb-3 disabled:opacity-50 ${
                 botRunning
                   ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25'
                   : 'bg-lime-500/15 text-lime-400 border border-lime-500/30 hover:bg-lime-500/25'
               }`}
             >
-              {botRunning ? <><StopCircle size={16} /> Stop Bot</> : <><Power size={16} /> Start Bot</>}
+              {botBusy ? '...' : (botRunning ? <><StopCircle size={16} /> Stop Bot</> : <><Power size={16} /> Start Bot</>)}
             </button>
+            {botError && <p className="text-[10px] text-rose-400 mb-2 text-center">{botError}</p>}
             <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-rose-400 hover:text-white hover:bg-rose-500/90 border border-rose-500/20 rounded-xl transition-all"><LogOut size={16} /> Disconnect</button>
           </div>
         </aside>
 
         {/* MAIN CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full relative z-0 pb-20 md:pb-10 custom-scrollbar">
-          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : INITIAL_POSITIONS} engineState={engineState} pnl30d={realPnl} hasRealData={realPositions.length > 0} botRunning={botRunning} onToggleBot={handleToggleBot} />}
+          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : INITIAL_POSITIONS} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} />}
           {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'settings' && <SettingsTab onBotConnected={handleBotConnected} />}
@@ -233,14 +372,13 @@ export default function App() {
   );
 }
 
-function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
-  const pnlDisplay = hasRealData
-    ? (pnl30d >= 0 ? `+$${pnl30d.toFixed(2)}` : `-$${Math.abs(pnl30d).toFixed(2)}`)
-    : '+$1,450.20';
-  const pnlPct = hasRealData ? '' : '+13.2%';
-  const balanceDisplay = hasRealData && engineState.current_balance !== undefined 
-    ? `$${engineState.current_balance.toFixed(2)}` 
-    : '$12,450.00';
+function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative }) {
+  const fmt = (n) => `${n >= 0 ? '+' : '-'}$${Math.abs(n).toFixed(2)}`;
+  const unrealizedDisplay = hasRealData ? fmt(unrealizedPnl) : '+$0.00';
+  const cumulativeDisplay = hasCumulative ? fmt(cumulativePnl) : '+$0.00';
+  const equityDisplay = equity !== null && equity !== undefined
+    ? `$${Number(equity).toFixed(2)}`
+    : '—';
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
@@ -251,9 +389,10 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
           <div className="flex items-center gap-2"><span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-lime-400 shadow-[0_0_10px_rgba(163,230,53,0.8)]"></span></span><span className="text-[10px] font-bold text-lime-400 tracking-[0.1em] uppercase">Engine Active</span></div>
         </div>
       </header>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="Total Balance" value={balanceDisplay} icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
-        <StatCard title="Total PnL" value={pnlDisplay} subtext={pnlPct} isPositive={pnl30d >= 0} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <StatCard title="Account Equity" value={equityDisplay} subtext="Avail + Margin + uPnL" icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
+        <StatCard title="Unrealized PnL" value={unrealizedDisplay} subtext="Live · Bitunix" isPositive={unrealizedPnl >= 0} icon={<Activity className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
+        <StatCard title="Cumulative PnL (30d)" value={cumulativeDisplay} subtext="Closed trades" isPositive={cumulativePnl >= 0} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
         <StatCard title="Open Positions" value={positions.length.toString()} icon={<Target className="text-fuchsia-400 w-6 h-6" />} glowColor="fuchsia" />
       </div>
       <div className="pt-6">
@@ -362,36 +501,67 @@ function EngineTab({ engineState, setEngineState, botRunning, onToggleBot }) {
 }
 
 function PerformanceTab() {
-  const [activeMetrics, setActiveMetrics] = useState({
-    sharpe: PERFORMANCE_METRICS.sharpeRatio,
-    maxDd: PERFORMANCE_METRICS.maxDrawdown,
-    winRate: PERFORMANCE_METRICS.winRate,
-    trades: PERFORMANCE_METRICS.totalTrades,
-    volatility: PERFORMANCE_METRICS.monthlyVolatility
-  });
+  const [livePerf, setLivePerf] = useState(null);
+  const [hoverPoint, setHoverPoint] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch('/dashboard/performance');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!cancelled) setLivePerf(d);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const m = livePerf?.metrics;
+  const fmtPct = (n) => `${Number(n).toFixed(1)}%`;
+  const liveMetrics = m ? {
+    sharpe: Number(m.sharpe).toFixed(2),
+    maxDd: fmtPct(m.max_drawdown_pct),
+    winRate: fmtPct(m.win_rate_pct),
+    trades: Number(m.total_trades).toLocaleString(),
+    volatility: fmtPct(m.volatility_pct),
+  } : { sharpe: '—', maxDd: '—', winRate: '—', trades: '0', volatility: '—' };
+
+  const chartData = (livePerf?.equity_curve && livePerf.equity_curve.length > 0)
+    ? livePerf.equity_curve
+    : HISTORICAL_DATA;
+
+  const [hoverMetrics, setHoverMetrics] = useState(null);
+  const activeMetrics = hoverMetrics || liveMetrics;
 
   const handleMouseMove = (data) => {
-    if (data && data.activePayload) {
+    if (data && data.activePayload && data.activePayload.length) {
       const payload = data.activePayload[0].payload;
-      setActiveMetrics({
-        sharpe: payload.sharpe,
-        maxDd: payload.maxDd,
-        winRate: payload.winRate,
-        trades: payload.trades.toLocaleString(),
-        volatility: payload.volatility
-      });
+      setHoverPoint({ date: payload.date, equity: payload.equity });
+      // If chart point carries per-row metrics (legacy mock), use them.
+      if (payload.sharpe !== undefined) {
+        setHoverMetrics({
+          sharpe: payload.sharpe,
+          maxDd: payload.maxDd,
+          winRate: payload.winRate,
+          trades: payload.trades.toLocaleString(),
+          volatility: payload.volatility,
+        });
+      }
     }
   };
 
   const handleMouseLeave = () => {
-    setActiveMetrics({
-      sharpe: PERFORMANCE_METRICS.sharpeRatio,
-      maxDd: PERFORMANCE_METRICS.maxDrawdown,
-      winRate: PERFORMANCE_METRICS.winRate,
-      trades: PERFORMANCE_METRICS.totalTrades,
-      volatility: PERFORMANCE_METRICS.monthlyVolatility
-    });
+    setHoverPoint(null);
+    setHoverMetrics(null);
   };
+
+  const equityValues = chartData.map(d => d.equity);
+  const yMin = Math.min(...equityValues);
+  const yMax = Math.max(...equityValues);
+  const yPad = (yMax - yMin) * 0.1 || 1;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
@@ -404,10 +574,18 @@ function PerformanceTab() {
       </div>
       <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/5 rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 relative overflow-hidden flex flex-col h-[350px] md:h-[500px] group">
         <div className="absolute top-0 right-0 w-[80%] h-[80%] bg-cyan-500/10 blur-[80px] rounded-full pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity duration-700" />
-        <h3 className="text-sm md:text-xl font-bold text-white flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/5 w-fit z-10 mb-6 shrink-0"><LineChart className="text-cyan-400 w-4 h-4" /> Cumulative Equity</h3>
+        <div className="flex items-center justify-between mb-6 shrink-0 z-10 relative gap-3 flex-wrap">
+          <h3 className="text-sm md:text-xl font-bold text-white flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/5 w-fit"><LineChart className="text-cyan-400 w-4 h-4" /> Cumulative Equity</h3>
+          {hoverPoint && (
+            <div className="flex items-center gap-3 text-[11px] md:text-xs font-bold bg-white/5 border border-cyan-500/30 px-3 py-2 rounded-lg">
+              <span className="text-slate-400 uppercase tracking-wider">{hoverPoint.date}</span>
+              <span className="text-cyan-400">${hoverPoint.equity.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
         <div className="flex-1 relative z-10 w-full h-full min-h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={HISTORICAL_DATA} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+            <AreaChart data={chartData} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4}/>
@@ -415,7 +593,36 @@ function PerformanceTab() {
                 </linearGradient>
                 <filter id="glowChart"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
               </defs>
-              <RechartsTooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+              <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="date"
+                stroke="rgba(148,163,184,0.6)"
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
+              />
+              <YAxis
+                stroke="rgba(148,163,184,0.6)"
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
+                domain={[Math.floor(yMin - yPad), Math.ceil(yMax + yPad)]}
+                tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
+                width={55}
+              />
+              <RechartsTooltip
+                content={<CustomTooltip />}
+                cursor={{ stroke: '#06b6d4', strokeWidth: 1, strokeDasharray: '4 4' }}
+              />
+              {hoverPoint && (
+                <ReferenceLine
+                  y={hoverPoint.equity}
+                  stroke="#06b6d4"
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                  ifOverflow="extendDomain"
+                />
+              )}
               <Area type="monotone" dataKey="equity" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#colorEquity)" activeDot={{ r: 6, fill: '#fff', stroke: '#06b6d4', strokeWidth: 2, className: 'animate-pulse' }} filter="url(#glowChart)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -434,9 +641,7 @@ function SettingsTab({ onBotConnected }) {
   const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
-    fetch('/api/bitunix/status', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('cm_token')}` }
-    })
+    apiFetch('/bitunix/status')
       .then(r => r.json())
       .then(d => {
         if (d.linked && d.online) setStatus('synced');
@@ -453,12 +658,9 @@ function SettingsTab({ onBotConnected }) {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const resp = await fetch('/api/bitunix/keys', {
+      const resp = await apiFetch('/bitunix/keys', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('cm_token')}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
       });
       const data = await resp.json();
@@ -480,12 +682,9 @@ function SettingsTab({ onBotConnected }) {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const resp = await fetch('/api/bitunix/keys/test', {
+      const resp = await apiFetch('/bitunix/keys/test', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('cm_token')}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
       });
       const data = await resp.json();
@@ -503,10 +702,7 @@ function SettingsTab({ onBotConnected }) {
     if (!confirm('Are you sure you want to decouple this API Bridge? AutoTrade will halt.')) return;
     setLoading(true);
     try {
-      await fetch('/api/bitunix/keys', {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('cm_token')}` }
-      });
+      await apiFetch('/bitunix/keys', { method: 'DELETE' });
       setStatus('disconnected');
     } catch (e) {
       console.error(e);
@@ -594,18 +790,49 @@ function SettingsTab({ onBotConnected }) {
 }
 
 function SignalsTab({ user }) {
+  const [signals, setSignals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch('/dashboard/signals');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (cancelled) return;
+        setSignals(data.signals || []);
+        setUpdatedAt(new Date());
+        setError(null);
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Failed to load signals');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const stamp = updatedAt ? updatedAt.toLocaleTimeString() : '—';
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-        <div><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">AI Intelligence Hub</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Real-time market analysis and algorithmic signals.</p></div>
-        <div className="flex items-center gap-2 bg-fuchsia-500/10 border border-fuchsia-500/20 px-4 py-2.5 rounded-xl backdrop-blur-md"><div className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-fuchsia-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-fuchsia-500"></span></div><span className="text-xs font-bold text-fuchsia-400 tracking-[0.1em] uppercase">Scanning Markets</span></div>
+        <div><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">AI Intelligence Hub</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Real-time market analysis and algorithmic signals. <span className="text-slate-500">Updated {stamp}</span></p></div>
+        <div className="flex items-center gap-2 bg-fuchsia-500/10 border border-fuchsia-500/20 px-4 py-2.5 rounded-xl backdrop-blur-md"><div className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-fuchsia-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-fuchsia-500"></span></div><span className="text-xs font-bold text-fuchsia-400 tracking-[0.1em] uppercase">{loading ? 'Loading' : 'Scanning Markets'}</span></div>
       </header>
+      {error && <div className="text-rose-400 text-sm font-bold bg-rose-500/10 border border-rose-500/20 px-4 py-3 rounded-xl">Failed to load live signals: {error}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        {MOCK_SIGNALS.map((signal, idx) => (
-          <div key={signal.id} className="animate-in fade-in slide-in-from-bottom-8" style={{ animationDelay: `${idx * 150}ms`, animationFillMode: 'both' }}>
+        {signals.map((signal, idx) => (
+          <div key={signal.id || signal.pair} className="animate-in fade-in slide-in-from-bottom-8" style={{ animationDelay: `${idx * 150}ms`, animationFillMode: 'both' }}>
             <SignalCard signal={signal} userIsPremium={user?.is_premium} />
           </div>
         ))}
+        {!loading && !signals.length && !error && <div className="col-span-full text-center text-slate-500 text-sm py-10">No signals available right now.</div>}
       </div>
     </div>
   );
@@ -756,10 +983,52 @@ function BridgeCard({ name, status, logo, colors, onConnect, onDisconnect, loadi
 
 function SignalCard({ signal, userIsPremium }) {
   const [isPlaced, setIsPlaced] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [placeError, setPlaceError] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
   const isLong = signal.direction === 'LONG';
   const isLocked = signal.premium && !userIsPremium;
+  const isExpired = !!signal.expired;
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const windowMs = (signal.entry_window_seconds || 300) * 1000;
+  const generatedMs = signal.generated_at ? Date.parse(signal.generated_at) : now;
+  const ageMs = Math.max(0, now - generatedMs);
+  const remainingMs = Math.max(0, windowMs - ageMs);
+  const windowExpired = remainingMs <= 0;
+  const remainingLabel = windowExpired
+    ? 'Entry window closed'
+    : `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0')} left`;
+
+  const handleExecute = async () => {
+    if (placing || isPlaced || windowExpired) return;
+    setPlacing(true);
+    setPlaceError(null);
+    try {
+      const r = await apiFetch('/dashboard/signals/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: signal.pair.replace('/', ''),
+          generated_at: signal.generated_at,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+      setIsPlaced(true);
+    } catch (e) {
+      setPlaceError(e.message || 'Failed to place order');
+    } finally {
+      setPlacing(false);
+    }
+  };
+
   return (
-    <div className={`bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-5 md:p-6 flex flex-col transition-all duration-500 relative overflow-hidden group hover:border-white/20 ${isLocked ? 'opacity-80' : ''}`}>
+    <div className={`bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-5 md:p-6 flex flex-col transition-all duration-500 relative overflow-hidden group hover:border-white/20 ${isLocked ? 'opacity-80' : ''} ${isExpired ? 'opacity-60 grayscale' : ''}`}>
       <div className={`absolute top-0 left-0 w-full h-1 ${isLong ? 'bg-gradient-to-r from-lime-400 to-lime-600' : 'bg-gradient-to-r from-rose-400 to-rose-600'}`} />
       <div className="flex justify-between items-start mb-4">
         <div>
@@ -777,7 +1046,44 @@ function SignalCard({ signal, userIsPremium }) {
           <div className="text-[10px] font-bold text-fuchsia-400 bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{signal.confidence}% AI CONF</div>
         </div>
       </div>
-      {isLocked ? (
+      {isExpired ? (
+        (() => {
+          const ts = signal.trade_status;
+          const pnl = signal.trade_pnl;
+          const pnlStr = typeof pnl === 'number' ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT` : null;
+          if (ts === 'in_position') {
+            return (
+              <div className="flex-1 flex flex-col items-center justify-center py-6 bg-cyan-500/5 rounded-xl border border-cyan-500/20 mt-2">
+                <Zap className="text-cyan-400 w-8 h-8 mb-2" />
+                <p className="text-sm font-bold text-white mb-1">In Position</p>
+                <p className="text-xs text-slate-400">Autotrade is holding this trade.</p>
+                {pnlStr && <p className={`text-xs font-black mt-2 ${pnl >= 0 ? 'text-lime-400' : 'text-rose-400'}`}>PnL {pnlStr}</p>}
+              </div>
+            );
+          }
+          if (ts === 'tp_hit') {
+            const hits = signal.tp_hits || {};
+            const which = hits.tp3 ? 'TP3' : hits.tp2 ? 'TP2' : hits.tp1 ? 'TP1' : 'TP';
+            return (
+              <div className="flex-1 flex flex-col items-center justify-center py-6 bg-lime-500/5 rounded-xl border border-lime-500/20 mt-2">
+                <CheckCircle2 className="text-lime-400 w-8 h-8 mb-2" />
+                <p className="text-sm font-bold text-white mb-1">Take Profit Hit ({which})</p>
+                <p className="text-xs text-slate-400">Trade closed in profit.</p>
+                {pnlStr && <p className="text-xs font-black mt-2 text-lime-400">PnL {pnlStr}</p>}
+              </div>
+            );
+          }
+          // sl_hit / fallback
+          return (
+            <div className="flex-1 flex flex-col items-center justify-center py-6 bg-rose-500/5 rounded-xl border border-rose-500/20 mt-2">
+              <ArrowDownRight className="text-rose-400 w-8 h-8 mb-2" />
+              <p className="text-sm font-bold text-white mb-1">Stop Loss Hit</p>
+              <p className="text-xs text-slate-400">Trade closed at a loss.</p>
+              {pnlStr && <p className="text-xs font-black mt-2 text-rose-400">PnL {pnlStr}</p>}
+            </div>
+          );
+        })()
+      ) : isLocked ? (
         <div className="flex-1 flex flex-col items-center justify-center py-6 bg-white/[0.02] rounded-xl border border-white/5 mt-2"><Lock className="text-fuchsia-500 w-8 h-8 mb-2 opacity-80" /><p className="text-sm font-bold text-white mb-1">Premium Signal</p><p className="text-xs text-slate-400">Upgrade to access targets.</p></div>
       ) : (
         <div className="flex flex-col gap-3 mt-2">
@@ -786,9 +1092,14 @@ function SignalCard({ signal, userIsPremium }) {
             <div className="flex-1 bg-white/[0.02] p-3 rounded-xl border border-white/5"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stack Targets</p><div className="flex flex-wrap gap-1">{signal.targets.map((t, i) => <span key={i} className="text-xs font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">TP{i+1}: {t}</span>)}</div></div>
             <div className="bg-white/[0.02] p-3 rounded-xl border border-white/5 min-w-[80px]"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stop Loss</p><p className="text-rose-400 font-bold text-sm">{signal.stopLoss}</p></div>
           </div>
-          <button onClick={() => { if (!isPlaced) { setIsPlaced(true); setTimeout(() => setIsPlaced(false), 3000); } }} disabled={isPlaced} className={`mt-2 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}>
-            {isPlaced ? <><CheckCircle2 size={16} /> Position Opened</> : <><Zap size={16} /> 1-Click Open {signal.direction}</>}
+          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest mt-1">
+            <span className="text-slate-500">Entry Window</span>
+            <span className={windowExpired ? 'text-rose-400' : remainingMs < 60000 ? 'text-amber-400' : 'text-cyan-400'}>{remainingLabel}</span>
+          </div>
+          <button onClick={handleExecute} disabled={isPlaced || placing || windowExpired} className={`mt-1 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : windowExpired ? 'bg-white/5 text-slate-500 border border-white/10' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}>
+            {isPlaced ? <><CheckCircle2 size={16} /> Position Opened</> : placing ? <><Zap size={16} /> Placing…</> : windowExpired ? <>Entry Window Closed</> : <><Zap size={16} /> 1-Click Open {signal.direction}</>}
           </button>
+          {placeError && <p className="text-[10px] font-bold text-rose-400 mt-1">{placeError}</p>}
         </div>
       )}
     </div>

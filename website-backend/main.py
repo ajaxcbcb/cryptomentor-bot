@@ -5,6 +5,7 @@ from app.routes.auth import router as auth_router
 from app.routes.user import router as user_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.bitunix import router as bitunix_router
+from app.routes.signals import router as signals_router
 
 app = FastAPI(
     title="CryptoMentor Website API",
@@ -26,6 +27,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(dashboard_router)
 app.include_router(bitunix_router)
+app.include_router(signals_router)
 
 
 @app.get("/")

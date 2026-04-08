@@ -139,3 +139,24 @@ async def set_position_tpsl(telegram_id: int, symbol: str, tp_price: float, sl_p
 async def set_position_sl(telegram_id: int, symbol: str, sl_price: float) -> Dict[str, Any]:
     client = _client_for(telegram_id)
     return await asyncio.to_thread(client.set_position_sl, symbol, sl_price)
+
+
+async def place_market_with_tpsl(
+    telegram_id: int,
+    symbol: str,
+    side: str,
+    qty: float,
+    tp_price: float,
+    sl_price: float,
+    leverage: int = 10,
+) -> Dict[str, Any]:
+    """Open a market position with TP/SL attached. side is BUY/SELL."""
+    client = _client_for(telegram_id)
+    # Best-effort leverage sync (mirrors the bot's behaviour); ignore failures.
+    try:
+        await asyncio.to_thread(client.set_leverage, symbol, int(leverage), "cross")
+    except Exception:
+        pass
+    return await asyncio.to_thread(
+        client.place_order_with_tpsl, symbol, side, qty, tp_price, sl_price
+    )
