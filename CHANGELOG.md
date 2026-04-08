@@ -39,6 +39,18 @@ All notable changes to the CryptoMentor Artificial Intelligence Trading project 
 - 🛠️ **Nginx Config Fix**: Corrected nginx to serve the built frontend directly from the `dist/` folder — no manual copy step required on deploy.
 - 🛠️ **`.env.example` Corrected**: Set the correct `ENCRYPTION_KEY` placeholder in `website-backend/.env.example` so new deployments don't silently fail key decryption.
 
+### AI Intelligence Hub — Live Signals
+- 🔥 **Live Signals Pipeline**: Replaced the hardcoded `MOCK_SIGNALS` on the dashboard with a real-time `GET /dashboard/signals` endpoint that derives direction, confidence, entry zone, TPs and SL from Binance public 24h ticker data for BTC/ETH/AVAX. Auto-refreshes every 30 seconds with a "Updated HH:MM:SS" stamp.
+- 🔥 **Signal Outcome Tracking**: Each card now cross-references `autotrade_trades` (last 24h) and renders one of three outcome states: **In Position** (cyan, live PnL), **Take Profit Hit** (lime, shows TP1/TP2/TP3 hit + PnL), or **Stop Loss Hit** (rose, PnL). Prevents users from re-entering an idea the bot has already taken.
+- 🔥 **Risk-Based 1-Click Entry**: New `POST /dashboard/signals/execute` opens a market position with TP/SL attached, sized dynamically from the *live* SL distance: `qty = (balance × risk%) / |entry − sl|`. Late entries automatically rescale — closer to SL = larger size, further from SL = smaller size — so risk per trade stays constant regardless of fill timing. Pulls `risk_per_trade` and `leverage` from the user's `autotrade_sessions`, syncs leverage on Bitunix, then routes through `place_order_with_tpsl`.
+- 🔥 **5-Minute Entry Window**: 1-click execution is gated to 5 minutes from the signal's `generated_at` timestamp. The card shows a live MM:SS countdown (cyan → amber under 60s → rose when expired), and the button auto-locks to "Entry Window Closed" once the window elapses. Server enforces with an HTTP 410 if the client clock is tampered with.
+### StackMentor & Localization Improvements
+- 🔥 **Corrected Notification Splits**: Updated signal notification labels to accurately reflect the 60%/30%/10% StackMentor quantity splits (fixing the previous 50%/40%/10% display error).
+- 🔥 **R:R Correction**: Updated the R:R targets in progress messages to 1:2 → 1:3 → 1:5 to match the actual StackMentor execution logic.
+- 🚀 **Critical Fix: Partial Close execution**: Resolved a persistent bug in the StackMentor monitor where partial Take Profits failed to execute on Bitunix. Switched from `place_order` (which erroneously set `tradeSide: OPEN`) to the correct `close_partial` method (enforcing `reduceOnly: True` and `tradeSide: OPEN`).
+- 🌐 **Full English Localization**: Completed the translation of all Indonesian trading signals and StackMentor profit-taking notifications into English for a consistent professional interface.
+- 🛠️ **Dynamic Sizing Guards**: Backend validates SL distance (0.1%–15%), caps margin at 95% of available balance, enforces per-symbol qty precision (`BTCUSDT=3, ETHUSDT=2, AVAXUSDT=2`), and rejects sub-minimum quantities before hitting the exchange.
+
 ### Web App Architecture (V2)
 - 🔥 **Bot Start/Stop Controls**: Added a prominent Start/Stop bot toggle button in the sidebar (always visible) and a full Engine Controls card in the Engine tab with a live pulsing indicator showing whether the engine is running or stopped.
 - 🔥 **Post-API-Save Bot Launch Prompt**: After successfully saving Bitunix API keys in the Settings tab, a modal confirmation overlay (`BotStartModal`) is displayed — allowing users to immediately launch the AutoTrade engine or defer startup with "Start Later". Includes a risk disclaimer banner.
