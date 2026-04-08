@@ -65,19 +65,18 @@ async def broadcast_profit(
         f"Ketik /autotrade untuk mulai!"
     )
 
-    # Kirim ke semua user yang BELUM daftar autotrade
+    # Kirim ke semua user (social proof untuk semua, bukan hanya non-autotrade)
     asyncio.create_task(_send_to_all_users(bot, message))
     logger.info(f"[SocialProof] Queued broadcast for {display_name} profit ${pnl_usdt:.2f}")
 
 
 async def _send_to_all_users(bot, message: str):
-    """Kirim pesan ke user yang BELUM daftar autotrade saja."""
+    """Kirim pesan ke semua user (social proof untuk semua)."""
     try:
         from app.supabase_repo import _client
 
         def _get_target_uids():
             s = _client()
-            # Ambil semua user
             all_uids = []
             offset = 0
             while True:
@@ -87,16 +86,10 @@ async def _send_to_all_users(bot, message: str):
                 if len(batch) < 1000:
                     break
                 offset += 1000
-
-            # Ambil user yang sudah punya autotrade session
-            at_res = s.table("autotrade_sessions").select("telegram_id").execute()
-            at_ids = {row["telegram_id"] for row in (at_res.data or [])}
-
-            # Hanya kirim ke yang belum daftar
-            return [uid for uid in all_uids if uid not in at_ids]
+            return all_uids
 
         target_uids = await asyncio.to_thread(_get_target_uids)
-        logger.info(f"[SocialProof] Broadcasting to {len(target_uids)} non-autotrade users")
+        logger.info(f"[SocialProof] Broadcasting to {len(target_uids)} users")
 
         sent = 0
         failed = 0

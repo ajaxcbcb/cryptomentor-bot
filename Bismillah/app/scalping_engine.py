@@ -1202,6 +1202,26 @@ class ScalpingEngine:
                         f"Exit: {fill_price:.4f}\n"
                         f"PnL: <b>{pnl_with_leverage:+.2f} USDT</b> 🎉"
                     )
+
+                # Social proof broadcast — kirim ke semua user jika profit >= 2 USDT
+                if pnl_with_leverage >= 2.0:
+                    try:
+                        from app.social_proof import broadcast_profit
+                        from app.supabase_repo import get_user_by_tid
+                        user_data = get_user_by_tid(self.user_id)
+                        fname = user_data.get("first_name", "User") if user_data else "User"
+                        import asyncio as _asyncio
+                        _asyncio.create_task(broadcast_profit(
+                            bot=self.bot,
+                            user_id=self.user_id,
+                            first_name=fname,
+                            symbol=position.symbol,
+                            side=position.side,
+                            pnl_usdt=pnl_with_leverage,
+                            leverage=position.leverage,
+                        ))
+                    except Exception as _bp_err:
+                        logger.warning(f"[Scalping:{self.user_id}] broadcast_profit failed: {_bp_err}")
                 
                 del self.positions[position.symbol]
         

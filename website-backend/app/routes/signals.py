@@ -10,7 +10,9 @@ and matches the existing three-card layout. Tier (free vs pro) is decided
 per symbol so the gating UI keeps working.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+TZ_UTC8 = timezone(timedelta(hours=8))
 from typing import List, Dict, Any
 
 import httpx
@@ -29,6 +31,13 @@ SIGNAL_ENTRY_WINDOW_SECONDS = 5 * 60
 _QTY_PRECISION = {"BTCUSDT": 3, "ETHUSDT": 2, "AVAXUSDT": 2}
 
 router = APIRouter(prefix="/dashboard", tags=["signals"])
+
+# ── Signal cache ─────────────────────────────────────────────────────────────
+# Keyed by binance symbol (e.g. "BTCUSDT").
+# Each entry: {"signal": dict, "generated_at": datetime, "ticker_snapshot": dict}
+# A cached signal is reused until it expires (>= SIGNAL_ENTRY_WINDOW_SECONDS old),
+# at which point a fresh signal is generated with a new generated_at timestamp.
+_signal_cache: Dict[str, Dict[str, Any]] = {}
 
 # (display_pair, binance_symbol, tier, type)
 _WATCHLIST = [
@@ -50,7 +59,7 @@ def _fmt(price: float) -> str:
     return f"{price:,.5f}"
 
 
-def _build_signal(idx: int, pair: str, tier: str, sig_type: str, ticker: dict) -> Dict[str, Any]:
+def _build_signal(idx: int, pair: str, tier: str, sig_type: str, ticker: dict, generated_at: datetime = None) -> Dict[str, Any]:
     last = float(ticker["lastPrice"])
     high = float(ticker["highPrice"])
     low = float(ticker["lowPrice"])
@@ -80,6 +89,10 @@ def _build_signal(idx: int, pair: str, tier: str, sig_type: str, ticker: dict) -
 
     targets = [_fmt(tp1), _fmt(tp2), _fmt(tp3)] if sig_type == "Scalp" else [_fmt(tp1), _fmt(tp2)]
 
+    ts = generated_at or datetime.now(timezone.utc)
+    # Human-readable signal time (UTC+8)
+    signal_time_str = ts.astimezone(TZ_UTC8).strftime("%H:%M:%S UTC+8")
+
     return {
         "id": idx + 1,
         "pair": pair,
@@ -89,12 +102,12 @@ def _build_signal(idx: int, pair: str, tier: str, sig_type: str, ticker: dict) -
         "targets": targets,
         "stopLoss": _fmt(stop),
         "status": "Active",
-        "time": "live",
+        "time": signal_time_str,
         "premium": tier == "pro",
         "confidence": confidence,
         "price": last,
         "change_24h": change_pct,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": ts.isoformat(),
     }
 
 
@@ -172,11 +185,24 @@ async def get_signals(tg_id: int = Depends(get_current_user)):
 
     by_symbol = {row["symbol"]: row for row in data}
     signals: List[Dict[str, Any]] = []
+    now_utc = datetime.now(timezone.utc)
+
     for idx, (pair, sym, tier, sig_type) in enumerate(_WATCHLIST):
         ticker = by_symbol.get(sym)
         if not ticker:
             continue
-        sig = _build_signal(idx, pair, tier, sig_type, ticker)
+
+        # ── Cache logic: reuse generated_at if signal is still within window ──
+        cached = _signal_cache.get(sym)
+        if cached and (now_utc - cached["generated_at"]).total_seconds() < SIGNAL_ENTRY_WINDOW_SECONDS:
+            # Signal still alive — keep the original generated_at
+            gen_at = cached["generated_at"]
+        else:
+            # Signal expired or first time — stamp a fresh generated_at
+            gen_at = now_utc
+            _signal_cache[sym] = {"generated_at": gen_at}
+
+        sig = _build_signal(idx, pair, tier, sig_type, ticker, generated_at=gen_at)
         ts = trade_status.get(sym)
         if ts:
             sig["expired"] = True
@@ -196,7 +222,7 @@ async def get_signals(tg_id: int = Depends(get_current_user)):
 
     return {
         "signals": signals,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": now_utc.astimezone(TZ_UTC8).isoformat(),
         "entry_window_seconds": SIGNAL_ENTRY_WINDOW_SECONDS,
     }
 

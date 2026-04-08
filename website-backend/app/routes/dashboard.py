@@ -35,7 +35,7 @@ async def _ensure_session(tg_id: int, status: str) -> dict:
     }
     if status == "active":
         payload["engine_active"] = True
-    elif status == "paused":
+    elif status in ("paused", "stopped"):
         payload["engine_active"] = False
 
     if not existing:
@@ -100,7 +100,7 @@ async def engine_start(tg_id: int = Depends(get_current_user)):
 @router.post("/engine/stop")
 async def engine_stop(tg_id: int = Depends(get_current_user)):
     try:
-        result = await _ensure_session(tg_id, "paused")
+        result = await _ensure_session(tg_id, "stopped")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to stop engine: {e}")
     return {"success": True, "running": False, **result}

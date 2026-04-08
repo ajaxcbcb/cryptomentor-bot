@@ -240,7 +240,7 @@ export default function App() {
       } catch {}
     };
     load();
-    const id = setInterval(load, 10000);
+    const id = setInterval(load, 3000);
     return () => { cancelled = true; clearInterval(id); };
   }, [isLoggedIn]);
 
@@ -282,7 +282,7 @@ export default function App() {
       } catch {}
     };
     load();
-    const id = setInterval(load, 30000);
+    const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [isLoggedIn]);
 
@@ -319,6 +319,11 @@ export default function App() {
       <div className="fixed top-[-10%] left-[-20%] w-[60vw] h-[60vw] rounded-full bg-violet-600/10 blur-[100px] pointer-events-none z-0" />
       <div className="fixed bottom-[-10%] right-[-20%] w-[60vw] h-[60vw] rounded-full bg-cyan-600/10 blur-[100px] pointer-events-none z-0" />
 
+      {/* PROFIT TICKER — sticky top, visible on all devices */}
+      <div className="sticky top-0 z-50">
+        <ProfitTicker />
+      </div>
+
       {/* MOBILE TOP BAR */}
       <div className="md:hidden flex items-center justify-between p-4 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-white/5 sticky top-0 z-40">
         <div className="flex items-center gap-3">
@@ -352,6 +357,10 @@ export default function App() {
             <NavItem icon={<Radio size={20} />} label="Signals & Market" active={activeTab === 'signals'} onClick={() => navigateTo('signals')} badge={user.is_premium ? "PRO" : "FREE"} />
             <NavItem icon={<GraduationCap size={20} />} label="Skills & Education" active={activeTab === 'skills'} onClick={() => navigateTo('skills')} />
           </nav>
+
+          {/* ── Social Proof Ticker ── */}
+          <SidebarTicker />
+
           <div className="p-5 md:p-6 mt-auto relative z-10 border-t border-white/5">
             <div className="flex items-center gap-3 p-3 rounded-[1.5rem] bg-white/[0.03] border border-white/5 mb-4">
               <div className="relative shrink-0">
@@ -555,7 +564,7 @@ function PerformanceTab() {
       } catch {}
     };
     load();
-    const id = setInterval(load, 30000);
+    const id = setInterval(load, 10000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
@@ -853,11 +862,11 @@ function SignalsTab({ user }) {
       }
     };
     load();
-    const id = setInterval(load, 30000);
+    const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  const stamp = updatedAt ? updatedAt.toLocaleTimeString() : '—';
+  const stamp = updatedAt ? updatedAt.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC+8' : '—';
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
@@ -1166,8 +1175,170 @@ function CourseCard({ course }) {
   );
 }
 
-function BotStartModal({ onStart, onCancel }) {
+// ── Sidebar Social Proof Ticker ───────────────────────────────────────────────
+function SidebarTicker() {
+  const [items, setItems] = useState(TICKER_FALLBACK);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetch('/leaderboard/ticker');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.items && d.items.length > 0) setItems(d.items);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Triple-duplicate for seamless vertical loop
+  const display = [...items, ...items, ...items];
+  const duration = display.length * 2.8;
+
   return (
+    <div className="mx-3 my-2 rounded-2xl overflow-hidden relative border border-white/5 bg-white/[0.02]" style={{ height: '110px' }}>
+      {/* header label */}
+      <div className="absolute top-0 left-0 right-0 flex items-center gap-1.5 px-3 pt-2 pb-1 z-20"
+        style={{ background: 'linear-gradient(180deg, rgba(10,10,10,0.95) 60%, transparent)' }}>
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse shrink-0" />
+        <span className="text-[9px] font-black tracking-widest uppercase text-lime-400">Live Profits</span>
+      </div>
+
+      {/* bottom fade */}
+      <div className="absolute bottom-0 left-0 right-0 h-6 z-20 pointer-events-none"
+        style={{ background: 'linear-gradient(0deg, rgba(10,10,10,0.9) 0%, transparent 100%)' }} />
+
+      {/* scrolling rows */}
+      <div
+        className="flex flex-col pt-6"
+        style={{
+          animation: `sidebar-ticker-v ${duration}s linear infinite`,
+          willChange: 'transform',
+        }}
+      >
+        {display.map((item, i) => (
+          <div key={i} className="flex items-center gap-2 px-3 py-[5px] shrink-0">
+            <span className="text-lime-400 text-[11px] shrink-0">🔔</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-white text-[11px] font-bold">{item.user}</span>
+              <span className="text-slate-400 text-[11px]"> closed </span>
+              <span className="text-cyan-300 text-[11px] font-bold">{(item.symbol || '').replace('USDT', '')}</span>
+            </div>
+            <span className="text-lime-400 text-[11px] font-black shrink-0">+${Number(item.pnl_usdt).toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes sidebar-ticker-v {
+          0%   { transform: translateY(0); }
+          100% { transform: translateY(calc(-100% / 3)); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Profit Ticker Banner ──────────────────────────────────────────────────────
+const TICKER_FALLBACK = [
+  { user: "al***na", symbol: "BTCUSDT",  pnl_usdt: 84.20,  pnl_pct: 18.4 },
+  { user: "ry***to", symbol: "ETHUSDT",  pnl_usdt: 47.55,  pnl_pct: 23.3 },
+  { user: "ha***an", symbol: "BTCUSDT",  pnl_usdt: 112.60, pnl_pct: 27.6 },
+  { user: "ba***us", symbol: "ETHUSDT",  pnl_usdt: 66.30,  pnl_pct: 31.2 },
+  { user: "wi***to", symbol: "BTCUSDT",  pnl_usdt: 95.40,  pnl_pct: 22.8 },
+  { user: "yu***ta", symbol: "BTCUSDT",  pnl_usdt: 143.20, pnl_pct: 34.5 },
+  { user: "ir***an", symbol: "AVAXUSDT", pnl_usdt: 39.10,  pnl_pct: 19.1 },
+  { user: "si***ah", symbol: "ETHUSDT",  pnl_usdt: 52.90,  pnl_pct: 25.7 },
+  { user: "fa***ul", symbol: "SOLUSDT",  pnl_usdt: 31.80,  pnl_pct: 14.7 },
+  { user: "pr***to", symbol: "BNBUSDT",  pnl_usdt: 33.60,  pnl_pct: 16.2 },
+];
+
+function ProfitTicker() {
+  const [items, setItems] = useState(TICKER_FALLBACK);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetch('/leaderboard/ticker');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.items && d.items.length > 0) setItems(d.items);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Triple-duplicate for seamless infinite loop
+  const display = [...items, ...items, ...items];
+  const duration = display.length * 3.2;
+
+  return (
+    <div
+      className="w-full overflow-hidden relative flex items-center shrink-0"
+      style={{
+        height: '34px',
+        background: 'linear-gradient(90deg, #050a05 0%, #071207 50%, #050a05 100%)',
+        borderBottom: '1px solid rgba(132,204,22,0.2)',
+        zIndex: 60,
+      }}
+    >
+      {/* LIVE label */}
+      <div
+        className="absolute left-0 top-0 h-full flex items-center gap-1.5 px-3 z-20 shrink-0"
+        style={{ background: 'linear-gradient(90deg, #050a05 65%, transparent)' }}
+      >
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse" />
+        <span className="text-[9px] font-black tracking-widest uppercase text-lime-400">LIVE</span>
+      </div>
+
+      {/* left fade */}
+      <div className="absolute left-16 top-0 h-full w-8 z-10 pointer-events-none"
+        style={{ background: 'linear-gradient(90deg, #050a05, transparent)' }} />
+      {/* right fade */}
+      <div className="absolute right-0 top-0 h-full w-12 z-10 pointer-events-none"
+        style={{ background: 'linear-gradient(270deg, #050a05, transparent)' }} />
+
+      <div
+        className="flex items-center pl-20"
+        style={{
+          animation: `ticker-h ${duration}s linear infinite`,
+          whiteSpace: 'nowrap',
+          willChange: 'transform',
+        }}
+      >
+        {display.map((item, i) => (
+          <span key={i} className="inline-flex items-center gap-1.5 px-4 text-[11px]">
+            <span className="text-lime-400 text-[10px]">🔔</span>
+            <span className="text-slate-400">
+              <span className="text-white font-bold">{item.user}</span>
+              {' '}closed{' '}
+              <span className="text-cyan-300 font-bold">{(item.symbol || '').replace('USDT', '/USDT')}</span>
+              {' '}for{' '}
+              <span className="text-lime-400 font-black">+${Number(item.pnl_usdt).toFixed(2)}</span>
+              {item.pnl_pct > 0 && (
+                <span className="text-lime-300/50 text-[10px]"> ({Number(item.pnl_pct).toFixed(1)}%)</span>
+              )}
+            </span>
+            <span className="text-white/10 px-3">·</span>
+          </span>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes ticker-h {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(calc(-100% / 3)); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function BotStartModal({ onStart, onCancel }) {  return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onCancel} />
