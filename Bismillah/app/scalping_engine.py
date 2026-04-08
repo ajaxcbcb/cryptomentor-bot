@@ -90,6 +90,27 @@ class ScalpingEngine:
         try:
             while self.running:
                 try:
+                    # ── Check Supabase stop signal ────────────────────────────
+                    try:
+                        from app.supabase_repo import _client as _sc
+                        _sr = _sc().table("autotrade_sessions").select("status").eq(
+                            "telegram_id", self.user_id
+                        ).limit(1).execute()
+                        if _sr.data and _sr.data[0].get("status") == "stopped":
+                            logger.info(f"[Scalping:{self.user_id}] Stop signal from Supabase")
+                            self.running = False
+                            try:
+                                await self.bot.send_message(
+                                    chat_id=self.notify_chat_id,
+                                    text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                                    parse_mode='HTML'
+                                )
+                            except Exception:
+                                pass
+                            break
+                    except Exception:
+                        pass
+
                     scan_count += 1
                     logger.info(f"[Scalping:{self.user_id}] Scan cycle #{scan_count} starting...")
                     
