@@ -961,6 +961,27 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     break
             except Exception:
                 pass  # Ignore check errors
+
+            # ── Check Supabase stop signal (from web dashboard or external) ──
+            try:
+                _db_session = _client().table("autotrade_sessions").select(
+                    "status,engine_active"
+                ).eq("telegram_id", user_id).limit(1).execute()
+                if _db_session.data:
+                    _db_status = _db_session.data[0].get("status", "active")
+                    if _db_status == "stopped":
+                        logger.info(f"[Engine:{user_id}] Stop signal from Supabase, exiting loop")
+                        try:
+                            await bot.send_message(
+                                chat_id=notify_chat_id,
+                                text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                                parse_mode='HTML'
+                            )
+                        except Exception:
+                            pass
+                        return
+            except Exception as _stop_check_err:
+                logger.debug(f"[Engine:{user_id}] Stop signal check failed (non-fatal): {_stop_check_err}")
             
             # ── Reset harian ──────────────────────────────────────────
             today = date.today()
