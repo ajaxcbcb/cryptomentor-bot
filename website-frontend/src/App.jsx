@@ -222,13 +222,17 @@ export default function App() {
             pair: p.symbol || p.pair || '—',
             side,
             entry: `$${Number(p.entryValue || p.avgOpenPrice || p.entry_price || 0).toLocaleString()}`,
-            current: `$${Number(p.markPrice || p.current_price || 0).toLocaleString()}`,
-            margin: `$${Number(p.margin || 0).toLocaleString()}`,
+            current: `$${Number(p.markPrice || p.mark_price || p.current_price || p.entry_price || 0).toLocaleString()}`,
+            margin: `$${Number(p.margin || p.initialMargin || 0).toLocaleString()}`,
             leverage: `${p.leverage || 0}x`,
             pnl: `${pnlNum >= 0 ? '+' : '-'}$${Math.abs(pnlNum).toFixed(2)}`,
             pnlPercent: '',
             isProfitable: pnlNum >= 0,
-            tp: { tp1: { price: '', hit: false }, tp2: { price: '', hit: false }, tp3: { price: '', hit: false } },
+            tp: {
+              tp1: { price: p.tp_price  ? `$${Number(p.tp_price).toLocaleString()}`  : (p.tp1_price ? `$${Number(p.tp1_price).toLocaleString()}` : ''), hit: !!p.tp1_hit },
+              tp2: { price: p.tp2_price ? `$${Number(p.tp2_price).toLocaleString()}` : '', hit: !!p.tp2_hit },
+              tp3: { price: p.tp3_price ? `$${Number(p.tp3_price).toLocaleString()}` : '', hit: !!p.tp3_hit },
+            },
           };
         });
         setRealPositions(positions);

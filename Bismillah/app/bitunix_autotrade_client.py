@@ -413,6 +413,10 @@ class BitunixAutoTradeClient:
                                 if price < entry_price and tp_price == 0: tp_price = price
                                 if price > entry_price and sl_price == 0: sl_price = price
 
+                lev = float(pos.get('leverage') or 1) or 1
+                margin = float(pos.get('isolationMargin') or pos.get('positionMargin') or 0)
+                if margin == 0 and entry_price > 0:
+                    margin = round((entry_price * qty) / lev, 4)
                 positions.append({
                     'symbol': pos.get('symbol'),
                     # Bitunix returns LONG / SHORT (not BUY / SELL)
@@ -423,8 +427,9 @@ class BitunixAutoTradeClient:
                     'position_id': pos.get('positionId'),
                     'entry_price': entry_price,
                     'mark_price': float(pos.get('markPrice') or pos.get('avgOpenPrice') or entry_price),
+                    'margin': margin,
                     'pnl': float(pos.get('unrealizedPNL', 0)),
-                    'leverage': pos.get('leverage'),
+                    'leverage': lev,
                     'margin_mode': pos.get('marginMode'),
                     'tp_price': tp_price,
                     'sl_price': sl_price,
