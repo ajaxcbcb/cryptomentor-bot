@@ -42,7 +42,7 @@ class RateLimiter:
             self.history[proxy_ip].append(now)
 
 # Global rate limiter ensuring 10 requests per 1.0s per proxy/IP
-_bitunix_rate_limiter = RateLimiter(limit=10, period=1.0) if 'RateLimiter' in locals() else RateLimiter(10, 1.0)
+_bitunix_rate_limiter = RateLimiter(10, 1.0)
 # (Fixing initializer below)
 _bitunix_rate_limiter = RateLimiter(10, 1.0)
 
