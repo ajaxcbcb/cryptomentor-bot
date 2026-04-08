@@ -7,6 +7,7 @@ import {
   Menu, X, Crosshair, ArrowUpRight, ArrowDownRight,
   PlayCircle, BookOpen, Lock, Clock
 } from 'lucide-react';
+import { AreaChart, Area, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
 const INITIAL_POSITIONS = [
   { id: 1, pair: "BTC/USDT", side: "LONG", entry: "$64,230.50", current: "$65,100.00", margin: "$1,000", leverage: "10x", pnl: "+$124.50", pnlPercent: "+12.45%", isProfitable: true, tp: { tp1: { price: "$64,800", hit: true }, tp2: { price: "$65,500", hit: false }, tp3: { price: "$66,000", hit: false } } },
@@ -15,6 +16,35 @@ const INITIAL_POSITIONS = [
 ];
 
 const PERFORMANCE_METRICS = { sharpeRatio: "2.14", maxDrawdown: "-12.4%", winRate: "68.5%", totalTrades: "1,248", projected1Yr: "$24,500.00", monthlyVolatility: "4.2%" };
+
+const HISTORICAL_DATA = [
+  { date: "Jan 1", equity: 10000, sharpe: "0.00", maxDd: "0.0%", winRate: "0.0%", trades: 0, volatility: "0.0%" },
+  { date: "Jan 15", equity: 10250, sharpe: "1.20", maxDd: "-1.5%", winRate: "55.0%", trades: 45, volatility: "1.8%" },
+  { date: "Feb 1", equity: 10800, sharpe: "1.85", maxDd: "-2.1%", winRate: "62.5%", trades: 120, volatility: "2.4%" },
+  { date: "Feb 15", equity: 10450, sharpe: "1.45", maxDd: "-5.8%", winRate: "58.2%", trades: 215, volatility: "3.5%" },
+  { date: "Mar 1", equity: 11200, sharpe: "1.95", maxDd: "-5.8%", winRate: "64.1%", trades: 380, volatility: "3.2%" },
+  { date: "Mar 15", equity: 11950, sharpe: "2.10", maxDd: "-6.2%", winRate: "66.8%", trades: 520, volatility: "3.8%" },
+  { date: "Apr 1", equity: 11600, sharpe: "1.85", maxDd: "-8.5%", winRate: "63.5%", trades: 690, volatility: "4.5%" },
+  { date: "Apr 15", equity: 12800, sharpe: "2.25", maxDd: "-8.5%", winRate: "67.2%", trades: 840, volatility: "4.1%" },
+  { date: "May 1", equity: 13500, sharpe: "2.40", maxDd: "-8.5%", winRate: "69.5%", trades: 980, volatility: "3.9%" },
+  { date: "May 15", equity: 13150, sharpe: "2.15", maxDd: "-11.2%", winRate: "66.4%", trades: 1120, volatility: "4.6%" },
+  { date: "Jun 1", equity: 14600, sharpe: "2.35", maxDd: "-11.2%", winRate: "68.1%", trades: 1210, volatility: "4.3%" },
+  { date: "Jun 15", equity: 15850, sharpe: "2.14", maxDd: "-12.4%", winRate: "68.5%", trades: 1248, volatility: "4.2%" }
+];
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-[#0a0a0a]/90 backdrop-blur-md border border-cyan-500/30 p-3 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+        <p className="text-slate-400 text-[10px] font-bold mb-1 uppercase tracking-wider">{label}</p>
+        <p className="text-cyan-400 font-black text-lg flex items-center gap-1.5">
+          ${payload[0].value.toLocaleString()}
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
 const MOCK_SIGNALS = [
   { id: 1, pair: "BTC/USDT", type: "Scalp", direction: "LONG", entry: "64,200 - 64,500", targets: ["64,800", "65,500", "66,000"], stopLoss: "63,800", status: "Active", time: "10m ago", premium: false, confidence: 92 },
@@ -73,9 +103,11 @@ export default function App() {
               stackMentorActive: dashboard.engine.stackmentor_active,
               riskMode: dashboard.engine.risk_mode || 'moderate',
               isActive: dashboard.engine.is_active,
+              current_balance: dashboard.engine.current_balance,
+              total_profit: dashboard.engine.total_profit,
             });
             setRealPositions(dashboard.portfolio.positions || []);
-            setRealPnl(dashboard.portfolio.pnl_30d || 0);
+            setRealPnl(dashboard.engine.total_profit || dashboard.portfolio.pnl_30d || 0);
             setIsLoggedIn(true);
           });
       })
@@ -202,6 +234,10 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
     ? (pnl30d >= 0 ? `+$${pnl30d.toFixed(2)}` : `-$${Math.abs(pnl30d).toFixed(2)}`)
     : '+$1,450.20';
   const pnlPct = hasRealData ? '' : '+13.2%';
+  const balanceDisplay = hasRealData && engineState.current_balance !== undefined 
+    ? `$${engineState.current_balance.toFixed(2)}` 
+    : '$12,450.00';
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
@@ -212,8 +248,8 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
         </div>
       </header>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="Total Balance" value="$12,450.00" icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
-        <StatCard title="Total PnL (30d)" value={pnlDisplay} subtext={pnlPct} isPositive={pnl30d >= 0} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
+        <StatCard title="Total Balance" value={balanceDisplay} icon={<Wallet className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
+        <StatCard title="Total PnL" value={pnlDisplay} subtext={pnlPct} isPositive={pnl30d >= 0} icon={<TrendingUp className="text-lime-400 w-6 h-6" />} glowColor="lime" />
         <StatCard title="Open Positions" value={positions.length.toString()} icon={<Target className="text-fuchsia-400 w-6 h-6" />} glowColor="fuchsia" />
       </div>
       <div className="pt-6">
@@ -221,9 +257,18 @@ function PortfolioTab({ positions, engineState, pnl30d, hasRealData }) {
           <h3 className="text-xl md:text-2xl font-black text-white tracking-tight flex items-center gap-3">Current Opened Positions <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white/60 text-xs font-bold">{positions.length}</span></h3>
           {engineState.stackMentorActive && <div className="w-fit flex items-center gap-2 text-xs font-bold text-fuchsia-400 bg-fuchsia-500/10 px-3 py-1.5 rounded-lg border border-fuchsia-500/20"><Layers size={14} /> STACKMENTOR TRACKING</div>}
         </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
-          {positions.map(pos => <PositionCard key={pos.id} position={pos} stackMentorActive={engineState.stackMentorActive} />)}
-        </div>
+        
+        {positions.length > 0 ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
+            {positions.map(pos => <PositionCard key={pos.id} position={pos} stackMentorActive={engineState.stackMentorActive} />)}
+          </div>
+        ) : (
+          <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-10 flex flex-col items-center justify-center text-center opacity-80 mt-4">
+            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10"><Target className="text-slate-500 w-8 h-8" /></div>
+            <h4 className="text-white font-black text-xl mb-2">No Open Positions</h4>
+            <p className="text-slate-400 font-medium text-sm">No active trades on Bitunix right now. AutoTrade engine is scanning.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -275,29 +320,63 @@ function EngineTab({ engineState, setEngineState }) {
 }
 
 function PerformanceTab() {
+  const [activeMetrics, setActiveMetrics] = useState({
+    sharpe: PERFORMANCE_METRICS.sharpeRatio,
+    maxDd: PERFORMANCE_METRICS.maxDrawdown,
+    winRate: PERFORMANCE_METRICS.winRate,
+    trades: PERFORMANCE_METRICS.totalTrades,
+    volatility: PERFORMANCE_METRICS.monthlyVolatility
+  });
+
+  const handleMouseMove = (data) => {
+    if (data && data.activePayload) {
+      const payload = data.activePayload[0].payload;
+      setActiveMetrics({
+        sharpe: payload.sharpe,
+        maxDd: payload.maxDd,
+        winRate: payload.winRate,
+        trades: payload.trades.toLocaleString(),
+        volatility: payload.volatility
+      });
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setActiveMetrics({
+      sharpe: PERFORMANCE_METRICS.sharpeRatio,
+      maxDd: PERFORMANCE_METRICS.maxDrawdown,
+      winRate: PERFORMANCE_METRICS.winRate,
+      trades: PERFORMANCE_METRICS.totalTrades,
+      volatility: PERFORMANCE_METRICS.monthlyVolatility
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12"><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">PnL Performance</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Advanced metrics and historical analytics.</p></header>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6">
-        <MiniStat title="Sharpe" value={PERFORMANCE_METRICS.sharpeRatio} subtitle="Risk-Adjusted Return" highlight="text-cyan-400" glow="cyan" />
-        <MiniStat title="Max DD" value={PERFORMANCE_METRICS.maxDrawdown} subtitle="Historical Peak-to-Trough" highlight="text-rose-400" glow="rose" />
-        <MiniStat title="Win Rate" value={PERFORMANCE_METRICS.winRate} subtitle={`${PERFORMANCE_METRICS.totalTrades} Trades`} highlight="text-lime-400" glow="lime" />
-        <MiniStat title="Volatility" value={PERFORMANCE_METRICS.monthlyVolatility} subtitle="Average fluctuation" highlight="text-fuchsia-400" glow="fuchsia" />
+        <MiniStat title="Sharpe" value={activeMetrics.sharpe} subtitle="Risk-Adjusted Return" highlight="text-cyan-400" glow="cyan" />
+        <MiniStat title="Max DD" value={activeMetrics.maxDd} subtitle="Historical Peak-to-Trough" highlight="text-rose-400" glow="rose" />
+        <MiniStat title="Win Rate" value={activeMetrics.winRate} subtitle={`${activeMetrics.trades} Trades`} highlight="text-lime-400" glow="lime" />
+        <MiniStat title="Volatility" value={activeMetrics.volatility} subtitle="Average fluctuation" highlight="text-fuchsia-400" glow="fuchsia" />
       </div>
-      <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/5 rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 relative overflow-hidden flex flex-col min-h-[300px] md:min-h-[450px] group">
+      <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/5 rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 relative overflow-hidden flex flex-col h-[350px] md:h-[500px] group">
         <div className="absolute top-0 right-0 w-[80%] h-[80%] bg-cyan-500/10 blur-[80px] rounded-full pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity duration-700" />
-        <h3 className="text-sm md:text-xl font-bold text-white flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/5 w-fit z-10 mb-6"><LineChart className="text-cyan-400 w-4 h-4" /> Cumulative Equity</h3>
-        <div className="flex-1 relative z-10 w-full h-full">
-          <svg viewBox="0 0 1000 300" className="w-full h-full drop-shadow-[0_0_20px_rgba(6,182,212,0.3)]" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(6,182,212,0.4)" /><stop offset="100%" stopColor="rgba(6,182,212,0.0)" /></linearGradient>
-              <filter id="glow"><feGaussianBlur stdDeviation="4" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            </defs>
-            <path d="M0,300 L0,220 Q100,240 200,160 T400,110 T600,190 T800,70 T1000,40 L1000,300 Z" fill="url(#chart-grad)" />
-            <path d="M0,220 Q100,240 200,160 T400,110 T600,190 T800,70 T1000,40" fill="none" stroke="#06b6d4" strokeWidth="4" filter="url(#glow)" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="1000" cy="40" r="6" fill="#fff" className="animate-pulse" />
-            <circle cx="1000" cy="40" r="14" fill="none" stroke="#06b6d4" strokeWidth="2" className="animate-ping opacity-50" />
-          </svg>
+        <h3 className="text-sm md:text-xl font-bold text-white flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/5 w-fit z-10 mb-6 shrink-0"><LineChart className="text-cyan-400 w-4 h-4" /> Cumulative Equity</h3>
+        <div className="flex-1 relative z-10 w-full h-full min-h-[200px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={HISTORICAL_DATA} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+                </linearGradient>
+                <filter id="glowChart"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              </defs>
+              <RechartsTooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+              <Area type="monotone" dataKey="equity" stroke="#06b6d4" strokeWidth={3} fillOpacity={1} fill="url(#colorEquity)" activeDot={{ r: 6, fill: '#fff', stroke: '#06b6d4', strokeWidth: 2, className: 'animate-pulse' }} filter="url(#glowChart)" />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>
@@ -305,6 +384,94 @@ function PerformanceTab() {
 }
 
 function SettingsTab() {
+  const [status, setStatus] = useState('disconnected');
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/bitunix/status', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('cm_token')}` }
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.linked && d.online) setStatus('synced');
+        else if (d.linked && !d.online) setStatus('error');
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleConnect = () => {
+    setIsConfiguring(true);
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const resp = await fetch('/api/bitunix/keys', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cm_token')}`
+        },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'Failed to connect. Make sure your keys only have Trade permission.');
+      
+      setStatus('synced');
+      setIsConfiguring(false);
+      setApiKey('');
+      setApiSecret('');
+    } catch (e) {
+      setErrorMsg(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const resp = await fetch('/api/bitunix/keys/test', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cm_token')}`
+        },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.message || data.detail || 'Test failed.');
+      
+      alert('✅ Connection successful! Keys are valid.');
+    } catch (e) {
+      setErrorMsg(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Are you sure you want to decouple this API Bridge? AutoTrade will halt.')) return;
+    setLoading(true);
+    try {
+      await fetch('/api/bitunix/keys', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cm_token')}` }
+      });
+      setStatus('disconnected');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12"><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">API Bridges</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Securely link your liquidity providers to CryptoMentor AI.</p></header>
@@ -314,9 +481,70 @@ function SettingsTab() {
           <div className="p-2 bg-orange-500/20 rounded-xl shrink-0 border border-orange-500/30 w-fit"><Shield className="text-orange-400 w-6 h-6" /></div>
           <div><h4 className="text-orange-400 font-bold text-xs tracking-wider uppercase mb-1">Security Protocol</h4><p className="text-orange-200/80 font-medium leading-relaxed text-xs">Ensure your API keys have <strong className="text-white">Withdrawals DISABLED</strong>. The AI engine only requires execution and read privileges.</p></div>
         </div>
-        <div className="space-y-3 relative z-10 mt-6">
-          <BridgeCard name="Bitunix" status="synced" logo="U" colors="from-blue-500 to-indigo-600" />
-        </div>
+        
+        {isConfiguring ? (
+          <div className="p-5 md:p-8 bg-white/5 border border-white/10 rounded-2xl relative z-10 animate-in fade-in">
+            <h3 className="text-white font-black text-lg mb-4">Configure Bitunix Network</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">API Key</label>
+                <input 
+                  type="text" 
+                  value={apiKey} 
+                  onChange={e => setApiKey(e.target.value)} 
+                  className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm" 
+                  placeholder="Paste your API Key" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">API Secret</label>
+                <input 
+                  type="password" 
+                  value={apiSecret} 
+                  onChange={e => setApiSecret(e.target.value)} 
+                  className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono text-sm" 
+                  placeholder="Paste your API Secret" 
+                />
+              </div>
+              {errorMsg && <p className="text-rose-400 text-xs font-bold bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">{errorMsg}</p>}
+              <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                <button 
+                  onClick={handleTest} 
+                  disabled={loading || !apiKey || !apiSecret}
+                  className="flex-1 font-bold px-6 py-3 border rounded-xl transition-all text-sm text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Testing...' : 'Test Connection'}
+                </button>
+                <button 
+                  onClick={handleSave} 
+                  disabled={loading || !apiKey || !apiSecret}
+                  className="flex-1 font-bold px-6 py-3 border rounded-xl transition-all text-sm text-cyan-400 border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? '...' : 'Save Connectivity'}
+                </button>
+                <button 
+                  onClick={() => setIsConfiguring(false)} 
+                  disabled={loading}
+                  className="w-full sm:w-auto font-bold px-6 py-3 border rounded-xl transition-all text-sm text-white border-white/10 bg-white/5 hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 relative z-10 mt-6">
+            <BridgeCard 
+              name="Bitunix" 
+              status={status} 
+              logo="U" 
+              colors="from-blue-500 to-indigo-600" 
+              onConnect={handleConnect}
+              onDisconnect={handleDisconnect}
+              loading={loading}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -448,7 +676,7 @@ function TPBadge({ label, price, hit }) {
   );
 }
 
-function BridgeCard({ name, status, logo, colors }) {
+function BridgeCard({ name, status, logo, colors, onConnect, onDisconnect, loading }) {
   const isSynced = status === 'synced';
   return (
     <div className="border border-white/10 rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/[0.02] hover:bg-white/[0.04] transition-all hover:border-white/20 group">
@@ -459,7 +687,24 @@ function BridgeCard({ name, status, logo, colors }) {
           {isSynced ? <div className="flex items-center gap-1.5 bg-lime-500/10 border border-lime-500/20 px-2.5 py-1 rounded-lg w-fit"><CheckCircle2 size={12} className="text-lime-400"/><span className="text-[10px] text-lime-400 font-bold uppercase tracking-wider">Node Synced</span></div> : <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-lg w-fit"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Disconnected</span></div>}
         </div>
       </div>
-      <button className={`w-full sm:w-auto font-bold px-6 py-3 border rounded-xl transition-all text-sm ${isSynced ? 'text-white border-white/10 bg-white/5 hover:bg-white/10' : 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20'}`}>{isSynced ? 'Configure' : 'Connect'}</button>
+      <div className="flex gap-2 w-full sm:w-auto">
+        <button 
+          onClick={onConnect} 
+          disabled={loading}
+          className={`flex-1 sm:flex-none font-bold px-6 py-3 border rounded-xl transition-all text-sm ${isSynced ? 'text-white border-white/10 bg-white/5 hover:bg-white/10' : 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20'}`}
+        >
+          {isSynced ? 'Configure' : 'Connect'}
+        </button>
+        {isSynced && (
+          <button 
+            onClick={onDisconnect} 
+            disabled={loading}
+            className="font-bold px-4 py-3 border rounded-xl transition-all text-sm text-rose-400 border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

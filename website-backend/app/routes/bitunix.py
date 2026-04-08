@@ -7,12 +7,22 @@ the website are in sync with what the user sees in Telegram.
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 
 from app.auth.jwt import decode_token
 from app.services import bitunix as bsvc
 
 router = APIRouter(prefix="/bitunix", tags=["bitunix"])
 bearer = HTTPBearer()
+
+class TPSLUpdate(BaseModel):
+    symbol: str
+    tp_price: float = 0.0
+    sl_price: float = 0.0
+
+class ApiKeysInput(BaseModel):
+    api_key: str
+    api_secret: str
 
 
 def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> int:
@@ -150,3 +160,98 @@ async def bitunix_portfolio(tg_id: int = Depends(get_current_user)):
         "open_positions": len(positions),
         "unrealized_pnl": round(sum(float(p.get("pnl") or 0) for p in positions), 4),
     }
+
+
+# ------------------------------------------------------------- update tpsl -- #
+
+@router.post("/positions/tpsl")
+async def bitunix_update_tpsl(
+    req: TPSLUpdate,
+    tg_id: int = Depends(get_current_user),
+):
+    """
+    Update Take Profit and/or Stop Loss for an open position.
+    Mirrors the self-healing and modification functions from the Telegram bot.
+    """
+    _require_keys(tg_id)
+    try:
+        # If both are provided or just TP is provided, we can use set_position_tpsl
+        # If ONLY SL is provided, we use set_position_sl. Or we can just use set_position_tpsl always
+        # since it correctly mirrors both.
+        if req.tp_price > 0 or (req.tp_price == 0 and req.sl_price > 0):
+            res = await bsvc.set_position_tpsl(tg_id, req.symbol, req.tp_price, req.sl_price)
+        else:
+            # If everything is 0, we can still submit to clear them
+            res = await bsvc.set_position_tpsl(tg_id, req.symbol, req.tp_price, req.sl_price)
+            
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Bitunix error: {e}")
+        
+    if not res.get("success"):
+        raise HTTPException(status_code=502, detail=res.get("error") or res.get("message") or "Bitunix TP/SL update failed")
+        
+    return res
+
+
+# ----------------------------------------------------------------- keys ---- #
+
+@router.post("/keys")
+async def bitunix_save_keys(
+    keys: ApiKeysInput,
+    tg_id: int = Depends(get_current_user),
+):
+    """
+    Test and save Bitunix API Keys for the user.
+    """
+    from app.bitunix_autotrade_client import BitunixAutoTradeClient
+    
+    # 1. Test connection first
+    client = BitunixAutoTradeClient(api_key=keys.api_key, api_secret=keys.api_secret)
+    conn = client.check_connection()
+    if not conn.get("online"):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Connection failed: {conn.get('error', 'Invalid API Keys')}"
+        )
+        
+    # 2. Connection passed, encrypt and save
+    try:
+        bsvc.save_user_api_keys(tg_id, keys.api_key, keys.api_secret)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save keys securely: {e}")
+        
+    return {"success": True, "message": "API Keys securely linked."}
+
+@router.post("/keys/test")
+async def bitunix_test_keys(
+    keys: ApiKeysInput,
+    tg_id: int = Depends(get_current_user),
+):
+    """
+    Dry-run test for Bitunix API Keys without saving them.
+    """
+    from app.bitunix_autotrade_client import BitunixAutoTradeClient
+    
+    client = BitunixAutoTradeClient(api_key=keys.api_key, api_secret=keys.api_secret)
+    conn = client.check_connection()
+    
+    if not conn.get("online"):
+        return {
+            "success": False, 
+            "message": f"Connection failed: {conn.get('error', 'Invalid API Keys')}"
+        }
+    return {"success": True, "message": "Connection successful! Keys are valid."}
+
+@router.delete("/keys")
+async def bitunix_delete_keys(
+    tg_id: int = Depends(get_current_user),
+):
+    """
+    Delete Bitunix API Keys for the user.
+    """
+    try:
+        bsvc.delete_user_api_keys(tg_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete keys: {e}")
+        
+    return {"success": True, "message": "API Keys removed."}

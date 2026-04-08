@@ -25,7 +25,8 @@ if _BISMILLAH_PATH not in sys.path:
     sys.path.insert(0, _BISMILLAH_PATH)
 
 from app.bitunix_autotrade_client import BitunixAutoTradeClient  # type: ignore
-from app.lib.crypto import decrypt  # type: ignore
+from app.lib.crypto import decrypt, encrypt  # type: ignore
+from datetime import datetime
 
 
 # ---------------------------------------------------------------- keys ---- #
@@ -54,6 +55,24 @@ def get_user_api_keys(telegram_id: int) -> Optional[Dict[str, str]]:
         "exchange": row.get("exchange", "bitunix"),
         "key_hint": row.get("key_hint") or row["api_key"][-4:],
     }
+
+
+def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str, exchange: str = "bitunix"):
+    s = _client()
+    row = {
+        "telegram_id": int(telegram_id),
+        "exchange": exchange,
+        "api_key": api_key,
+        "api_secret_enc": encrypt(api_secret),
+        "key_hint": api_key[-4:],
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    s.table("user_api_keys").upsert(row, on_conflict="telegram_id,exchange").execute()
+
+
+def delete_user_api_keys(telegram_id: int, exchange: str = "bitunix"):
+    s = _client()
+    s.table("user_api_keys").delete().eq("telegram_id", int(telegram_id)).eq("exchange", exchange).execute()
 
 
 def _client_for(telegram_id: int) -> BitunixAutoTradeClient:
@@ -89,3 +108,13 @@ async def fetch_trade_history(telegram_id: int, symbol: str = None) -> Dict[str,
 async def fetch_connection(telegram_id: int) -> Dict[str, Any]:
     client = _client_for(telegram_id)
     return await asyncio.to_thread(client.check_connection)
+
+
+async def set_position_tpsl(telegram_id: int, symbol: str, tp_price: float, sl_price: float) -> Dict[str, Any]:
+    client = _client_for(telegram_id)
+    return await asyncio.to_thread(client.set_position_tpsl, symbol, tp_price, sl_price)
+
+
+async def set_position_sl(telegram_id: int, symbol: str, sl_price: float) -> Dict[str, Any]:
+    client = _client_for(telegram_id)
+    return await asyncio.to_thread(client.set_position_sl, symbol, sl_price)

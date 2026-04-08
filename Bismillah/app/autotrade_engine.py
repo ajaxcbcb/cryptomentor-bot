@@ -33,7 +33,7 @@ _tp1_hit_positions: Dict[int, set] = {}
 #  Engine config (professional defaults)
 # ─────────────────────────────────────────────
 ENGINE_CONFIG = {
-    "symbols":            ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "DOT", "MATIC", "LINK", "UNI", "ATOM"],  # 13 pairs sama seperti scalping
+    "symbols":            ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "DOT", "MATIC", "LINK", "UNI", "ATOM", "XAU", "CL", "QQQ"],  # 16 pairs
     "scan_interval":      45,       # detik antar scan
     "min_confidence":     68,       # hanya sinyal berkualitas tinggi
     "max_trades_per_day": 999,       # unlimited — push trading volume

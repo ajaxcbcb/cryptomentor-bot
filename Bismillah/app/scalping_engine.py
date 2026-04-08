@@ -816,7 +816,7 @@ class ScalpingEngine:
                     "BNBUSDT": 0.01,  "XRPUSDT": 1.0,  "DOGEUSDT": 10.0,
                     "ADAUSDT": 1.0,   "AVAXUSDT": 0.1, "DOTUSDT": 0.1,
                     "MATICUSDT": 1.0, "LINKUSDT": 0.1, "UNIUSDT": 0.1,
-                    "ATOMUSDT": 0.1,
+                    "ATOMUSDT": 0.1,  "XAUUSDT": 0.01, "CLUSDT": 0.01, "QQQUSDT": 0.1
                 }
                 min_qty = MIN_QTY_MAP.get(signal.symbol, 0.001)
                 effective_leverage = leverage

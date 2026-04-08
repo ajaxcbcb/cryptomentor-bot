@@ -2644,7 +2644,7 @@ async def _apply_new_leverage(msg_or_query, user_id: int, leverage: int,
     if keys:
         try:
             client = BitunixAutoTradeClient(api_key=keys['api_key'], api_secret=keys['api_secret'])
-            symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT"]
+            symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT", "UNIUSDT", "ATOMUSDT", "XAUUSDT", "CLUSDT", "QQQUSDT"]
             margin_mode = session.get("margin_mode", "cross") if session else "cross"
             results = []
             for sym in symbols:
@@ -2747,7 +2747,7 @@ async def callback_margin_select(update: Update, context: ContextTypes.DEFAULT_T
             import asyncio
             from app.bitunix_autotrade_client import BitunixAutoTradeClient
             client  = BitunixAutoTradeClient(api_key=keys['api_key'], api_secret=keys['api_secret'])
-            symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT"]
+            symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT", "UNIUSDT", "ATOMUSDT", "XAUUSDT", "CLUSDT", "QQQUSDT"]
             results = []
             for sym in symbols:
                 r = await asyncio.to_thread(client.set_leverage, sym, leverage, mode)

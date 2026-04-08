@@ -1,7 +1,7 @@
 # CryptoMentor AutoTrade System - Current Status
 
-**Date:** April 7, 2026
-**Status:** ✅ ALL SYSTEMS OPERATIONAL
+**Date:** April 8, 2026
+**Status:** ✅ ALL SYSTEMS OPERATIONAL AND WEB SYNCED
 
 ---
 
@@ -64,6 +64,30 @@
   - **User notifications:** Alerts sent for all safety events
 - **File:** `Bismillah/app/scalping_engine.py`
 - **Result:** Users protected from large losses due to improper risk management
+
+### 6. ✅ Web App Integration (API Bridges)
+- **Status:** Deployed Frontend & Backend
+- **Features:** 
+  - Dynamic React-based native editing UI for Bitunix API tokens.
+  - Native fallback connections testing (`POST /api/bitunix/keys/test`).
+  - Strict synchronization between Telegram logic & the Web Dashboard rendering.
+- **Files:** `website-frontend/src/App.jsx`, `website-backend/app/routes/bitunix.py`
+
+### 7. ✅ Web App AutoTrade Real-Time Sync
+- **Status:** Deployed
+- **Features:** 
+  - Portfolio Dashboard natively leverages Live Bot metrics instead of mockups.
+  - `Total PNL` strictly evaluates to `dashboard.engine.total_profit` mimicking the native Telegram dashboard.
+  - Native graceful parsing (`No Open Positions`) applied to offline / empty portfolios.
+- **Files:** `website-frontend/src/App.jsx`
+
+### 8. ✅ Bitunix AutoTrade Client Self-Healing Overhaul
+- **Status:** Deployed (Core System)
+- **Features:**
+  - Complete endpoint upgrade to `modify_order` bypassing the deprecation errors.
+  - Payload optimizations accurately retaining both TP and SL metrics dynamically.
+  - Strict empty string allocation (`""`) for unmodified bounds.
+- **Files:** `Bismillah/app/bitunix_autotrade_client.py`
 
 ---
 
@@ -244,6 +268,6 @@ ADX 18.5 < 25 (weak trend) | BB Width 0.025 (low volatility) | ATR 0.65% (low vo
 
 ---
 
-**System Status:** ✅ FULLY OPERATIONAL
-**Last Updated:** April 7, 2026
-**Next Review:** Monitor user feedback and trading performance
+**System Status:** ✅ FULLY OPERATIONAL (WEB + TELEGRAM SYNCED)
+**Last Updated:** April 8, 2026
+**Next Review:** Monitor web user engagement and Bitunix trading performance
