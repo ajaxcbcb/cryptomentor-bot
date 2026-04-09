@@ -243,20 +243,25 @@ def start_scheduler(application):
 
             for session in sessions:
                 user_id = session.get("telegram_id")
+                logger.info(f"[AutoRestore] >> Processing tg_id={user_id} status={session.get('status')}")
                 if not user_id:
                     logger.warning(f"[AutoRestore] Session missing telegram_id, skipping")
                     continue
                 
-                # Skip dummy/test users
-                if user_id >= 999999990:
-                    logger.debug(f"[AutoRestore] Skipping dummy user {user_id}")
+                # Skip dummy/test users (only IDs exactly matching test patterns)
+                if user_id in (999999999, 999999998, 999999997, 500000025, 500000026):
+                    logger.info(f"[AutoRestore] Skipping dummy/test user {user_id}")
                     continue
                 
                 # Check if already running
-                if is_running(user_id):
+                running = is_running(user_id)
+                logger.info(f"[AutoRestore] User {user_id} - is_running={running}")
+                if running:
                     logger.info(f"[AutoRestore] User {user_id} - Engine already running, skip")
                     skipped += 1
                     continue
+
+                logger.info(f"[AutoRestore] User {user_id} - Not running, proceeding to restore (status={session.get('status')})")
 
                 # Get API keys
                 keys = get_user_api_keys(user_id)
@@ -483,8 +488,8 @@ async def _engine_health_check_task(application):
                 if not user_id:
                     continue
                 
-                # Skip dummy/test users (IDs like 999999999)
-                if user_id >= 999999990:
+                # Skip dummy/test users (only IDs exactly matching test patterns)
+                if user_id in (999999999, 999999998, 999999997, 500000025, 500000026):
                     continue
                 
                 # Check if engine is running

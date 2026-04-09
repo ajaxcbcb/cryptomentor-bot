@@ -16,7 +16,7 @@ class BounceResult:
 
 
 class BounceDetector:
-    PROXIMITY_PCT = 0.002  # 0.2% proximity threshold
+    PROXIMITY_PCT = 0.004  # 0.4% proximity threshold (relaxed from 0.2% for tight sideways market)
 
     def detect(
         self,
