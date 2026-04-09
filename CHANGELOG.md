@@ -8,6 +8,7 @@ All notable changes to the CryptoMentor Artificial Intelligence Trading project 
 - 🔥 **Engine Start/Stop API** (`website-backend/app/routes/engine.py`): New `POST /engine/start` and `POST /engine/stop` endpoints wire the web dashboard directly into the same `autotrade_engine` that the Telegram bot runs. Starting the engine from the web now has identical effect to the Telegram `/start_autotrade` command.
 - 🔥 **Real JWT Authentication**: Replaced dev-only auth bypass with full `HTTPBearer` token validation across all engine and portfolio routes. Every protected endpoint now decodes the Telegram-issued JWT before executing.
 - 🔥 **Live Unrealized PnL on Portfolio Page**: Portfolio tab now surfaces real-time unrealized PnL pulled directly from Bitunix live positions, not just the closed-trade total in Supabase.
+- 🚀 **Critical Fix: Bitunix API Authentication** (`bitunix_autotrade_client.py`): Resolved a critical "not authenticated" error that broke all Bitunix connections. Switched from the legacy double-SHA256 signature scheme to the now-required **HMAC-SHA256** standard.
 - 🛠️ **Fixed: "Start Bot" Button Error (`No module named 'app.autotrade_engine'`)**: Resolved a Python `sys.path` namespace collision where the web backend's own `app/` package shadowed Bismillah's. Fixed by:
   - Forcing `Bismillah/` to `sys.path[0]` to guarantee import priority.
   - Loading `autotrade_engine` via `importlib.util.spec_from_file_location` under the alias `bismillah.autotrade_engine`, bypassing the namespace conflict entirely.

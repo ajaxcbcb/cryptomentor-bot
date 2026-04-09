@@ -1,7 +1,7 @@
 """
 Bitunix Auto Trade Client
 Real trading client for Bitunix exchange integration
-Signature: double SHA256 (not HMAC)
+Signature: HMAC-SHA256 (latest update)
 """
 
 import hashlib
@@ -11,6 +11,7 @@ import requests
 import os
 import threading
 from collections import deque
+import hmac
 from typing import Dict, Optional, List
 from datetime import datetime
 
@@ -94,13 +95,16 @@ class BitunixAutoTradeClient:
     def _make_sign(self, nonce: str, timestamp: str,
                    query_params: str = "", body: str = "") -> str:
         """
-        Bitunix double-SHA256:
-          digest = SHA256(nonce + timestamp + api_key + queryParams + body)
-          sign   = SHA256(digest + secretKey)
-        queryParams: all GET params sorted ascending by key, concatenated as key+value (no & or =)
+        Bitunix HMAC-SHA256:
+          payload = nonce + timestamp + api_key + query_params + body
+          sign    = HMAC_SHA256(secretKey, payload)
         """
-        digest = self._sha256(nonce + timestamp + self.api_key + query_params + body)
-        return self._sha256(digest + self.api_secret)
+        payload = nonce + timestamp + self.api_key + query_params + body
+        return hmac.new(
+            self.api_secret.encode('utf-8'),
+            payload.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
 
     def _build_query_string(self, params: Dict) -> str:
         """Sort params by key ascending, concat as key+value (Bitunix format)."""
