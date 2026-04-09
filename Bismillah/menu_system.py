@@ -22,6 +22,9 @@ SKILLS_EDUCATION = "skills_education"      # Education content
 # Secondary/Legacy (kept for backward compatibility)
 PRICE_MARKET = "price_market"
 TRADING_ANALYSIS = "trading_analysis"
+FUTURES_SIGNALS = "futures_signals"       # legacy — replaced by autotrade
+PORTFOLIO_CREDITS = "portfolio_credits"   # legacy alias
+AI_AGENT_MENU = "ai_agent_menu"
 PREMIUM_REFERRAL = "premium_referral"
 ASK_AI_MENU = "ask_ai_menu"
 SETTINGS_MENU = "settings_menu"
