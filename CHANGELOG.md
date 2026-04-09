@@ -4,6 +4,39 @@ All notable changes to the CryptoMentor Artificial Intelligence Trading project 
 
 ## [Unreleased / Latest] - 2026-04-10
 
+### 🌍 Telegram Bot Localization — English Translation for Onboarding Flow
+**Improvement**: Translated Telegram bot welcome screen and onboarding messages from Indonesian to English for international users.
+
+**Changes**:
+- 🔥 **Onboarding Welcome Screen** (`Bismillah/app/ui_components.py`):
+  - Translated: "Setup dalam 4 langkah mudah" → "Setup in 4 easy steps"
+  - Translated: "Pilih Exchange, Connect API Key, Setup Risk Management, Start Trading" steps to English
+  - Translated: "Estimasi waktu: 5 menit" → "Estimated time: 5 minutes"
+  - Translated: "Mari kita mulai!" → "Let's get started!"
+
+- 🔥 **Exchange Selection Screen** (`Bismillah/app/handlers_autotrade.py`):
+  - Translated: "Auto Trade — Pilih Exchange" → "Auto Trade — Select Exchange"
+  - Translated: "Kami support beberapa exchange terpercaya" → "We support several trusted exchanges"
+  - Translated: "Pilih exchange yang ingin kamu gunakan" → "Select the exchange you want to use"
+
+- 🔥 **UID Verification Flow**:
+  - Translated: "UID Kamu Sudah Diverifikasi!" → "Your UID Has Been Verified!"
+  - Translated: "Akun Bitunix kamu sudah terkonfirmasi" → "Your Bitunix account has been confirmed"
+  - Translated: "UID sedang diverifikasi" → "UID is being verified"
+  - Translated: "Ketua komunitas akan memverifikasi" → "The community leader will verify your UID"
+  - Translated: "Kamu akan mendapat notifikasi setelah disetujui" → "You will receive a notification after approval"
+
+- 🔥 **Help Menu & Error Messages** (`Bismillah/app/ui_components.py`):
+  - Translated: "Butuh Bantuan?" → "Need Help?"
+  - Translated: "Perbaiki dalam 2 menit" → "Fix in 2 minutes"
+
+**Benefits**:
+✅ Improved UX for international English-speaking users  
+✅ Consistent English messaging across onboarding flow  
+✅ Professional appearance for global user base  
+
+---
+
 ### 🔄 State Persistence & Connection Recovery — Post-Deployment Improvements
 **Problem Resolved**: After deployment/restart, both Telegram bot and web dashboard would lose connection to previous API state, requiring users to restart their sessions, re-authenticate, and restart trading engines. This degraded user experience and interrupted active trading.
 

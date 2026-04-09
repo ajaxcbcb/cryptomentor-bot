@@ -76,16 +76,16 @@ def error_message_actionable(
     Returns:
         Formatted error message with actionable steps
     """
-    message = f"{title}\n\n🔧 <b>Perbaiki dalam 2 menit:</b>\n\n"
-    
+    message = f"{title}\n\n🔧 <b>Fix in 2 minutes:</b>\n\n"
+
     for step in steps:
         num = step.get('num', '•')
         text = step.get('text', '')
         emoji = step.get('emoji', '')
         message += f"{num} {emoji} {text}\n"
-    
+
     if help_options:
-        message += "\n💬 <b>Butuh bantuan?</b>\n"
+        message += "\n💬 <b>Need help?</b>\n"
         for option in help_options:
             message += f"   {option}\n"
     
@@ -265,23 +265,23 @@ def onboarding_welcome(total_steps: int = 4) -> str:
     return f"""
 🎉 <b>Welcome to CryptoMentor AutoTrade!</b>
 
-Setup dalam {total_steps} langkah mudah:
+<b>Setup in {total_steps} easy steps:</b>
 
-1️⃣ Pilih Exchange
+1️⃣ Select Exchange
 2️⃣ Connect API Key
 3️⃣ Setup Risk Management
 4️⃣ Start Trading
 
-⏱ Estimasi waktu: <b>5 menit</b>
+⏱ <b>Estimated time:</b> <b>5 minutes</b>
 
-Mari kita mulai! 🚀
+Let's get started! 🚀
 """
 
 
 def help_menu() -> str:
     """Generate help menu"""
     return """
-❓ <b>Butuh Bantuan?</b>
+❓ <b>Need Help?</b>
 
 📚 <b>Resources:</b>
 • Tutorial Video

@@ -525,7 +525,7 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Add welcoming onboarding message with progress
         welcome_text = onboarding_welcome(total_steps=4)
-        welcome_text += "\n" + progress_indicator(1, 4, "Pilih Exchange")
+        welcome_text += "\n" + progress_indicator(1, 4, "Select Exchange")
         
         await update.message.reply_text(
             welcome_text,
@@ -621,13 +621,13 @@ async def callback_select_exchange(update: Update, context: ContextTypes.DEFAULT
         f"<b>Auto Trade — {ex['name']}</b>\n\n"
     )
     if community_name:
-        text += f"👥 Kamu bergabung via komunitas: <b>{community_name}</b>\n\n"
+        text += f"👥 You joined via community: <b>{community_name}</b>\n\n"
 
     # Add progress indicator
-    progress = progress_indicator(2, 4, "Registrasi & API Key")
+    progress = progress_indicator(2, 4, "Registration & API Key")
     text = progress + "\n\n" + text
-    
-    text += "Sebelum mulai, ada 2 langkah penting:\n\n"
+
+    text += "Before starting, there are 2 important steps:\n\n"
 
     if ex.get("group_url"):
         text += (
@@ -807,9 +807,9 @@ async def receive_bitunix_uid(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"🆔 Telegram ID: <code>{user_id}</code>\n"
                 f"🏦 Exchange: <b>{ex['name']}</b>\n"
                 f"🔢 {ex['uid_label']}: <code>{uid}</code>\n"
-                f"👥 Komunitas: <b>{community_name}</b>\n\n"
-                f"Verifikasi bahwa UID ini terdaftar di bawah referral komunitas kamu.\n"
-                f"Approve atau reject:"
+                f"👥 Community: <b>{community_name}</b>\n\n"
+                f"Verify that this UID is registered under your community referral.\n"
+                f"Approve or reject:"
             )
             try:
                 await context.bot.send_message(
@@ -819,7 +819,7 @@ async def receive_bitunix_uid(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception as e:
                 import logging as _log
                 _log.getLogger(__name__).warning(f"Failed to notify community leader {leader_id}: {e}")
-                # Fallback ke admin jika gagal kirim ke leader
+                # Fallback to admin if failed to send to leader
                 for admin_id in admin_ids:
                     try:
                         await context.bot.send_message(
@@ -830,12 +830,12 @@ async def receive_bitunix_uid(update: Update, context: ContextTypes.DEFAULT_TYPE
                         pass
 
             await update.message.reply_text(
-                f"⏳ <b>UID sedang diverifikasi</b>\n\n"
+                f"⏳ <b>UID is being verified</b>\n\n"
                 f"🔢 UID: <code>{uid}</code>\n"
                 f"🏦 Exchange: {ex['name']}\n"
-                f"👥 Komunitas: {community_name}\n\n"
-                f"Ketua komunitas akan memverifikasi UID kamu.\n"
-                f"Kamu akan mendapat notifikasi setelah disetujui.",
+                f"👥 Community: {community_name}\n\n"
+                f"The community leader will verify your UID.\n"
+                f"You will receive a notification after approval.",
                 parse_mode='HTML'
             )
             return ConversationHandler.END
@@ -2137,10 +2137,10 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=target_user_id,
                 text=(
-                    "✅ <b>UID Kamu Sudah Diverifikasi!</b>\n\n"
-                    "Akun Bitunix kamu sudah terkonfirmasi di bawah referral kami.\n\n"
-                    "API Key kamu sudah tersimpan sebelumnya.\n"
-                    "Ketik /autotrade untuk melanjutkan setup risk management."
+                    "✅ <b>Your UID Has Been Verified!</b>\n\n"
+                    "Your Bitunix account has been confirmed under our referral.\n\n"
+                    "Your API Key has been saved before.\n"
+                    "Type /autotrade to continue with risk management setup."
                 ),
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup([
@@ -2152,9 +2152,9 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=target_user_id,
                 text=(
-                    "✅ <b>UID Kamu Sudah Diverifikasi!</b>\n\n"
-                    "Akun Bitunix kamu sudah terkonfirmasi di bawah referral kami.\n\n"
-                    "Sekarang setup API Key untuk mulai Auto Trade:"
+                    "✅ <b>Your UID Has Been Verified!</b>\n\n"
+                    "Your Bitunix account has been confirmed under our referral.\n\n"
+                    "Now set up your API Key to start Auto Trade:"
                 ),
                 parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup([
@@ -3425,9 +3425,9 @@ def register_autotrade_handlers(application):
         await query.answer()
         from app.exchange_registry import exchange_list_keyboard
         await query.edit_message_text(
-            "🤖 <b>Auto Trade — Pilih Exchange</b>\n\n"
-            "Kami support beberapa exchange terpercaya.\n"
-            "Pilih exchange yang ingin kamu gunakan:",
+            "🤖 <b>Auto Trade — Select Exchange</b>\n\n"
+            "We support several trusted exchanges.\n"
+            "Select the exchange you want to use:",
             parse_mode='HTML',
             reply_markup=exchange_list_keyboard()
         )
