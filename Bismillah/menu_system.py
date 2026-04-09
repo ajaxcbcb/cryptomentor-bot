@@ -8,37 +8,58 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from typing import Dict, List
 
-# Menu Constants
+# Menu Constants — Aligned with Web Interface
 MAIN_MENU = "main_menu"
+
+# Primary Navigation (matches web tabs)
+PORTFOLIO_STATUS = "portfolio_status"      # Portfolio tab
+ENGINE_CONTROLS = "engine_controls"        # Engine/Autotrade controls
+PERFORMANCE_METRICS = "performance_metrics" # Performance analytics
+SIGNALS_MARKET = "signals_market"          # Signals & Market data
+API_SETTINGS = "api_settings"              # API/Exchange settings
+SKILLS_EDUCATION = "skills_education"      # Education content
+
+# Secondary/Legacy (kept for backward compatibility)
 PRICE_MARKET = "price_market"
 TRADING_ANALYSIS = "trading_analysis"
-FUTURES_SIGNALS = "futures_signals"
-PORTFOLIO_CREDITS = "portfolio_credits"
 PREMIUM_REFERRAL = "premium_referral"
 ASK_AI_MENU = "ask_ai_menu"
-AI_AGENT_MENU = "ai_agent_menu"
 SETTINGS_MENU = "settings_menu"
 
 # Action Constants
-CHECK_PRICE = "check_price"
-MARKET_OVERVIEW = "market_overview"
-SPOT_ANALYSIS = "spot_analysis"
-FUTURES_ANALYSIS = "futures_analysis"
-MULTI_COIN_SIGNALS = "multi_coin_signals"
-AUTO_SIGNAL_INFO = "auto_signal_info"
+# Portfolio actions
 MY_PORTFOLIO = "my_portfolio"
 ADD_COIN = "add_coin"
 CHECK_CREDITS = "check_credits"
-UPGRADE_PREMIUM = "upgrade_premium"
-REFERRAL_PROGRAM = "referral_program"
-PREMIUM_EARNINGS = "premium_earnings"
-ASK_AI = "ask_ai"
+
+# Engine/Autotrade actions
 AUTOMATON_SPAWN = "automaton_spawn"
 AUTOMATON_STATUS = "automaton_status"
 AUTOMATON_DEPOSIT = "automaton_deposit"
 AUTOMATON_LOGS = "automaton_logs"
+
+# Signal actions
+MULTI_COIN_SIGNALS = "multi_coin_signals"
+CHECK_PRICE = "check_price"
+MARKET_OVERVIEW = "market_overview"
+
+# Performance actions
+VIEW_METRICS = "view_metrics"
+VIEW_TRADES = "view_trades"
+
+# Settings actions
+API_SETUP = "api_setup"
 CHANGE_LANGUAGE = "change_language"
 TIME_SETTINGS = "time_settings"
+UPGRADE_PREMIUM = "upgrade_premium"
+
+# Analysis actions (legacy)
+SPOT_ANALYSIS = "spot_analysis"
+FUTURES_ANALYSIS = "futures_analysis"
+AUTO_SIGNAL_INFO = "auto_signal_info"
+REFERRAL_PROGRAM = "referral_program"
+PREMIUM_EARNINGS = "premium_earnings"
+ASK_AI = "ask_ai"
 
 # Timezone definitions
 TIMEZONES = {
@@ -61,22 +82,91 @@ class MenuBuilder:
 
     @staticmethod
     def build_main_menu() -> InlineKeyboardMarkup:
-        """Build the main menu with 8 categories"""
+        """
+        Build the main menu aligned with Web Dashboard tabs.
+        Primary navigation matches web interface structure.
+        """
         keyboard = [
-            [InlineKeyboardButton(" Price & Market", callback_data=PRICE_MARKET)],
-            [InlineKeyboardButton(" Trading Analysis", callback_data=TRADING_ANALYSIS)],
-            [InlineKeyboardButton(" Futures Signals", callback_data=FUTURES_SIGNALS)],
-            [InlineKeyboardButton(" Portfolio & Credits", callback_data=PORTFOLIO_CREDITS)],
-            [InlineKeyboardButton(" Premium & Referral", callback_data=PREMIUM_REFERRAL)],
-            [InlineKeyboardButton(" Ask AI", callback_data=ASK_AI_MENU)],
-            [InlineKeyboardButton(" AI Agent", callback_data=AI_AGENT_MENU)],
-            [InlineKeyboardButton(" Settings", callback_data=SETTINGS_MENU)]
+            # Primary Navigation (Web-aligned)
+            [InlineKeyboardButton("📊 Portfolio Status", callback_data=PORTFOLIO_STATUS)],
+            [InlineKeyboardButton("⚙️ Engine Controls", callback_data=ENGINE_CONTROLS)],
+            [InlineKeyboardButton("📈 Signals & Market", callback_data=SIGNALS_MARKET)],
+            [InlineKeyboardButton("📉 Performance", callback_data=PERFORMANCE_METRICS)],
+            [InlineKeyboardButton("🔌 API Settings", callback_data=API_SETTINGS)],
+            [InlineKeyboardButton("🎓 Skills & Education", callback_data=SKILLS_EDUCATION)],
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_portfolio_status_menu() -> InlineKeyboardMarkup:
+        """Build Portfolio Status submenu (web-aligned)"""
+        keyboard = [
+            [InlineKeyboardButton("💼 My Portfolio", callback_data=MY_PORTFOLIO)],
+            [InlineKeyboardButton("➕ Add Coin", callback_data=ADD_COIN)],
+            [InlineKeyboardButton("💰 Check Credits", callback_data=CHECK_CREDITS)],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_engine_controls_menu() -> InlineKeyboardMarkup:
+        """Build Engine Controls submenu (Autotrade/AutoTrade)"""
+        keyboard = [
+            [InlineKeyboardButton("🚀 Start AutoTrade", callback_data=AUTOMATON_SPAWN)],
+            [InlineKeyboardButton("📊 Autotrade Status", callback_data=AUTOMATON_STATUS)],
+            [InlineKeyboardButton("💳 Fund Account", callback_data=AUTOMATON_DEPOSIT)],
+            [InlineKeyboardButton("📋 Logs & History", callback_data=AUTOMATON_LOGS)],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_signals_market_menu() -> InlineKeyboardMarkup:
+        """Build Signals & Market submenu"""
+        keyboard = [
+            [InlineKeyboardButton("📡 Live Signals", callback_data=MULTI_COIN_SIGNALS)],
+            [InlineKeyboardButton("💹 Price Check", callback_data=CHECK_PRICE)],
+            [InlineKeyboardButton("📊 Market Overview", callback_data=MARKET_OVERVIEW)],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_performance_menu() -> InlineKeyboardMarkup:
+        """Build Performance Metrics submenu"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Performance Metrics", callback_data=VIEW_METRICS)],
+            [InlineKeyboardButton("📈 Trade History", callback_data=VIEW_TRADES)],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_api_settings_menu() -> InlineKeyboardMarkup:
+        """Build API Settings submenu"""
+        keyboard = [
+            [InlineKeyboardButton("🔑 API Setup", callback_data=API_SETUP)],
+            [InlineKeyboardButton("🕐 Timezone", callback_data=TIME_SETTINGS)],
+            [InlineKeyboardButton("🌐 Language", callback_data=CHANGE_LANGUAGE)],
+            [InlineKeyboardButton("💎 Upgrade Premium", callback_data=UPGRADE_PREMIUM)],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def build_skills_education_menu() -> InlineKeyboardMarkup:
+        """Build Skills & Education submenu"""
+        keyboard = [
+            [InlineKeyboardButton("📚 Risk Management 101", callback_data="skill_risk_mgmt")],
+            [InlineKeyboardButton("🎯 StackMentor Trading", callback_data="skill_stackmentor")],
+            [InlineKeyboardButton("💼 Advanced Trading", callback_data="skill_advanced")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data=MAIN_MENU)]
         ]
         return InlineKeyboardMarkup(keyboard)
 
     @staticmethod
     def build_price_market_menu() -> InlineKeyboardMarkup:
-        """Build Price & Market submenu"""
+        """Build Price & Market submenu (LEGACY - use build_signals_market_menu instead)"""
         keyboard = [
             [InlineKeyboardButton(" Check Price (FREE)", callback_data=CHECK_PRICE)],
             [InlineKeyboardButton(" Market Overview (FREE)", callback_data=MARKET_OVERVIEW)],
