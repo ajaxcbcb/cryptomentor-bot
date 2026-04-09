@@ -77,6 +77,34 @@ FLIP_MIN_CONFIDENCE          = 75    # flip hanya jika sinyal baru sangat kuat
 FLIP_MIN_CONFIDENCE_SIDEWAYS = 70    # threshold lebih rendah saat sideways (range trading)
 
 
+def _cleanup_signal_queue(user_id: int, symbol: str, success: bool = True):
+    """
+    Helper: Clean up signal from queue and sync to Supabase.
+    Removes from local queue, unmarks as processing, and syncs status.
+    """
+    # Remove from local queue
+    if user_id in _signal_queues:
+        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+
+    # Unmark from processing
+    _signals_being_processed[user_id].discard(symbol)
+
+    # Sync to Supabase
+    try:
+        from app.supabase_repo import _client
+        s = _client()
+        status = "executed" if success else "failed"
+        s.table("signal_queue").update({
+            "status": status,
+            "completed_at": datetime.utcnow().isoformat()
+        }).eq("user_id", user_id).eq(
+            "symbol", symbol
+        ).eq("status", "executing").execute()
+        logger.debug(f"[Engine:{user_id}] Synced {symbol} as {status} to Supabase")
+    except Exception as _sync_err:
+        logger.warning(f"[Engine:{user_id}] Failed to sync cleanup status: {_sync_err}")
+
+
 def _is_reversal(open_side: str, new_signal: Dict, btc_is_sideways: bool = False) -> bool:
     """
     Cek apakah sinyal baru adalah reversal dari posisi aktif.
@@ -1720,6 +1748,38 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     _signal_queues[user_id].append(cand)
                     queued_symbols.add(cand['symbol'])
 
+                    # Sync to Supabase for web visibility
+                    try:
+                        from app.supabase_repo import _client
+                        s = _client()
+                        # Check if signal already in queue
+                        existing = s.table("signal_queue").select("id").eq(
+                            "user_id", user_id
+                        ).eq("symbol", cand['symbol']).eq(
+                            "status", "pending"
+                        ).limit(1).execute()
+
+                        if not existing.data:
+                            # Insert new signal to queue
+                            s.table("signal_queue").insert({
+                                "user_id": user_id,
+                                "symbol": cand['symbol'],
+                                "direction": cand['side'],
+                                "confidence": cand['confidence'],
+                                "entry_price": cand['entry_price'],
+                                "tp1": cand['tp1'],
+                                "tp2": cand['tp2'],
+                                "tp3": cand['tp3'],
+                                "sl": cand['sl'],
+                                "generated_at": datetime.utcnow().isoformat(),
+                                "reason": cand.get('reason', ''),
+                                "source": "autotrade",
+                                "status": "pending",
+                            }).execute()
+                            logger.info(f"[Engine:{user_id}] Synced {cand['symbol']} to signal_queue (web visibility)")
+                    except Exception as _sync_err:
+                        logger.warning(f"[Engine:{user_id}] Failed to sync signal to Supabase: {_sync_err}")
+
             # ── Process next signal from queue ──────────────────────────────────
             if not _signal_queues[user_id]:
                 await asyncio.sleep(cfg["scan_interval"])
@@ -1763,6 +1823,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             # ── Mark symbol as being processed (prevent concurrent execution) ──
             _signals_being_processed[user_id].add(symbol)
 
+            # Sync execution status to Supabase (web visibility)
+            try:
+                from app.supabase_repo import _client
+                s = _client()
+                s.table("signal_queue").update({
+                    "status": "executing",
+                    "started_at": datetime.utcnow().isoformat()
+                }).eq("user_id", user_id).eq(
+                    "symbol", symbol
+                ).eq("status", "pending").execute()
+                logger.debug(f"[Engine:{user_id}] Synced {symbol} as executing to Supabase")
+            except Exception as _sync_err:
+                logger.warning(f"[Engine:{user_id}] Failed to sync executing status: {_sync_err}")
+
             # Send queue status update to user
             try:
                 queued_remaining = [s['symbol'] for s in _signal_queues[user_id][1:]]
@@ -1783,10 +1857,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
-                # Clean up: remove from queue and unmark as processing
-                if user_id in _signal_queues:
-                    _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                _signals_being_processed[user_id].discard(symbol)
+                _cleanup_signal_queue(user_id, symbol, success=False)
                 await asyncio.sleep(cfg["scan_interval"])
                 continue
             
@@ -1933,10 +2004,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         ),
                         parse_mode='HTML'
                     )
-                    # Clean up: remove from queue and unmark as processing
-                    if user_id in _signal_queues:
-                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                    _signals_being_processed[user_id].discard(symbol)
+                    _cleanup_signal_queue(user_id, symbol, success=False)
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
@@ -1960,10 +2028,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         retry_err = retry_result.get('error', '')
                         # Hanya stop jika TOKEN_INVALID — IP_BLOCKED jangan stop, bisa recover
                         if 'TOKEN_INVALID' in str(retry_err):
-                            # Clean up before exiting
-                            if user_id in _signal_queues:
-                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                            _signals_being_processed[user_id].discard(symbol)
+                            _cleanup_signal_queue(user_id, symbol, success=False)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
@@ -2020,10 +2085,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             await asyncio.sleep(cfg["scan_interval"])
                             continue
                 else:
-                    # Clean up: remove from queue and unmark as processing
-                    if user_id in _signal_queues:
-                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                    _signals_being_processed[user_id].discard(symbol)
+                    _cleanup_signal_queue(user_id, symbol, success=False)
                     # Pesan error spesifik berdasarkan kode
                     if '20003' in str(err) or 'Insufficient balance' in str(err):
                         bal_result = await asyncio.to_thread(client.get_balance)
@@ -2053,17 +2115,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                 # Jika retry sukses, pastikan order_result sudah diupdate di atas
                 if not order_result.get('success'):
-                    # Clean up: remove from queue and unmark as processing
-                    if user_id in _signal_queues:
-                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                    _signals_being_processed[user_id].discard(symbol)
+                    _cleanup_signal_queue(user_id, symbol, success=False)
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
             # ── Order SUCCESS: Clean up from queue and mark execution complete ──
-            if user_id in _signal_queues:
-                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-            _signals_being_processed[user_id].discard(symbol)
+            _cleanup_signal_queue(user_id, symbol, success=True)
 
             order_id = order_result.get('order_id', '-')
             trades_today += 1
