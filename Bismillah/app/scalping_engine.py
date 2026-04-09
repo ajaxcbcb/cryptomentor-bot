@@ -912,17 +912,9 @@ class ScalpingEngine:
                 if quantity_adjusted < min_qty:
                     logger.warning(
                         f"[Scalping:{self.user_id}] {signal.symbol} qty={quantity_adjusted:.6f} "
-                        f"< min={min_qty}. Skipping trade to preserve risk management."
+                        f"< min={min_qty}. Skipping - balance too small for this pair."
                     )
-                    await self._notify_user(
-                        f"⚠️ <b>Trade Skipped: {signal.symbol}</b>\n\n"
-                        f"Quantity too small: {quantity_adjusted:.6f} < {min_qty}\n\n"
-                        f"<b>To fix:</b>\n"
-                        f"• Increase balance, OR\n"
-                        f"• Increase risk % in settings\n\n"
-                        f"Risk management preserved ✅"
-                    )
-                    return False
+                    return False  # Silent skip, engine will try other pairs
                 
                 # ═══════════════════════════════════════════════════════════
                 # Unified entry path — see app/trade_execution.py
