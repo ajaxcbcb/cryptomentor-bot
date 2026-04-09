@@ -27,7 +27,10 @@
       "Bash(py -m py_compile website-backend/app/routes/signals.py)",
       "Bash(python3)",
       "Bash(python3 -c ':*)",
-      "Bash(python -m py_compile app/routes/signals.py)"
+      "Bash(python -m py_compile app/routes/signals.py)",
+      "Bash(python -m py_compile website-backend/app/routes/signals.py website-backend/app/routes/dashboard.py)",
+      "Bash(npm run:*)",
+      "Read(//tmp/**)"
     ]
   }
 }

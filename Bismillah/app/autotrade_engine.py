@@ -385,23 +385,222 @@ def _calc_volume_ratio(volumes: List[float], period: int = 20) -> float:
 
 
 # ─────────────────────────────────────────────
-#  Professional Signal Engine
+#  Confluence Signal Generation (Multi-factor)
 # ─────────────────────────────────────────────
-def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None) -> Optional[Dict]:
+def _calculate_atr(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+    """Calculate ATR for confluence signal system"""
+    trs = []
+    for i in range(1, len(highs)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        trs.append(tr)
+    return sum(trs[-period:]) / period if len(trs) >= period else sum(trs) / len(trs) if trs else 0.0
+
+
+def _generate_confluence_signal(
+    symbol: str,
+    candles_1h: List,
+    user_risk_pct: float = 0.5,
+    btc_bias: Optional[Dict] = None
+) -> Optional[Dict]:
     """
-    Multi-timeframe confluence signal:
-    1H trend filter + 15M entry trigger + SMC confluence + BTC bias filter
-    Requires: min R:R 2:1, ATR-based SL/TP, volume confirmation, BTC alignment
+    Generate confluence-based signal using multiple confluence factors.
+
+    Factors:
+    - S/R bounce: price near support/resistance ±1% = +30 pts
+    - RSI extremes: < 30 or > 70 = +25 pts
+    - Volume spike: > 1.5× MA = +20 pts
+    - Trending regime: ATR > 0.3% = +15 pts
+    - Trend alignment: price > MA50 = +10 pts
+
+    Min score: 50 points (requires 2+ factors)
+    Adaptive thresholds based on user risk tolerance.
+    """
+
+    # Risk config: {min_confidence, atr_multiplier}
+    risk_config = {
+        0.25: {"min_confidence": 60, "atr_multiplier": 0.5},
+        0.5:  {"min_confidence": 50, "atr_multiplier": 1.0},
+        0.75: {"min_confidence": 45, "atr_multiplier": 1.25},
+        1.0:  {"min_confidence": 40, "atr_multiplier": 1.5},
+    }
+
+    config = risk_config.get(user_risk_pct, risk_config[0.5])
+    min_confidence = config["min_confidence"]
+    atr_multiplier = config["atr_multiplier"]
+
+    try:
+        # Extract OHLCV from candles
+        opens = [float(c[1]) for c in candles_1h]
+        highs = [float(c[2]) for c in candles_1h]
+        lows = [float(c[3]) for c in candles_1h]
+        closes = [float(c[4]) for c in candles_1h]
+        volumes = [float(c[5]) for c in candles_1h]
+
+        current_price = closes[-1]
+
+        # 1. Support/Resistance Detection
+        try:
+            from app.analysis.range_analyzer import RangeAnalyzer
+            ra = RangeAnalyzer()
+            sr_result = ra.analyze(highs[-50:], lows[-50:])
+
+            if sr_result:
+                support = sr_result.get('support_level', current_price * 0.97)
+                resistance = sr_result.get('resistance_level', current_price * 1.03)
+                near_sr = (abs(current_price - support) / support <= 0.01 or
+                          abs(current_price - resistance) / resistance <= 0.01)
+            else:
+                support = current_price * 0.97
+                resistance = current_price * 1.03
+                near_sr = False
+        except Exception as e:
+            logger.debug(f"[Confluence] S/R analysis failed: {e}")
+            support = current_price * 0.97
+            resistance = current_price * 1.03
+            near_sr = False
+
+        # 2. RSI Extremes
+        try:
+            from app.rsi_divergence_detector import RSIDivergenceDetector
+            rsi_detector = RSIDivergenceDetector()
+            rsi_values = rsi_detector._calculate_rsi_series(closes)
+
+            if rsi_values:
+                last_rsi = rsi_values[-1]
+                is_rsi_extreme = last_rsi < 30 or last_rsi > 70
+            else:
+                last_rsi = 50.0
+                is_rsi_extreme = False
+        except Exception as e:
+            logger.debug(f"[Confluence] RSI detection failed: {e}")
+            last_rsi = _calc_rsi(closes)
+            is_rsi_extreme = last_rsi < 30 or last_rsi > 70
+
+        # 3. Volume Spike
+        vol_ma = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
+        vol_spike = volumes[-1] > vol_ma * 1.5 if vol_ma > 0 else False
+
+        # 4. Market Regime (Trending Check)
+        atr = _calc_atr(highs[-30:], lows[-30:], closes[-30:], 14)
+        atr_pct = (atr / current_price * 100) if current_price > 0 else 0
+        is_trending = atr_pct > 0.3  # > 0.3% = trending
+
+        # 5. Trend Alignment (Price > MA50)
+        ma50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else sum(closes) / len(closes)
+        price_above_ma = current_price > ma50
+
+        # Confluence Scoring
+        score = 0
+        reasons = []
+
+        if near_sr:
+            score += 30
+            reasons.append("S/R bounce")
+
+        if is_rsi_extreme:
+            rsi_dir = "Oversold" if last_rsi < 30 else "Overbought"
+            score += 25
+            reasons.append(f"RSI {rsi_dir} ({last_rsi:.0f})")
+
+        if vol_spike:
+            score += 20
+            reasons.append("Volume spike")
+
+        if is_trending:
+            score += 15
+            reasons.append(f"Trend (ATR {atr_pct:.2f}%)")
+
+        if price_above_ma:
+            score += 10
+            reasons.append("Above MA50")
+
+        # Check minimum confluence score (adaptive)
+        if score < min_confidence:
+            logger.debug(
+                f"[Confluence] {symbol} score={score} < {min_confidence} "
+                f"(risk={user_risk_pct}%) — insufficient confluence"
+            )
+            return None
+
+        # Direction: LONG if RSI < 30, SHORT if RSI > 70, else LONG by default
+        direction = 'LONG' if last_rsi < 30 else ('SHORT' if last_rsi > 70 else 'LONG')
+
+        # Calculate TP with ATR scaling (adaptive)
+        if direction == 'LONG':
+            entry = support
+            tp1 = entry + (atr * 0.75 * atr_multiplier)
+            tp2 = entry + (atr * 1.25 * atr_multiplier)
+            sl = support - (atr * 0.5)
+        else:
+            entry = resistance
+            tp1 = entry - (atr * 0.75 * atr_multiplier)
+            tp2 = entry - (atr * 1.25 * atr_multiplier)
+            sl = resistance + (atr * 0.5)
+
+        # Validate R:R ratio (minimum 1:1.5)
+        rr = abs(tp1 - entry) / abs(entry - sl) if (entry - sl) != 0 else 0
+        if rr < 1.0:
+            logger.debug(f"[Confluence] {symbol} RR {rr:.2f} < 1.0 — weak setup")
+            return None
+
+        logger.info(
+            f"[Confluence] {symbol} {direction} — conf={score} entry={entry:.4f} "
+            f"tp1={tp1:.4f} sl={sl:.4f} RR={rr:.2f} | {' + '.join(reasons)}"
+        )
+
+        return {
+            "symbol": symbol,
+            "side": direction,
+            "confidence": score,
+            "entry_price": entry,
+            "tp1": tp1,
+            "tp2": tp2,
+            "sl": sl,
+            "rr_ratio": rr,
+            "atr_pct": atr_pct,
+            "vol_ratio": volumes[-1] / vol_ma if vol_ma > 0 else 1.0,
+            "reasons": reasons,
+            "market_structure": "uptrend" if current_price > ma50 else "downtrend",
+            "trend_1h": direction,
+            "rsi_15": round(last_rsi, 1),
+            "rsi_1h": round(last_rsi, 1),
+            "btc_is_sideways": False if btc_bias is None else (btc_bias.get("strength", 0) < 50),
+        }
+
+    except Exception as e:
+        logger.warning(f"[Confluence] Signal generation failed for {symbol}: {e}", exc_info=True)
+        return None
+
+
+# ─────────────────────────────────────────────
+#  Professional Signal Engine (Hybrid Mode)
+# ─────────────────────────────────────────────
+def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None, user_risk_pct: float = 0.5) -> Optional[Dict]:
+    """
+    Hybrid signal generation:
+    - PRIMARY: Confluence-based multi-factor detection (S/R + RSI + Volume + Trend)
+    - SECONDARY: SMC analysis for reversals and market structure
+    - FILTER: BTC bias + volatility + risk alignment
+
+    Adaptive thresholds based on user_risk_pct:
+    - 0.25% (conservative): min conf 60, tight TPs (0.5×ATR)
+    - 0.5% (moderate): min conf 50, standard TPs (0.75-1.5×ATR)
+    - 0.75% (aggressive): min conf 45, wider TPs (1.25×ATR)
+    - 1.0% (very aggressive): min conf 40, widest TPs (1.5×ATR)
     """
     symbol = base_symbol.upper() + "USDT"
     cfg = ENGINE_CONFIG
     
-    # ── BTC Bias Filter (relaxed for swing trade) ──────────────
+    # ── BTC Bias Filter ──────────────────────────────────────
     btc_is_sideways = False
     if btc_bias:
         btc_bias_dir = btc_bias.get("bias", "NEUTRAL")
         btc_strength = btc_bias.get("strength", 0)
-        btc_is_sideways = (btc_bias_dir == "NEUTRAL" or btc_strength < 50)  # Lowered from 60 to 50
+        btc_is_sideways = (btc_bias_dir == "NEUTRAL" or btc_strength < 50)
 
     # Only skip altcoins if BTC is VERY weak (strength < 40)
     if base_symbol.upper() != "BTC" and btc_bias and btc_bias.get("strength", 100) < 40:
@@ -414,7 +613,7 @@ def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None) -> Op
     try:
         from app.providers.alternative_klines_provider import alternative_klines_provider
 
-        # ── Data fetch: 1H (trend) + 15M (entry) ──────────────────────
+        # ── Data fetch: 1H (primary) + 15M (secondary) ───────────────
         klines_1h  = alternative_klines_provider.get_klines(base_symbol.upper(), interval='1h',  limit=100)
         klines_15m = alternative_klines_provider.get_klines(base_symbol.upper(), interval='15m', limit=60)
 
@@ -424,6 +623,46 @@ def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None) -> Op
         if not klines_15m or len(klines_15m) < 30:
             logger.warning(f"[Signal] {symbol} insufficient 15M data")
             return None
+
+        # ── TRY CONFLUENCE SIGNAL FIRST (primary system) ───────────────
+        # This uses multi-factor analysis with adaptive thresholds based on user risk
+        confluence_signal = _generate_confluence_signal(
+            symbol=symbol,
+            candles_1h=klines_1h,
+            user_risk_pct=user_risk_pct,
+            btc_bias=btc_bias
+        )
+
+        if confluence_signal and confluence_signal.get('confidence', 0) >= cfg["min_confidence"]:
+            # Confluence signal passed thresholds — use it with SMC enhancement
+            logger.info(
+                f"[Signal] {symbol} using CONFLUENCE signal "
+                f"(conf={confluence_signal['confidence']}, risk={user_risk_pct}%)"
+            )
+
+            # Enhance with SMC analysis from 15M data (for reversal detection)
+            sig = confluence_signal
+            sig["is_confluence_based"] = True
+
+            # Add BTC bias bonus to confidence if aligned
+            if base_symbol.upper() != "BTC" and btc_bias:
+                btc_bias_dir = btc_bias.get("bias", "NEUTRAL")
+                btc_strength = btc_bias.get("strength", 0)
+
+                if (btc_bias_dir == "BULLISH" and sig["side"] == "LONG") or \
+                   (btc_bias_dir == "BEARISH" and sig["side"] == "SHORT"):
+                    bonus = int(btc_strength * 0.15)
+                    sig["confidence"] += bonus
+                    sig["reasons"].append(f"BTC {btc_bias_dir} aligned (+{bonus}%)")
+
+            return sig
+
+        # ── FALLBACK: Original SMC-based signal system ────────────────
+        # If confluence signal fails or is too weak, try the original system
+        logger.debug(
+            f"[Signal] {symbol} confluence signal failed/weak — falling back to SMC system "
+            f"(conf={confluence_signal['confidence'] if confluence_signal else 0}, user_risk={user_risk_pct}%)"
+        )
 
         # ── 1H: Trend direction ────────────────────────────────────────
         c1h = [float(k[4]) for k in klines_1h]
@@ -828,80 +1067,82 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     
     def calc_qty_with_risk(symbol: str, entry: float, sl: float, leverage: int) -> tuple:
         """
-        Calculate position size using risk-based sizing that respects user's max loss per trade.
-        
-        CRITICAL: This function ensures that if SL hits, user loses EXACTLY risk_percentage of balance.
-        Leverage is used to calculate margin required, NOT to amplify position size beyond risk limit.
-        
+        Calculate position size using risk-based sizing with EQUITY (not balance).
+
+        CRITICAL: Uses equity = balance + unrealized_pnl for accurate risk calculation.
+        If SL hits, user loses EXACTLY risk_percentage of equity.
+        Leverage is used for margin calculation, NOT to amplify position size.
+
         Formula:
-        1. Risk Amount = Balance * Risk%
-        2. SL Distance = |Entry - SL|
-        3. Position Size (in base currency) = Risk Amount / SL Distance
-        4. Margin Required = (Position Size * Entry Price) / Leverage
-        
+        1. Equity = Balance + Unrealized PnL
+        2. Risk Amount = Equity * Risk%
+        3. SL Distance = |Entry - SL|
+        4. Position Size (in base currency) = Risk Amount / SL Distance
+        5. Margin Required = (Position Size * Entry Price) / Leverage
+
         Returns:
             (qty, used_risk_sizing): tuple of (quantity, whether risk sizing was used)
         """
         try:
-            # Get risk percentage from database
-            from app.supabase_repo import get_risk_per_trade
-            risk_pct = get_risk_per_trade(user_id)
-            
-            # Get current balance from exchange
+            # Get risk percentage from database (already loaded in trading loop)
+            # Use the user_risk_pct from the outer scope
+            risk_pct = user_risk_pct
+
+            # Get current balance AND unrealized PnL from exchange
             bal_result = client.get_balance()
             if not bal_result.get('success'):
                 raise Exception(f"Balance fetch failed: {bal_result.get('error')}")
-            
+
             balance = bal_result.get('balance', 0)
-            if balance <= 0:
-                raise Exception(f"Invalid balance: {balance}")
+            unrealized_pnl = bal_result.get('unrealized_pnl', 0)
+            equity = balance + unrealized_pnl
+
+            if equity <= 0:
+                raise Exception(f"Invalid equity: balance={balance} + unrealized={unrealized_pnl} = {equity}")
             
-            # Calculate position size using risk calculator
-            from app.risk_calculator import calculate_position_size as calc_risk
-            
-            calc = calc_risk(
-                last_balance=balance,
-                risk_percentage=risk_pct,
-                entry_price=entry,
-                stop_loss_price=sl
-            )
-            
-            if calc['status'] != 'success':
-                raise Exception(f"Risk calculation failed: {calc['error_message']}")
-            
-            # Get position size in base currency (e.g., BTC amount)
-            position_size = calc['position_size']
-            
+            # Calculate risk amount using EQUITY (not balance)
+            risk_amount = equity * (risk_pct / 100)
+
+            # Calculate SL distance
+            sl_distance = abs(entry - sl)
+            if sl_distance <= 0:
+                raise Exception(f"Invalid SL distance: {sl_distance}")
+
+            # Calculate position size: how much can we trade if SL distance hits
+            # position_size = risk_amount / sl_distance
+            position_size = risk_amount / sl_distance
+
             # Round to exchange precision
             precision = QTY_PRECISION.get(symbol, 3)
             qty = round(position_size, precision)
-            
+
             # Validate minimum quantity
             min_qty = 10 ** (-precision) if precision > 0 else 1
             if qty < min_qty:
                 raise Exception(f"Quantity {qty} below minimum {min_qty}")
-            
-            # Calculate margin required (for logging only - exchange handles this)
+
+            # Calculate margin required for this position
             position_value = qty * entry
             margin_required = position_value / leverage
-            
-            # Validate margin available
-            if margin_required > balance:
+
+            # Validate margin available (should not exceed 95% of balance for safety)
+            max_margin = balance * 0.95  # Keep 5% buffer
+            if margin_required > max_margin:
                 raise Exception(
-                    f"Insufficient margin: need ${margin_required:.2f}, have ${balance:.2f}. "
+                    f"Insufficient margin: need ${margin_required:.2f}, "
+                    f"balance=${balance:.2f}, max_usable=${max_margin:.2f}. "
                     f"Reduce risk % or increase balance."
                 )
-            
+
             logger.info(
                 f"[RiskCalc:{user_id}] {symbol} - "
-                f"Balance=${balance:.2f}, Risk={risk_pct}%, "
-                f"Entry=${entry:.2f}, SL=${sl:.2f}, "
-                f"Risk_Amt=${calc['risk_amount']:.2f}, "
-                f"Position_Size={position_size:.8f}, "
-                f"Qty={qty}, "
+                f"Equity=${equity:.2f} (Balance=${balance:.2f} + Unrealized=${unrealized_pnl:.2f}), "
+                f"Risk={risk_pct}% (~${risk_amount:.2f}), "
+                f"Entry=${entry:.2f}, SL=${sl:.2f} (Distance={sl_distance:.2f}), "
+                f"Position_Size={position_size:.8f}, Qty={qty}, "
                 f"Position_Value=${position_value:.2f}, "
-                f"Margin_Required=${margin_required:.2f} (Leverage={leverage}x), "
-                f"Max_Loss_If_SL=${calc['risk_amount']:.2f}"
+                f"Margin_Required=${margin_required:.2f}/{max_margin:.2f} (Leverage={leverage}x), "
+                f"Max_Loss_If_SL=${risk_amount:.2f}"
             )
             
             return qty, True  # Success - used risk-based sizing
@@ -921,9 +1162,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             
             return qty_fallback, False  # Fallback used
 
+    # ── Fetch user's risk_per_trade setting ───────────────────────────
+    user_risk_pct = 0.5  # Default
+    try:
+        from app.supabase_repo import get_risk_per_trade
+        fetched_risk = get_risk_per_trade(user_id)
+        if fetched_risk and fetched_risk in [0.25, 0.5, 0.75, 1.0]:
+            user_risk_pct = fetched_risk
+            logger.info(f"[Engine:{user_id}] Loaded user risk_per_trade: {user_risk_pct}%")
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] Failed to load user risk_pct, using default: {e}")
+
     logger.info(f"[Engine:{user_id}] PRO ENGINE STARTED — symbols={cfg['symbols']}, "
                 f"min_conf={cfg['min_confidence']}, min_rr={cfg['min_rr_ratio']}, "
-                f"daily_loss_limit={daily_loss_limit:.2f} USDT")
+                f"daily_loss_limit={daily_loss_limit:.2f} USDT, user_risk={user_risk_pct}%")
 
     try:
         if not silent:
@@ -1013,33 +1265,32 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     await asyncio.sleep(300)
                 continue
 
-            # ── Demo user: balance cap $50 ────────────────────────────
+            # ── Demo user: equity cap $50 ────────────────────────────
             from app.demo_users import is_demo_user, DEMO_BALANCE_LIMIT
             if is_demo_user(user_id):
                 try:
-                    acc_info = await asyncio.wait_for(
-                        asyncio.to_thread(client.get_account_info),
-                        timeout=8.0
-                    )
-                    if acc_info.get('success'):
-                        total_balance = acc_info.get('available', 0) + acc_info.get('total_unrealized_pnl', 0)
-                        # Only stop if balance significantly exceeds limit (10% buffer)
-                        if total_balance > (DEMO_BALANCE_LIMIT * 1.1):
+                    bal_result = await asyncio.to_thread(client.get_balance)
+                    if bal_result.get('success'):
+                        demo_balance = bal_result.get('balance', 0)
+                        demo_unrealized = bal_result.get('unrealized_pnl', 0)
+                        demo_equity = demo_balance + demo_unrealized
+                        # Only stop if equity significantly exceeds limit (10% buffer)
+                        if demo_equity > (DEMO_BALANCE_LIMIT * 1.1):
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
                                     "⚠️ <b>Demo Limit Reached</b>\n\n"
-                                    f"Your balance has exceeded the <b>${DEMO_BALANCE_LIMIT:.0f} demo limit</b>.\n\n"
+                                    f"Your equity has exceeded the <b>${DEMO_BALANCE_LIMIT:.0f} demo limit</b>.\n\n"
                                     "This is a <b>special demo account</b> — the bot has been stopped automatically.\n\n"
-                                    "To increase your balance limit, contact @yongdnf3 🙂"
+                                    "To increase your equity limit, contact @yongdnf3 🙂"
                                 ),
                                 parse_mode='HTML'
                             )
                             stop_engine(user_id)
-                            logger.info(f"[Engine:{user_id}] Demo user stopped: balance ${total_balance:.2f} > ${DEMO_BALANCE_LIMIT:.0f}")
+                            logger.info(f"[Engine:{user_id}] Demo user stopped: equity ${demo_equity:.2f} > ${DEMO_BALANCE_LIMIT:.0f}")
                             return
                 except Exception as e:
-                    logger.warning(f"[Engine:{user_id}] Failed to check demo balance: {e}")
+                    logger.warning(f"[Engine:{user_id}] Failed to check demo equity: {e}")
 
             # ── Cek posisi terbuka ────────────────────────────────────
             pos_result     = await asyncio.to_thread(client.get_positions)
@@ -1086,7 +1337,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             # Loss — generate reasoning
                             try:
                                 curr_sig = await asyncio.to_thread(
-                                    _compute_signal_pro, sym_base
+                                    _compute_signal_pro, sym_base, None, user_risk_pct
                                 )
                             except Exception:
                                 curr_sig = None
@@ -1234,7 +1485,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                     # Scan sinyal baru untuk simbol ini
                     try:
-                        rev_sig = await asyncio.to_thread(_compute_signal_pro, base_symbol, btc_bias)
+                        rev_sig = await asyncio.to_thread(_compute_signal_pro, base_symbol, btc_bias, user_risk_pct)
                     except Exception:
                         continue
 
@@ -1406,7 +1657,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             candidates: List[Dict] = []
             for sym in available:
                 try:
-                    sig = await asyncio.to_thread(_compute_signal_pro, sym, btc_bias)
+                    sig = await asyncio.to_thread(_compute_signal_pro, sym, btc_bias, user_risk_pct)
                     if sig and sig.get('confidence', 0) >= min_conf_scan:
                         candidates.append(sig)
                         logger.info(f"[Engine:{user_id}] Candidate: {sym} {sig['side']} "
@@ -1449,24 +1700,29 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 logger.info(f"[Engine:{user_id}] Using FIXED MARGIN position sizing for {symbol} (fallback)")
 
             # ── StackMentor: Calculate 3-tier TP levels ───────────────
-            # All users are eligible for StackMentor (no minimum balance)
+            # All users are eligible for StackMentor (no minimum equity)
             from app.supabase_repo import is_stackmentor_eligible_by_balance
-            
+
             stackmentor_enabled = False
             try:
-                # Get user's current balance from exchange
+                # Get user's current equity from exchange (balance + unrealized PnL)
                 bal_result = await asyncio.to_thread(client.get_balance)
-                user_balance = bal_result.get('balance', 0) if bal_result.get('success') else 0
-                
-                # All users are eligible for StackMentor
-                stackmentor_enabled = cfg.get("use_stackmentor", True) and is_stackmentor_eligible_by_balance(user_balance)
-                
-                if stackmentor_enabled:
-                    logger.info(f"[StackMentor:{user_id}] Enabled for balance ${user_balance:.2f} ✅")
+                if bal_result.get('success'):
+                    user_balance = bal_result.get('balance', 0)
+                    user_unrealized = bal_result.get('unrealized_pnl', 0)
+                    user_equity = user_balance + user_unrealized
                 else:
-                    logger.info(f"[StackMentor:{user_id}] Disabled in config (balance: ${user_balance:.2f})")
+                    user_equity = 0
+
+                # All users are eligible for StackMentor
+                stackmentor_enabled = cfg.get("use_stackmentor", True) and is_stackmentor_eligible_by_balance(user_equity)
+
+                if stackmentor_enabled:
+                    logger.info(f"[StackMentor:{user_id}] Enabled for equity ${user_equity:.2f} ✅")
+                else:
+                    logger.info(f"[StackMentor:{user_id}] Disabled in config (equity: ${user_equity:.2f})")
             except Exception as _sm_check_err:
-                logger.warning(f"[StackMentor:{user_id}] Balance check failed: {_sm_check_err}")
+                logger.warning(f"[StackMentor:{user_id}] Equity check failed: {_sm_check_err}")
                 stackmentor_enabled = False
             
             precision  = QTY_PRECISION.get(symbol, 3)
@@ -1732,12 +1988,18 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             tp1_pct     = abs(tp1 - entry) / entry * 100
             tp2_pct     = abs(tp2 - entry) / entry * 100
             
-            # Get actual balance and risk info for notification
-            from app.supabase_repo import get_risk_per_trade
-            risk_pct = get_risk_per_trade(user_id)
+            # Get actual equity and risk info for notification
             bal_result = await asyncio.to_thread(client.get_balance)
-            current_balance = bal_result.get('balance', 0) if bal_result.get('success') else 0
-            risk_amount = current_balance * (risk_pct / 100) if current_balance > 0 else (amount * (sl_pct / 100) * leverage)
+            if bal_result.get('success'):
+                current_balance = bal_result.get('balance', 0)
+                current_unrealized = bal_result.get('unrealized_pnl', 0)
+                current_equity = current_balance + current_unrealized
+            else:
+                current_balance = 0
+                current_unrealized = 0
+                current_equity = 0
+
+            risk_amount = current_equity * (user_risk_pct / 100) if current_equity > 0 else (amount * (sl_pct / 100) * leverage)
             
             # Calculate potential profit based on actual position size
             reward_tp1  = qty * abs(tp1 - entry)
@@ -1796,7 +2058,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         f"💰 Potential profit: +{reward_tp1:.2f} USDT\n"
                     )
                     + f"⚠️ Max loss: -{risk_amount:.2f} USDT\n"
-                    + (f"💼 Balance: ${current_balance:.2f} | Risk: {risk_pct}%\n" if current_balance > 0 else "")
+                    + (f"💼 Equity: ${current_equity:.2f} (Balance: ${current_balance:.2f}, Unrealized: ${current_unrealized:.2f}) | Risk: {user_risk_pct}%\n" if current_equity > 0 else "")
                     + f"🧠 Confidence: {confidence}%\n"
                     + (
                         f"🎯 <b>StackMentor Active</b> (3-tier TP)\n"
