@@ -330,33 +330,85 @@ class ScalpingEngine:
 
             logger.info(f"[Scalping:{self.user_id}] {symbol} SIDEWAYS detected: {sideways_result.reason}")
 
-            # Step 2: Identify range S/R
+            # Step 2: Identify range S/R (optional — used for room check)
             try:
                 range_result = RangeAnalyzer().analyze(candles_5m, price)
             except Exception as e:
                 self._increment_sideways_error(symbol)
                 logger.error(f"[Scalping:{self.user_id}] RangeAnalyzer error for {symbol}: {e}")
-                return None
+                range_result = None
 
-            if range_result is None:
-                logger.debug(f"[Scalping:{self.user_id}] {symbol} No valid S/R range found")
-                return None
+            support = range_result.support if range_result else None
+            resistance = range_result.resistance if range_result else None
 
-            # Step 3: Detect bounce
-            try:
-                bounce_result = BounceDetector().detect(
-                    last_candle=candles_5m[-1],
-                    support=range_result.support,
-                    resistance=range_result.resistance,
-                    price=price,
-                )
-            except Exception as e:
-                self._increment_sideways_error(symbol)
-                logger.error(f"[Scalping:{self.user_id}] BounceDetector error for {symbol}: {e}")
-                return None
+            # Step 3: Try bounce signal first (classic S/R bounce)
+            bounce_result = None
+            if range_result:
+                try:
+                    bounce_result = BounceDetector().detect(
+                        last_candle=candles_5m[-1],
+                        support=range_result.support,
+                        resistance=range_result.resistance,
+                        price=price,
+                    )
+                except Exception as e:
+                    self._increment_sideways_error(symbol)
+                    logger.error(f"[Scalping:{self.user_id}] BounceDetector error for {symbol}: {e}")
+
+            # Step 3b: If no bounce, try micro momentum (1M/3M EMA crossover)
+            if bounce_result is None:
+                try:
+                    from app.micro_momentum_detector import MicroMomentumDetector
+                    raw_1m = await get_candles_cached(fetch_klines_async, base_symbol, "1m", 30)
+                    raw_3m = await get_candles_cached(fetch_klines_async, base_symbol, "3m", 15)
+
+                    if raw_1m and raw_3m:
+                        candles_1m = to_dict_candles(raw_1m)
+                        candles_3m = to_dict_candles(raw_3m)
+
+                        momentum_signal = MicroMomentumDetector().detect(
+                            candles_1m=candles_1m,
+                            candles_3m=candles_3m,
+                            candles_5m=candles_5m,
+                            price=price,
+                            support=support,
+                            resistance=resistance,
+                        )
+
+                        if momentum_signal:
+                            logger.info(
+                                f"[Scalping:{self.user_id}] {symbol} MICRO MOMENTUM signal: "
+                                f"{momentum_signal.direction} | {momentum_signal.reason}"
+                            )
+                            # Return as MicroScalpSignal
+                            reasons = [
+                                f"Sideways market: {sideways_result.reason}",
+                                f"Micro momentum: {momentum_signal.reason}",
+                            ]
+                            if range_result:
+                                reasons.insert(1, f"Range: {range_result.support:.4f} - {range_result.resistance:.4f}")
+
+                            return MicroScalpSignal(
+                                symbol=symbol,
+                                side=momentum_signal.direction,
+                                entry_price=momentum_signal.entry_price,
+                                tp_price=momentum_signal.tp_price,
+                                sl_price=momentum_signal.sl_price,
+                                rr_ratio=momentum_signal.rr_ratio,
+                                range_support=support or price * 0.995,
+                                range_resistance=resistance or price * 1.005,
+                                range_width_pct=range_result.range_width_pct if range_result else 0.5,
+                                confidence=momentum_signal.confidence,
+                                bounce_confirmed=False,
+                                rsi_divergence_detected=False,
+                                volume_ratio=1.0,
+                                reasons=reasons,
+                            )
+                except Exception as e:
+                    logger.warning(f"[Scalping:{self.user_id}] MicroMomentum error for {symbol}: {e}")
 
             if bounce_result is None:
-                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce confirmed")
+                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce or momentum signal")
                 return None
 
             direction = bounce_result.direction  # "LONG" or "SHORT"
