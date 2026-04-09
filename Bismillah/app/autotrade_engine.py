@@ -1200,7 +1200,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
     logger.info(f"[Engine:{user_id}] PRO ENGINE STARTED — symbols={cfg['symbols']}, "
                 f"min_conf={cfg['min_confidence']}, min_rr={cfg['min_rr_ratio']}, "
-                f"daily_loss_limit={daily_loss_limit:.2f} USDT, user_risk={user_risk_pct}%")
+                f"user_risk={user_risk_pct}%, daily_loss_limit_DISABLED")
 
     try:
         if not silent:
@@ -1209,18 +1209,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 chat_id=notify_chat_id,
                 text=(
                     "🤖 <b>AutoTrade PRO Engine Active!</b>\n\n"
-                    f"📊 Strategy: Multi-timeframe (1H trend + 15M entry)\n"
+                    f"📊 Strategy: Confluence-based multi-factor detection\n"
                     f"🎯 Min Confidence: {cfg['min_confidence']}%\n"
+                    f"💰 Risk Per Trade: {user_risk_pct}%\n"
                     + (
                         f"⚖️ R:R: 1:2 (TP1, 75%) → 1:3 (TP2, 25%)\n"
-                        f"🔒 Breakeven: SL geser ke entry setelah TP1 hit\n"
+                        f"🔒 Breakeven: SL moves to entry after TP1 hit\n"
                         f"👑 Mode: <b>PREMIUM</b>\n"
                         if is_premium else
                         f"⚖️ Min R:R Ratio: 1:{cfg['min_rr_ratio']}\n"
                     )
-                    + f"🛡 Daily Loss Limit: {daily_loss_limit:.2f} USDT ({cfg['daily_loss_limit']*100:.0f}%)\n"
-                    f"📈 Mode: <b>Unlimited trades/day</b>\n\n"
-                    "Bot only executes high-quality setups. Patience = profit."
+                    + f"📈 Mode: <b>Unlimited trades/day (no daily loss limit)</b>\n"
+                    f"✅ Continuous trading enabled for opportunity maximization\n\n"
+                    "High-probability setups only. Risk per trade: fixed dollar amount."
                 ),
                 parse_mode='HTML'
             )
@@ -1271,24 +1272,15 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 last_trade_date = today
                 logger.info(f"[Engine:{user_id}] New day — counters reset")
 
-            # ── Circuit breaker: daily loss limit ─────────────────────
+            # ── Daily loss tracking (no circuit breaker limit) ──────────
+            # Track daily P&L for monitoring but allow continuous trading
             if daily_pnl_usdt <= -daily_loss_limit:
-                logger.warning(f"[Engine:{user_id}] Daily loss limit hit ({daily_pnl_usdt:.2f} USDT), pausing until tomorrow")
-                await bot.send_message(
-                    chat_id=notify_chat_id,
-                    text=(
-                        f"🛑 <b>Circuit Breaker Triggered</b>\n\n"
-                        f"Today's loss: <b>{daily_pnl_usdt:.2f} USDT</b>\n"
-                        f"Limit: {daily_loss_limit:.2f} USDT ({cfg['daily_loss_limit']*100:.0f}% of capital)\n\n"
-                        "Bot has stopped trading today to protect your capital.\n"
-                        "Will resume tomorrow. 🔄"
-                    ),
-                    parse_mode='HTML'
+                logger.warning(
+                    f"[Engine:{user_id}] Daily P&L: {daily_pnl_usdt:.2f} USDT "
+                    f"(note: no circuit breaker, trading continues)"
                 )
-                # Tunggu sampai hari berikutnya
-                while date.today() == today:
-                    await asyncio.sleep(300)
-                continue
+                # Note: Circuit breaker disabled per user request for opportunity maximization
+                # Daily P&L tracking continues for monitoring purposes
 
             # ── Demo user: equity cap $50 ────────────────────────────
             from app.demo_users import is_demo_user, DEMO_BALANCE_LIMIT
