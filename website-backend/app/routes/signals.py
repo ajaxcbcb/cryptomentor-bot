@@ -43,7 +43,20 @@ def _optional_user(
 SIGNAL_ENTRY_WINDOW_SECONDS = 5 * 60
 
 # Quantity precision per symbol — mirrors Bismillah/app/autotrade_engine.py.
-_QTY_PRECISION = {"BTCUSDT": 3, "ETHUSDT": 2, "AVAXUSDT": 2}
+_QTY_PRECISION = {
+    "BTCUSDT":  3,
+    "ETHUSDT":  2,
+    "AVAXUSDT": 2,
+    "SOLUSDT":  1,
+    "BNBUSDT":  2,
+    "XRPUSDT":  0,
+    "DOGEUSDT": 0,
+    "LINKUSDT": 1,
+    "ADAUSDT":  0,
+    "DOTUSDT":  1,
+    "MATICUSDT": 0,
+    "LTCUSDT":  2,
+}
 
 router = APIRouter(prefix="/dashboard", tags=["signals"])
 
@@ -55,10 +68,20 @@ router = APIRouter(prefix="/dashboard", tags=["signals"])
 _signal_cache: Dict[str, Dict[str, Any]] = {}
 
 # (display_pair, binance_symbol, tier, type)
+# All pairs are free — more pairs = more trading volume
 _WATCHLIST = [
-    ("BTC/USDT", "BTCUSDT", "free", "Scalp"),
-    ("ETH/USDT", "ETHUSDT", "pro",  "Swing"),
-    ("AVAX/USDT", "AVAXUSDT", "pro", "Scalp"),
+    ("BTC/USDT",   "BTCUSDT",   "free", "Scalp"),
+    ("ETH/USDT",   "ETHUSDT",   "free", "Swing"),
+    ("SOL/USDT",   "SOLUSDT",   "free", "Scalp"),
+    ("BNB/USDT",   "BNBUSDT",   "free", "Scalp"),
+    ("AVAX/USDT",  "AVAXUSDT",  "free", "Scalp"),
+    ("XRP/USDT",   "XRPUSDT",   "free", "Scalp"),
+    ("DOGE/USDT",  "DOGEUSDT",  "free", "Scalp"),
+    ("LINK/USDT",  "LINKUSDT",  "free", "Swing"),
+    ("ADA/USDT",   "ADAUSDT",   "free", "Scalp"),
+    ("DOT/USDT",   "DOTUSDT",   "free", "Swing"),
+    ("MATIC/USDT", "MATICUSDT", "free", "Scalp"),
+    ("LTC/USDT",   "LTCUSDT",   "free", "Swing"),
 ]
 
 _BINANCE_TICKER = "https://api.binance.com/api/v3/ticker/24hr"
