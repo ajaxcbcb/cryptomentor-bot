@@ -3,6 +3,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.auth.jwt import decode_token
 from app.db.supabase import _client
 from app.services import bitunix as bsvc
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 bearer = HTTPBearer()
