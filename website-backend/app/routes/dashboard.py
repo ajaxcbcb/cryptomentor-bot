@@ -217,10 +217,29 @@ async def get_performance(tg_id: int = Depends(get_current_user)):
     }
 
 
+@router.get("/system")
+async def system_health():
+    """Public health check — no auth required. Safe to open directly in browser."""
+    import sys, os
+    from datetime import datetime, timezone
+    return {
+        "status": "ok",
+        "time_utc": datetime.now(timezone.utc).isoformat(),
+        "bismillah_available": bsvc._BITUNIX_AVAILABLE,
+        "encryption_key_set": bool(os.getenv("ENCRYPTION_KEY")),
+        "supabase_url_set": bool(os.getenv("SUPABASE_URL")),
+        "hint": "Visit /api/dashboard/debug with a valid JWT to see user-specific key/account status.",
+    }
+
+
 @router.get("/debug")
 async def debug_connector(tg_id: int = Depends(get_current_user)):
-    """Diagnostic endpoint — shows exactly what's failing for this user."""
-    s = _client()
+    """User-specific diagnostic — requires JWT in Authorization header.
+    Easiest way: open browser DevTools → Network tab → copy the
+    Authorization header from any /api/ request, then use curl or
+    fetch() from the console:
+      fetch('/api/dashboard/debug', {headers:{Authorization:'Bearer <token>'}}).then(r=>r.json()).then(console.log)
+    """
     keys = bsvc.get_user_api_keys(tg_id)
     result = {
         "tg_id": tg_id,
@@ -234,11 +253,21 @@ async def debug_connector(tg_id: int = Depends(get_current_user)):
     if keys:
         try:
             acc = await bsvc.fetch_account(tg_id)
-            result["account"] = {"success": acc.get("success"), "available": acc.get("available"), "msg": acc.get("message")}
+            result["account"] = {
+                "success": acc.get("success"),
+                "available": acc.get("available"),
+                "msg": acc.get("message"),
+            }
             pos = await bsvc.fetch_positions(tg_id)
-            result["positions"] = {"success": pos.get("success"), "count": len(pos.get("positions", [])), "msg": pos.get("message")}
+            result["positions"] = {
+                "success": pos.get("success"),
+                "count": len(pos.get("positions", [])),
+                "msg": pos.get("message"),
+            }
         except Exception as e:
             result["error"] = str(e)
+    else:
+        result["error"] = "No API keys found — check ENCRYPTION_KEY env var and user_api_keys table"
     return result
 
 
