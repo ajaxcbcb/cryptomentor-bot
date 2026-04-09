@@ -930,6 +930,8 @@ class ScalpingEngine:
                 # Atomic order with TP1 + SL on exchange + StackMentor register
                 # ═══════════════════════════════════════════════════════════
                 from app.trade_execution import open_managed_position
+                from app.trading_mode import MicroScalpSignal as _MicroScalpSignalCheck
+                _is_sideways_signal = isinstance(signal, _MicroScalpSignalCheck)
 
                 exec_result = await open_managed_position(
                     client=self.client,
@@ -940,6 +942,9 @@ class ScalpingEngine:
                     sl_price=signal.sl_price,
                     quantity=quantity_adjusted,
                     leverage=effective_leverage,
+                    # Sideways positions have very tight TP/SL — skip reconcile
+                    # to avoid false emergency closes. Engine monitors via max_hold.
+                    reconcile=not _is_sideways_signal,
                 )
 
                 if exec_result.success:
@@ -1189,19 +1194,29 @@ class ScalpingEngine:
             )
             
             if result.get('success'):
-                fill_price = float(result.get('fill_price', position.entry_price))
-                
+                fill_price = float(result.get('fill_price', 0))
+                # If exchange doesn't return fill_price, get current mark price
+                if fill_price <= 0:
+                    try:
+                        ticker = await asyncio.to_thread(self.client.get_ticker, position.symbol)
+                        if ticker.get('success'):
+                            fill_price = float(ticker.get('mark_price', position.entry_price))
+                        else:
+                            fill_price = position.entry_price
+                    except Exception:
+                        fill_price = position.entry_price
+
                 if position.side == "BUY":
                     pnl = (fill_price - position.entry_price) * position.quantity
                 else:
                     pnl = (position.entry_price - fill_price) * position.quantity
-                
+
                 pnl_with_leverage = pnl * position.leverage
-                
+
                 await self._update_position_closed(
                     position, fill_price, pnl_with_leverage, "sideways_max_hold_exceeded"
                 )
-                
+
                 await self._notify_user(
                     f"⏰ <b>SIDEWAYS Closed (2min)</b>\n\n"
                     f"Symbol: {position.symbol}\n"
@@ -1210,7 +1225,7 @@ class ScalpingEngine:
                     f"Hold Time: {elapsed}s\n"
                     f"PnL: <b>{pnl_with_leverage:+.2f} USDT</b>"
                 )
-                
+
                 del self.positions[position.symbol]
             else:
                 logger.error(
