@@ -132,7 +132,14 @@ export default function App() {
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
   const [showBotStartModal, setShowBotStartModal] = useState(false);
-  const [riskSettings, setRiskSettings] = useState({ risk_per_trade: 0.5, leverage: 10, current_balance: 0, loading: true });
+  const [riskSettings, setRiskSettings] = useState({
+    risk_per_trade: 0.5,
+    leverage: 10,
+    equity: 0,          // balance + unrealized PnL (used for risk calculations)
+    balance: 0,         // free available balance
+    unrealized_pnl: 0,  // open position P&L
+    loading: true
+  });
 
   useEffect(() => {
     document.body.style.overflow = isMobileMenuOpen ? 'hidden' : 'unset';
@@ -265,7 +272,7 @@ export default function App() {
   const handleCancelStart = () => setShowBotStartModal(false);
   const handleToggleBot = () => callEngine(botRunning ? 'stop' : 'start');
 
-  // Fetch risk settings
+  // Fetch risk settings (including LIVE equity from Bitunix)
   const fetchRiskSettings = async () => {
     try {
       const resp = await apiFetch('/dashboard/settings');
@@ -274,7 +281,9 @@ export default function App() {
         setRiskSettings({
           risk_per_trade: data.risk_per_trade || 0.5,
           leverage: data.leverage || 10,
-          current_balance: data.current_balance || 0,
+          equity: data.equity || 0,  // balance + unrealized PnL (for risk calcs)
+          balance: data.balance || 0,  // free available balance
+          unrealized_pnl: data.unrealized_pnl || 0,  // open position P&L
           loading: false,
         });
       }
@@ -749,20 +758,40 @@ function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskS
           </div>
         </div>
 
-        {/* Risk Preview Calculation */}
-        {riskSettings.current_balance > 0 && (
+        {/* Risk Preview Calculation (using LIVE equity from Bitunix) */}
+        {riskSettings.equity > 0 && (
           <div className="mb-6 relative z-10 bg-[#050505]/50 border border-white/5 p-4 rounded-xl">
-            <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Dollar Risk Preview</p>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-300">Account Balance:</span>
-              <span className="text-sm font-bold text-cyan-400">${riskSettings.current_balance.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+            <p className="text-[10px] text-slate-500 font-bold uppercase mb-3">Account Status (Live from Bitunix)</p>
+
+            {/* Equity (balance + unrealized PnL) */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-slate-300">Account Equity:</span>
+              <span className="text-sm font-bold text-cyan-400">${riskSettings.equity.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
             </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-sm text-slate-300">Risk Per Trade:</span>
-              <span className="text-sm font-bold text-amber-400">
-                ${(riskSettings.current_balance * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+
+            {/* Free Balance */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-slate-400 text-xs">├ Free Balance:</span>
+              <span className="text-sm text-slate-300">${riskSettings.balance.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+            </div>
+
+            {/* Unrealized PnL */}
+            <div className={`flex items-center justify-between mb-3 pb-3 border-b border-white/10`}>
+              <span className="text-sm text-slate-400 text-xs">└ Unrealized P&L:</span>
+              <span className={`text-sm font-bold ${riskSettings.unrealized_pnl >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                ${riskSettings.unrealized_pnl.toLocaleString('en-US', {maximumFractionDigits: 2})}
               </span>
             </div>
+
+            {/* Risk Amount Calculation (based on equity) */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-300">Risk Per Trade ({riskSettings.risk_per_trade}%):</span>
+              <span className="text-sm font-bold text-amber-400">
+                ${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+              </span>
+            </div>
+
+            <p className="text-[10px] text-slate-500 mt-2 italic">Position sizing uses equity, not balance</p>
           </div>
         )}
 
