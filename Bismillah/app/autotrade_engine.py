@@ -30,6 +30,15 @@ _running_tasks: Dict[int, asyncio.Task] = {}
 # Track posisi yang sudah hit TP1 (breakeven mode): user_id → set of symbols
 _tp1_hit_positions: Dict[int, set] = {}
 
+# Signal queue system: user_id → list of signals (sorted by confidence)
+_signal_queues: Dict[int, List[Dict]] = {}
+
+# Symbol execution locks: user_id → {symbol → asyncio.Lock}
+_symbol_locks: Dict[int, Dict[str, asyncio.Lock]] = {}
+
+# Track signals being processed: user_id → set of symbols currently being executed
+_signals_being_processed: Dict[int, set] = {}
+
 # ─────────────────────────────────────────────
 #  Engine config (professional defaults)
 # ─────────────────────────────────────────────
@@ -1690,10 +1699,52 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 await asyncio.sleep(cfg["scan_interval"])
                 continue
 
-            # Pilih sinyal terbaik: prioritas confidence, lalu R:R
-            best = max(candidates, key=lambda s: (s['confidence'], s['rr_ratio']))
+            # ── Signal Queue System: Sort candidates by confidence (highest first) ──
+            # All candidates are queued, not just the best one
+            candidates.sort(key=lambda s: (s['confidence'], s['rr_ratio']), reverse=True)
 
-            sig        = best
+            logger.info(f"[Engine:{user_id}] Signal Queue System: {len(candidates)} candidates generated (sorted by confidence)")
+            queue_msg = "📋 <b>Signal Queue (by confidence):</b>\n"
+            for idx, cand in enumerate(candidates, 1):
+                logger.info(f"  [{idx}] {cand['symbol']}: {cand['side']} conf={cand['confidence']}% RR={cand['rr_ratio']:.1f}")
+                queue_msg += f"{idx}. <b>{cand['symbol']}</b> {cand['side']} | Conf: {cand['confidence']}% | R:R: 1:{cand['rr_ratio']:.1f}\n"
+
+            # Store candidates in signal queue for this user
+            if user_id not in _signal_queues:
+                _signal_queues[user_id] = []
+
+            # Add candidates to queue (deduplicate by symbol)
+            queued_symbols = {s['symbol'] for s in _signal_queues[user_id]}
+            for cand in candidates:
+                if cand['symbol'] not in queued_symbols:
+                    _signal_queues[user_id].append(cand)
+                    queued_symbols.add(cand['symbol'])
+
+            # ── Process next signal from queue ──────────────────────────────────
+            if not _signal_queues[user_id]:
+                await asyncio.sleep(cfg["scan_interval"])
+                continue
+
+            # Initialize symbol locks for this user if not exists
+            if user_id not in _symbol_locks:
+                _symbol_locks[user_id] = {}
+            if user_id not in _signals_being_processed:
+                _signals_being_processed[user_id] = set()
+
+            # Get next signal from queue (highest confidence)
+            sig = None
+            for idx, candidate in enumerate(_signal_queues[user_id]):
+                if candidate['symbol'] not in _signals_being_processed[user_id]:
+                    sig = candidate
+                    queued_idx = idx
+                    break
+
+            if not sig:
+                # All symbols in queue are being processed, wait for next iteration
+                logger.info(f"[Engine:{user_id}] All queued signals are being processed, waiting...")
+                await asyncio.sleep(cfg["scan_interval"])
+                continue
+
             symbol     = sig['symbol']
             side       = sig['side']
             entry      = sig['entry_price']
@@ -1703,12 +1754,39 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             confidence = sig['confidence']
             rr_ratio   = sig['rr_ratio']
 
+            logger.info(
+                f"[Engine:{user_id}] Processing signal from queue: {symbol} {side} "
+                f"conf={confidence}% RR={rr_ratio:.1f} "
+                f"(Queue position: #{_signal_queues[user_id].index(sig) + 1}/{len(_signal_queues[user_id])})"
+            )
+
+            # ── Mark symbol as being processed (prevent concurrent execution) ──
+            _signals_being_processed[user_id].add(symbol)
+
+            # Send queue status update to user
+            try:
+                queued_remaining = [s['symbol'] for s in _signal_queues[user_id][1:]]
+                if queued_remaining:
+                    queue_status = f"📊 <b>Signal Queue Status:</b>\n\n"
+                    queue_status += f"<b>⚙️ Now Processing:</b>\n{symbol} | {side} | Conf: {confidence}%\n\n"
+                    queue_status += f"<b>📋 Queued ({len(queued_remaining)} remaining):</b>\n"
+                    for q_sym in queued_remaining:
+                        queue_status += f"  • {q_sym}\n"
+                    queue_status += f"\n<i>Higher confidence signals execute first</i>"
+                    await bot.send_message(chat_id=notify_chat_id, text=queue_status, parse_mode='HTML')
+            except Exception as _qst_err:
+                logger.debug(f"[Engine:{user_id}] Queue status notification failed: {_qst_err}")
+
             # ── Hitung qty dengan risk-based sizing (Phase 2) ─────────────
             # Try risk-based position sizing first, fallback to fixed margin if fails
             qty, used_risk_sizing = await calc_qty_with_risk(symbol, entry, sl, leverage)
             
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
+                # Clean up: remove from queue and unmark as processing
+                if user_id in _signal_queues:
+                    _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                _signals_being_processed[user_id].discard(symbol)
                 await asyncio.sleep(cfg["scan_interval"])
                 continue
             
@@ -1810,11 +1888,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     if side == "LONG":
                         if tp1 <= current_mark_price:
                             logger.warning(f"[Engine:{user_id}] Invalid TP for LONG: {tp1:.4f} <= {current_mark_price:.4f}, skipping trade")
+                            # Clean up: remove from queue and unmark as processing
+                            if user_id in _signal_queues:
+                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                            _signals_being_processed[user_id].discard(symbol)
                             await asyncio.sleep(cfg["scan_interval"])
                             continue
                     else:  # SHORT
                         if tp1 >= current_mark_price:
                             logger.warning(f"[Engine:{user_id}] Invalid TP for SHORT: {tp1:.4f} >= {current_mark_price:.4f}, skipping trade")
+                            # Clean up: remove from queue and unmark as processing
+                            if user_id in _signal_queues:
+                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                            _signals_being_processed[user_id].discard(symbol)
                             await asyncio.sleep(cfg["scan_interval"])
                             continue
             except Exception as _val_err:
@@ -1847,6 +1933,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         ),
                         parse_mode='HTML'
                     )
+                    # Clean up: remove from queue and unmark as processing
+                    if user_id in _signal_queues:
+                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                    _signals_being_processed[user_id].discard(symbol)
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
@@ -1870,6 +1960,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         retry_err = retry_result.get('error', '')
                         # Hanya stop jika TOKEN_INVALID — IP_BLOCKED jangan stop, bisa recover
                         if 'TOKEN_INVALID' in str(retry_err):
+                            # Clean up before exiting
+                            if user_id in _signal_queues:
+                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                            _signals_being_processed[user_id].discard(symbol)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
@@ -1898,6 +1992,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             return
                         elif 'IP_BLOCKED' in str(retry_err):
                             # IP still blocked — wait longer, don't stop engine
+                            # Clean up: remove from queue and unmark as processing
+                            if user_id in _signal_queues:
+                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                            _signals_being_processed[user_id].discard(symbol)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
@@ -1910,6 +2008,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             await asyncio.sleep(300)
                             continue
                         else:
+                            # Clean up: remove from queue and unmark as processing
+                            if user_id in _signal_queues:
+                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                            _signals_being_processed[user_id].discard(symbol)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=f"⚠️ <b>Order failed (2x):</b> {retry_err}\n\nBot is still running.",
@@ -1918,6 +2020,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             await asyncio.sleep(cfg["scan_interval"])
                             continue
                 else:
+                    # Clean up: remove from queue and unmark as processing
+                    if user_id in _signal_queues:
+                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                    _signals_being_processed[user_id].discard(symbol)
                     # Pesan error spesifik berdasarkan kode
                     if '20003' in str(err) or 'Insufficient balance' in str(err):
                         bal_result = await asyncio.to_thread(client.get_balance)
@@ -1947,8 +2053,17 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                 # Jika retry sukses, pastikan order_result sudah diupdate di atas
                 if not order_result.get('success'):
+                    # Clean up: remove from queue and unmark as processing
+                    if user_id in _signal_queues:
+                        _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+                    _signals_being_processed[user_id].discard(symbol)
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
+
+            # ── Order SUCCESS: Clean up from queue and mark execution complete ──
+            if user_id in _signal_queues:
+                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
+            _signals_being_processed[user_id].discard(symbol)
 
             order_id = order_result.get('order_id', '-')
             trades_today += 1
