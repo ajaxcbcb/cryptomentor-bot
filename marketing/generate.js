@@ -7,14 +7,25 @@
  *   node generate.js --no-send   → generate only, skip Telegram
  */
 
+// Load environment variables
+require('dotenv').config();
+
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const FormData = require('form-data');
 
-const BOT_TOKEN = '8025048597:AAEng-pPhDmTKsiRb1BtJ50P8CC-FamGCb4';
-const CHAT_ID   = '1187119989';
+// Get credentials from environment (with fallbacks for security)
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHAT_ID   = process.env.CHAT_ID;
+
+// Validate required configuration
+if (!BOT_TOKEN || !CHAT_ID) {
+  console.error('❌ ERROR: BOT_TOKEN and CHAT_ID environment variables are required.');
+  console.error('   Copy .env.example to .env and fill in your Telegram credentials.');
+  process.exit(1);
+}
 
 const calendar = JSON.parse(fs.readFileSync(path.join(__dirname, 'content_calendar.json'), 'utf8'));
 const args = process.argv.slice(2);
@@ -85,55 +96,96 @@ async function renderPost(post, browser) {
 
   // Write temp HTML
   const tmpPath = path.join(__dirname, `_tmp_${post.id}.html`);
-  fs.writeFileSync(tmpPath, html);
+  
+  try {
+    fs.writeFileSync(tmpPath, html);
 
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 2 });
-  await page.goto('file:///' + tmpPath.replace(/\\/g, '/'), { waitUntil: 'networkidle0' });
-  await new Promise(r => setTimeout(r, 1500)); // wait for fonts
+    const page = await browser.newPage();
+    try {
+      await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 2 });
+      await page.goto('file:///' + tmpPath.replace(/\\/g, '/'), { waitUntil: 'networkidle0' });
+      await new Promise(r => setTimeout(r, 1500)); // wait for fonts
 
-  // Ensure output dir exists
-  const outDir = path.join(__dirname, 'output');
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
+      // Ensure output dir exists
+      const outDir = path.join(__dirname, 'output');
+      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
-  const date = new Date().toISOString().slice(0, 10);
-  const outFile = path.join(outDir, `poster_${date}_${post.type}_${post.theme}.png`);
+      const date = new Date().toISOString().slice(0, 10);
+      const outFile = path.join(outDir, `poster_${date}_${post.type}_${post.theme}.png`);
 
-  await page.screenshot({ path: outFile, clip: { x: 0, y: 0, width: 1080, height: 1350 } });
-  await page.close();
-  fs.unlinkSync(tmpPath); // cleanup temp
-
-  return outFile;
+      await page.screenshot({ path: outFile, clip: { x: 0, y: 0, width: 1080, height: 1350 } });
+      return outFile;
+    } finally {
+      await page.close().catch(err => console.error('Failed to close page:', err));
+    }
+  } finally {
+    // Always cleanup temp file, even on error
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch (err) {
+      console.warn(`Warning: Failed to cleanup temp file ${tmpPath}:`, err.message);
+    }
+  }
 }
 
-// ── Send PNG to Telegram ──
-function sendPhoto(filePath, caption) {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append('chat_id', CHAT_ID);
-    form.append('photo', fs.createReadStream(filePath), { filename: path.basename(filePath) });
-    form.append('caption', caption);
-    form.append('parse_mode', 'HTML');
+// ── Send PNG to Telegram with retry logic ──
+async function sendPhoto(filePath, caption, retries = 3, delayMs = 1000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const form = new FormData();
+        form.append('chat_id', CHAT_ID);
+        form.append('photo', fs.createReadStream(filePath), { filename: path.basename(filePath) });
+        form.append('caption', caption);
+        form.append('parse_mode', 'HTML');
 
-    const options = {
-      hostname: 'api.telegram.org',
-      path: `/bot${BOT_TOKEN}/sendPhoto`,
-      method: 'POST',
-      headers: form.getHeaders()
-    };
+        const options = {
+          hostname: 'api.telegram.org',
+          path: `/bot${BOT_TOKEN}/sendPhoto`,
+          method: 'POST',
+          headers: form.getHeaders(),
+          timeout: 10000, // 10 second timeout
+        };
 
-    const req = https.request(options, res => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        const json = JSON.parse(data);
-        if (json.ok) resolve(json);
-        else reject(new Error(json.description));
+        const req = https.request(options, res => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              if (json.ok) {
+                resolve(json);
+              } else {
+                reject(new Error(`Telegram API error: ${json.description || 'Unknown error'}`));
+              }
+            } catch (err) {
+              reject(new Error(`Failed to parse Telegram response: ${err.message}`));
+            }
+          });
+        });
+
+        req.on('error', reject);
+        req.on('timeout', () => {
+          req.abort();
+          reject(new Error('Request timeout'));
+        });
+        
+        form.pipe(req);
       });
-    });
-    req.on('error', reject);
-    form.pipe(req);
-  });
+    } catch (err) {
+      const isLastAttempt = attempt === retries;
+      const errorMsg = `Attempt ${attempt}/${retries} failed: ${err.message}`;
+      
+      if (isLastAttempt) {
+        throw new Error(`Failed to send photo after ${retries} retries: ${err.message}`);
+      } else {
+        console.warn(`⚠️  ${errorMsg} — Retrying in ${delayMs}ms...`);
+        await new Promise(r => setTimeout(r, delayMs));
+        // Exponential backoff
+        delayMs = Math.min(delayMs * 1.5, 10000);
+      }
+    }
+  }
 }
 
 // ── Main ──

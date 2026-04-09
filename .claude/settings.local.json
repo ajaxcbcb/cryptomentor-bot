@@ -24,7 +24,10 @@
       "Bash(xargs grep:*)",
       "Bash(grep -r \"localhost:8000\\\\|/api\\\\|API\" /d/cryptomentorAI/website-frontend/.env*)",
       "Bash(python -m py_compile website-backend/app/routes/signals.py)",
-      "Bash(py -m py_compile website-backend/app/routes/signals.py)"
+      "Bash(py -m py_compile website-backend/app/routes/signals.py)",
+      "Bash(python3)",
+      "Bash(python3 -c ':*)",
+      "Bash(python -m py_compile app/routes/signals.py)"
     ]
   }
 }
