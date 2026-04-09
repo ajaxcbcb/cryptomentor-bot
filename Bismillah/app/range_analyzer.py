@@ -18,10 +18,10 @@ class RangeResult:
 
 
 class RangeAnalyzer:
-    TOLERANCE_PCT = 0.0015  # 0.15% clustering tolerance
+    TOLERANCE_PCT = 0.002   # 0.2% clustering tolerance (relaxed from 0.15%)
     MIN_TOUCHES = 2
-    MIN_RANGE_PCT = 0.005   # 0.5%
-    MAX_RANGE_PCT = 0.040   # 4.0% (expanded from 3.0% for more opportunities)
+    MIN_RANGE_PCT = 0.003   # 0.3% (relaxed from 0.5% for tight sideways market)
+    MAX_RANGE_PCT = 0.040   # 4.0%
 
     def analyze(self, candles_5m: list, price: float) -> Optional[RangeResult]:
         """
