@@ -1484,6 +1484,18 @@ async def callback_start_engine_now(update: Update, context: ContextTypes.DEFAUL
         _is_premium = has_skill(user_id, "dual_tp_rr3")
 
         from app.autotrade_engine import start_engine
+
+        # CRITICAL: Update status to active BEFORE starting engine
+        # Otherwise engine will read "stopped" status and immediately stop
+        from app.supabase_repo import _client as _sc
+        try:
+            _sc().table("autotrade_sessions").update({
+                "status": "active",
+                "engine_active": False  # will be set True by start_engine
+            }).eq("telegram_id", user_id).execute()
+        except Exception as _e:
+            logger.warning(f"[StartEngine:{user_id}] Failed to update status: {_e}")
+
         start_engine(
             bot=query.get_bot(),
             user_id=user_id,
@@ -1818,10 +1830,11 @@ async def callback_stop_engine(update: Update, context: ContextTypes.DEFAULT_TYP
     from app.autotrade_engine import stop_engine, is_running
     if is_running(user_id):
         stop_engine(user_id)
-        # Update status in Supabase
+        # Update status in Supabase — set BOTH status AND engine_active atomically
         try:
             _client().table("autotrade_sessions").update({
                 "status": "stopped",
+                "engine_active": False,
                 "updated_at": datetime.utcnow().isoformat()
             }).eq("telegram_id", user_id).execute()
         except Exception:

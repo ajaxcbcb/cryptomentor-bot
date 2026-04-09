@@ -970,7 +970,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 ).eq("telegram_id", user_id).limit(1).execute()
                 if _db_session.data:
                     _db_status = _db_session.data[0].get("status", "active")
-                    if _db_status == "stopped":
+                    _db_engine_active = _db_session.data[0].get("engine_active", True)
+                    # Only stop if BOTH status=stopped AND engine_active=False
+                    if _db_status == "stopped" and not _db_engine_active:
                         logger.info(f"[Engine:{user_id}] Stop signal from Supabase, exiting loop")
                         try:
                             await bot.send_message(

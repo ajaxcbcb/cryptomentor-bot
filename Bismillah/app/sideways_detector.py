@@ -1,10 +1,10 @@
 """
 SidewaysDetector — menentukan apakah kondisi market saat ini sideways atau trending.
 
-Tiga metrik independen (OR condition):
-  - atr_relative_pct < 0.3  → SIDEWAYS
-  - ema_spread_pct   < 0.2  → SIDEWAYS
-  - range_width_pct  < 1.5  → SIDEWAYS
+Tiga metrik dengan voting (minimal 2 dari 3 harus terpenuhi untuk SIDEWAYS):
+  - atr_relative_pct < 0.3  → vote sideways
+  - ema_spread_pct   < 0.2  → vote sideways
+  - range_width_pct  < 1.5  → vote sideways
 """
 
 import logging
@@ -79,15 +79,17 @@ class SidewaysDetector:
         ema_spread_pct   = self._calc_ema_spread_pct(candles_15m, price)
         range_width_pct  = self._calc_range_width_pct(candles_5m[-20:], price)
 
-        sideways_reasons = []
+        sideways_votes = []
         if atr_relative_pct < self.ATR_THRESHOLD:
-            sideways_reasons.append(f"ATR_relative={atr_relative_pct:.4f}% < {self.ATR_THRESHOLD}%")
+            sideways_votes.append(f"ATR_relative={atr_relative_pct:.4f}% < {self.ATR_THRESHOLD}%")
         if ema_spread_pct < self.EMA_SPREAD_THRESHOLD:
-            sideways_reasons.append(f"EMA_spread={ema_spread_pct:.4f}% < {self.EMA_SPREAD_THRESHOLD}%")
+            sideways_votes.append(f"EMA_spread={ema_spread_pct:.4f}% < {self.EMA_SPREAD_THRESHOLD}%")
         if range_width_pct < self.RANGE_WIDTH_THRESHOLD:
-            sideways_reasons.append(f"Range_width={range_width_pct:.4f}% < {self.RANGE_WIDTH_THRESHOLD}%")
+            sideways_votes.append(f"Range_width={range_width_pct:.4f}% < {self.RANGE_WIDTH_THRESHOLD}%")
 
-        is_sideways = len(sideways_reasons) > 0
+        # Butuh minimal 2 dari 3 kondisi untuk dianggap SIDEWAYS
+        is_sideways = len(sideways_votes) >= 2
+        sideways_reasons = sideways_votes
 
         if is_sideways:
             reason = "SIDEWAYS: " + "; ".join(sideways_reasons)

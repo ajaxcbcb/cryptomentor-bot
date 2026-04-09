@@ -91,23 +91,32 @@ class ScalpingEngine:
             while self.running:
                 try:
                     # ── Check Supabase stop signal ────────────────────────────
+                    # Only stop if status is explicitly "stopped" AND engine_active=False
+                    # This prevents race conditions where status briefly shows "stopped"
+                    # during user restart flow
                     try:
                         from app.supabase_repo import _client as _sc
-                        _sr = _sc().table("autotrade_sessions").select("status").eq(
+                        _sr = _sc().table("autotrade_sessions").select("status, engine_active").eq(
                             "telegram_id", self.user_id
                         ).limit(1).execute()
-                        if _sr.data and _sr.data[0].get("status") == "stopped":
-                            logger.info(f"[Scalping:{self.user_id}] Stop signal from Supabase")
-                            self.running = False
-                            try:
-                                await self.bot.send_message(
-                                    chat_id=self.notify_chat_id,
-                                    text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
-                                    parse_mode='HTML'
-                                )
-                            except Exception:
-                                pass
-                            break
+                        if _sr.data:
+                            _row = _sr.data[0]
+                            _status = _row.get("status")
+                            _engine_active = _row.get("engine_active", True)
+                            # Only stop if BOTH status=stopped AND engine_active=False
+                            # If engine_active=True, user just restarted — keep running
+                            if _status == "stopped" and not _engine_active:
+                                logger.info(f"[Scalping:{self.user_id}] Stop signal from Supabase (status=stopped, engine_active=False)")
+                                self.running = False
+                                try:
+                                    await self.bot.send_message(
+                                        chat_id=self.notify_chat_id,
+                                        text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                                        parse_mode='HTML'
+                                    )
+                                except Exception:
+                                    pass
+                                break
                     except Exception:
                         pass
 
@@ -330,33 +339,85 @@ class ScalpingEngine:
 
             logger.info(f"[Scalping:{self.user_id}] {symbol} SIDEWAYS detected: {sideways_result.reason}")
 
-            # Step 2: Identify range S/R
+            # Step 2: Identify range S/R (optional — used for room check)
             try:
                 range_result = RangeAnalyzer().analyze(candles_5m, price)
             except Exception as e:
                 self._increment_sideways_error(symbol)
                 logger.error(f"[Scalping:{self.user_id}] RangeAnalyzer error for {symbol}: {e}")
-                return None
+                range_result = None
 
-            if range_result is None:
-                logger.debug(f"[Scalping:{self.user_id}] {symbol} No valid S/R range found")
-                return None
+            support = range_result.support if range_result else None
+            resistance = range_result.resistance if range_result else None
 
-            # Step 3: Detect bounce
-            try:
-                bounce_result = BounceDetector().detect(
-                    last_candle=candles_5m[-1],
-                    support=range_result.support,
-                    resistance=range_result.resistance,
-                    price=price,
-                )
-            except Exception as e:
-                self._increment_sideways_error(symbol)
-                logger.error(f"[Scalping:{self.user_id}] BounceDetector error for {symbol}: {e}")
-                return None
+            # Step 3: Try bounce signal first (classic S/R bounce)
+            bounce_result = None
+            if range_result:
+                try:
+                    bounce_result = BounceDetector().detect(
+                        last_candle=candles_5m[-1],
+                        support=range_result.support,
+                        resistance=range_result.resistance,
+                        price=price,
+                    )
+                except Exception as e:
+                    self._increment_sideways_error(symbol)
+                    logger.error(f"[Scalping:{self.user_id}] BounceDetector error for {symbol}: {e}")
+
+            # Step 3b: If no bounce, try micro momentum (1M/3M EMA crossover)
+            if bounce_result is None:
+                try:
+                    from app.micro_momentum_detector import MicroMomentumDetector
+                    raw_1m = await get_candles_cached(fetch_klines_async, base_symbol, "1m", 30)
+                    raw_3m = await get_candles_cached(fetch_klines_async, base_symbol, "3m", 15)
+
+                    if raw_1m and raw_3m:
+                        candles_1m = to_dict_candles(raw_1m)
+                        candles_3m = to_dict_candles(raw_3m)
+
+                        momentum_signal = MicroMomentumDetector().detect(
+                            candles_1m=candles_1m,
+                            candles_3m=candles_3m,
+                            candles_5m=candles_5m,
+                            price=price,
+                            support=support,
+                            resistance=resistance,
+                        )
+
+                        if momentum_signal:
+                            logger.info(
+                                f"[Scalping:{self.user_id}] {symbol} MICRO MOMENTUM signal: "
+                                f"{momentum_signal.direction} | {momentum_signal.reason}"
+                            )
+                            # Return as MicroScalpSignal
+                            reasons = [
+                                f"Sideways market: {sideways_result.reason}",
+                                f"Micro momentum: {momentum_signal.reason}",
+                            ]
+                            if range_result:
+                                reasons.insert(1, f"Range: {range_result.support:.4f} - {range_result.resistance:.4f}")
+
+                            return MicroScalpSignal(
+                                symbol=symbol,
+                                side=momentum_signal.direction,
+                                entry_price=momentum_signal.entry_price,
+                                tp_price=momentum_signal.tp_price,
+                                sl_price=momentum_signal.sl_price,
+                                rr_ratio=momentum_signal.rr_ratio,
+                                range_support=support or price * 0.995,
+                                range_resistance=resistance or price * 1.005,
+                                range_width_pct=range_result.range_width_pct if range_result else 0.5,
+                                confidence=momentum_signal.confidence,
+                                bounce_confirmed=False,
+                                rsi_divergence_detected=False,
+                                volume_ratio=1.0,
+                                reasons=reasons,
+                            )
+                except Exception as e:
+                    logger.warning(f"[Scalping:{self.user_id}] MicroMomentum error for {symbol}: {e}")
 
             if bounce_result is None:
-                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce confirmed")
+                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce or momentum signal")
                 return None
 
             direction = bounce_result.direction  # "LONG" or "SHORT"
@@ -860,23 +921,17 @@ class ScalpingEngine:
                 if quantity_adjusted < min_qty:
                     logger.warning(
                         f"[Scalping:{self.user_id}] {signal.symbol} qty={quantity_adjusted:.6f} "
-                        f"< min={min_qty}. Skipping trade to preserve risk management."
+                        f"< min={min_qty}. Skipping - balance too small for this pair."
                     )
-                    await self._notify_user(
-                        f"⚠️ <b>Trade Skipped: {signal.symbol}</b>\n\n"
-                        f"Quantity too small: {quantity_adjusted:.6f} < {min_qty}\n\n"
-                        f"<b>To fix:</b>\n"
-                        f"• Increase balance, OR\n"
-                        f"• Increase risk % in settings\n\n"
-                        f"Risk management preserved ✅"
-                    )
-                    return False
+                    return False  # Silent skip, engine will try other pairs
                 
                 # ═══════════════════════════════════════════════════════════
                 # Unified entry path — see app/trade_execution.py
                 # Atomic order with TP1 + SL on exchange + StackMentor register
                 # ═══════════════════════════════════════════════════════════
                 from app.trade_execution import open_managed_position
+                from app.trading_mode import MicroScalpSignal as _MicroScalpSignalCheck
+                _is_sideways_signal = isinstance(signal, _MicroScalpSignalCheck)
 
                 exec_result = await open_managed_position(
                     client=self.client,
@@ -887,6 +942,9 @@ class ScalpingEngine:
                     sl_price=signal.sl_price,
                     quantity=quantity_adjusted,
                     leverage=effective_leverage,
+                    # Sideways positions have very tight TP/SL — skip reconcile
+                    # to avoid false emergency closes. Engine monitors via max_hold.
+                    reconcile=not _is_sideways_signal,
                 )
 
                 if exec_result.success:
@@ -1136,19 +1194,29 @@ class ScalpingEngine:
             )
             
             if result.get('success'):
-                fill_price = float(result.get('fill_price', position.entry_price))
-                
+                fill_price = float(result.get('fill_price', 0))
+                # If exchange doesn't return fill_price, get current mark price
+                if fill_price <= 0:
+                    try:
+                        ticker = await asyncio.to_thread(self.client.get_ticker, position.symbol)
+                        if ticker.get('success'):
+                            fill_price = float(ticker.get('mark_price', position.entry_price))
+                        else:
+                            fill_price = position.entry_price
+                    except Exception:
+                        fill_price = position.entry_price
+
                 if position.side == "BUY":
                     pnl = (fill_price - position.entry_price) * position.quantity
                 else:
                     pnl = (position.entry_price - fill_price) * position.quantity
-                
+
                 pnl_with_leverage = pnl * position.leverage
-                
+
                 await self._update_position_closed(
                     position, fill_price, pnl_with_leverage, "sideways_max_hold_exceeded"
                 )
-                
+
                 await self._notify_user(
                     f"⏰ <b>SIDEWAYS Closed (2min)</b>\n\n"
                     f"Symbol: {position.symbol}\n"
@@ -1157,7 +1225,7 @@ class ScalpingEngine:
                     f"Hold Time: {elapsed}s\n"
                     f"PnL: <b>{pnl_with_leverage:+.2f} USDT</b>"
                 )
-                
+
                 del self.positions[position.symbol]
             else:
                 logger.error(
