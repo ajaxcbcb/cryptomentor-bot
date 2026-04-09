@@ -935,7 +935,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                             if qty_to_close > 0:
                                 partial_result = await asyncio.to_thread(
-                                    client.close_partial, pos_symbol, close_side_tp1, qty_to_close
+                                    client.close_partial, pos_symbol, close_side_tp1, qty_to_close, db_side
                                 )
                                 if not partial_result.get("success"):
                                     logger.warning(f"[Engine:{user_id}] Partial close failed: {partial_result.get('error')}")
