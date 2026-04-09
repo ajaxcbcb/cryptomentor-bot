@@ -620,16 +620,23 @@ async def execute_signal(
     if not bsvc.get_user_api_keys(tg_id):
         raise HTTPException(status_code=409, detail="Bitunix API keys not configured")
 
-    # Fetch live account balance + user's autotrade session for risk/leverage.
+    # Fetch live account equity + user's autotrade session for risk/leverage.
+    # CRITICAL: Use equity (balance + unrealized PnL), not just available balance.
+    # This prevents over-leveraging when positions are underwater.
     try:
         acc = await bsvc.fetch_account(tg_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Bitunix account error: {e}")
     if not acc.get("success"):
-        raise HTTPException(status_code=502, detail="Failed to fetch account balance")
+        raise HTTPException(status_code=502, detail="Failed to fetch account")
+
+    # Compute equity: balance + unrealized PnL from open positions
     balance = float(acc.get("available", 0) or 0)
-    if balance <= 0:
-        raise HTTPException(status_code=400, detail="Insufficient balance")
+    unrealized_pnl = float(acc.get("total_unrealized_pnl", 0) or 0)
+    equity = balance + unrealized_pnl
+
+    if equity <= 0:
+        raise HTTPException(status_code=400, detail="Insufficient equity (account value is zero or negative)")
 
     s = _client()
     sess_res = s.table("autotrade_sessions").select(
@@ -667,13 +674,20 @@ async def execute_signal(
     if sl_distance_pct > 0.15:
         raise HTTPException(status_code=400, detail="Stop loss too wide (>15%)")
 
-    # Risk-based sizing: qty such that loss-at-SL == balance * risk%.
-    risk_amount = balance * (risk_pct / 100.0)
+    # Risk-based sizing: qty such that loss-at-SL == equity * risk%.
+    # Uses equity (not balance) to account for unrealized PnL from open positions.
+    risk_amount = equity * (risk_pct / 100.0)
     position_size_usdt = risk_amount / sl_distance_pct
     margin_required = position_size_usdt / leverage
+
+    # Cap margin at 95% of available balance (not equity) to ensure we have buffer
     if margin_required > balance * 0.95:
         margin_required = balance * 0.95
         position_size_usdt = margin_required * leverage
+        logger.warning(
+            f"[Risk] Position capped: margin required ${margin_required:.2f} "
+            f"> balance ${balance:.2f}. Position size reduced."
+        )
 
     qty = position_size_usdt / entry_price
     precision = _QTY_PRECISION.get(sym, 3)
@@ -707,6 +721,11 @@ async def execute_signal(
     return {
         "success": True,
         "order": result,
+        "account": {
+            "balance": round(balance, 2),  # Free balance
+            "unrealized_pnl": round(unrealized_pnl, 2),  # Open position P&L
+            "equity": round(equity, 2),  # Balance + unrealized PnL (used for risk calc)
+        },
         "sizing": {
             "qty": qty,
             "entry_price": round(entry_price, 6),

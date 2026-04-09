@@ -130,20 +130,39 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     - leverage: Current leverage setting
     - trading_mode: Current mode (auto, scalping, swing)
     - risk_mode: Risk profile (conservative, moderate, aggressive)
+    - equity: LIVE equity from Bitunix (balance + unrealized PnL) — used for risk calcs
+    - balance: Free available balance
+    - unrealized_pnl: Current open position P&L
     """
     s = _client()
     res = s.table("autotrade_sessions").select(
-        "risk_per_trade, leverage, trading_mode, risk_mode, current_balance"
+        "risk_per_trade, leverage, trading_mode, risk_mode"
     ).eq("telegram_id", tg_id).limit(1).execute()
 
     row = (res.data or [{}])[0]
+
+    # Fetch LIVE equity from Bitunix (critical for accurate risk calculations)
+    equity = 0.0
+    balance = 0.0
+    unrealized_pnl = 0.0
+    try:
+        acc = await bsvc.fetch_account(tg_id)
+        if acc.get("success"):
+            balance = float(acc.get("available", 0) or 0)
+            unrealized_pnl = float(acc.get("total_unrealized_pnl", 0) or 0)
+            equity = balance + unrealized_pnl
+    except Exception as e:
+        logger.warning(f"Failed to fetch live equity for {tg_id}: {e}")
+
     return {
         "success": True,
         "risk_per_trade": float(row.get("risk_per_trade") or 0.5),
         "leverage": int(row.get("leverage") or 10),
         "trading_mode": row.get("trading_mode") or "auto",
         "risk_mode": row.get("risk_mode") or "moderate",
-        "current_balance": float(row.get("current_balance") or 0),
+        "equity": round(equity, 2),  # Used for risk calculations
+        "balance": round(balance, 2),  # Free balance
+        "unrealized_pnl": round(unrealized_pnl, 2),  # Open position P&L
     }
 
 
