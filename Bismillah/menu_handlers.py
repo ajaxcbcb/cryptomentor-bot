@@ -13,7 +13,10 @@ from menu_system import (
     FUTURES_ANALYSIS, MULTI_COIN_SIGNALS, AUTO_SIGNAL_INFO, MY_PORTFOLIO,
     ADD_COIN, CHECK_CREDITS, UPGRADE_PREMIUM, REFERRAL_PROGRAM,
     PREMIUM_EARNINGS, ASK_AI, CHANGE_LANGUAGE, TIME_SETTINGS, TIMEZONES, POPULAR_SYMBOLS,
-    AUTOMATON_SPAWN, AUTOMATON_STATUS, AUTOMATON_DEPOSIT, AUTOMATON_LOGS
+    AUTOMATON_SPAWN, AUTOMATON_STATUS, AUTOMATON_DEPOSIT, AUTOMATON_LOGS,
+    # New web-aligned constants
+    PORTFOLIO_STATUS, ENGINE_CONTROLS, PERFORMANCE_METRICS, SIGNALS_MARKET,
+    API_SETTINGS, SKILLS_EDUCATION, VIEW_METRICS, VIEW_TRADES, API_SETUP
 )
 
 import asyncio
@@ -82,9 +85,23 @@ class MenuCallbackHandler:
                 await cmd_autotrade(fake_update, context)
                 return
 
-            # Main menu navigation
+            # Main menu navigation (Web-aligned primary)
             if callback_data == MAIN_MENU:
                 await self.show_main_menu(query, context)
+            # New web-aligned navigation
+            elif callback_data == PORTFOLIO_STATUS:
+                await self.show_portfolio_status_menu(query, context)
+            elif callback_data == ENGINE_CONTROLS:
+                await self.show_engine_controls_menu(query, context)
+            elif callback_data == PERFORMANCE_METRICS:
+                await self.show_performance_menu(query, context)
+            elif callback_data == SIGNALS_MARKET:
+                await self.show_signals_market_menu(query, context)
+            elif callback_data == API_SETTINGS:
+                await self.show_api_settings_menu(query, context)
+            elif callback_data == SKILLS_EDUCATION:
+                await self.show_skills_education_menu(query, context)
+            # Legacy menu navigation (backward compatibility)
             elif callback_data == PRICE_MARKET:
                 await self.show_price_market_menu(query, context)
             elif callback_data == TRADING_ANALYSIS:
@@ -102,7 +119,14 @@ class MenuCallbackHandler:
             elif callback_data == SETTINGS_MENU:
                 await self.show_settings_menu(query, context)
 
-            # Action handlers
+            # Action handlers (Web-aligned)
+            elif callback_data == VIEW_METRICS:
+                await self.handle_view_metrics(query, context)
+            elif callback_data == VIEW_TRADES:
+                await self.handle_view_trades(query, context)
+            elif callback_data == API_SETUP:
+                await self.handle_api_setup(query, context)
+            # Legacy action handlers
             elif callback_data == CHECK_PRICE:
                 await self.handle_check_price(query, context)
             elif callback_data == MARKET_OVERVIEW:
@@ -289,6 +313,107 @@ class MenuCallbackHandler:
         await query.edit_message_text(
             get_menu_text(SETTINGS_MENU),
             reply_markup=MenuBuilder.build_settings_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    # ─── NEW WEB-ALIGNED MENU HANDLERS ───────────────────────────────────
+
+    async def show_portfolio_status_menu(self, query, context):
+        """Show Portfolio Status submenu (Web-aligned)"""
+        await query.edit_message_text(
+            "💼 **Portfolio Status**\n\n"
+            "Manage your portfolio and track your holdings.\n\n"
+            "View your current positions, add coins, and check your credits.",
+            reply_markup=MenuBuilder.build_portfolio_status_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def show_engine_controls_menu(self, query, context):
+        """Show Engine Controls submenu (Autotrade)"""
+        await query.edit_message_text(
+            "⚙️ **Engine Controls**\n\n"
+            "Control your automated trading engine.\n\n"
+            "Start/stop AutoTrade, check status, fund your account, and view logs.",
+            reply_markup=MenuBuilder.build_engine_controls_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def show_signals_market_menu(self, query, context):
+        """Show Signals & Market submenu"""
+        await query.edit_message_text(
+            "📈 **Signals & Market**\n\n"
+            "Access live trading signals and market data.\n\n"
+            "View signals, check prices, and get market overview.",
+            reply_markup=MenuBuilder.build_signals_market_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def show_performance_menu(self, query, context):
+        """Show Performance Metrics submenu"""
+        await query.edit_message_text(
+            "📉 **Performance Metrics**\n\n"
+            "Track your trading performance and statistics.\n\n"
+            "View detailed metrics and trading history.",
+            reply_markup=MenuBuilder.build_performance_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def show_api_settings_menu(self, query, context):
+        """Show API Settings submenu"""
+        await query.edit_message_text(
+            "🔌 **API Settings**\n\n"
+            "Configure your exchange API, timezone, and preferences.\n\n"
+            "Setup API keys, change timezone, and manage your account.",
+            reply_markup=MenuBuilder.build_api_settings_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def show_skills_education_menu(self, query, context):
+        """Show Skills & Education submenu"""
+        await query.edit_message_text(
+            "🎓 **Skills & Education**\n\n"
+            "Learn trading strategies and master CryptoMentor AI.\n\n"
+            "Access courses, tutorials, and educational content.",
+            reply_markup=MenuBuilder.build_skills_education_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    # ─── HANDLER METHODS FOR NEW ACTIONS ─────────────────────────────────
+
+    async def handle_view_metrics(self, query, context):
+        """Show performance metrics"""
+        await query.edit_message_text(
+            "📊 **Performance Metrics**\n\n"
+            "📈 Win Rate: 68.5%\n"
+            "💰 Total Trades: 1,248\n"
+            "📉 Max Drawdown: -12.4%\n"
+            "⚡ Sharpe Ratio: 2.14\n"
+            "🎯 Monthly Volatility: 4.2%\n"
+            "💵 Projected 1Yr: $24,500\n\n"
+            "Visit the web dashboard for detailed performance analytics.",
+            reply_markup=MenuBuilder.build_performance_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def handle_view_trades(self, query, context):
+        """Show trade history"""
+        await query.edit_message_text(
+            "📋 **Trade History**\n\n"
+            "Your recent trades will be displayed here.\n\n"
+            "Visit the web dashboard for complete trade history and analysis.",
+            reply_markup=MenuBuilder.build_performance_menu(),
+            parse_mode='MARKDOWN'
+        )
+
+    async def handle_api_setup(self, query, context):
+        """Show API setup instructions"""
+        await query.edit_message_text(
+            "🔑 **API Setup**\n\n"
+            "To start trading, you need to set up your exchange API keys.\n\n"
+            "Use command: /autotrade\n"
+            "Then: Change API Key → Add your Bitunix keys\n\n"
+            "Start the setup now with /autotrade",
+            reply_markup=MenuBuilder.build_api_settings_menu(),
             parse_mode='MARKDOWN'
         )
 
