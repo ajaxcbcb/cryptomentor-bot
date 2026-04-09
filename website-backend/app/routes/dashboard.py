@@ -212,17 +212,22 @@ async def update_risk_setting(
 
     s = _client()
     try:
+        # Ensure we're storing as a float for consistency
+        risk_value = float(risk)
         s.table("autotrade_sessions").update({
-            "risk_per_trade": risk,
+            "risk_per_trade": risk_value,
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("telegram_id", tg_id).execute()
+
+        logger.info(f"[RiskSetting:{tg_id}] Updated risk_per_trade to {risk_value}%")
     except Exception as e:
+        logger.error(f"[RiskSetting:{tg_id}] Failed to update risk: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update risk: {e}")
 
     return {
         "success": True,
         "risk_per_trade": risk,
-        "note": f"Risk updated to {risk}% per trade"
+        "note": f"Risk updated to {risk}% per trade (stored as float: {float(risk)})"
     }
 
 

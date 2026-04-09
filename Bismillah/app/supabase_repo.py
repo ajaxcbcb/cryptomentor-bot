@@ -312,25 +312,37 @@ def is_stackmentor_eligible_by_balance(balance: float) -> bool:
 def get_risk_per_trade(telegram_id: int) -> float:
     """
     Get user's risk percentage per trade from database.
-    
+
     Returns:
-        Risk percentage (e.g., 2.0 for 2%)
-        Default: 2.0% if not set
+        Risk percentage as float (e.g., 0.25, 0.5, 0.75, 1.0)
+        Default: 0.5 (moderate risk) if not set
     """
     try:
         s = _client()
         res = s.table("autotrade_sessions").select("risk_per_trade").eq(
             "telegram_id", int(telegram_id)
         ).limit(1).execute()
-        
-        if res.data and res.data[0].get("risk_per_trade") is not None:
-            return float(res.data[0]["risk_per_trade"])
-        
-        # Default: 2% (moderate risk)
-        return 2.0
+
+        if res.data and len(res.data) > 0:
+            stored_value = res.data[0].get("risk_per_trade")
+            if stored_value is not None:
+                risk_value = float(stored_value)
+                # Log to help debug
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[RiskFetch:{telegram_id}] Retrieved risk_per_trade: {risk_value}")
+                return risk_value
+
+        # Default: 0.5 (moderate risk) if not set
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[RiskFetch:{telegram_id}] No risk_per_trade found, using default 0.5")
+        return 0.5
     except Exception as e:
-        print(f"get_risk_per_trade error: {e}")
-        return 2.0  # Safe default
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"[RiskFetch:{telegram_id}] Error fetching risk_per_trade: {e}")
+        return 0.5  # Safe default
 
 
 def get_risk_mode(telegram_id: int) -> str:

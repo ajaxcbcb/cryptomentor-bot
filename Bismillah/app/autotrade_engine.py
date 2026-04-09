@@ -1174,15 +1174,29 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             return qty_fallback, False  # Fallback used
 
     # ── Fetch user's risk_per_trade setting ───────────────────────────
-    user_risk_pct = 0.5  # Default
+    user_risk_pct = 0.5  # Default (Moderate)
     try:
         from app.supabase_repo import get_risk_per_trade
         fetched_risk = get_risk_per_trade(user_id)
-        if fetched_risk and fetched_risk in [0.25, 0.5, 0.75, 1.0]:
-            user_risk_pct = fetched_risk
-            logger.info(f"[Engine:{user_id}] Loaded user risk_per_trade: {user_risk_pct}%")
+
+        # Valid risk levels: 0.25, 0.5, 0.75, 1.0
+        # Use round() to handle floating-point precision issues
+        valid_risks = {0.25, 0.5, 0.75, 1.0}
+
+        if fetched_risk:
+            # Round to 2 decimal places to handle floating-point comparison
+            rounded_risk = round(float(fetched_risk), 2)
+
+            if rounded_risk in valid_risks:
+                user_risk_pct = rounded_risk
+                logger.info(f"[Engine:{user_id}] Loaded user risk_per_trade: {user_risk_pct}%")
+            else:
+                logger.warning(
+                    f"[Engine:{user_id}] Invalid risk_per_trade from DB: {fetched_risk} "
+                    f"(not in {valid_risks}), using default 0.5%"
+                )
     except Exception as e:
-        logger.warning(f"[Engine:{user_id}] Failed to load user risk_pct, using default: {e}")
+        logger.warning(f"[Engine:{user_id}] Failed to load user risk_pct, using default 0.5%: {e}")
 
     logger.info(f"[Engine:{user_id}] PRO ENGINE STARTED — symbols={cfg['symbols']}, "
                 f"min_conf={cfg['min_confidence']}, min_rr={cfg['min_rr_ratio']}, "
