@@ -1065,7 +1065,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         min_qty = 10 ** (-precision) if precision > 0 else 1
         return qty if qty >= min_qty else 0.0
     
-    def calc_qty_with_risk(symbol: str, entry: float, sl: float, leverage: int) -> tuple:
+    async def calc_qty_with_risk(symbol: str, entry: float, sl: float, leverage: int) -> tuple:
         """
         Calculate position size using risk-based sizing with EQUITY (not balance).
 
@@ -1088,17 +1088,27 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             # Use the user_risk_pct from the outer scope
             risk_pct = user_risk_pct
 
-            # Get current balance AND unrealized PnL from exchange
-            bal_result = client.get_balance()
-            if not bal_result.get('success'):
-                raise Exception(f"Balance fetch failed: {bal_result.get('error')}")
+            # Get account info: available, frozen, and unrealized PnL
+            acc_result = await asyncio.to_thread(client.get_account_info)
+            if not acc_result.get('success'):
+                raise Exception(f"Account info fetch failed: {acc_result.get('error')}")
 
-            balance = bal_result.get('balance', 0)
-            unrealized_pnl = bal_result.get('unrealized_pnl', 0)
+            # Total balance = available (free) + frozen (in positions)
+            available = float(acc_result.get('available', 0) or 0)
+            frozen = float(acc_result.get('frozen', 0) or 0)
+            balance = available + frozen
+
+            # Unrealized P&L from all positions
+            unrealized_pnl = float(acc_result.get('total_unrealized_pnl', 0) or 0)
+
+            # Equity = Total Balance + Unrealized P&L
             equity = balance + unrealized_pnl
 
             if equity <= 0:
-                raise Exception(f"Invalid equity: balance={balance} + unrealized={unrealized_pnl} = {equity}")
+                raise Exception(
+                    f"Invalid equity: available={available:.2f} + frozen={frozen:.2f} + "
+                    f"unrealized={unrealized_pnl:.2f} = {equity:.2f}"
+                )
             
             # Calculate risk amount using EQUITY (not balance)
             risk_amount = equity * (risk_pct / 100)
@@ -1136,7 +1146,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             logger.info(
                 f"[RiskCalc:{user_id}] {symbol} - "
-                f"Equity=${equity:.2f} (Balance=${balance:.2f} + Unrealized=${unrealized_pnl:.2f}), "
+                f"Equity=${equity:.2f} (Available=${available:.2f} + Frozen=${frozen:.2f} + "
+                f"Unrealized=${unrealized_pnl:.2f}), "
                 f"Risk={risk_pct}% (~${risk_amount:.2f}), "
                 f"Entry=${entry:.2f}, SL=${sl:.2f} (Distance={sl_distance:.2f}), "
                 f"Position_Size={position_size:.8f}, Qty={qty}, "
@@ -1269,10 +1280,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             from app.demo_users import is_demo_user, DEMO_BALANCE_LIMIT
             if is_demo_user(user_id):
                 try:
-                    bal_result = await asyncio.to_thread(client.get_balance)
-                    if bal_result.get('success'):
-                        demo_balance = bal_result.get('balance', 0)
-                        demo_unrealized = bal_result.get('unrealized_pnl', 0)
+                    acc_result = await asyncio.to_thread(client.get_account_info)
+                    if acc_result.get('success'):
+                        demo_available = float(acc_result.get('available', 0) or 0)
+                        demo_frozen = float(acc_result.get('frozen', 0) or 0)
+                        demo_balance = demo_available + demo_frozen
+                        demo_unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
                         demo_equity = demo_balance + demo_unrealized
                         # Only stop if equity significantly exceeds limit (10% buffer)
                         if demo_equity > (DEMO_BALANCE_LIMIT * 1.1):
@@ -1686,7 +1699,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             # ── Hitung qty dengan risk-based sizing (Phase 2) ─────────────
             # Try risk-based position sizing first, fallback to fixed margin if fails
-            qty, used_risk_sizing = calc_qty_with_risk(symbol, entry, sl, leverage)
+            qty, used_risk_sizing = await calc_qty_with_risk(symbol, entry, sl, leverage)
             
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
@@ -1705,11 +1718,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             stackmentor_enabled = False
             try:
-                # Get user's current equity from exchange (balance + unrealized PnL)
-                bal_result = await asyncio.to_thread(client.get_balance)
-                if bal_result.get('success'):
-                    user_balance = bal_result.get('balance', 0)
-                    user_unrealized = bal_result.get('unrealized_pnl', 0)
+                # Get user's current equity from exchange (available + frozen + unrealized PnL)
+                acc_result = await asyncio.to_thread(client.get_account_info)
+                if acc_result.get('success'):
+                    user_available = float(acc_result.get('available', 0) or 0)
+                    user_frozen = float(acc_result.get('frozen', 0) or 0)
+                    user_balance = user_available + user_frozen
+                    user_unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
                     user_equity = user_balance + user_unrealized
                 else:
                     user_equity = 0
@@ -1989,12 +2004,16 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             tp2_pct     = abs(tp2 - entry) / entry * 100
             
             # Get actual equity and risk info for notification
-            bal_result = await asyncio.to_thread(client.get_balance)
-            if bal_result.get('success'):
-                current_balance = bal_result.get('balance', 0)
-                current_unrealized = bal_result.get('unrealized_pnl', 0)
+            acc_result = await asyncio.to_thread(client.get_account_info)
+            if acc_result.get('success'):
+                current_available = float(acc_result.get('available', 0) or 0)
+                current_frozen = float(acc_result.get('frozen', 0) or 0)
+                current_balance = current_available + current_frozen
+                current_unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
                 current_equity = current_balance + current_unrealized
             else:
+                current_available = 0
+                current_frozen = 0
                 current_balance = 0
                 current_unrealized = 0
                 current_equity = 0
