@@ -20,18 +20,33 @@ def create_access_token(telegram_id: int, username: str = "", first_name: str = 
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+
+def _default_avatar_url(name: str) -> str:
+    safe_name = urllib.parse.quote(name or "User")
+    return (
+        f"https://ui-avatars.com/api/?name={safe_name}"
+        "&background=d946ef&color=fff&bold=true"
+    )
+
+
 def generate_dashboard_url(telegram_id: int, username: str = "", first_name: str = "", photo_url: str = "") -> str:
-    """Generate a dashboard URL with auto-login token and user data."""
+    """Generate a compact dashboard URL with auto-login token and minimal user data."""
     token = create_access_token(telegram_id, username, first_name)
 
+    display_name = first_name or username or str(telegram_id)
     user_data = {
         "id": str(telegram_id),
-        "username": username or first_name or str(telegram_id),
-        "first_name": first_name or username,
-        "photo_url": photo_url or f"https://ui-avatars.com/api/?name={first_name or str(telegram_id)}&background=d946ef&color=fff&bold=true",
+        "username": (username or display_name).lstrip("@"),
+        "first_name": display_name,
+        "photo_url": photo_url or _default_avatar_url(display_name),
         "is_premium": False,
-        "credits": 0
+        "credits": 0,
     }
 
-    encoded_user = urllib.parse.quote(json.dumps(user_data))
-    return f"{FRONTEND_URL}/?token={token}&user={encoded_user}"
+    # Compact JSON (no spaces) to keep Telegram confirmation URL short.
+    encoded_user = urllib.parse.quote(
+        json.dumps(user_data, ensure_ascii=False, separators=(",", ":"))
+    )
+
+    # Short query keys reduce URL length. Frontend supports both new and legacy keys.
+    return f"{FRONTEND_URL}/?t={token}&u={encoded_user}"

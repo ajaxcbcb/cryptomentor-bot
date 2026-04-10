@@ -158,21 +158,59 @@ export default function App() {
   // Auto-login from Telegram Bot (Phase 1 Migration)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    const urlUserStr = params.get('user');
+    const urlToken = params.get('t') || params.get('token');
+    const urlUserStr = params.get('u') || params.get('user');
 
-    if (urlToken && urlUserStr) {
+    const parseJwtPayload = (jwtToken) => {
       try {
-        const urlUser = JSON.parse(decodeURIComponent(urlUserStr));
+        const parts = String(jwtToken || '').split('.');
+        if (parts.length < 2) return null;
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+        return JSON.parse(atob(padded));
+      } catch {
+        return null;
+      }
+    };
+
+    if (urlToken) {
+      try {
+        const payload = parseJwtPayload(urlToken) || {};
+        const baseName = payload.first_name || payload.username || String(payload.sub || 'User');
+        const fallbackUser = {
+          id: String(payload.sub || ''),
+          first_name: baseName,
+          username: String(payload.username || baseName || 'user').replace(/^@/, ''),
+          photo_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(baseName || 'User')}&background=d946ef&color=fff&bold=true`,
+          is_premium: false,
+          credits: 0,
+        };
+
+        let parsedUser = null;
+        if (urlUserStr) {
+          try {
+            parsedUser = JSON.parse(decodeURIComponent(urlUserStr));
+          } catch {
+            parsedUser = null;
+          }
+        }
+
+        const nextUser = {
+          ...fallbackUser,
+          ...(parsedUser || {}),
+          id: String((parsedUser && parsedUser.id) || fallbackUser.id || ''),
+          username: String(((parsedUser && parsedUser.username) || fallbackUser.username || 'user')).replace(/^@/, ''),
+          first_name: (parsedUser && parsedUser.first_name) || fallbackUser.first_name || 'User',
+          photo_url: (parsedUser && parsedUser.photo_url) || fallbackUser.photo_url,
+          is_premium: Boolean((parsedUser && parsedUser.is_premium) || false),
+          credits: Number((parsedUser && parsedUser.credits) || 0),
+        };
+
         localStorage.setItem('cm_token', urlToken);
-        localStorage.setItem('cm_user', JSON.stringify(urlUser));
-        
-        // Ensure consistent ID type (string)
-        if (urlUser.id) urlUser.id = String(urlUser.id);
-        
-        setUser(urlUser);
+        localStorage.setItem('cm_user', JSON.stringify(nextUser));
+        setUser(nextUser);
         setIsLoggedIn(true);
-        
+
         // Remove params from URL to prevent re-login issues on refresh
         window.history.replaceState({}, document.title, window.location.pathname);
         console.log('[Phase1] Auto-login successful via bot link');
@@ -465,11 +503,13 @@ export default function App() {
         const data = await resp.json();
         setVerStatus(data);
       } else {
-        setVerStatus({ status: 'none' });
+        // Fail closed on backend/status errors.
+        setVerStatus({ status: 'unknown' });
       }
     } catch (err) {
       console.error('[Verification] Failed:', err);
-      setVerStatus({ status: 'none' });
+      // Fail closed on network errors.
+      setVerStatus({ status: 'unknown' });
     } finally {
       setVerLoading(false);
     }
@@ -649,10 +689,10 @@ export default function App() {
         onLogout={handleLogout}
       />;
     }
-    if (verStatus.status === 'pending') {
+    if (verStatus.status === 'pending' || verStatus.status === 'pending_verification') {
       return <VerificationPendingScreen onRefresh={fetchVerStatus} onLogout={handleLogout} />;
     }
-    if (verStatus.status === 'rejected') {
+    if (verStatus.status === 'rejected' || verStatus.status === 'uid_rejected') {
       return <RejectedScreen
         onResubmit={async (uid) => {
           try {
@@ -670,7 +710,7 @@ export default function App() {
       />;
     }
     // approved only — wait for portfolio data, then check API key
-    const isVerified = verStatus?.status === 'approved';
+    const isVerified = verStatus?.status === 'approved' || verStatus?.status === 'uid_verified' || verStatus?.status === 'active';
     if (!isVerified) {
       // Any unrecognized or unhandled status — block access, show generic pending screen
       return <VerificationPendingScreen onRefresh={fetchVerStatus} onLogout={handleLogout} />;
@@ -1620,7 +1660,7 @@ function SignalsTab({ user, riskSettings, onUpdateRisk }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {sortedSignals.map((signal, idx) => (
           <div key={signal.id || signal.pair} className="animate-in fade-in slide-in-from-bottom-8" style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'both' }}>
-            <SignalCard signal={signal} userIsPremium={user?.is_premium} riskSettings={riskSettings} />
+            <SignalCard signal={signal} userIsPremium={user?.is_premium} riskSettings={riskSettings} onUpdateRisk={onUpdateRisk} />
           </div>
         ))}
         {!loading && !signals.length && !error && <div className="col-span-full text-center text-slate-500 text-sm py-10">No signals available right now.</div>}
@@ -1778,7 +1818,7 @@ function BridgeCard({ name, status, logo, logoSrc, colors, onConnect, onDisconne
   );
 }
 
-function SignalCard({ signal, userIsPremium, riskSettings }) {
+function SignalCard({ signal, userIsPremium, riskSettings, onUpdateRisk }) {
   const [isPlaced, setIsPlaced] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState(null);
@@ -1896,6 +1936,27 @@ function SignalCard({ signal, userIsPremium, riskSettings }) {
                 ${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toFixed(2)}
                 <span className="text-slate-600 ml-1">({riskSettings.risk_per_trade}% of equity)</span>
               </span>
+            </div>
+          )}
+          {!isPlaced && !windowExpired && riskSettings && onUpdateRisk && (
+            <div className="bg-white/5 rounded-lg p-2.5">
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Risk Slider (1-Click)</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[0.25, 0.5, 0.75, 1.0].map((risk) => (
+                  <button
+                    key={risk}
+                    onClick={() => onUpdateRisk(risk)}
+                    disabled={riskSettings?.loading}
+                    className={`py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                      riskSettings?.risk_per_trade === risk
+                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                        : "bg-[#050505] text-slate-500 border border-white/10 hover:text-slate-300"
+                    }`}
+                  >
+                    {risk}%
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest mt-1">
