@@ -281,11 +281,14 @@ export default function App() {
         setRiskSettings({
           risk_per_trade: data.risk_per_trade || 0.5,
           leverage: data.leverage || 10,
-          equity: data.equity || 0,  // balance + unrealized PnL (for risk calcs)
-          balance: data.balance || 0,  // free available balance
-          unrealized_pnl: data.unrealized_pnl || 0,  // open position P&L
+          equity: data.equity || 0,
+          balance: data.balance || 0,
+          unrealized_pnl: data.unrealized_pnl || 0,
           loading: false,
         });
+      } else {
+        // Even on error, unblock the buttons
+        setRiskSettings(prev => ({ ...prev, loading: false }));
       }
     } catch (e) {
       console.error('Failed to fetch risk settings:', e);
@@ -295,23 +298,32 @@ export default function App() {
 
   // Update risk setting
   const updateRiskSetting = async (newRisk) => {
+    setRiskSettings(prev => ({ ...prev, loading: true, error: null }));
     try {
       const resp = await apiFetch('/dashboard/settings/risk', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ risk_per_trade: newRisk }),
       });
+      const data = await resp.json().catch(() => ({}));
       if (resp.ok) {
-        const data = await resp.json();
         setRiskSettings(prev => ({
           ...prev,
-          risk_per_trade: data.risk_per_trade,
+          risk_per_trade: data.risk_per_trade ?? newRisk,
+          loading: false,
+          error: null,
         }));
       } else {
-        console.error('Failed to update risk setting:', resp.status);
+        console.error('Failed to update risk setting:', resp.status, data);
+        setRiskSettings(prev => ({
+          ...prev,
+          loading: false,
+          error: data.detail || `Error ${resp.status}`,
+        }));
       }
     } catch (e) {
       console.error('Error updating risk setting:', e);
+      setRiskSettings(prev => ({ ...prev, loading: false, error: e.message }));
     }
   };
 
@@ -757,6 +769,13 @@ function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskS
             ))}
           </div>
         </div>
+
+        {/* Error display */}
+        {riskSettings.error && (
+          <p className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg relative z-10">
+            {riskSettings.error}
+          </p>
+        )}
 
         {/* Risk Preview Calculation (using LIVE equity from Bitunix) */}
         {riskSettings.equity > 0 && (

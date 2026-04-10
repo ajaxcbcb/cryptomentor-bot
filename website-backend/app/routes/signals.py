@@ -495,20 +495,30 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
         "sl_hit": "Stop Loss Hit",
     }
 
+    # Fetch Binance tickers for all symbols (used as fallback)
+    symbols = [w[1] for w in _WATCHLIST]
+    try:
+        params = {"symbols": '["' + '","'.join(symbols) + '"]'}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(_BINANCE_TICKER, params=params)
+            r.raise_for_status()
+            ticker_data = {row["symbol"]: row for row in r.json()}
+    except Exception as e:
+        logger.error(f"Failed to fetch Binance tickers: {e}")
+        ticker_data = {}
+
     # Generate fresh confluence signals for each symbol
     for idx, (pair, sym, tier, sig_type) in enumerate(_WATCHLIST):
         try:
-            # Generate confluence-based signal (async, live market data)
-            # Pass user's risk tolerance for adaptive confidence & TP scaling
+            # Try confluence-based signal first
             conf_signal = await generate_confluence_signals(sym, user_risk_pct)
+            ts = trade_status.get(sym)
 
             if conf_signal:
-                # Found a confluent signal — format for dashboard
-                ts = trade_status.get(sym)
-
+                # Confluence signal found
                 signal_response = {
                     "id": idx + 1,
-                    "symbol": sym,  # Required for execute_signal payload
+                    "symbol": sym,
                     "pair": pair,
                     "type": sig_type,
                     "direction": conf_signal['direction'],
@@ -522,25 +532,34 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
                     "price": conf_signal['entry_price'],
                     "generated_at": conf_signal['generated_at'],
                     "entry_window_seconds": SIGNAL_ENTRY_WINDOW_SECONDS,
-                    "reason": conf_signal['reason'],  # Add confluence reason to UI
+                    "reason": conf_signal.get('reason', ''),
                 }
+            elif sym in ticker_data:
+                # Fallback: use momentum-based signal from ticker data
+                sig = _build_signal(idx, pair, tier, sig_type, ticker_data[sym], generated_at=now_utc)
+                sig["symbol"] = sym
+                sig["entry_window_seconds"] = SIGNAL_ENTRY_WINDOW_SECONDS
+                sig["reason"] = "Momentum signal"
+                signal_response = sig
+            else:
+                continue
 
-                # Mark if this symbol has an active position or recent closed trade
-                if ts:
-                    signal_response["expired"] = True
-                    signal_response["trade_status"] = ts["label"]
-                    signal_response["status"] = status_label_map.get(ts["label"], "Filled")
-                    signal_response["trade_pnl"] = ts["pnl"]
-                    signal_response["tp_hits"] = {
-                        "tp1": ts["tp1_hit"],
-                        "tp2": ts["tp2_hit"],
-                        "tp3": ts["tp3_hit"],
-                    }
-                else:
-                    signal_response["expired"] = False
-                    signal_response["trade_status"] = "pending"
+            # Mark trade status
+            if ts:
+                signal_response["expired"] = True
+                signal_response["trade_status"] = ts["label"]
+                signal_response["status"] = status_label_map.get(ts["label"], "Filled")
+                signal_response["trade_pnl"] = ts["pnl"]
+                signal_response["tp_hits"] = {
+                    "tp1": ts["tp1_hit"],
+                    "tp2": ts["tp2_hit"],
+                    "tp3": ts["tp3_hit"],
+                }
+            else:
+                signal_response["expired"] = False
+                signal_response["trade_status"] = "pending"
 
-                signals.append(signal_response)
+            signals.append(signal_response)
 
         except Exception as e:
             logger.error(f"Failed to generate signal for {sym}: {e}")
