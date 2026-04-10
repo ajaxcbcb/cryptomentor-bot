@@ -280,7 +280,13 @@ export default function App() {
 
   const handleLogout = () => {
     try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
-    setIsLoggedIn(false); setUser(null); setBotRunning(false);
+    setIsLoggedIn(false);
+    setUser(null);
+    setBotRunning(false);
+    setVerStatus(null);
+    setVerLoading(true);
+    setPortfolioLoaded(false);
+    setConnectorStatus({ linked: null, online: null, error: null });
   };
   const navigateTo = (tab) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
   const handleBotConnected = () => setShowBotStartModal(true);
@@ -470,6 +476,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Reset all session state on login/logout to prevent stale data bypass
+    if (isLoggedIn) {
+      setVerStatus(null);
+      setVerLoading(true);
+      setPortfolioLoaded(false);
+      setConnectorStatus({ linked: null, online: null, error: null });
+    }
     fetchVerStatus();
   }, [isLoggedIn]);
 
