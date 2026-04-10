@@ -66,19 +66,37 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
         # Extract user from JWT
         auth_header = request.headers.get("authorization", "") or request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            # Let the route handler deal with missing auth (return 401)
-            return await call_next(request)
+            # Fail closed for protected routes.
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "message": "Missing Bearer token for protected route.",
+                },
+            )
 
         token = auth_header[7:]
         payload = decode_token(token)
         if not payload:
-            # Let route handler reject invalid token
-            return await call_next(request)
+            # Fail closed for protected routes.
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "invalid_token",
+                    "message": "Invalid or expired token.",
+                },
+            )
 
         try:
             tg_id = int(payload["sub"])
         except (KeyError, ValueError, TypeError):
-            return await call_next(request)
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "invalid_subject",
+                    "message": "Invalid token subject.",
+                },
+            )
 
         # Check verification status from the central table.
         try:

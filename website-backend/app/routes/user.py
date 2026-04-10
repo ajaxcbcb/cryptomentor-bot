@@ -28,6 +28,24 @@ VER_PENDING = "pending"
 VER_APPROVED = "approved"
 VER_REJECTED = "rejected"
 
+
+def _load_admin_ids() -> list[int]:
+    """Load admin IDs from multiple env keys for resilience."""
+    ids = set()
+    raw_values = [
+        os.getenv("ADMIN_IDS", ""),
+        os.getenv("ADMIN1", ""),
+        os.getenv("ADMIN2", ""),
+        os.getenv("ADMIN_USER_ID", ""),
+        os.getenv("ADMIN2_USER_ID", ""),
+    ]
+    for raw in raw_values:
+        for token in str(raw).split(","):
+            token = token.strip()
+            if token.isdigit():
+                ids.add(int(token))
+    return sorted(ids)
+
 @router.get("/me")
 async def get_me(tg_id: int = Depends(get_current_user)):
     user = get_user_by_tid(tg_id)
@@ -38,7 +56,7 @@ async def get_me(tg_id: int = Depends(get_current_user)):
 @router.get("/verification-status")
 async def get_verification_status(tg_id: int = Depends(get_current_user)):
     """Single source of truth: user_verifications in Supabase."""
-    admin_ids = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+    admin_ids = _load_admin_ids()
     if tg_id in admin_ids:
         return {"status": VER_APPROVED, "exchange": "bitunix", "uid": None}
 
@@ -121,13 +139,15 @@ async def submit_uid(payload: SubmitUIDRequest, tg_id: int = Depends(get_current
     resubmit_note = " (resubmission after rejection)" if current_status == VER_REJECTED else ""
 
     # Admin notification
-    admin_ids = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+    admin_ids = _load_admin_ids()
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    notification_failed = False
+
     if bot_token and admin_ids:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=8.0) as client:
             for admin_id in admin_ids:
                 try:
-                    await client.post(
+                    resp = await client.post(
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
                         json={
                             "chat_id": admin_id,
@@ -142,9 +162,32 @@ async def submit_uid(payload: SubmitUIDRequest, tg_id: int = Depends(get_current
                                 {"text": "✅ Approve", "callback_data": f"uid_acc_{tg_id}"},
                                 {"text": "❌ Reject", "callback_data": f"uid_reject_{tg_id}"}
                             ]]}
-                        }
+                        },
                     )
-                except: pass
+                    if resp.status_code >= 400:
+                        notification_failed = True
+                        logger.error("Telegram sendMessage failed: status=%s body=%s", resp.status_code, resp.text[:300])
+                        continue
+
+                    body = resp.json() if resp.text else {}
+                    if not body.get("ok", False):
+                        notification_failed = True
+                        logger.error("Telegram sendMessage API returned ok=false: %s", str(body)[:300])
+                except Exception as e:
+                    notification_failed = True
+                    logger.error("Telegram sendMessage exception for admin_id=%s: %s", admin_id, e)
+    else:
+        # Keep user pending but surface notification pipeline issue.
+        notification_failed = True
+        logger.error("Telegram notification skipped: bot_token_missing=%s admin_ids=%s", not bool(bot_token), admin_ids)
+
+    if notification_failed:
+        return {
+            "status": VER_PENDING,
+            "uid": uid,
+            "warning": "UID submitted and pending, but admin notification failed. Please contact support/admin.",
+        }
+
     return {"status": VER_PENDING, "uid": uid}
 
 @router.get("/dashboard")
