@@ -26,7 +26,9 @@ const apiFetch = async (path, opts = {}) => {
 
   // If we already confirmed a working base, use it directly.
   if (_resolvedBase) {
-    return fetch(`${_resolvedBase}${path}`, { ...opts, headers });
+    const r = await fetch(`${_resolvedBase}${path}`, { ...opts, headers });
+    if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
+    return r;
   }
 
   // Try the configured base first.
@@ -34,6 +36,7 @@ const apiFetch = async (path, opts = {}) => {
     const r = await fetch(`${_CONFIGURED_BASE}${path}`, { ...opts, headers });
     _resolvedBase = _CONFIGURED_BASE; // mark as working
     if (r.status === 401) console.warn('[apiFetch] 401 on:', path);
+    if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
     return r;
   } catch (_networkErr) {
     // Configured base is unreachable (wrong domain, CORS block, etc.).
@@ -43,6 +46,7 @@ const apiFetch = async (path, opts = {}) => {
       try {
         const r = await fetch(`${_FALLBACK_BASE}${path}`, { ...opts, headers });
         _resolvedBase = _FALLBACK_BASE; // remember fallback works
+        if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
         return r;
       } catch (fallbackErr) {
         throw fallbackErr;
@@ -276,7 +280,13 @@ export default function App() {
 
   const handleLogout = () => {
     try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
-    setIsLoggedIn(false); setUser(null); setBotRunning(false);
+    setIsLoggedIn(false);
+    setUser(null);
+    setBotRunning(false);
+    setVerStatus(null);
+    setVerLoading(true);
+    setPortfolioLoaded(false);
+    setConnectorStatus({ linked: null, online: null, error: null });
   };
   const navigateTo = (tab) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
   const handleBotConnected = () => setShowBotStartModal(true);
@@ -466,7 +476,32 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Reset all session state on login/logout to prevent stale data bypass
+    if (isLoggedIn) {
+      setVerStatus(null);
+      setVerLoading(true);
+      setPortfolioLoaded(false);
+      setConnectorStatus({ linked: null, online: null, error: null });
+    }
     fetchVerStatus();
+  }, [isLoggedIn]);
+
+  // Poll verification status every 60s — kicks out users deleted from Supabase
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const id = setInterval(fetchVerStatus, 60000);
+    return () => clearInterval(id);
+  }, [isLoggedIn]);
+
+  // Listen for 403 verification_required events — immediately re-check status
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const handler = () => {
+      console.warn('[Auth] 403 received — re-checking verification status');
+      fetchVerStatus();
+    };
+    window.addEventListener('cm:verification_required', handler);
+    return () => window.removeEventListener('cm:verification_required', handler);
   }, [isLoggedIn]);
 
   // Live unrealized PnL + positions polling
@@ -581,6 +616,15 @@ export default function App() {
   }, [isLoggedIn]);
 
   // Verification gate — block unverified users from dashboard
+  // While loading, show spinner — never let through before we know the status
+  if (isLoggedIn && verLoading) {
+    return (
+      <div className="min-h-screen bg-[#020202] flex items-center justify-center">
+        <div className="text-slate-400 text-sm animate-pulse">Checking access...</div>
+      </div>
+    );
+  }
+
   if (isLoggedIn && !verLoading) {
     if (!verStatus || verStatus.status === 'none') {
       return <GatekeeperScreen
@@ -626,16 +670,19 @@ export default function App() {
       />;
     }
     // approved only — wait for portfolio data, then check API key
-    const isVerified = ['approved'].includes(verStatus?.status);
-    if (isVerified && !portfolioLoaded) {
-      // Still loading — show spinner, don't let through yet
+    const isVerified = verStatus?.status === 'approved';
+    if (!isVerified) {
+      // Any unrecognized or unhandled status — block access, show generic pending screen
+      return <VerificationPendingScreen onRefresh={fetchVerStatus} onLogout={handleLogout} />;
+    }
+    if (!portfolioLoaded) {
       return (
         <div className="min-h-screen bg-[#020202] flex items-center justify-center">
           <div className="text-slate-400 text-sm animate-pulse">Loading your account...</div>
         </div>
       );
     }
-    if (isVerified && connectorStatus.linked === false) {
+    if (connectorStatus.linked === false) {
       return <OnboardingWizard onComplete={() => {
         setPortfolioLoaded(false);
         fetchVerStatus();
@@ -1891,7 +1938,31 @@ function GatekeeperScreen({ user, onSubmitUID, onLogout }) {
   const [step, setStep] = useState(1);
   const [uid, setUID] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
+
+  // After successful submit, show a holding screen — parent will transition to VerificationPendingScreen
+  if (submitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+        <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-cyan-600/20 blur-[100px] pointer-events-none z-0" />
+        <div className="max-w-lg w-full bg-[#0a0a0a]/60 backdrop-blur-3xl border border-cyan-500/20 rounded-[2rem] p-8 relative z-10 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 size={32} className="text-cyan-400" />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-3">UID Submitted!</h2>
+          <p className="text-slate-400 text-sm mb-2">Your Bitunix UID has been sent to our admin for verification.</p>
+          <p className="text-slate-500 text-xs mb-8">Please wait — you'll be notified via Telegram once approved. This usually takes a few minutes.</p>
+          <div className="flex items-center justify-center gap-2 text-cyan-400 text-sm animate-pulse">
+            <div className="w-2 h-2 rounded-full bg-cyan-400" />
+            Waiting for admin approval...
+          </div>
+          <button onClick={onLogout} className="w-full text-slate-500 text-xs mt-8 hover:text-rose-400 transition-colors">Log out</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
@@ -1941,7 +2012,11 @@ function GatekeeperScreen({ user, onSubmitUID, onLogout }) {
               setSubmitting(true); setError(null);
               const result = await onSubmitUID(uid);
               setSubmitting(false);
-              if (!result.ok) setError(result.error);
+              if (result.ok) {
+                setSubmitted(true); // show holding screen — no bypass possible
+              } else {
+                setError(result.error);
+              }
             }} disabled={!uid || uid.length < 5 || submitting}
               className="w-full bg-cyan-500 text-white font-bold py-3 rounded-xl hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               {submitting ? 'Submitting...' : 'Submit for Verification'}

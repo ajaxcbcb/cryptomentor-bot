@@ -194,15 +194,6 @@ class MenuCallbackHandler:
     async def show_main_menu(self, query, context):
         """Show simplified gatekeeper main menu"""
         await query.edit_message_text(
-
-            get_menu_text(MAIN_MENU, user_lang),
-            reply_markup=MenuBuilder.build_main_menu(
-                user_id=query.from_user.id,
-                username=query.from_user.username,
-                first_name=query.from_user.first_name
-            ),
-            parse_mode='MARKDOWN'
-
             "🤖 <b>CryptoMentor AI</b>\n\nWhat would you like to do?",
             reply_markup=MenuBuilder.build_main_menu(),
             parse_mode='HTML'

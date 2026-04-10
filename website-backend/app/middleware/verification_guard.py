@@ -19,28 +19,40 @@ APPROVED_STATUS = "approved"
 # Routes that do NOT require exchange verification
 # (Always allowed even if user is not verified on Bitunix)
 UNPROTECTED_PREFIXES = [
+    "/auth/",
+    "/user/me",
+    "/user/dashboard",
+    "/user/verification-status",
+    "/user/submit-uid",
+    "/dashboard/system",
+    "/leaderboard",
+    "/docs",
+    "/openapi.json",
+    # Legacy with /api/ prefix (direct access)
     "/api/auth/",
     "/api/user/me",
     "/api/user/dashboard",
     "/api/user/verification-status",
     "/api/user/submit-uid",
-    "/api/dashboard/system",
     "/api/leaderboard",
-    "/api/docs",
-    "/api/openapi.json",
-    "/docs",
-    "/openapi.json",
-    "/",
 ]
+
+UNPROTECTED_EXACT = ["/", "/docs", "/openapi.json"]
 
 # These route prefixes require verification status = 'approved'
 PROTECTED_PREFIXES = [
+    "/bitunix/",
+    "/dashboard/engine/",
+    "/dashboard/settings",
+    "/dashboard/portfolio",
+    "/dashboard/performance",
+    "/dashboard/debug",
+    "/signals/",
+    "/performance/",
+    "/engine/",
+    # Legacy with /api/ prefix
     "/api/bitunix/",
-    "/api/dashboard/engine/",
-    "/api/dashboard/settings",
-    "/api/dashboard/portfolio",
-    "/api/dashboard/performance",
-    "/api/dashboard/debug",
+    "/api/dashboard/",
     "/api/signals/",
     "/api/performance/",
     "/api/engine/",
@@ -52,7 +64,7 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # If it's a root health check or docs, skip
-        if path in ["/", "/docs", "/openapi.json"]:
+        if path in UNPROTECTED_EXACT:
             return await call_next(request)
 
         # Skip check for unprotected routes

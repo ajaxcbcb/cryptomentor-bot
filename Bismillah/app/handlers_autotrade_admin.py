@@ -33,10 +33,16 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from app.supabase_repo import _client
 
         s = _client()
+
+        # Fetch existing bitunix_uid to preserve it
+        existing = s.table("user_verifications").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
+        existing_uid = (existing.data or [{}])[0].get("bitunix_uid") or "unknown"
+
         # Central verification state used by website gatekeeper.
         s.table("user_verifications").upsert(
             {
                 "telegram_id": user_id,
+                "bitunix_uid": existing_uid,
                 "status": "approved",
                 "reviewed_at": now_iso,
                 "reviewed_by_admin_id": admin_id,
@@ -89,10 +95,16 @@ async def callback_uid_reject(update: Update, context: ContextTypes.DEFAULT_TYPE
         from app.supabase_repo import _client
 
         s = _client()
+
+        # Fetch existing bitunix_uid to preserve it (column is NOT NULL)
+        existing = s.table("user_verifications").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
+        existing_uid = (existing.data or [{}])[0].get("bitunix_uid") or "unknown"
+
         # Central verification state used by website gatekeeper.
         s.table("user_verifications").upsert(
             {
                 "telegram_id": user_id,
+                "bitunix_uid": existing_uid,
                 "status": "rejected",
                 "reviewed_at": now_iso,
                 "reviewed_by_admin_id": admin_id,

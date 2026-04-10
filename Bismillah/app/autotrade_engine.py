@@ -1307,8 +1307,6 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 parse_mode='HTML',
                                 reply_markup=_dashboard_keyboard()
                             )
-                                parse_mode='HTML'
-                            )
                         except Exception:
                             pass
                         return
