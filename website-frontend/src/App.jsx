@@ -127,6 +127,7 @@ export default function App() {
   const [hasCumulativePnl, setHasCumulativePnl] = useState(false);
   const [equity, setEquity] = useState(null);
   const [connectorStatus, setConnectorStatus] = useState({ linked: null, online: null, error: null });
+  const [portfolioLoaded, setPortfolioLoaded] = useState(false);
   const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate' });
   const [botRunning, setBotRunning] = useState(false);
   const [botBusy, setBotBusy] = useState(false);
@@ -525,7 +526,8 @@ export default function App() {
           // Surface HTTP errors (401 token expired, 502 backend crash, etc.)
           let detail = `HTTP ${r.status}`;
           try { const e = await r.json(); detail = e.detail || detail; } catch {}
-          setConnectorStatus({ linked: null, online: false, error: detail });
+          setConnectorStatus({ linked: false, online: false, error: detail });
+          if (!cancelled) setPortfolioLoaded(true);
           return;
         }
         const d = await r.json();
@@ -548,7 +550,11 @@ export default function App() {
               + Number(a.total_unrealized_pnl || 0);
             setEquity(eq);
           }
+        } else {
+          // No bitunix data at all — treat as not linked
+          setConnectorStatus(prev => ({ ...prev, linked: prev.linked === null ? false : prev.linked }));
         }
+        if (!cancelled) setPortfolioLoaded(true);
         if (d.engine) {
           setEngineState(prev => ({
             ...prev,
@@ -562,7 +568,10 @@ export default function App() {
           }));
         }
       } catch (err) {
-        if (!cancelled) setConnectorStatus({ linked: null, online: false, error: `Network error: ${err.message}` });
+        if (!cancelled) {
+          setConnectorStatus({ linked: false, online: false, error: `Network error: ${err.message}` });
+          setPortfolioLoaded(true);
+        }
       }
     };
     load();
@@ -615,10 +624,19 @@ export default function App() {
         onLogout={handleLogout}
       />;
     }
-    // uid_verified or active — check if onboarding wizard needed
-    if (connectorStatus?.linked === false && connectorStatus?.linked !== null) {
+    // uid_verified or active — wait for portfolio data, then check API key
+    const isVerified = ['uid_verified', 'active'].includes(verStatus?.status);
+    if (isVerified && !portfolioLoaded) {
+      // Still loading — show spinner, don't let through yet
+      return (
+        <div className="min-h-screen bg-[#020202] flex items-center justify-center">
+          <div className="text-slate-400 text-sm animate-pulse">Loading your account...</div>
+        </div>
+      );
+    }
+    if (isVerified && connectorStatus.linked === false) {
       return <OnboardingWizard onComplete={() => {
-        // Refresh data so dashboard loads with live state
+        setPortfolioLoaded(false);
         fetchVerificationStatus();
         fetchRiskSettings();
         setActiveTab('portfolio');
@@ -651,30 +669,6 @@ export default function App() {
           <div id="tg-widget-root" className="flex justify-center min-h-[50px] items-center" />        </div>
       </div>
     );
-  }
-
-  // Verification gate — show appropriate screen based on status
-  if (isLoggedIn && verStatus !== null) {
-    if (verStatus.status === 'none') {
-      return <GatekeeperScreen onSubmit={fetchVerStatus} />;
-    }
-    if (verStatus.status === 'pending_verification') {
-      return <VerificationPendingScreen onRefresh={fetchVerStatus} />;
-    }
-    // Verified but no API keys → show onboarding wizard
-    if (['uid_verified', 'active'].includes(verStatus.status) && connectorStatus.linked === false) {
-      return (
-        <OnboardingWizard
-          onComplete={() => {
-            apiFetch('/dashboard/portfolio').then(r => r.ok ? r.json() : null).then(d => {
-              if (d?.bitunix) setConnectorStatus({ linked: !!d.bitunix.linked, online: !!d.bitunix.account, error: d.bitunix.error || null });
-            }).catch(() => {});
-            setActiveTab('portfolio');
-            fetchVerStatus();
-          }}
-        />
-      );
-    }
   }
 
   return (
