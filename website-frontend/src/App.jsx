@@ -132,15 +132,17 @@ export default function App() {
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
   const [showBotStartModal, setShowBotStartModal] = useState(false);
+  const [verStatus, setVerStatus] = useState(null); // null = loading, object = loaded
   const [riskSettings, setRiskSettings] = useState({
     risk_per_trade: 0.5,
     leverage: 10,
-    equity: 0,          // balance + unrealized PnL (used for risk calculations)
-    balance: 0,         // free available balance
-    unrealized_pnl: 0,  // open position P&L
-    loading: true
+    equity: 0,
+    balance: 0,
+    frozen: 0,
+    unrealized_pnl: 0,
+    loading: true,
+    error: null,
   });
-  const [verStatus, setVerStatus] = useState(null);
   const [verLoading, setVerLoading] = useState(true);
 
   useEffect(() => {
@@ -311,7 +313,8 @@ export default function App() {
           risk_per_trade: data.risk_per_trade || 0.5,
           leverage: data.leverage || 10,
           equity: data.equity || 0,
-          balance: data.balance || 0,
+          balance: data.balance || 0,        // free/available only
+          frozen: data.frozen || 0,          // locked in positions
           unrealized_pnl: data.unrealized_pnl || 0,
           loading: false,
         });
@@ -434,24 +437,34 @@ export default function App() {
   }, [isLoggedIn]);
 
   // Fetch verification status on login
-  const fetchVerificationStatus = async () => {
-    if (!isLoggedIn) return;
+  const fetchVerStatus = async () => {
+    if (!isLoggedIn) { setVerLoading(false); return; }
     try {
       const resp = await apiFetch('/user/verification-status');
+      if (resp.status === 401) {
+        // Token expired — force logout and show login screen
+        try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
+        setIsLoggedIn(false);
+        setUser(null);
+        setVerStatus(null);
+        return;
+      }
       if (resp.ok) {
         const data = await resp.json();
         setVerStatus(data);
+      } else {
+        setVerStatus({ status: 'none' });
       }
     } catch (err) {
       console.error('[Verification] Failed:', err);
+      setVerStatus({ status: 'none' });
     } finally {
       setVerLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!isLoggedIn) { setVerLoading(false); return; }
-    fetchVerificationStatus();
+    fetchVerStatus();
   }, [isLoggedIn]);
 
   // Live unrealized PnL + positions polling
@@ -621,6 +634,30 @@ export default function App() {
           <div id="tg-widget-root" className="flex justify-center min-h-[50px] items-center" />        </div>
       </div>
     );
+  }
+
+  // Verification gate — show appropriate screen based on status
+  if (isLoggedIn && verStatus !== null) {
+    if (verStatus.status === 'none') {
+      return <GatekeeperScreen onSubmit={fetchVerStatus} />;
+    }
+    if (verStatus.status === 'pending_verification') {
+      return <VerificationPendingScreen onRefresh={fetchVerStatus} />;
+    }
+    // Verified but no API keys → show onboarding wizard
+    if (['uid_verified', 'active'].includes(verStatus.status) && connectorStatus.linked === false) {
+      return (
+        <OnboardingWizard
+          onComplete={() => {
+            apiFetch('/dashboard/portfolio').then(r => r.ok ? r.json() : null).then(d => {
+              if (d?.bitunix) setConnectorStatus({ linked: !!d.bitunix.linked, online: !!d.bitunix.account, error: d.bitunix.error || null });
+            }).catch(() => {});
+            setActiveTab('portfolio');
+            fetchVerStatus();
+          }}
+        />
+      );
+    }
   }
 
   return (
@@ -801,6 +838,124 @@ function RiskManagementCard({ riskSettings, onUpdateRisk, onUpdateLeverage, onUp
             <div className="flex justify-between items-center border-t border-white/5 pt-2">
               <span className="text-xs text-amber-400 font-bold">Dollar Risk</span>
               <span className="text-xs font-black text-amber-400">${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toFixed(2)}</span>
+
+function OnboardingWizard({ onComplete }) {
+  const [step, setStep] = useState(1);
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [testResult, setTestResult] = useState(null); // null | 'ok' | 'fail'
+  const [testLoading, setTestLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [risk, setRisk] = useState(0.5);
+  const [leverage, setLeverage] = useState(10);
+  const [marginMode, setMarginMode] = useState('cross');
+  const [startLoading, setStartLoading] = useState(false);
+  const [keyHint, setKeyHint] = useState('');
+
+  const handleTestConnection = async () => {
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const resp = await apiFetch('/bitunix/keys/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+      });
+      setTestResult(resp.ok ? 'ok' : 'fail');
+    } catch {
+      setTestResult('fail');
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const handleSaveKeys = async () => {
+    setSaveLoading(true);
+    setSaveError(null);
+    try {
+      const resp = await apiFetch('/bitunix/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+      });
+      if (resp.ok) {
+        setKeyHint('...' + apiKey.slice(-4));
+        setStep(2);
+      } else {
+        const d = await resp.json().catch(() => ({}));
+        setSaveError(d.detail || 'Failed to save API keys');
+      }
+    } catch {
+      setSaveError('Network error. Please try again.');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleConfigureRisk = async () => {
+    await Promise.all([
+      apiFetch('/dashboard/settings/risk', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ risk_per_trade: risk }) }),
+      apiFetch('/dashboard/settings/leverage', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leverage }) }),
+      apiFetch('/dashboard/settings/margin-mode', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ margin_mode: marginMode }) }),
+    ]).catch(() => {});
+    setStep(3);
+  };
+
+  const handleStartEngine = async () => {
+    setStartLoading(true);
+    try {
+      await apiFetch('/dashboard/engine/start', { method: 'POST' });
+    } catch {}
+    setStartLoading(false);
+    onComplete();
+  };
+
+  const progressPct = step === 1 ? 33 : step === 2 ? 66 : 100;
+
+  return (
+    <div className="min-h-screen bg-[#020202] flex flex-col items-center justify-center p-4 text-slate-200 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full bg-fuchsia-600/15 blur-[120px] pointer-events-none z-0" />
+      <div className="max-w-lg w-full bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-[2rem] shadow-[0_0_50px_rgba(0,0,0,0.8)] p-8 relative z-10">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-black text-white mb-1">Setup Your AutoTrade</h2>
+          <p className="text-slate-400 text-sm">Step {step} of 3</p>
+        </div>
+        {/* Progress bar */}
+        <div className="w-full bg-white/5 rounded-full h-1.5 mb-8">
+          <div className="bg-gradient-to-r from-fuchsia-500 to-cyan-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+        </div>
+
+        {/* Step 1: API Key */}
+        {step === 1 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 flex items-center justify-center text-fuchsia-400 text-sm font-black">1</div>
+              <p className="font-bold text-white">Connect Bitunix API Key</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">API Key</label>
+              <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Bitunix API Key" className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-fuchsia-500/50" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">API Secret</label>
+              <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Enter your Bitunix API Secret" className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-fuchsia-500/50" />
+            </div>
+            <a href="https://www.bitunix.com/account/api-management" target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+              <ArrowUpRight size={12} /> Open Bitunix API Management
+            </a>
+            {testResult === 'ok' && <p className="text-xs text-lime-400">✅ Connection successful!</p>}
+            {testResult === 'fail' && <p className="text-xs text-rose-400">❌ Connection failed. Check your keys.</p>}
+            {saveError && <p className="text-xs text-rose-400">{saveError}</p>}
+            <div className="flex gap-3 pt-2">
+              <button onClick={handleTestConnection} disabled={testLoading || !apiKey || !apiSecret} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-slate-300 font-bold rounded-xl text-sm hover:bg-white/10 transition-colors disabled:opacity-50">
+                {testLoading ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button onClick={handleSaveKeys} disabled={saveLoading || !apiKey || !apiSecret} className="flex-1 py-2.5 bg-gradient-to-r from-fuchsia-500 to-cyan-500 text-white font-black rounded-xl text-sm hover:opacity-90 transition-opacity disabled:opacity-50">
+                {saveLoading ? 'Saving...' : 'Save & Continue →'}
+              </button>
             </div>
           </div>
         )}
@@ -809,6 +964,67 @@ function RiskManagementCard({ riskSettings, onUpdateRisk, onUpdateLeverage, onUp
           <p className="text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">
             {riskSettings.error}
           </p>
+        {/* Step 2: Risk Config */}
+        {step === 2 && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 text-sm font-black">2</div>
+              <p className="font-bold text-white">Configure Risk Settings</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-2 block">Risk per Trade</label>
+              <div className="flex gap-2">
+                {[0.25, 0.5, 0.75, 1.0].map(r => (
+                  <button key={r} onClick={() => setRisk(r)} className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${risk === r ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}>
+                    {r}%
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-2 block">Leverage: {leverage}x</label>
+              <input type="range" min={1} max={20} value={leverage} onChange={e => setLeverage(Number(e.target.value))} className="w-full accent-fuchsia-500" />
+              <div className="flex justify-between text-xs text-slate-600 mt-1"><span>1x</span><span>20x</span></div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-2 block">Margin Mode</label>
+              <div className="flex gap-2">
+                {['cross', 'isolated'].map(m => (
+                  <button key={m} onClick={() => setMarginMode(m)} className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors capitalize ${marginMode === m ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}>
+                    {m === 'cross' ? '♾️ Cross' : '🔒 Isolated'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button onClick={handleConfigureRisk} className="w-full py-3 bg-gradient-to-r from-fuchsia-500 to-cyan-500 text-white font-black rounded-xl text-sm hover:opacity-90 transition-opacity mt-2">
+              Continue →
+            </button>
+          </div>
+        )}
+
+        {/* Step 3: Start Trading */}
+        {step === 3 && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-full bg-lime-500/20 border border-lime-500/40 flex items-center justify-center text-lime-400 text-sm font-black">3</div>
+              <p className="font-bold text-white">Start Trading</p>
+            </div>
+            <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 text-sm">
+              <p className="text-xs text-slate-500 mb-2 font-bold uppercase tracking-wider">Your Configuration</p>
+              <div className="flex flex-wrap gap-2">
+                <span className="px-3 py-1 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-full text-xs text-fuchsia-400">🏦 Bitunix</span>
+                {keyHint && <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-slate-300">🔑 {keyHint}</span>}
+                <span className="px-3 py-1 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-xs text-cyan-400">⚙️ {leverage}x {marginMode}</span>
+                <span className="px-3 py-1 bg-lime-500/10 border border-lime-500/20 rounded-full text-xs text-lime-400">📊 {risk}% risk</span>
+              </div>
+            </div>
+            <button onClick={handleStartEngine} disabled={startLoading} className="w-full py-3 bg-gradient-to-r from-lime-500 to-cyan-500 text-white font-black rounded-xl text-sm hover:opacity-90 transition-opacity disabled:opacity-50">
+              {startLoading ? 'Starting...' : '🚀 Start AutoTrade Engine'}
+            </button>
+            <button onClick={onComplete} className="w-full py-2 text-slate-500 text-xs hover:text-slate-400 transition-colors">
+              Skip for now →
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -816,6 +1032,144 @@ function RiskManagementCard({ riskSettings, onUpdateRisk, onUpdateLeverage, onUp
 }
 
 function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy, connectorStatus, riskSettings, onUpdateRisk, onUpdateLeverage, onUpdateMarginMode }) {
+
+function GatekeeperScreen({ onSubmit }) {
+  const [uid, setUid] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!uid.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await apiFetch('/user/submit-uid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: uid.trim() }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        setSubmitted(true);
+        setTimeout(() => onSubmit(), 500);
+      } else {
+        setError(data.detail || 'Failed to submit UID. Please try again.');
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#020202] flex flex-col items-center justify-center p-4 text-slate-200 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-fuchsia-600/20 blur-[100px] pointer-events-none z-0" />
+      <div className="max-w-md w-full bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-[2rem] shadow-[0_0_50px_rgba(0,0,0,0.8)] p-8 relative z-10">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-fuchsia-500 via-purple-500 to-cyan-500 p-[1px] mx-auto mb-4">
+            <div className="w-full h-full bg-[#050505] rounded-[15px] flex items-center justify-center">
+              <Shield size={32} className="text-white" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2">Welcome to CryptoMentor AutoTrade</h2>
+          <p className="text-slate-400 text-sm">Complete your Bitunix registration to start trading</p>
+        </div>
+
+        <div className="space-y-6">
+          {/* Step 1 */}
+          <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 flex items-center justify-center text-fuchsia-400 text-xs font-black">1</div>
+              <p className="text-sm font-bold text-white">Register on Bitunix</p>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">Use our referral link to register and get exclusive benefits.</p>
+            <a
+              href="https://www.bitunix.com/register?vipCode=sq45"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-fuchsia-500/15 border border-fuchsia-500/30 text-fuchsia-400 rounded-xl text-sm font-bold hover:bg-fuchsia-500/25 transition-colors"
+            >
+              <ArrowUpRight size={16} /> Open Bitunix Registration
+            </a>
+          </div>
+
+          {/* Step 2 */}
+          <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 text-xs font-black">2</div>
+              <p className="text-sm font-bold text-white">Enter Your Bitunix UID</p>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">Find your UID in Bitunix → Profile → Account Info.</p>
+            <input
+              type="text"
+              value={uid}
+              onChange={e => setUid(e.target.value)}
+              placeholder="e.g. 123456789"
+              className="w-full bg-[#050505] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 mb-3"
+            />
+            {error && <p className="text-xs text-rose-400 mb-3">{error}</p>}
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !uid.trim() || submitted}
+              className="w-full py-3 bg-gradient-to-r from-fuchsia-500 to-cyan-500 text-white font-black rounded-xl text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {loading ? 'Submitting...' : submitted ? '✅ Submitted!' : 'Submit for Verification'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VerificationPendingScreen({ onRefresh }) {
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => onRefresh(), 30000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setTimeout(() => setRefreshing(false), 1000);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#020202] flex flex-col items-center justify-center p-4 text-slate-200 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-cyan-600/15 blur-[100px] pointer-events-none z-0" />
+      <div className="max-w-md w-full bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-[2rem] shadow-[0_0_50px_rgba(0,0,0,0.8)] p-8 relative z-10 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 p-[1px] mx-auto mb-6">
+          <div className="w-full h-full bg-[#050505] rounded-[15px] flex items-center justify-center">
+            <Clock size={32} className="text-amber-400" />
+          </div>
+        </div>
+        <h2 className="text-2xl font-black text-white mb-3">Verification Pending</h2>
+        <p className="text-slate-400 text-sm mb-2">Your Bitunix UID is being verified by our team.</p>
+        <p className="text-slate-500 text-xs mb-8">You'll receive a Telegram notification once approved. This usually takes a few minutes.</p>
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 text-left">
+          <p className="text-xs text-amber-400 font-bold mb-1">⏳ What happens next?</p>
+          <p className="text-xs text-slate-400">Our admin will verify your UID in the Bitunix system and approve your account. You'll get a Telegram message with a link to continue setup.</p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="w-full py-3 bg-white/5 border border-white/10 text-slate-300 font-bold rounded-xl text-sm hover:bg-white/10 transition-colors disabled:opacity-50"
+        >
+          {refreshing ? 'Checking...' : '🔄 Refresh Status'}
+        </button>
+        <p className="text-xs text-slate-600 mt-3">Auto-refreshes every 30 seconds</p>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy, connectorStatus }) {
   const pnlAbs = Math.abs(unrealizedPnl).toFixed(2);
   const pnlDisplay = hasRealData ? `${unrealizedPnl >= 0 ? '+' : '-'}$${pnlAbs}` : '$0.00';
   const realizedAbs = Math.abs(cumulativePnl).toFixed(2);
@@ -917,7 +1271,10 @@ function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, eq
   );
 }
 
-function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskSettings, onUpdateRisk }) {
+function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskSettings, onUpdateRisk, liveEquity }) {
+  // Use live equity from portfolio polling (same source as Portfolio tab)
+  // Fall back to riskSettings.equity if portfolio hasn't loaded yet
+  const displayEquity = (liveEquity !== null && liveEquity !== undefined) ? liveEquity : riskSettings.equity;
   return (
     <div className="max-w-4xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12"><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">Engine Controls</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Configure AutoTrade behavior, StackMentor, Risk management, and Position sizing.</p></header>
@@ -998,7 +1355,124 @@ function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskS
       </div>
 
       {/* Risk Management Card */}
+
       <RiskManagementCard riskSettings={riskSettings} onUpdateRisk={onUpdateRisk} onUpdateLeverage={onUpdateLeverage} onUpdateMarginMode={onUpdateMarginMode} />
+
+      <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-amber-500/30 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-8 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[40px] rounded-full pointer-events-none" />
+        <div className="flex items-start justify-between mb-6 relative z-10">
+          <div>
+            <h3 className="text-xl md:text-2xl font-black text-white mb-2">Risk Management</h3>
+            <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed">Fixed dollar risk per trade. Position sizes scale inversely with stop loss distance.</p>
+          </div>
+          <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20"><Target className="text-amber-400 w-6 h-6" /></div>
+        </div>
+
+        {/* Risk Level Buttons */}
+        <div className="mb-6 relative z-10">
+          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Select Risk Per Trade</p>
+          <div className="grid grid-cols-4 gap-3">
+            {[0.25, 0.5, 0.75, 1.0].map(risk => (
+              <button
+                key={risk}
+                onClick={() => onUpdateRisk(risk)}
+                disabled={riskSettings.loading}
+                className={`py-3 px-2 rounded-lg font-bold text-xs transition-all ${
+                  riskSettings.risk_per_trade === risk
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_20px_rgba(217,119,6,0.2)]'
+                    : 'bg-[#050505] text-slate-400 border border-white/5 hover:border-amber-500/30 hover:text-amber-400'
+                } disabled:opacity-50`}
+              >
+                {risk}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Error display */}
+        {riskSettings.error && (
+          <p className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg relative z-10">
+            {riskSettings.error}
+          </p>
+        )}
+
+        {/* Risk Preview Calculation (using LIVE equity from Bitunix) */}
+        {displayEquity > 0 && (
+          <div className="mb-6 relative z-10 bg-[#050505]/50 border border-white/5 p-4 rounded-xl">
+            <p className="text-[10px] text-slate-500 font-bold uppercase mb-3">Account Status (Live from Bitunix)</p>
+
+            {/* Account Equity */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-slate-300">Account Equity:</span>
+              <span className="text-sm font-bold text-cyan-400">${displayEquity.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+            </div>
+
+            {/* Available Margin */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-slate-400 text-xs">├ Available Margin:</span>
+              <span className="text-sm text-slate-300">${riskSettings.balance.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+            </div>
+
+            {/* Used Margin (in positions) */}
+            {riskSettings.frozen > 0 && (
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-slate-400 text-xs">├ Used Margin:</span>
+                <span className="text-sm text-slate-300">${riskSettings.frozen.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+              </div>
+            )}
+
+            {/* Unrealized PnL */}
+            <div className={`flex items-center justify-between mb-3 pb-3 border-b border-white/10`}>
+              <span className="text-sm text-slate-400 text-xs">└ Unrealized P&L:</span>
+              <span className={`text-sm font-bold ${riskSettings.unrealized_pnl >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                ${riskSettings.unrealized_pnl.toLocaleString('en-US', {maximumFractionDigits: 2})}
+              </span>
+            </div>
+
+            {/* Risk Amount based on equity */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-300">Risk Per Trade ({riskSettings.risk_per_trade}% of equity):</span>
+              <span className="text-sm font-bold text-amber-400">
+                ${(displayEquity * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}
+              </span>
+            </div>
+
+            <p className="text-[10px] text-slate-500 mt-2 italic">Equity = Available + Used Margin + Unrealized P&L</p>
+          </div>
+        )}
+
+        {/* Risk Gauge */}
+        <div className="relative z-10 p-4 bg-[#050505] rounded-xl border border-white/5">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Risk Level</span>
+            <span className={`text-xs font-bold ${
+              riskSettings.risk_per_trade <= 0.25 ? 'text-green-400' :
+              riskSettings.risk_per_trade <= 0.5 ? 'text-cyan-400' :
+              riskSettings.risk_per_trade <= 0.75 ? 'text-yellow-400' :
+              'text-orange-400'
+            }`}>
+              {riskSettings.risk_per_trade}%
+            </span>
+          </div>
+          <div className="w-full h-2 bg-[#0a0a0a] rounded-full overflow-hidden border border-white/5">
+            <div
+              className={`h-full transition-all ${
+                riskSettings.risk_per_trade <= 0.25 ? 'bg-green-500' :
+                riskSettings.risk_per_trade <= 0.5 ? 'bg-cyan-500' :
+                riskSettings.risk_per_trade <= 0.75 ? 'bg-yellow-500' : 'bg-orange-500'
+              }`}
+              style={{width: `${(riskSettings.risk_per_trade / 1.0) * 100}%`}}
+            />
+          </div>
+          <p className="text-[10px] text-slate-500 font-medium mt-3 leading-relaxed">
+            {riskSettings.risk_per_trade <= 0.25 ? '🟢 Conservative: Many small wins, low leverage' :
+             riskSettings.risk_per_trade <= 0.5 ? '🔵 Balanced: Standard confluent setups' :
+             riskSettings.risk_per_trade <= 0.75 ? '🟡 Aggressive: Higher frequency, wider targets' :
+             '🔴 Very Aggressive: Maximum signals per day'}
+          </p>
+        </div>
+      </div>
+
     </div>
   );
 }

@@ -10,6 +10,7 @@ from app.routes.signals import router as signals_router
 from app.routes.performance import router as performance_router
 from app.routes.engine import router as engine_router
 from app.routes.leaderboard import router as leaderboard_router
+from app.middleware.verification_guard import verification_guard_middleware
 
 app = FastAPI(
     title="CryptoMentor Website API",

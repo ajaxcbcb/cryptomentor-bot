@@ -16,6 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Routes that do NOT require exchange verification
+# (Always allowed even if user is not verified on Bitunix)
 UNPROTECTED_PREFIXES = [
     "/api/auth/",
     "/api/user/me",
@@ -24,11 +25,14 @@ UNPROTECTED_PREFIXES = [
     "/api/user/submit-uid",
     "/api/dashboard/system",
     "/api/leaderboard",
+    "/api/docs",
+    "/api/openapi.json",
     "/docs",
     "/openapi.json",
+    "/",
 ]
 
-# Only these route prefixes require verification
+# These route prefixes require verification status in ('uid_verified', 'active')
 PROTECTED_PREFIXES = [
     "/api/bitunix/",
     "/api/dashboard/engine/",
@@ -46,10 +50,11 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Skip non-API routes and unprotected routes
-        if not path.startswith("/api/"):
+        # If it's a root health check or docs, skip
+        if path in ["/", "/docs", "/openapi.json"]:
             return await call_next(request)
 
+        # Skip check for unprotected routes
         if any(path.startswith(prefix) for prefix in UNPROTECTED_PREFIXES):
             return await call_next(request)
 
@@ -58,16 +63,21 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Extract user from JWT
-        auth_header = request.headers.get("authorization", "")
+        auth_header = request.headers.get("authorization", "") or request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            return await call_next(request)  # Let the route handler deal with missing auth
+            # Let the route handler deal with missing auth (return 401)
+            return await call_next(request)
 
         token = auth_header[7:]
         payload = decode_token(token)
         if not payload:
-            return await call_next(request)  # Let route handler reject invalid token
+            # Let route handler reject invalid token
+            return await call_next(request)
 
-        tg_id = int(payload["sub"])
+        try:
+            tg_id = int(payload["sub"])
+        except (KeyError, ValueError, TypeError):
+            return await call_next(request)
 
         # Check verification status
         try:
