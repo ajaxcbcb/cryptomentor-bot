@@ -13,7 +13,7 @@ import os
 # Menu Constants — Aligned with Web Interface
 MAIN_MENU = "main_menu"
 
-WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
+WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 
 # Redirect message for retired features
 REDIRECT_MESSAGE = "📊 This feature is now available on the web dashboard.\n\nTap below to open it:"

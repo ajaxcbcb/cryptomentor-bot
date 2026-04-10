@@ -18,9 +18,108 @@ from app.lib.auth import generate_dashboard_url
 # Conversation states
 WAITING_BITUNIX_UID = 6
 
-# Constants
-BITUNIX_REFERRAL_URL = "https://www.bitunix.com/register?vipCode=sq45"
-PORTFOLIO_STATUS = "portfolio_status"
+# Legacy constants (tetap untuk backward compat)
+BITUNIX_REFERRAL_URL  = "https://www.bitunix.com/register?vipCode=sq45"
+BITUNIX_REFERRAL_CODE = "sq45"
+WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
+
+# ── Exchange selection helpers ──────────────────────────────────────
+def _get_user_exchange(context) -> str:
+    """Ambil exchange yang dipilih user dari context.user_data, default bitunix."""
+    return context.user_data.get("selected_exchange", "bitunix")
+
+def _set_user_exchange(context, exchange_id: str):
+    context.user_data["selected_exchange"] = exchange_id
+
+
+# ------------------------------------------------------------------ #
+#  Supabase helpers — user_api_keys                                   #
+# ------------------------------------------------------------------ #
+
+def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str, exchange: str = "bitunix"):
+    """Simpan API key + secret terenkripsi ke Supabase."""
+    from app.supabase_repo import ensure_user_exists_no_credit
+    ensure_user_exists_no_credit(int(telegram_id))
+    s = _client()
+    row = {
+        "telegram_id": int(telegram_id),
+        "exchange": exchange,
+        "api_key": api_key,
+        "api_secret_enc": encrypt(api_secret),
+        "key_hint": api_key[-4:],
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    # upsert by (telegram_id, exchange) — support multi-exchange
+    s.table("user_api_keys").upsert(row, on_conflict="telegram_id,exchange").execute()
+
+
+def get_user_api_keys(telegram_id: int) -> Optional[Dict]:
+    """Ambil dan dekripsi API keys dari Supabase."""
+    s = _client()
+    res = s.table("user_api_keys").select("*").eq("telegram_id", int(telegram_id)).limit(1).execute()
+    if not res.data:
+        return None
+    row = res.data[0]
+    try:
+        secret = decrypt(row["api_secret_enc"])
+    except Exception:
+        return None
+    return {
+        "api_key": row["api_key"],
+        "api_secret": secret,
+        "exchange": row.get("exchange", "bitunix"),
+        "created_at": row.get("created_at"),
+        "key_hint": row.get("key_hint", row["api_key"][-4:]),
+    }
+
+
+def delete_user_api_keys(telegram_id: int):
+    """Hapus API keys dari Supabase."""
+    _client().table("user_api_keys").delete().eq("telegram_id", int(telegram_id)).execute()
+
+
+# ------------------------------------------------------------------ #
+#  Supabase helpers — autotrade_sessions                              #
+# ------------------------------------------------------------------ #
+
+def _ensure_autotrade_table():
+    """Pastikan tabel autotrade_sessions ada (idempotent via upsert)."""
+    pass  # dibuat via SQL migration
+
+
+def get_autotrade_session(telegram_id: int) -> Optional[Dict]:
+    s = _client()
+    res = s.table("autotrade_sessions").select("*").eq("telegram_id", int(telegram_id)).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def save_autotrade_session(telegram_id: int, amount: float, leverage: int = 10):
+    s = _client()
+    row = {
+        "telegram_id": int(telegram_id),
+        "initial_deposit": amount,
+        "current_balance": amount,
+        "total_profit": 0,
+        "status": "active",
+        "leverage": leverage,
+        "started_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    s.table("autotrade_sessions").upsert(row, on_conflict="telegram_id").execute()
+
+
+def update_autotrade_status(telegram_id: int, status: str):
+    s = _client()
+    s.table("autotrade_sessions").upsert(
+        {"telegram_id": int(telegram_id), "status": status,
+         "updated_at": datetime.utcnow().isoformat()},
+        on_conflict="telegram_id"
+    ).execute()
+
+
+# ------------------------------------------------------------------ #
+#  Conversation: /autotrade entry                                     #
+# ------------------------------------------------------------------ #
 
 async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user

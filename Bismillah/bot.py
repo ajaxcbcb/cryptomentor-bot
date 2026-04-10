@@ -187,7 +187,7 @@ class TelegramBot:
 
     async def redirect_to_web(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Generic redirect handler for retired commands."""
-        web_url = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
+        web_url = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
         await update.message.reply_text(
             "📊 This feature is now available on the web dashboard.\n\nTap below to open it:",
             parse_mode='HTML',
@@ -213,7 +213,7 @@ class TelegramBot:
             "👑 <b>Admin:</b> /admin, /set_premium, /signal_on, /signal_off",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌐 Open Dashboard", url=os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai"))]
+                [InlineKeyboardButton("🌐 Open Dashboard", url=os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id"))]
             ])
         )
 

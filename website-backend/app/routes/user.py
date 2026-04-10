@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/user", tags=["user"])
 bearer = HTTPBearer()
 
+
 def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     payload = decode_token(creds.credentials)
     if not payload:
