@@ -28,7 +28,6 @@ UNPROTECTED_PREFIXES = [
     "/leaderboard",
     "/docs",
     "/openapi.json",
-    "/",
     # Legacy with /api/ prefix (direct access)
     "/api/auth/",
     "/api/user/me",
@@ -37,6 +36,8 @@ UNPROTECTED_PREFIXES = [
     "/api/user/submit-uid",
     "/api/leaderboard",
 ]
+
+UNPROTECTED_EXACT = ["/", "/docs", "/openapi.json"]
 
 # These route prefixes require verification status = 'approved'
 PROTECTED_PREFIXES = [
@@ -63,7 +64,7 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # If it's a root health check or docs, skip
-        if path in ["/", "/docs", "/openapi.json"]:
+        if path in UNPROTECTED_EXACT:
             return await call_next(request)
 
         # Skip check for unprotected routes
