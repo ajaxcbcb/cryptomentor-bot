@@ -16,7 +16,8 @@ from menu_system import (
     AUTOMATON_SPAWN, AUTOMATON_STATUS, AUTOMATON_DEPOSIT, AUTOMATON_LOGS,
     # New web-aligned constants
     PORTFOLIO_STATUS, ENGINE_CONTROLS, PERFORMANCE_METRICS, SIGNALS_MARKET,
-    API_SETTINGS, SKILLS_EDUCATION, VIEW_METRICS, VIEW_TRADES, API_SETUP
+    API_SETTINGS, SKILLS_EDUCATION, VIEW_METRICS, VIEW_TRADES, API_SETUP,
+    WEB_DASHBOARD_URL, REDIRECT_MESSAGE, REDIRECT_KEYBOARD,
 )
 
 import asyncio
@@ -85,21 +86,17 @@ class MenuCallbackHandler:
                 await cmd_autotrade(fake_update, context)
                 return
 
-            # Main menu navigation (Web-aligned primary)
+            # Main menu navigation (Gatekeeper)
             if callback_data == MAIN_MENU:
                 await self.show_main_menu(query, context)
-            # New web-aligned navigation
-            elif callback_data == PORTFOLIO_STATUS:
-                await self.show_portfolio_status_menu(query, context)
-            elif callback_data == ENGINE_CONTROLS:
-                await self.show_engine_controls_menu(query, context)
-            elif callback_data == PERFORMANCE_METRICS:
-                await self.show_performance_menu(query, context)
-            elif callback_data == SIGNALS_MARKET:
-                await self.show_signals_market_menu(query, context)
-            elif callback_data == API_SETTINGS:
-                await self.show_settings_menu(query, context)
-            # --- UID Verification Callbacks (Phase 1 Migration) ---
+            
+            # New gatekeeper menu handlers
+            elif callback_data == "account_status":
+                await self.handle_account_status(query, context)
+            elif callback_data == "support":
+                await self.handle_support(query, context)
+
+            # UID Verification Callbacks (Phase 1 Migration)
             elif callback_data.startswith("uid_acc_"):
                 from app.handlers_autotrade_admin import callback_uid_acc
                 await callback_uid_acc(update, context)
@@ -108,70 +105,23 @@ class MenuCallbackHandler:
                 from app.handlers_autotrade_admin import callback_uid_reject
                 await callback_uid_reject(update, context)
                 return
-            elif callback_data == SKILLS_EDUCATION:
-                await self.show_skills_education_menu(query, context)
-            # Legacy menu navigation (backward compatibility)
-            elif callback_data == PRICE_MARKET:
-                await self.show_price_market_menu(query, context)
-            elif callback_data == TRADING_ANALYSIS:
-                await self.show_trading_analysis_menu(query, context)
-            elif callback_data == FUTURES_SIGNALS:
-                await self.show_futures_signals_menu(query, context)
-            elif callback_data == PORTFOLIO_CREDITS:
-                await self.show_portfolio_credits_menu(query, context)
-            elif callback_data == PREMIUM_REFERRAL:
-                await self.show_premium_referral_menu(query, context)
-            elif callback_data == ASK_AI_MENU:
-                await self.show_ask_ai_menu(query, context)
-            elif callback_data == AI_AGENT_MENU:
-                await self.show_ai_agent_menu(query, context)
-            elif callback_data == SETTINGS_MENU:
-                await self.show_settings_menu(query, context)
 
-            # Action handlers (Web-aligned)
-            elif callback_data == VIEW_METRICS:
-                await self.handle_view_metrics(query, context)
-            elif callback_data == VIEW_TRADES:
-                await self.handle_view_trades(query, context)
-            elif callback_data == API_SETUP:
-                await self.handle_api_setup(query, context)
-            # Legacy action handlers
-            elif callback_data == CHECK_PRICE:
-                await self.handle_check_price(query, context)
-            elif callback_data == MARKET_OVERVIEW:
-                await self.handle_market_overview(query, context)
-            elif callback_data == SPOT_ANALYSIS:
-                await self.handle_spot_analysis(query, context)
-            elif callback_data == FUTURES_ANALYSIS:
-                await self.handle_futures_analysis(query, context)
-            elif callback_data == MULTI_COIN_SIGNALS:
-                await self.handle_multi_coin_signals(query, context)
-            elif callback_data == AUTO_SIGNAL_INFO:
-                await self.handle_auto_signal_info(query, context)
-            elif callback_data == MY_PORTFOLIO:
-                await self.handle_my_portfolio(query, context)
-            elif callback_data == ADD_COIN:
-                await self.handle_add_coin(query, context)
-            elif callback_data == CHECK_CREDITS:
-                await self.handle_check_credits(query, context)
-            elif callback_data == UPGRADE_PREMIUM:
-                await self.handle_upgrade_premium(query, context)
-            elif callback_data == REFERRAL_PROGRAM:
-                await self.handle_referral_program(query, context)
-            elif callback_data == PREMIUM_EARNINGS:
-                await self.handle_premium_earnings(query, context)
-            elif callback_data == ASK_AI:
-                await self.handle_ask_ai(query, context)
-            elif callback_data == AUTOMATON_SPAWN:
-                await self.handle_automaton_spawn(query, context)
-            elif callback_data == AUTOMATON_STATUS:
-                await self.handle_automaton_status(query, context)
-            elif callback_data == "agent_lineage":
-                await self.handle_agent_lineage(query, context)
-            elif callback_data == AUTOMATON_DEPOSIT:
-                await self.handle_automaton_deposit(query, context)
-            elif callback_data == AUTOMATON_LOGS:
-                await self.handle_automaton_logs(query, context)
+            # Redirect retired feature callbacks to web dashboard
+            elif callback_data in (
+                PORTFOLIO_STATUS, ENGINE_CONTROLS, PERFORMANCE_METRICS,
+                SIGNALS_MARKET, API_SETTINGS, SKILLS_EDUCATION,
+                PRICE_MARKET, TRADING_ANALYSIS, FUTURES_SIGNALS,
+                PORTFOLIO_CREDITS, ASK_AI_MENU, AI_AGENT_MENU, SETTINGS_MENU,
+                VIEW_METRICS, VIEW_TRADES, API_SETUP, CHECK_PRICE, MARKET_OVERVIEW,
+                SPOT_ANALYSIS, FUTURES_ANALYSIS, MULTI_COIN_SIGNALS, AUTO_SIGNAL_INFO,
+                MY_PORTFOLIO, ADD_COIN, CHECK_CREDITS, ASK_AI,
+                AUTOMATON_SPAWN, AUTOMATON_STATUS, AUTOMATON_DEPOSIT, AUTOMATON_LOGS,
+                "at_status", "at_history", "at_start_engine_now", "at_stop_engine",
+                "at_restart_engine", "at_settings", "at_change_key", "at_start_trade",
+                "at_choose_risk_mode", "at_mode_risk_based", "at_mode_manual",
+                "skills_menu", "at_setup_key",
+            ):
+                await self.handle_redirect(query, context)
             elif callback_data == "automaton_first_deposit":
                 print(f"🔍 DEBUG: Routing to handle_automaton_first_deposit for callback_data: {callback_data}")
                 await self.handle_automaton_first_deposit(query, context)
@@ -242,13 +192,9 @@ class MenuCallbackHandler:
             )
 
     async def show_main_menu(self, query, context):
-        """Show main menu"""
-        user_id = query.from_user.id
-        from database import Database
-        db = Database()
-        user_lang = db.get_user_language(user_id)
-        
+        """Show simplified gatekeeper main menu"""
         await query.edit_message_text(
+
             get_menu_text(MAIN_MENU, user_lang),
             reply_markup=MenuBuilder.build_main_menu(
                 user_id=query.from_user.id,
@@ -256,6 +202,63 @@ class MenuCallbackHandler:
                 first_name=query.from_user.first_name
             ),
             parse_mode='MARKDOWN'
+
+            "🤖 <b>CryptoMentor AI</b>\n\nWhat would you like to do?",
+            reply_markup=MenuBuilder.build_main_menu(),
+            parse_mode='HTML'
+        )
+
+    async def handle_redirect(self, query, context):
+        """Redirect retired feature callbacks to web dashboard"""
+        await query.edit_message_text(
+            REDIRECT_MESSAGE,
+            reply_markup=REDIRECT_KEYBOARD,
+            parse_mode='HTML'
+        )
+
+    async def handle_account_status(self, query, context):
+        """Show quick account status: verification, API key, engine"""
+        user_id = query.from_user.id
+        from app.supabase_repo import _client
+        from app.handlers_autotrade import get_user_api_keys, get_autotrade_session
+        from app.autotrade_engine import is_running as engine_running
+
+        session = get_autotrade_session(user_id)
+        keys = get_user_api_keys(user_id)
+        engine_on = engine_running(user_id)
+
+        status = session.get("status") if session else "none"
+        if status in ("uid_verified", "active"):
+            ver_line = "✅ Verified"
+        elif status == "pending_verification":
+            ver_line = "⏳ Pending Verification"
+        else:
+            ver_line = "❌ Not Verified"
+
+        key_line = f"🔑 API Key: ...{keys['key_hint']}" if keys else "❌ No API Key (set up on dashboard)"
+        engine_line = "⚙️ Engine: 🟢 Running" if engine_on else "⚙️ Engine: 🟡 Inactive"
+
+        await query.edit_message_text(
+            f"📋 <b>Account Status</b>\n\n"
+            f"{ver_line}\n"
+            f"{key_line}\n"
+            f"{engine_line}",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)],
+                [InlineKeyboardButton("🔙 Back", callback_data=MAIN_MENU)],
+            ])
+        )
+
+    async def handle_support(self, query, context):
+        """Show support options"""
+        await query.edit_message_text(
+            "💬 <b>Support</b>\n\n"
+            "Need help? Contact our team or visit the dashboard for self-service options.",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)],
+            ])
         )
 
     async def show_price_market_menu(self, query, context):

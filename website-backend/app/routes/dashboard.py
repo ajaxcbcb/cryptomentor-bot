@@ -145,28 +145,24 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     row = (res.data or [{}])[0]
 
     # Fetch LIVE equity from Bitunix (critical for accurate risk calculations)
-    # Equity = (available + frozen) + total_unrealized_pnl
+    # Equity = available + frozen + unrealized_pnl
     equity = 0.0
-    balance = 0.0
+    available = 0.0
+    frozen = 0.0
     unrealized_pnl = 0.0
     try:
         acc = await bsvc.fetch_account(tg_id)
         if acc.get("success"):
-            # Total balance = available (free) + frozen (used in positions)
-            available = float(acc.get("available", 0) or 0)
-            frozen = float(acc.get("frozen", 0) or 0)
-            balance = available + frozen  # Total balance (not just free)
-
-            # Unrealized P&L from all positions
+            available = float(acc.get("available", 0) or 0)   # free/usable balance
+            frozen = float(acc.get("frozen", 0) or 0)         # locked in open positions
             unrealized_pnl = float(acc.get("total_unrealized_pnl", 0) or 0)
 
-            # Equity = Total Balance + Unrealized P&L
-            equity = balance + unrealized_pnl
+            # Equity = available + frozen (total wallet) + unrealized PnL
+            equity = available + frozen + unrealized_pnl
 
             logger.info(
-                f"[Equity:{tg_id}] Fetched: available=${available:.2f} + "
-                f"frozen=${frozen:.2f} + unrealized=${unrealized_pnl:.2f} = "
-                f"equity=${equity:.2f}"
+                f"[Equity:{tg_id}] available=${available:.2f} frozen=${frozen:.2f} "
+                f"unrealized=${unrealized_pnl:.2f} => equity=${equity:.2f}"
             )
     except Exception as e:
         logger.warning(f"Failed to fetch live equity for {tg_id}: {e}")
@@ -177,15 +173,15 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
         "leverage": int(row.get("leverage") or 10),
         "trading_mode": row.get("trading_mode") or "auto",
         "risk_mode": row.get("risk_mode") or "moderate",
-        "equity": round(equity, 2),  # Used for risk calculations
-        "balance": round(balance, 2),  # Free balance
-        "unrealized_pnl": round(unrealized_pnl, 2),  # Open position P&L
+        "equity": round(equity, 2),           # available + frozen + unrealized (for risk sizing)
+        "balance": round(available, 2),        # free/available balance only
+        "frozen": round(frozen, 2),            # locked in open positions
+        "unrealized_pnl": round(unrealized_pnl, 2),
     }
 
 
 @router.put("/settings/risk")
-async def update_risk_setting(
-    payload: dict,
+async def update_risk_setting(    payload: dict,
     tg_id: int = Depends(get_current_user)
 ):
     """
