@@ -41,8 +41,12 @@ async def get_me(tg_id: int = Depends(get_current_user)):
 async def get_verification_status(tg_id: int = Depends(get_current_user)):
     """
     Returns the user's autotrade verification status.
-    Used by the web frontend to decide which screen to show.
+    Admins always get status 'active' to bypass the verification gate.
     """
+    # Admin bypass — admins always have full access
+    if tg_id in ADMIN_IDS:
+        return {"status": "active", "exchange": "bitunix", "uid": None, "community_code": None}
+
     s = _client()
     res = s.table("autotrade_sessions").select(
         "status, exchange, bitunix_uid, community_code"
