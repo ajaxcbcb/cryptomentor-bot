@@ -85,32 +85,26 @@ class TelegramBot:
         # NOTE: /start is handled by AutoTrade ConversationHandler (registered later)
         self.application.add_handler(CommandHandler("menu", self.menu_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("price", self.price_command))
-        self.application.add_handler(CommandHandler("market", self.market_command))
-        self.application.add_handler(CommandHandler("portfolio", self.portfolio_command))
-        self.application.add_handler(CommandHandler("credits", self.credits_command))
-        self.application.add_handler(CommandHandler("subscribe", self.subscribe_command))
-        self.application.add_handler(CommandHandler("referral", self.referral_command))
-        self.application.add_handler(CommandHandler("language", self.language_command))
         self.application.add_handler(CommandHandler("id", self.id_command))
         self.application.add_handler(CommandHandler("admin", self.admin_command))
 
-        # Signal handlers
-        try:
-            from app.handlers_manual_signals import cmd_analyze, cmd_futures, cmd_futures_signals, cmd_signal, cmd_signals
-            self.application.add_handler(CommandHandler("analyze", cmd_analyze))
-            self.application.add_handler(CommandHandler("futures", cmd_futures))
-            self.application.add_handler(CommandHandler("futures_signals", cmd_futures_signals))
-            self.application.add_handler(CommandHandler("signal", cmd_signal))
-            self.application.add_handler(CommandHandler("signals", cmd_signals))
-            print("✅ Signal handlers registered")
-        except Exception as e:
-            print(f"⚠️ Signal handlers failed: {e}")
-            self.application.add_handler(CommandHandler("analyze", self.analyze_command))
-            self.application.add_handler(CommandHandler("futures", self.futures_command))
-            self.application.add_handler(CommandHandler("futures_signals", self.futures_signals_command))
-            self.application.add_handler(CommandHandler("signal", self.signal_command))
-            self.application.add_handler(CommandHandler("signals", self.signals_command))
+        # Retired commands — redirect to web dashboard
+        self.application.add_handler(CommandHandler("analyze", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("futures", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("futures_signals", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("signal", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("signals", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("ai", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("chat", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("aimarket", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("free_signal", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("portfolio", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("price", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("market", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("credits", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("subscribe", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("referral", self.redirect_to_web))
+        self.application.add_handler(CommandHandler("language", self.redirect_to_web))
 
         # Admin premium handlers
         try:
@@ -158,23 +152,11 @@ class TelegramBot:
         except Exception as e:
             print(f"⚠️ Auto signal admin failed: {e}")
 
-        # AI handlers
-        try:
-            from app.handlers_deepseek import handle_ai_analyze, handle_ai_chat, handle_ai_market_summary
-            self.application.add_handler(CommandHandler("ai", handle_ai_analyze))
-            self.application.add_handler(CommandHandler("chat", handle_ai_chat))
-            self.application.add_handler(CommandHandler("aimarket", handle_ai_market_summary))
-            print("✅ AI handlers registered")
-        except Exception as e:
-            print(f"⚠️ AI handlers failed: {e}")
+        # AI handlers — retired, redirect to web
+        # (handlers_deepseek.py removed)
 
-        # Free signal
-        try:
-            from app.handlers_free_signal import register_free_signal_handlers
-            register_free_signal_handlers(self.application)
-            print("✅ Free signal handlers registered")
-        except Exception as e:
-            print(f"⚠️ Free signal handlers failed: {e}")
+        # Free signal — retired, redirect to web
+        # (handlers_free_signal.py removed)
 
         # Server IP command (admin only)
         self.application.add_handler(CommandHandler("serverip", self.serverip_command))
@@ -199,28 +181,36 @@ class TelegramBot:
             parse_mode='MARKDOWN'
         )
 
+    async def redirect_to_web(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Generic redirect handler for retired commands."""
+        web_url = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
+        await update.message.reply_text(
+            "📊 This feature is now available on the web dashboard.\n\nTap below to open it:",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=web_url)]
+            ])
+        )
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
-            "📚 *CryptoMentor AI - Commands*\n\n"
-            "📊 *Signals:*\n"
-            "/analyze <symbol> - Spot analysis\n"
-            "/futures <symbol> - Futures analysis\n"
-            "/signal <symbol> - Quick signal\n"
-            "/free_signal <symbol> - Free signal (Premium)\n\n"
-            "💰 *Trading:*\n"
-            "/autotrade - AutoTrade menu (Bitunix)\n\n"
-            "🤖 *AI:*\n"
-            "/ai <symbol> - AI analysis\n"
-            "/chat <question> - AI chat\n\n"
-            "📈 *Market:*\n"
-            "/price <symbol> - Check price\n"
-            "/market - Market overview\n\n"
-            "👤 *Account:*\n"
-            "/credits - Check credits\n"
-            "/subscribe - Upgrade premium\n"
-            "/referral - Referral program\n"
-            "/menu - Show menu",
-            parse_mode='MARKDOWN'
+            "📚 <b>CryptoMentor AI</b>\n\n"
+            "The bot is now a <b>gatekeeper</b> — use the web dashboard for all trading features.\n\n"
+            "🤖 <b>Bot Commands:</b>\n"
+            "/autotrade — Register & verify your exchange account\n"
+            "/menu — Show main menu\n"
+            "/id — Show your Telegram ID\n\n"
+            "📊 <b>All trading features are on the web dashboard:</b>\n"
+            "• Portfolio & positions\n"
+            "• Engine controls\n"
+            "• Signals & market analysis\n"
+            "• Risk & leverage settings\n"
+            "• Performance metrics\n\n"
+            "👑 <b>Admin:</b> /admin, /set_premium, /signal_on, /signal_off",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai"))]
+            ])
         )
 
     async def id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

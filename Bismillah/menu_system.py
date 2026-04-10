@@ -8,55 +8,50 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from typing import Dict, List
 
+import os
+
 # Menu Constants — Aligned with Web Interface
 MAIN_MENU = "main_menu"
 
-# Primary Navigation (matches web tabs)
-PORTFOLIO_STATUS = "portfolio_status"      # Portfolio tab
-ENGINE_CONTROLS = "engine_controls"        # Engine/Autotrade controls
-PERFORMANCE_METRICS = "performance_metrics" # Performance analytics
-SIGNALS_MARKET = "signals_market"          # Signals & Market data
-API_SETTINGS = "api_settings"              # API/Exchange settings
-SKILLS_EDUCATION = "skills_education"      # Education content
+WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
 
-# Secondary/Legacy (kept for backward compatibility)
+# Redirect message for retired features
+REDIRECT_MESSAGE = "📊 This feature is now available on the web dashboard.\n\nTap below to open it:"
+REDIRECT_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)]
+])
+
+# Legacy constants kept for backward compatibility
+PORTFOLIO_STATUS = "portfolio_status"
+ENGINE_CONTROLS = "engine_controls"
+PERFORMANCE_METRICS = "performance_metrics"
+SIGNALS_MARKET = "signals_market"
+API_SETTINGS = "api_settings"
+SKILLS_EDUCATION = "skills_education"
 PRICE_MARKET = "price_market"
 TRADING_ANALYSIS = "trading_analysis"
-FUTURES_SIGNALS = "futures_signals"       # legacy — replaced by autotrade
-PORTFOLIO_CREDITS = "portfolio_credits"   # legacy alias
+FUTURES_SIGNALS = "futures_signals"
+PORTFOLIO_CREDITS = "portfolio_credits"
 AI_AGENT_MENU = "ai_agent_menu"
 PREMIUM_REFERRAL = "premium_referral"
 ASK_AI_MENU = "ask_ai_menu"
 SETTINGS_MENU = "settings_menu"
-
-# Action Constants
-# Portfolio actions
 MY_PORTFOLIO = "my_portfolio"
 ADD_COIN = "add_coin"
 CHECK_CREDITS = "check_credits"
-
-# Engine/Autotrade actions
 AUTOMATON_SPAWN = "automaton_spawn"
 AUTOMATON_STATUS = "automaton_status"
 AUTOMATON_DEPOSIT = "automaton_deposit"
 AUTOMATON_LOGS = "automaton_logs"
-
-# Signal actions
 MULTI_COIN_SIGNALS = "multi_coin_signals"
 CHECK_PRICE = "check_price"
 MARKET_OVERVIEW = "market_overview"
-
-# Performance actions
 VIEW_METRICS = "view_metrics"
 VIEW_TRADES = "view_trades"
-
-# Settings actions
 API_SETUP = "api_setup"
 CHANGE_LANGUAGE = "change_language"
 TIME_SETTINGS = "time_settings"
 UPGRADE_PREMIUM = "upgrade_premium"
-
-# Analysis actions (legacy)
 SPOT_ANALYSIS = "spot_analysis"
 FUTURES_ANALYSIS = "futures_analysis"
 AUTO_SIGNAL_INFO = "auto_signal_info"
@@ -86,17 +81,13 @@ class MenuBuilder:
     @staticmethod
     def build_main_menu() -> InlineKeyboardMarkup:
         """
-        Build the main menu aligned with Web Dashboard tabs.
-        Primary navigation matches web interface structure.
+        Simplified gatekeeper menu — 3 buttons only.
+        All trading features are on the web dashboard.
         """
         keyboard = [
-            # Primary Navigation (Web-aligned)
-            [InlineKeyboardButton("📊 Portfolio Status", callback_data=PORTFOLIO_STATUS)],
-            [InlineKeyboardButton("⚙️ Engine Controls", callback_data=ENGINE_CONTROLS)],
-            [InlineKeyboardButton("📈 Signals & Market", callback_data=SIGNALS_MARKET)],
-            [InlineKeyboardButton("📉 Performance", callback_data=PERFORMANCE_METRICS)],
-            [InlineKeyboardButton("🔌 API Settings", callback_data=API_SETTINGS)],
-            [InlineKeyboardButton("🎓 Skills & Education", callback_data=SKILLS_EDUCATION)],
+            [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)],
+            [InlineKeyboardButton("📋 Account Status", callback_data="account_status")],
+            [InlineKeyboardButton("💬 Support", callback_data="support")],
         ]
         return InlineKeyboardMarkup(keyboard)
 

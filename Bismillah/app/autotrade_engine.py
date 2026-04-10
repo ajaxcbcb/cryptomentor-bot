@@ -10,10 +10,20 @@ Strategy: Multi-timeframe confluence + SMC + Risk Management
 """
 import asyncio
 import logging
+import os
 from typing import Dict, Optional, List
 from datetime import datetime, date
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
+
+WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
+
+def _dashboard_keyboard():
+    """Returns an InlineKeyboardMarkup with a 'View on Dashboard' button."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 View on Dashboard", url=WEB_DASHBOARD_URL)]
+    ])
 
 # Import StackMentor system
 from app.stackmentor import (
@@ -1260,7 +1270,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     f"✅ Continuous trading enabled for opportunity maximization\n\n"
                     "High-probability setups only. Risk per trade: fixed dollar amount."
                 ),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=_dashboard_keyboard()
             )
     except Exception as _startup_err:
         logger.warning(f"[Engine:{user_id}] Startup notification failed (non-fatal): {_startup_err}")
@@ -1293,6 +1304,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                                parse_mode='HTML',
+                                reply_markup=_dashboard_keyboard()
+                            )
                                 parse_mode='HTML'
                             )
                         except Exception:
@@ -1440,7 +1454,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         f"📊 Trades today: <b>{trades_today}</b>\n"
                         f"🔄 Looking for next setup..."
                     ),
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=_dashboard_keyboard()
                 )
 
             if open_positions:
@@ -1522,7 +1537,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                     f"⏳ Remaining 25% running to TP2...\n"
                                     f"{'✅ SL updated' if be_result.get('success') else '⚠️ SL update failed — check manually'}"
                                 ),
-                                parse_mode='HTML'
+                                parse_mode='HTML',
+                                reply_markup=_dashboard_keyboard()
                             )
                             break
                     except Exception as _tp1e:
@@ -1576,7 +1592,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             f"{'🔀 Mode: <b>SIDEWAYS FLIP</b> (range trading)' if rev_sig.get('btc_is_sideways') else '📈 Mode: <b>TREND FLIP</b> (CHoCH confirmed)'}\n\n"
                             f"⚡ Closing position and flipping to {new_side}..."
                         ),
-                        parse_mode='HTML'
+                        parse_mode='HTML',
+                        reply_markup=_dashboard_keyboard()
                     )
 
                     # Step 1: Close posisi aktif
@@ -2287,7 +2304,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             stop_pnl_tracker(user_id)
             try:
                 await bot.send_message(chat_id=notify_chat_id,
-                                       text="🛑 <b>AutoTrade stopped.</b>", parse_mode='HTML')
+                                       text="🛑 <b>AutoTrade stopped.</b>",
+                                       parse_mode='HTML',
+                                       reply_markup=_dashboard_keyboard())
             except Exception:
                 pass
             return

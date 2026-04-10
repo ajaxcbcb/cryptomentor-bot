@@ -40,6 +40,7 @@ WAITING_MANUAL_MARGIN  = 8
 # Legacy constants (tetap untuk backward compat)
 BITUNIX_REFERRAL_URL  = "https://www.bitunix.com/register?vipCode=sq45"
 BITUNIX_REFERRAL_CODE = "sq45"
+WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://app.cryptomentor.ai")
 
 # ── Exchange selection helpers ──────────────────────────────────────
 def _get_user_exchange(context) -> str:
@@ -207,332 +208,69 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-    # Main autotrade logic
+    # Main autotrade logic — GATEKEEPER MODE
+    # Bot now only handles UID verification. All trading features are on the web dashboard.
     keys = get_user_api_keys(user_id)
     session = get_autotrade_session(user_id)
-    is_active = session and session.get("status") in ("active", "uid_verified")
+    is_verified = session and session.get("status") in ("active", "uid_verified")
 
-    if keys and is_active:
+    if keys and is_verified:
+        # RETURNING USER — has API keys + verified session
         from app.autotrade_engine import is_running as engine_running
-        from app.exchange_registry import get_exchange, get_client
-        from app.trading_mode_manager import TradingModeManager, TradingMode
-        
-        # Check if engine is running
-        # Priority 1: Check actual running task
         engine_on = engine_running(user_id)
-        
-        # Priority 2: If task not found but session is active, engine might be starting (auto-restore)
-        # Show as "active" to avoid confusion during bot restart
         if not engine_on and session and session.get("status") in ("active", "uid_verified"):
-            # Engine should be running based on DB, might be starting up
-            engine_on = True  # Assume active to avoid user confusion
-        
-        engine_status = "🟢 Engine running" if engine_on else "🟡 Engine inactive"
-        exchange_id = keys.get("exchange", "bitunix")
-        ex_cfg = get_exchange(exchange_id)
-        
-        # Load trading mode
-        trading_mode = TradingModeManager.get_mode(user_id)
-        mode_emoji = "⚡" if trading_mode == TradingMode.SCALPING else "📊"
-        mode_label = "Scalping (5M)" if trading_mode == TradingMode.SCALPING else "Swing (15M)"
-        
-        # Get market sentiment
-        from app.market_sentiment_detector import detect_market_condition
-        try:
-            sentiment = detect_market_condition("BTC")
-            condition = sentiment['condition']
-            confidence = sentiment['confidence']
-            
-            # Emoji based on condition
-            if condition == "SIDEWAYS":
-                sentiment_emoji = "📊"
-                sentiment_color = "🟡"
-            elif condition == "TRENDING":
-                sentiment_emoji = "📈"
-                sentiment_color = "🟢"
-            else:
-                sentiment_emoji = "⚡"
-                sentiment_color = "🟠"
-            
-            sentiment_text = (
-                f"\n{sentiment_emoji} <b>Market Sentiment</b>\n"
-                f"{sentiment_color} {condition} ({confidence}%)\n"
-                f"💡 Optimal: {sentiment['recommended_mode'].upper()}\n"
-            )
-        except Exception as e:
-            sentiment_text = ""
+            engine_on = True  # Assume active during bot restart
 
-        engine_btn = (
-            [InlineKeyboardButton("🛑 Stop AutoTrade", callback_data="at_stop_engine")]
-            if engine_on else
-            [InlineKeyboardButton("🔄 Restart Engine", callback_data="at_restart_engine")]
-        )
-
-        # Show Community Partners for all users who have a session (any verified status)
-        uid_status = session.get("status", "")
-        show_community = uid_status not in ["pending_verification", "uid_rejected", "pending", ""]
-        
-        # Build keyboard based on verification status (REMOVED Trading Mode button)
-        keyboard_buttons = [
-            [InlineKeyboardButton("📊 Status Portfolio",  callback_data="at_status")],
-            [InlineKeyboardButton("📈 Trade History",     callback_data="at_history")],
-            engine_btn,
-            [InlineKeyboardButton("🧠 Bot Skills",        callback_data="skills_menu")],
-        ]
-        
-        # Only add Community Partners button if user is verified
-        if show_community:
-            keyboard_buttons.append([InlineKeyboardButton("👥 Community Partners", callback_data="community_partners")])
-        
-        keyboard_buttons.extend([
-            [InlineKeyboardButton("⚙️ Settings",          callback_data="at_settings")],
-            [InlineKeyboardButton("🔑 Change API Key",    callback_data="at_change_key")],
+        engine_status = "🟢 Running" if engine_on else "🟡 Inactive"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)],
+            [InlineKeyboardButton("📋 Quick Status", callback_data="at_quick_status")],
+            [InlineKeyboardButton("💬 Support", callback_data="at_support")],
         ])
-        
-        keyboard = InlineKeyboardMarkup(keyboard_buttons)
-        current_leverage = int(session.get("leverage", 10))
-        current_margin   = session.get("margin_mode", "cross")
-        margin_label     = "Cross ♾️" if current_margin == "cross" else "Isolated 🔒"
-
-        # Kirim dashboard dulu (instant), lalu fetch balance di background
-        sent_msg = await update.message.reply_text(
-            "🤖 <b>Auto Trade Dashboard</b>\n\n"
-            "✅ Status: <b>ACTIVE</b>\n"
-            f"{mode_emoji} Mode: <b>{mode_label}</b> (Auto)\n"
-            f"{sentiment_text}\n"
-            f"💵 <b>Trading Capital:</b> {session['initial_deposit']} USDT\n"
-            f"💳 Balance: <i>loading...</i>\n"
-            f"📈 Profit: {session['total_profit']:.2f} USDT\n\n"
-            f"⚙️ Leverage: <b>{current_leverage}x</b> | Margin: <b>{margin_label}</b>\n"
-            f"🔑 API Key: <code>...{keys['key_hint']}</code>\n"
-            f"🏦 Exchange: {ex_cfg['emoji']} <b>{ex_cfg['name']}</b>\n"
-            f"⚙️ {engine_status}",
-            parse_mode='HTML', reply_markup=keyboard
+        await update.message.reply_text(
+            f"👋 <b>Welcome back, {user.first_name}!</b>\n\n"
+            f"🏦 Exchange: Bitunix\n"
+            f"⚙️ Engine: {engine_status}\n\n"
+            "Manage your trading on the dashboard:",
+            parse_mode='HTML',
+            reply_markup=keyboard
         )
-
-        # Fetch balance di background lalu update pesan
-        import asyncio
-        import logging as _logging
-        _bg_logger = _logging.getLogger(__name__)
-
-        async def _update_balance():
-            try:
-                client = get_client(exchange_id, keys["api_key"], keys["api_secret"])
-                acc = await asyncio.wait_for(
-                    asyncio.to_thread(client.get_account_info),
-                    timeout=6.0
-                )
-                if acc.get("success"):
-                    balance_line = (
-                        f"💳 {ex_cfg['name']} Balance: <b>{acc['available']:.2f} USDT</b>\n"
-                        f"📊 Unrealized PnL: <b>{acc['total_unrealized_pnl']:+.2f} USDT</b>\n"
-                    )
-                else:
-                    balance_line = f"💳 Balance: <i>{acc.get('error', 'error')[:50]}</i>\n"
-                    _bg_logger.warning(f"[Balance] get_account_info failed: {acc.get('error')}")
-            except Exception as e:
-                balance_line = "💳 Balance: <i>tidak tersedia</i>\n"
-                _bg_logger.warning(f"[Balance] Exception: {e}")
-
-            try:
-                await sent_msg.edit_text(
-                    "🤖 <b>Auto Trade Dashboard</b>\n\n"
-                    "✅ Status: <b>ACTIVE</b>\n"
-                    f"{mode_emoji} Mode: <b>{mode_label}</b> (Auto)\n"
-                    f"{sentiment_text}\n"
-                    f"💵 <b>Trading Capital:</b> {session['initial_deposit']} USDT\n"
-                    f"{balance_line}"
-                    f"📈 Profit: {session['total_profit']:.2f} USDT\n\n"
-                    f"⚙️ Leverage: <b>{current_leverage}x</b> | Margin: <b>{margin_label}</b>\n"
-                    f"🔑 API Key: <code>...{keys['key_hint']}</code>\n"
-                    f"🏦 Exchange: {ex_cfg['emoji']} <b>{ex_cfg['name']}</b>\n"
-                    f"⚙️ {engine_status}",
-                    parse_mode='HTML', reply_markup=keyboard
-                )
-            except Exception as e:
-                _bg_logger.warning(f"[Balance] edit_text failed: {e}")
-
-        asyncio.create_task(_update_balance())
         return ConversationHandler.END
 
-    elif keys:
-        # User has API key - check if they completed risk mode selection
-        risk_mode = get_risk_mode(user_id)
-        
-        # If user already selected risk mode, they should see dashboard
-        # But session might not be "active" yet - redirect to dashboard anyway
-        if risk_mode:
-            # User completed setup, show dashboard
-            from app.autotrade_engine import is_running as engine_running
-            from app.exchange_registry import get_exchange
-            from app.trading_mode_manager import TradingModeManager, TradingMode
-            
-            # Load session to check verification status
-            session = get_autotrade_session(user_id)
-            
-            # Check if engine is running
-            # Priority 1: Check actual running task
-            engine_on = engine_running(user_id)
-            
-            # Priority 2: If task not found but session is active, engine might be starting (auto-restore)
-            # Show as "active" to avoid confusion during bot restart
-            if not engine_on and session and session.get("status") in ("active", "uid_verified"):
-                # Engine should be running based on DB, might be starting up
-                engine_on = True  # Assume active to avoid user confusion
-            
-            engine_status = "🟢 Engine running" if engine_on else "🟡 Engine inactive"
-            exchange_id = keys.get("exchange", "bitunix")
-            ex_cfg = get_exchange(exchange_id)
-            
-            # Load trading mode
-            trading_mode = TradingModeManager.get_mode(user_id)
-            mode_emoji = "⚡" if trading_mode == TradingMode.SCALPING else "📊"
-            mode_label = "Scalping (5M)" if trading_mode == TradingMode.SCALPING else "Swing (15M)"
-            
-            # Get market sentiment
-            from app.market_sentiment_detector import detect_market_condition
-            try:
-                sentiment = detect_market_condition("BTC")
-                condition = sentiment['condition']
-                confidence = sentiment['confidence']
-                
-                # Emoji based on condition
-                if condition == "SIDEWAYS":
-                    sentiment_emoji = "📊"
-                    sentiment_color = "🟡"
-                elif condition == "TRENDING":
-                    sentiment_emoji = "📈"
-                    sentiment_color = "🟢"
-                else:
-                    sentiment_emoji = "⚡"
-                    sentiment_color = "🟠"
-                
-                sentiment_text = (
-                    f"\n{sentiment_emoji} <b>Market Sentiment</b>\n"
-                    f"{sentiment_color} {condition} ({confidence}%)\n"
-                    f"💡 Optimal: {sentiment['recommended_mode'].upper()}\n"
-                )
-            except Exception as e:
-                sentiment_text = ""
-
-            engine_btn = (
-                [InlineKeyboardButton("🛑 Stop AutoTrade", callback_data="at_stop_engine")]
-                if engine_on else
-                [InlineKeyboardButton("🚀 Start AutoTrade", callback_data="at_start_engine_now")]
-            )
-
-            # Show Community Partners for all users who have a session (any verified status)
-            uid_status = session.get("status", "") if session else ""
-            show_community = uid_status not in ["pending_verification", "uid_rejected", "pending", ""]
-            
-            # Build keyboard based on verification status (REMOVED Trading Mode button)
-            keyboard_buttons = [
-                [InlineKeyboardButton("📊 Status Portfolio",  callback_data="at_status")],
-                [InlineKeyboardButton("📈 Trade History",     callback_data="at_history")],
-                engine_btn,
-                [InlineKeyboardButton("🧠 Bot Skills",        callback_data="skills_menu")],
-            ]
-            
-            # Only add Community Partners button if user is verified
-            if show_community:
-                keyboard_buttons.append([InlineKeyboardButton("👥 Community Partners", callback_data="community_partners")])
-            
-            keyboard_buttons.extend([
-                [InlineKeyboardButton("⚙️ Settings",          callback_data="at_settings")],
-                [InlineKeyboardButton("🔑 Change API Key",    callback_data="at_change_key")],
-            ])
-
-            await update.message.reply_text(
-                f"🤖 <b>AutoTrade Dashboard</b>\n\n"
-                f"{engine_status}\n"
-                f"{mode_emoji} Mode: <b>{mode_label}</b> (Auto)\n"
-                f"🏦 Exchange: {ex_cfg['name']}\n"
-                f"{sentiment_text}\n"
-                f"Use the buttons below to manage your AutoTrade:",
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard_buttons)
-            )
-            return ConversationHandler.END
-        
-        # User has API key but hasn't selected risk mode yet - show risk mode selection
-        from app.exchange_registry import get_exchange
-        exchange_id = keys.get("exchange", "bitunix")
-        ex_cfg = get_exchange(exchange_id)
-        
-        # Get current balance if available
-        try:
-            session = get_autotrade_session(user_id)
-            balance = session.get("initial_deposit", 0) if session else 0
-            balance_text = f"\n💰 Balance Anda: ${balance:.2f}\n" if balance > 0 else ""
-        except:
-            balance_text = ""
-        
-        # Add progress indicator
-        progress = progress_indicator(3, 4, "Risk Management")
-        
-        # Build comparison cards
-        from app.ui_components import comparison_card
-        
-        recommended_card = comparison_card(
-            title="REKOMENDASI",
-            emoji="🌟",
-            pros=[
-                "Otomatis hitung margin",
-                "Safe compounding",
-                "Account protection",
-                "Cocok pemula & pro"
-            ],
-            badge="✨ 95% user pilih ini"
-        )
-        
-        manual_card = comparison_card(
-            title="MANUAL",
-            emoji="⚙️",
-            pros=[
-                "Full control",
-                "Fixed position size"
-            ],
-            cons=[
-                "Butuh pengalaman",
-                "Risk lebih tinggi"
-            ]
-        )
-        
-        text = f"{progress}\n\n"
-        text += f"✅ <b>API Key Connected - {ex_cfg['name']}</b>\n"
-        text += f"{balance_text}\n"
-        text += "🎯 <b>Choose Trading Mode</b>\n\n"
-        text += recommended_card + "\n"
-        text += manual_card + "\n"
-        text += "💡 <b>Our recommendation:</b> Choose Recommended for the best results!\n"
-
-        keyboard = [
-            [InlineKeyboardButton("🌟 Choose Recommended", callback_data="at_mode_risk_based")],
-            [InlineKeyboardButton("⚙️ Choose Manual", callback_data="at_mode_manual")],
-            [InlineKeyboardButton("🔑 Change API Key", callback_data="at_change_key")],
-        ]
-        
+    elif session and session.get("status") == "pending_verification":
+        # User submitted UID but not yet approved
         await update.message.reply_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
+            "⏳ <b>Verification Pending</b>\n\n"
+            "Your Bitunix UID is being reviewed by our team.\n"
+            "You'll receive a notification once approved.\n\n"
+            "You can also check your status on the web dashboard:",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)],
+            ])
         )
         return ConversationHandler.END
 
     else:
-        # No API key yet — show exchange selector first
-        from app.exchange_registry import exchange_list_keyboard
-        
-        # Add welcoming onboarding message with progress
-        welcome_text = onboarding_welcome(total_steps=4)
-        welcome_text += "\n" + progress_indicator(1, 4, "Select Exchange")
-        
+        # NEW USER — show exchange selection (gatekeeper step 1)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Bitunix", callback_data="at_exchange_bitunix")],
+            [InlineKeyboardButton("BingX", callback_data="at_exchange_bingx")],
+            [InlineKeyboardButton("Bybit (Coming Soon)", callback_data="at_coming_soon")],
+            [InlineKeyboardButton("Binance (Coming Soon)", callback_data="at_coming_soon")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="at_cancel")],
+        ])
         await update.message.reply_text(
-            welcome_text,
+            "🎉 <b>Welcome to CryptoMentor AutoTrade!</b>\n\n"
+            "Setup in 2 easy steps:\n"
+            "1️⃣ Register & verify your exchange account\n"
+            "2️⃣ Complete setup on the web dashboard\n\n"
+            "Select your exchange to get started:",
             parse_mode='HTML',
-            reply_markup=exchange_list_keyboard()
+            reply_markup=keyboard
         )
         return ConversationHandler.END
+
 
 
 # ------------------------------------------------------------------ #
@@ -695,7 +433,7 @@ async def callback_why_referral(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def callback_confirm_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User konfirmasi sudah daftar via referral — langsung minta API Key dulu."""
+    """User konfirmasi sudah daftar via referral — langsung minta UID (bukan API Key)."""
     query = update.callback_query
     await query.answer()
 
@@ -704,37 +442,17 @@ async def callback_confirm_referral(update: Update, context: ContextTypes.DEFAUL
     exchange_id = _get_user_exchange(context)
     ex = get_exchange(exchange_id)
 
-    # Kalau sudah punya API key untuk exchange ini, skip ke dashboard
-    existing_keys = get_user_api_keys(user_id)
-    if existing_keys and existing_keys.get("exchange") == exchange_id:
-        await query.edit_message_text(
-            f"✅ <b>Account already registered</b>\n\n"
-            f"🔑 API Key: <code>...{existing_keys['key_hint']}</code>\n"
-            f"🏦 Exchange: {ex['name']}\n\n"
-            "Continue to trading setup:",
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚀 Start Trading",  callback_data="at_start_trade")],
-                [InlineKeyboardButton("🔑 Change API Key", callback_data="at_change_key")],
-            ])
-        )
-        return ConversationHandler.END
-
-    # Ask for API Key first — UID is collected AFTER API key is verified
+    # Ask for UID directly — API key setup is now on the web dashboard
     await query.edit_message_text(
-        f"🔑 <b>Setup API Key — Step 1/2</b>\n\n"
-        f"Enter your {ex['name']} <b>API Key</b> below.\n\n"
-        f"📖 <b>How to create your API Key:</b>\n{ex['api_key_help']}\n\n"
-        f"🔒 <b>Security note:</b> The API Key only needs <b>Trade</b> permission.\n"
-        f"Never enable Withdraw — your funds stay safe.\n\n"
-        "⚠️ Never share your API Key with anyone.",
+        f"🔢 <b>Submit Your {ex['name']} UID</b>\n\n"
+        f"{ex.get('uid_help', 'Find your UID in your exchange profile.')}\n\n"
+        "Enter your UID below:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🔗 Open {ex['name']} API Management", url=ex.get("api_key_url", ex["referral_url"]))],
             [InlineKeyboardButton("❌ Cancel", callback_data="at_cancel")]
         ])
     )
-    return WAITING_API_KEY
+    return WAITING_BITUNIX_UID
 
 
 async def receive_bitunix_uid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2127,40 +1845,22 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
-    # Notify user
+    # Notify user — send dashboard link after approval
     try:
-        # Cek apakah user sudah punya API key
-        existing_keys = get_user_api_keys(target_user_id)
-
-        if existing_keys:
-            # API key sudah ada — langsung arahkan ke risk mode selection
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    "✅ <b>Your UID Has Been Verified!</b>\n\n"
-                    "Your Bitunix account has been confirmed under our referral.\n\n"
-                    "Your API Key has been saved before.\n"
-                    "Type /autotrade to continue with risk management setup."
-                ),
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎯 Choose Risk Mode", callback_data="at_choose_risk_mode")]
-                ])
-            )
-        else:
-            # Belum ada API key — minta setup
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    "✅ <b>Your UID Has Been Verified!</b>\n\n"
-                    "Your Bitunix account has been confirmed under our referral.\n\n"
-                    "Now set up your API Key to start Auto Trade:"
-                ),
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔑 Setup API Key", callback_data="at_setup_key")]
-                ])
-            )
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=(
+                "✅ <b>Your UID Has Been Verified!</b>\n\n"
+                "Now complete your setup on the dashboard:\n"
+                "• Connect your Bitunix API Key\n"
+                "• Configure risk settings\n"
+                "• Start trading\n"
+            ),
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)]
+            ])
+        )
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Failed to notify user {target_user_id}: {e}")
@@ -3372,20 +3072,9 @@ def register_autotrade_handlers(application):
     application.add_handler(CallbackQueryHandler(callback_risk_education,     pattern="^at_risk_edu$"))
     application.add_handler(CallbackQueryHandler(callback_risk_simulator,     pattern="^at_risk_sim$"))
     
-    # Risk Mode Selection handlers (new dual mode system)
-    from app.handlers_risk_mode import (
-        callback_choose_risk_mode,
-        callback_mode_risk_based,
-        callback_select_risk_pct,
-        callback_mode_manual,
-        callback_switch_risk_mode
-    )
-    application.add_handler(CallbackQueryHandler(callback_choose_risk_mode,   pattern="^at_choose_risk_mode$"))
-    application.add_handler(CallbackQueryHandler(callback_mode_risk_based,    pattern="^at_mode_risk_based$"))
-    application.add_handler(CallbackQueryHandler(callback_select_risk_pct,    pattern="^at_risk_[1235]$"))
-    application.add_handler(CallbackQueryHandler(callback_mode_manual,        pattern="^at_mode_manual$"))
-    application.add_handler(CallbackQueryHandler(callback_switch_risk_mode,   pattern="^at_switch_risk_mode$"))
-    
+    # Risk Mode Selection handlers — retired, redirect to web
+    # (handlers_risk_mode.py removed)
+
     # Multi-exchange callbacks
     application.add_handler(CallbackQueryHandler(callback_select_exchange,    pattern="^at_exchange_\\w+$"))
     application.add_handler(CallbackQueryHandler(callback_change_exchange,    pattern="^at_change_exchange$"))
@@ -3406,9 +3095,8 @@ def register_autotrade_handlers(application):
     application.add_handler(CallbackQueryHandler(callback_select_scalping,    pattern="^mode_select_scalping$"))
     application.add_handler(CallbackQueryHandler(callback_select_swing,       pattern="^mode_select_swing$"))
 
-    # Skills handlers
-    from app.handlers_skills import register_skills_handlers
-    register_skills_handlers(application)
+    # Skills handlers — retired, redirect to web
+    # (handlers_skills.py removed)
 
     # at_back_dashboard → redirect ke cmd_autotrade flow
     async def _back_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
