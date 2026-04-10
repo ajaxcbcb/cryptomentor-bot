@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 
 def _dashboard_keyboard():
-    """Returns an InlineKeyboardMarkup with a 'View on Dashboard' button."""
+    """Returns an InlineKeyboardMarkup with a Dashboard button."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 View on Dashboard", url=WEB_DASHBOARD_URL)]
+        [InlineKeyboardButton("📊 Dashboard", url=WEB_DASHBOARD_URL)]
     ])
 
 # Import StackMentor system

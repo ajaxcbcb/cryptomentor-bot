@@ -59,14 +59,11 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         dash_url = generate_dashboard_url(user_id)
         keyboard = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🌐 Open Web Dashboard", url=dash_url)]]
+            [[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]
         )
         await context.bot.send_message(
             chat_id=user_id,
-            text=(
-                "🎉 <b>Identity Verified!</b>\n\n"
-                "Your Bitunix UID has been approved by our team."
-            ),
+            text="✅ <b>UID Verified!</b>\n\nReady to trade.",
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -116,10 +113,7 @@ async def callback_uid_reject(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await context.bot.send_message(
             chat_id=user_id,
-            text=(
-                "❌ <b>Verification Rejected</b>\n\n"
-                "Your UID verification request was rejected."
-            ),
+            text="❌ <b>UID Rejected</b>\n\nPlease retry with a valid UID.",
             parse_mode="HTML",
         )
         await query.edit_message_text(f"❌ Rejected User {user_id}")
