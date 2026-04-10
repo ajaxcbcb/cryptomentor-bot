@@ -352,6 +352,14 @@ export default function App() {
   const fetchVerStatus = async () => {
     try {
       const resp = await apiFetch('/user/verification-status');
+      if (resp.status === 401) {
+        // Token expired — force logout and show login screen
+        try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
+        setIsLoggedIn(false);
+        setUser(null);
+        setVerStatus(null);
+        return;
+      }
       if (resp.ok) {
         const data = await resp.json();
         setVerStatus(data);
