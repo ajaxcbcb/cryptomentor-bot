@@ -697,11 +697,11 @@ export default function App() {
             <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">AutoTrade Hub</p>
             <NavItem icon={<Activity size={20} />} label="Portfolio Status" active={activeTab === 'portfolio'} onClick={() => navigateTo('portfolio')} />
             <NavItem icon={<Cpu size={20} />} label="Engine Controls" active={activeTab === 'engine'} onClick={() => navigateTo('engine')} />
-            <NavItem icon={<BarChart2 size={20} />} label="Performance" active={activeTab === 'performance'} onClick={() => navigateTo('performance')} />
+            <NavItem icon={<BarChart2 size={20} />} label="Performance" active={false} onClick={() => {}} badge="Soon" disabled />
             <NavItem icon={<Settings size={20} />} label="API Bridges" active={activeTab === 'settings'} onClick={() => navigateTo('settings')} />
             <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6">Ecosystem</p>
             <NavItem icon={<Radio size={20} />} label="Signals & Market" active={activeTab === 'signals'} onClick={() => navigateTo('signals')} badge={user.is_premium ? "PRO" : "FREE"} />
-            <NavItem icon={<GraduationCap size={20} />} label="Skills & Education" active={activeTab === 'skills'} onClick={() => navigateTo('skills')} />
+            <NavItem icon={<GraduationCap size={20} />} label="Skills & Education" active={false} onClick={() => {}} badge="Soon" disabled />
           </nav>
 
           {/* ── Social Proof Ticker ── */}
@@ -1590,16 +1590,16 @@ function SkillsTab() {
 }
 
 // --- SUBCOMPONENTS ---
-function NavItem({ icon, label, active, onClick, badge }) {
+function NavItem({ icon, label, active, onClick, badge, disabled }) {
   return (
-    <button onClick={onClick} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 font-bold text-sm relative overflow-hidden group ${active ? 'text-white' : 'text-slate-400 hover:text-white'}`}>
-      {active && <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent border border-white/10 shadow-[inset_3px_0_0_0_rgba(255,255,255,1)] rounded-xl z-0" />}
-      {!active && <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl z-0" />}
+    <button onClick={disabled ? undefined : onClick} disabled={disabled} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 font-bold text-sm relative overflow-hidden group ${disabled ? 'opacity-40 cursor-not-allowed' : active ? 'text-white' : 'text-slate-400 hover:text-white'}`}>
+      {active && !disabled && <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent border border-white/10 shadow-[inset_3px_0_0_0_rgba(255,255,255,1)] rounded-xl z-0" />}
+      {!active && !disabled && <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl z-0" />}
       <div className="flex items-center gap-3 w-full">
-        <div className={`relative z-10 transition-transform duration-300 group-hover:scale-110 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`}>{icon}</div>
+        <div className={`relative z-10 transition-transform duration-300 ${!disabled && 'group-hover:scale-110'} ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'}`}>{icon}</div>
         <span className="relative z-10 tracking-wide text-left truncate">{label}</span>
       </div>
-      {badge && <span className={`relative z-10 text-[8px] font-black tracking-widest px-1.5 py-0.5 rounded border shrink-0 ml-2 ${badge === 'PRO' ? 'text-fuchsia-300 bg-fuchsia-500/20 border-fuchsia-500/30' : 'text-cyan-300 bg-cyan-500/20 border-cyan-500/30'}`}>{badge}</span>}
+      {badge && <span className={`relative z-10 text-[8px] font-black tracking-widest px-1.5 py-0.5 rounded border shrink-0 ml-2 ${badge === 'PRO' ? 'text-fuchsia-300 bg-fuchsia-500/20 border-fuchsia-500/30' : badge === 'Soon' ? 'text-amber-300 bg-amber-500/20 border-amber-500/30' : 'text-cyan-300 bg-cyan-500/20 border-cyan-500/30'}`}>{badge}</span>}
     </button>
   );
 }
