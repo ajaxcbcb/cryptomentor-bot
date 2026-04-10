@@ -59,6 +59,14 @@ async def submit_uid(payload: dict, tg_id: int = Depends(get_current_user)):
 
     s = _client()
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Check current status — only allow submission if none, uid_rejected, or pending
+    res = s.table("autotrade_sessions").select("status").eq("telegram_id", tg_id).limit(1).execute()
+    row = (res.data or [None])[0]
+    current_status = row.get("status") if row else "none"
+    if current_status in ("uid_verified", "active"):
+        raise HTTPException(status_code=400, detail="Your UID is already verified.")
+
     s.table("autotrade_sessions").upsert({
         "telegram_id": tg_id,
         "exchange": "bitunix",
@@ -66,6 +74,11 @@ async def submit_uid(payload: dict, tg_id: int = Depends(get_current_user)):
         "status": "pending_verification",
         "updated_at": now_iso,
     }, on_conflict="telegram_id").execute()
+
+    # Get user info for richer admin notification
+    user = get_user_by_tid(tg_id)
+    username = user.get("username") or user.get("first_name") or str(tg_id) if user else str(tg_id)
+    resubmit_note = " (resubmission after rejection)" if current_status == "uid_rejected" else ""
 
     # Admin notification
     admin_ids = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
@@ -78,7 +91,12 @@ async def submit_uid(payload: dict, tg_id: int = Depends(get_current_user)):
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
                         json={
                             "chat_id": admin_id,
-                            "text": f"🔔 <b>New UID Verification</b>\n\nUser ID: {tg_id}\nUID: {uid}\nReferral: sq45",
+                            "text": (
+                                f"🔔 <b>New UID Verification{resubmit_note}</b>\n\n"
+                                f"👤 User: @{username} (ID: <code>{tg_id}</code>)\n"
+                                f"🔑 Bitunix UID: <code>{uid}</code>\n"
+                                f"🔗 Referral: sq45"
+                            ),
                             "parse_mode": "HTML",
                             "reply_markup": {"inline_keyboard": [[
                                 {"text": "✅ Approve", "callback_data": f"uid_acc_{tg_id}"},

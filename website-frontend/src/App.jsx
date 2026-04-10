@@ -5,7 +5,7 @@ import {
   Shield, BarChart2, Target, Zap, Layers, RefreshCw,
   GraduationCap, Radio, Cpu, ToggleRight, ToggleLeft,
   Menu, X, Crosshair, ArrowUpRight, ArrowDownRight,
-  PlayCircle, BookOpen, Lock, Clock, Power, StopCircle
+  PlayCircle, BookOpen, Lock, Clock, Power, StopCircle, XCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
@@ -597,6 +597,23 @@ export default function App() {
     }
     if (verStatus.status === 'pending_verification') {
       return <VerificationPendingScreen onRefresh={fetchVerificationStatus} onLogout={handleLogout} />;
+    }
+    if (verStatus.status === 'uid_rejected') {
+      return <RejectedScreen
+        onResubmit={async (uid) => {
+          try {
+            const resp = await apiFetch('/user/submit-uid', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uid }),
+            });
+            if (resp.ok) { setVerStatus({ status: 'pending_verification' }); return { ok: true }; }
+            const err = await resp.json().catch(() => ({}));
+            return { ok: false, error: err.detail || 'Failed to submit UID' };
+          } catch (e) { return { ok: false, error: e.message || 'Network error' }; }
+        }}
+        onLogout={handleLogout}
+      />;
     }
     // uid_verified or active — check if onboarding wizard needed
     if (connectorStatus?.linked === false && connectorStatus?.linked !== null) {
@@ -1970,6 +1987,49 @@ function VerificationPendingScreen({ onRefresh, onLogout }) {
           {polling ? 'Checking...' : 'Refresh Status'}
         </button>
         <button onClick={onLogout} className="block mx-auto text-slate-500 text-xs mt-6 hover:text-rose-400 transition-colors">Log out</button>
+      </div>
+    </div>
+  );
+}
+
+function RejectedScreen({ onResubmit, onLogout }) {
+  const [uid, setUid] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-rose-600/15 blur-[100px] pointer-events-none z-0" />
+      <div className="max-w-lg w-full bg-[#0a0a0a]/60 backdrop-blur-3xl border border-rose-500/20 rounded-[2rem] p-8 relative z-10">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto mb-4">
+            <XCircle size={32} className="text-rose-400" />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2">UID Verification Rejected</h2>
+          <p className="text-slate-400 text-sm">Your Bitunix UID was not found under our referral code.</p>
+        </div>
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-6 text-sm text-amber-200/80">
+          Make sure you registered on Bitunix using our referral link before submitting your UID.
+        </div>
+        <a href="https://www.bitunix.com/register?vipCode=sq45" target="_blank" rel="noopener noreferrer"
+          className="block w-full text-center bg-fuchsia-500/15 border border-fuchsia-500/30 text-fuchsia-400 font-bold py-3 rounded-xl mb-6 hover:bg-fuchsia-500/25 transition-colors">
+          Re-register on Bitunix with Referral →
+        </a>
+        <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Submit New UID</label>
+        <input type="text" value={uid} onChange={e => setUid(e.target.value)} placeholder="Enter your Bitunix UID"
+          className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white mb-3 font-mono focus:border-cyan-500/50 focus:outline-none" />
+        {error && <p className="text-rose-400 text-sm mb-3 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">{error}</p>}
+        <button onClick={async () => {
+          setSubmitting(true); setError(null);
+          const result = await onResubmit(uid);
+          setSubmitting(false);
+          if (!result.ok) setError(result.error);
+        }} disabled={!uid || uid.length < 5 || submitting}
+          className="w-full bg-cyan-500 text-white font-bold py-3 rounded-xl hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {submitting ? 'Submitting...' : 'Resubmit for Verification'}
+        </button>
+        <button onClick={onLogout} className="w-full text-slate-500 text-xs mt-6 hover:text-rose-400 transition-colors">Log out</button>
       </div>
     </div>
   );

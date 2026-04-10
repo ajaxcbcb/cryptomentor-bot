@@ -95,7 +95,7 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
                     content={
                         "error": "verification_required",
                         "status": status,
-                        "message": "Complete exchange registration before accessing trading features.",
+                        "message": "Complete exchange registration before accessing trading features." if status != "uid_rejected" else "Your UID was rejected. Please resubmit with a valid referral registration.",
                     },
                 )
         except Exception as e:
