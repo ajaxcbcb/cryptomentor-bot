@@ -509,13 +509,13 @@ def get_user_balance_from_exchange(telegram_id: int, exchange_id: str) -> float:
         print(f"get_user_balance_from_exchange error: {e}")
         return 0.0
 def get_autotrade_session(telegram_id: int) -> Optional[Dict[str, Any]]:
-    \"\"\"Get user's autotrade session status from Supabase.\"\"\"
+    """Get user's autotrade session status from Supabase."""
     s = _client()
     res = s.table("autotrade_sessions").select("*").eq("telegram_id", int(telegram_id)).limit(1).execute()
     return res.data[0] if res.data else None
 
 def save_autotrade_session(telegram_id: int, status: str = "none", uid: str = None, exchange: str = "bitunix"):
-    \"\"\"Upsert autotrade session for the user.\"\"\"
+    """Upsert autotrade session for the user."""
     s = _client()
     row = {
         "telegram_id": int(telegram_id),
