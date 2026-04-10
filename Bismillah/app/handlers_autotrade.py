@@ -4,6 +4,7 @@ Redirection flow from Telegram Bot to Web Dashboard.
 """
 
 import os
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,7 +13,7 @@ from telegram.ext import (
 )
 from typing import Optional, Dict
 
-from app.supabase_repo import get_autotrade_session, save_autotrade_session
+from app.supabase_repo import _client
 from app.lib.auth import generate_dashboard_url
 
 # Conversation states
@@ -22,6 +23,12 @@ WAITING_BITUNIX_UID = 6
 BITUNIX_REFERRAL_URL  = "https://www.bitunix.com/register?vipCode=sq45"
 BITUNIX_REFERRAL_CODE = "sq45"
 WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
+logger = logging.getLogger(__name__)
+
+VER_NONE = "none"
+VER_PENDING = "pending"
+VER_APPROVED = "approved"
+VER_REJECTED = "rejected"
 
 # ── Exchange selection helpers ──────────────────────────────────────
 def _get_user_exchange(context) -> str:
@@ -117,6 +124,62 @@ def update_autotrade_status(telegram_id: int, status: str):
     ).execute()
 
 
+def _normalized_status_from_legacy(raw_status: str) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in ("active", "uid_verified"):
+        return VER_APPROVED
+    if status == "pending_verification":
+        return VER_PENDING
+    if status == "uid_rejected":
+        return VER_REJECTED
+    return VER_NONE
+
+
+def _load_verification_snapshot(telegram_id: int) -> Dict[str, str]:
+    """
+    Single source of truth priority:
+    1) user_verifications (web + bot unified)
+    2) autotrade_sessions (legacy fallback)
+    """
+    s = _client()
+
+    # Central table used by website gatekeeper.
+    uv = (
+        s.table("user_verifications")
+        .select("status, bitunix_uid")
+        .eq("telegram_id", int(telegram_id))
+        .limit(1)
+        .execute()
+    )
+    uv_row = (uv.data or [None])[0]
+    if uv_row:
+        raw = str(uv_row.get("status") or "").strip().lower()
+        if raw in (VER_APPROVED, VER_PENDING, VER_REJECTED):
+            return {
+                "status": raw,
+                "uid": uv_row.get("bitunix_uid") or "",
+                "source": "user_verifications",
+            }
+
+    # Legacy compatibility fallback.
+    sess = (
+        s.table("autotrade_sessions")
+        .select("status, bitunix_uid")
+        .eq("telegram_id", int(telegram_id))
+        .limit(1)
+        .execute()
+    )
+    sess_row = (sess.data or [None])[0]
+    if not sess_row:
+        return {"status": VER_NONE, "uid": "", "source": "none"}
+
+    return {
+        "status": _normalized_status_from_legacy(sess_row.get("status")),
+        "uid": sess_row.get("bitunix_uid") or "",
+        "source": "autotrade_sessions",
+    }
+
+
 # ------------------------------------------------------------------ #
 #  Conversation: /autotrade entry                                     #
 # ------------------------------------------------------------------ #
@@ -141,41 +204,53 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception: pass
     asyncio.create_task(_register_user())
 
-    # 1. Check Verification Status from Supabase
+    # 1. Check unified verification status from Supabase
     try:
-        session = get_autotrade_session(user_id)
-        status = session.get("status", "none") if session else "none"
-        uid = session.get("bitunix_uid") if session else None
-    except Exception:
-        status = "none"
-        uid = None
+        snap = _load_verification_snapshot(user_id)
+    except Exception as e:
+        logger.warning("Verification lookup failed for %s: %s", user_id, e)
+        snap = {"status": VER_NONE, "uid": "", "source": "none"}
+
+    status = snap.get("status", VER_NONE)
+    uid = snap.get("uid") or ""
 
     dash_url = generate_dashboard_url(user_id, user.username, user.first_name)
 
     # 2. Gatekeeper Logic
-    if status == "active" or status == "uid_verified":
+    if status == VER_APPROVED:
         text = (
             f"✅ <b>Identity Verified</b>\n\n"
-            f"UID: <code>{uid}</code>\n"
-            f"Status: <b>{status.upper()}</b>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n"
+            f"Status: <b>APPROVED</b>\n\n"
             f"Your account is verified. You can now manage all trading operations, "
             f"API keys, and risk settings directly from the web dashboard."
         )
-        keyboard = [
-            [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
-            [InlineKeyboardButton("📊 Status", callback_data=PORTFOLIO_STATUS)]
-        ]
+        keyboard = [[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         return
 
-    if status == "pending_verification":
+    if status == VER_PENDING:
         text = (
             f"⏳ <b>Verification Pending</b>\n\n"
-            f"UID: <code>{uid}</code>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n\n"
             f"Your UID is currently being verified by our team. "
             f"Once approved, you will be notified here and can start trading on the dashboard."
         )
         keyboard = [[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        return
+
+    if status == VER_REJECTED:
+        text = (
+            "❌ <b>Verification Rejected</b>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n\n"
+            "Please submit a valid Bitunix UID again from the dashboard or directly in this bot."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
+            [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
+            [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)],
+        ]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         return
 
@@ -207,7 +282,7 @@ async def handle_submit_uid_bot(update: Update, context: ContextTypes.DEFAULT_TY
     await query.message.reply_text(
         "📝 <b>Submit Bitunix UID</b>\n\n"
         "Please enter your Bitunix UID (numbers only).\n\n"
-        "<i>Note: If you don't have one, please register using the link in the previous menu first.</i>",
+        "<i>You can also submit from web dashboard; both paths sync to the same verification status.</i>",
         parse_mode='HTML'
     )
     return WAITING_BITUNIX_UID
@@ -217,8 +292,8 @@ async def process_uid_input_bot(update: Update, context: ContextTypes.DEFAULT_TY
     uid = update.message.text.strip()
     user_id = update.effective_user.id
     
-    if not uid.isdigit():
-        await update.message.reply_text("❌ UID must be numbers only. Please try again:")
+    if not uid.isdigit() or len(uid) < 5:
+        await update.message.reply_text("❌ UID must be numeric and at least 5 digits. Please try again:")
         return WAITING_BITUNIX_UID
         
     try:
