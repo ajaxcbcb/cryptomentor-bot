@@ -13,7 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 def _is_admin(user_id: int) -> bool:
-    admin_ids = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+    admin_ids = set()
+    for key in ("ADMIN_IDS", "ADMIN1", "ADMIN2", "ADMIN3", "ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        raw = os.getenv(key, "")
+        for token in str(raw).split(","):
+            token = token.strip()
+            if token.isdigit():
+                admin_ids.add(int(token))
     return user_id in admin_ids
 
 
@@ -34,9 +40,12 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         s = _client()
 
-        # Fetch existing bitunix_uid to preserve it
+        # Fetch existing uid; fallback to legacy table if needed.
         existing = s.table("user_verifications").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
-        existing_uid = (existing.data or [{}])[0].get("bitunix_uid") or "unknown"
+        existing_uid = (existing.data or [{}])[0].get("bitunix_uid")
+        if not existing_uid:
+            legacy = s.table("autotrade_sessions").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
+            existing_uid = (legacy.data or [{}])[0].get("bitunix_uid") or "unknown"
 
         # Central verification state used by website gatekeeper.
         s.table("user_verifications").upsert(
@@ -96,9 +105,12 @@ async def callback_uid_reject(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         s = _client()
 
-        # Fetch existing bitunix_uid to preserve it (column is NOT NULL)
+        # Fetch existing uid; fallback to legacy table if needed.
         existing = s.table("user_verifications").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
-        existing_uid = (existing.data or [{}])[0].get("bitunix_uid") or "unknown"
+        existing_uid = (existing.data or [{}])[0].get("bitunix_uid")
+        if not existing_uid:
+            legacy = s.table("autotrade_sessions").select("bitunix_uid").eq("telegram_id", user_id).limit(1).execute()
+            existing_uid = (legacy.data or [{}])[0].get("bitunix_uid") or "unknown"
 
         # Central verification state used by website gatekeeper.
         s.table("user_verifications").upsert(
