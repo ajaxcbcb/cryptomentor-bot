@@ -358,9 +358,12 @@ class BitunixAutoTradeClient:
             }
         return account_info
 
-    def get_open_orders(self) -> Dict:
-        """Fetch all pending open/conditional orders."""
-        return self._request('GET', '/api/v1/futures/trade/open_orders', signed=True)
+    def get_open_orders(self, symbol: str = None) -> Dict:
+        """Fetch all pending open orders."""
+        params = {}
+        if symbol:
+            params['symbol'] = symbol
+        return self._request('GET', '/api/v1/futures/trade/get_pending_orders', params=params, signed=True)
 
     def get_positions(self) -> Dict:
         """Get current open positions."""
