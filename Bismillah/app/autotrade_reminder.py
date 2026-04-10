@@ -1,6 +1,6 @@
 """
 AutoTrade Daily Reminder
-Kirim pesan harian ke user yang belum mendaftar autotrade.
+Send daily messages to users who haven't registered for autotrade.
 """
 
 import asyncio
@@ -9,79 +9,79 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Pesan reminder dalam Bahasa Indonesia
+# Reminder messages in English
 REMINDER_MESSAGES = [
-    # Hari 1 - Perkenalan
+    # Day 1 - Introduction
     (
-        "🤖 <b>Tau nggak? Bot ini bisa trading otomatis buat kamu!</b>\n\n"
-        "Selama ini kamu mungkin cuma pakai sinyal manual — tapi ada fitur yang lebih powerful:\n\n"
-        "⚡ <b>AutoTrade</b> — bot yang kelola akun exchange kamu secara real-time.\n\n"
-        "Cara kerjanya:\n"
-        "• Kamu hubungkan API key exchange (Binance/Bybit/Bitunix)\n"
-        "• Bot analisa market 24/7 pakai AI + indikator SMC\n"
-        "• Kalau ada setup bagus, bot langsung buka posisi otomatis\n"
-        "• SL/TP dikelola otomatis, kamu tinggal pantau profit\n\n"
-        "💰 Modal minimal bisa mulai dari <b>10 USDT</b>\n"
-        "🔒 Dana tetap di exchange kamu, bot hanya punya izin Trade\n\n"
-        "Mau coba? Ketik /autotrade"
+        "🤖 <b>Did you know? This bot can do automatic trading for you!</b>\n\n"
+        "So far you might have just used manual signals — but there's a more powerful feature:\n\n"
+        "⚡ <b>AutoTrade</b> — a bot that manages your exchange account in real-time.\n\n"
+        "How it works:\n"
+        "• You connect your exchange API key (Binance/Bybit/Bitunix)\n"
+        "• Bot analyzes the market 24/7 using AI + SMC indicators\n"
+        "• If there's a good setup, bot immediately opens positions automatically\n"
+        "• SL/TP managed automatically, you just monitor profits\n\n"
+        "💰 Minimum capital can start from <b>10 USDT</b>\n"
+        "🔒 Your funds stay on your exchange, bot only has Trade permission\n\n"
+        "Want to try? Type /autotrade"
     ),
-    # Hari 2 - Bukti & cara kerja
+    # Day 2 - Proof & how it works
     (
-        "📊 <b>Gimana cara AutoTrade bekerja?</b>\n\n"
-        "Bot kamu terhubung langsung ke exchange via API Key.\n\n"
-        "Setiap detik, bot:\n"
-        "1️⃣ Scan 20+ pair crypto secara real-time\n"
-        "2️⃣ Analisa struktur market (CHoCH, BOS, S&D Zone)\n"
-        "3️⃣ Kalau confidence ≥75%, buka posisi otomatis\n"
-        "4️⃣ Kelola SL/TP dan trailing stop\n"
-        "5️⃣ Kirim notifikasi ke kamu setiap ada trade\n\n"
-        "Kamu nggak perlu duduk depan chart seharian.\n"
-        "Bot yang kerja, kamu yang terima hasilnya. 🎯\n\n"
-        "Daftar sekarang: /autotrade"
+        "📊 <b>How does AutoTrade work?</b>\n\n"
+        "Your bot connects directly to the exchange via API Key.\n\n"
+        "Every second, the bot:\n"
+        "1️⃣ Scans 20+ crypto pairs in real-time\n"
+        "2️⃣ Analyzes market structure (CHoCH, BOS, S&D Zone)\n"
+        "3️⃣ If confidence ≥75%, opens positions automatically\n"
+        "4️⃣ Manages SL/TP and trailing stop\n"
+        "5️⃣ Sends you notifications for every trade\n\n"
+        "You don't need to sit in front of the chart all day.\n"
+        "The bot does the work, you get the results. 🎯\n\n"
+        "Sign up now: /autotrade"
     ),
-    # Hari 3 - Keamanan
+    # Day 3 - Security
     (
-        "🔒 <b>Aman nggak sih AutoTrade?</b>\n\n"
-        "Pertanyaan yang wajar. Ini jawabannya:\n\n"
-        "✅ Dana kamu <b>tetap di exchange</b> (Binance/Bybit/Bitunix)\n"
-        "✅ API Key hanya punya izin <b>Trade</b> — tidak bisa withdraw\n"
-        "✅ Kamu bisa <b>stop kapan saja</b> dengan satu klik\n"
-        "✅ API Key dienkripsi AES-256 di server kami\n"
-        "✅ Kamu tetap full control atas akun exchange kamu\n\n"
-        "Sudah ada <b>15+ user aktif</b> yang pakai AutoTrade sekarang.\n\n"
-        "Mau bergabung? /autotrade"
+        "🔒 <b>Is AutoTrade safe?</b>\n\n"
+        "A fair question. Here's the answer:\n\n"
+        "✅ Your funds <b>stay on the exchange</b> (Binance/Bybit/Bitunix)\n"
+        "✅ API Key only has <b>Trade</b> permission — cannot withdraw\n"
+        "✅ You can <b>stop anytime</b> with one click\n"
+        "✅ API Key encrypted with AES-256 on our server\n"
+        "✅ You maintain full control of your exchange account\n\n"
+        "Already <b>15+ active users</b> using AutoTrade now.\n\n"
+        "Want to join? /autotrade"
     ),
-    # Hari 4 - CTA kuat
+    # Day 4 - Strong CTA
     (
-        "🚀 <b>1.200+ user, tapi baru 15 yang pakai AutoTrade</b>\n\n"
-        "Kamu salah satu dari mayoritas yang belum coba.\n\n"
-        "Padahal setup-nya cuma 3 langkah:\n"
-        "1. Daftar exchange via referral kami\n"
-        "2. Buat API Key (Trade only)\n"
-        "3. Masukkan ke bot → pilih modal → mulai!\n\n"
-        "⏱ Total waktu setup: <b>~5 menit</b>\n\n"
-        "Setelah itu bot yang kerja 24/7 buat kamu.\n\n"
-        "Mulai sekarang: /autotrade"
+        "🚀 <b>1,200+ users, but only 15 using AutoTrade</b>\n\n"
+        "You're one of the majority who hasn't tried it yet.\n\n"
+        "But setup is just 3 steps:\n"
+        "1. Register an exchange via our referral\n"
+        "2. Create API Key (Trade only)\n"
+        "3. Enter into bot → choose capital → start!\n\n"
+        "⏱ Total setup time: <b>~5 minutes</b>\n\n"
+        "After that, the bot works 24/7 for you.\n\n"
+        "Start now: /autotrade"
     ),
 ]
 
 
 def _get_reminder_index(telegram_id: int, sent_count: int) -> int:
-    """Pilih pesan berdasarkan berapa kali sudah dikirim (cycling)."""
+    """Select message based on how many times it has been sent (cycling)."""
     return sent_count % len(REMINDER_MESSAGES)
 
 
 async def send_autotrade_reminders(bot):
     """
-    Kirim reminder ke semua user yang belum daftar autotrade.
-    Dipanggil sekali sehari dari scheduler.
+    Send reminders to all users who haven't registered for autotrade.
+    Called once daily from the scheduler.
     """
     try:
         from app.supabase_repo import _client
         s = _client()
 
-        # Ambil semua user yang BELUM punya autotrade session aktif
-        # Pakai pagination untuk bypass limit 1000 Supabase
+        # Get all users who DON'T have an active autotrade session
+        # Use pagination to bypass Supabase 1000-row limit
         all_users = []
         page_size = 1000
         offset = 0
@@ -97,17 +97,17 @@ async def send_autotrade_reminders(bot):
             logger.info("[Reminder] No users found")
             return
 
-        # Ambil user yang sudah punya autotrade session (exclude mereka)
+        # Get users who already have an autotrade session (exclude them)
         at_res = s.table("autotrade_sessions").select("telegram_id").execute()
         at_user_ids = {row["telegram_id"] for row in (at_res.data or [])}
 
-        # Filter: hanya user yang belum punya session sama sekali
+        # Filter: only users who don't have a session at all
         target_users = [u for u in all_users if u["telegram_id"] not in at_user_ids]
 
         logger.info(f"[Reminder] Total users: {len(all_users)}, AT users: {len(at_user_ids)}, Targets: {len(target_users)}")
         print(f"[Reminder] Total users: {len(all_users)}, AT users: {len(at_user_ids)}, Targets: {len(target_users)}")
 
-        # Ambil log reminder hari ini untuk avoid duplikat (dengan pagination)
+        # Get reminder logs for today to avoid duplicates (with pagination)
         today = datetime.utcnow().date().isoformat()
         sent_today_ids = set()
         offset2 = 0
@@ -119,7 +119,7 @@ async def send_autotrade_reminders(bot):
                 break
             offset2 += 1000
 
-        # Ambil total count per user untuk pilih pesan yang tepat (dengan pagination)
+        # Get total count per user to select the right message (with pagination)
         count_map = {}
         offset3 = 0
         while True:
@@ -138,7 +138,7 @@ async def send_autotrade_reminders(bot):
         for user in target_users:
             uid = user["telegram_id"]
 
-            # Skip kalau sudah dapat reminder hari ini
+            # Skip if already sent reminder today
             if uid in sent_today_ids:
                 skipped += 1
                 continue
@@ -155,16 +155,16 @@ async def send_autotrade_reminders(bot):
                     reply_markup=_autotrade_keyboard()
                 )
 
-                # Log pengiriman
+                # Log the send
                 _log_reminder_sent(s, uid, today)
                 sent += 1
 
-                # Rate limit: jangan spam Telegram API
+                # Rate limit: don't spam Telegram API
                 await asyncio.sleep(0.05)
 
             except Exception as e:
                 err_str = str(e)
-                # User block bot atau tidak valid — skip saja
+                # User blocked bot or invalid — skip
                 if any(x in err_str for x in ["blocked", "deactivated", "not found", "chat not found", "Forbidden"]):
                     failed += 1
                 else:
@@ -183,18 +183,18 @@ async def send_autotrade_reminders(bot):
 
 
 def _autotrade_keyboard():
-    """Keyboard inline untuk reminder."""
+    """Inline keyboard for reminders."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🤖 Daftar AutoTrade Sekarang", callback_data="at_start_onboarding")],
-        [InlineKeyboardButton("ℹ️ Pelajari Lebih Lanjut", callback_data="at_learn_more")],
+        [InlineKeyboardButton("🤖 Register AutoTrade Now", callback_data="at_start_onboarding")],
+        [InlineKeyboardButton("ℹ️ Learn More", callback_data="at_learn_more")],
     ])
 
 
 def _log_reminder_sent(s, telegram_id: int, today: str):
-    """Catat bahwa reminder sudah dikirim ke user hari ini."""
+    """Log that a reminder was sent to the user today."""
     try:
-        # Cek apakah sudah ada record untuk user ini
+        # Check if there's already a record for this user
         existing = s.table("autotrade_reminder_log").select("id, count").eq("telegram_id", telegram_id).limit(1).execute()
         if existing.data:
             row = existing.data[0]
