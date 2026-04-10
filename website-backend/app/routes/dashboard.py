@@ -234,6 +234,73 @@ async def update_risk_setting(
     }
 
 
+@router.put("/settings/leverage")
+async def update_leverage(
+    payload: dict,
+    tg_id: int = Depends(get_current_user)
+):
+    """
+    Update leverage setting (1-20x).
+    """
+    from datetime import datetime
+
+    leverage = payload.get("leverage")
+    if leverage is None:
+        raise HTTPException(status_code=400, detail="Missing 'leverage' field")
+
+    try:
+        leverage = int(leverage)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Leverage must be an integer")
+
+    if leverage < 1 or leverage > 20:
+        raise HTTPException(status_code=400, detail="Leverage must be between 1 and 20")
+
+    s = _client()
+    try:
+        s.table("autotrade_sessions").update({
+            "leverage": leverage,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("telegram_id", tg_id).execute()
+        logger.info(f"[Leverage:{tg_id}] Updated to {leverage}x")
+    except Exception as e:
+        logger.error(f"[Leverage:{tg_id}] Failed to update: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update leverage: {e}")
+
+    return {"success": True, "leverage": leverage}
+
+
+@router.put("/settings/margin-mode")
+async def update_margin_mode(
+    payload: dict,
+    tg_id: int = Depends(get_current_user)
+):
+    """
+    Update margin mode ('cross' or 'isolated').
+    """
+    from datetime import datetime
+
+    margin_mode = str(payload.get("margin_mode", "")).strip().lower()
+    if margin_mode not in ("cross", "isolated"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid margin_mode. Must be 'cross' or 'isolated'."
+        )
+
+    s = _client()
+    try:
+        s.table("autotrade_sessions").update({
+            "margin_mode": margin_mode,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("telegram_id", tg_id).execute()
+        logger.info(f"[MarginMode:{tg_id}] Updated to {margin_mode}")
+    except Exception as e:
+        logger.error(f"[MarginMode:{tg_id}] Failed to update: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update margin mode: {e}")
+
+    return {"success": True, "margin_mode": margin_mode}
+
+
 @router.get("/performance")
 async def get_performance(tg_id: int = Depends(get_current_user)):
     """

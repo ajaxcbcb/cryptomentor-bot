@@ -98,7 +98,16 @@ class MenuCallbackHandler:
             elif callback_data == SIGNALS_MARKET:
                 await self.show_signals_market_menu(query, context)
             elif callback_data == API_SETTINGS:
-                await self.show_api_settings_menu(query, context)
+                await self.show_settings_menu(query, context)
+            # --- UID Verification Callbacks (Phase 1 Migration) ---
+            elif callback_data.startswith("uid_acc_"):
+                from app.handlers_autotrade_admin import callback_uid_acc
+                await callback_uid_acc(update, context)
+                return
+            elif callback_data.startswith("uid_reject_"):
+                from app.handlers_autotrade_admin import callback_uid_reject
+                await callback_uid_reject(update, context)
+                return
             elif callback_data == SKILLS_EDUCATION:
                 await self.show_skills_education_menu(query, context)
             # Legacy menu navigation (backward compatibility)
@@ -225,7 +234,11 @@ class MenuCallbackHandler:
             print(f"Error in callback handler: {e}")
             await query.edit_message_text(
                 " Terjadi kesalahan. Silakan coba lagi atau gunakan command manual.",
-                reply_markup=MenuBuilder.build_main_menu()
+                reply_markup=MenuBuilder.build_main_menu(
+                    user_id=query.from_user.id,
+                    username=query.from_user.username,
+                    first_name=query.from_user.first_name
+                )
             )
 
     async def show_main_menu(self, query, context):
@@ -237,7 +250,11 @@ class MenuCallbackHandler:
         
         await query.edit_message_text(
             get_menu_text(MAIN_MENU, user_lang),
-            reply_markup=MenuBuilder.build_main_menu(),
+            reply_markup=MenuBuilder.build_main_menu(
+                user_id=query.from_user.id,
+                username=query.from_user.username,
+                first_name=query.from_user.first_name
+            ),
             parse_mode='MARKDOWN'
         )
 

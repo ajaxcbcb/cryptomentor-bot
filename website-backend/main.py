@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.middleware.verification_guard import VerificationGuardMiddleware
 from config import FRONTEND_URL, DEBUG
 from app.routes.auth import router as auth_router
 from app.routes.user import router as user_router
@@ -35,6 +36,9 @@ app.add_middleware(
     expose_headers=["Content-Type"],
     max_age=600,
 )
+
+# Verification guard — blocks unverified users from trading endpoints
+app.add_middleware(VerificationGuardMiddleware)
 
 app.include_router(auth_router)
 app.include_router(user_router)

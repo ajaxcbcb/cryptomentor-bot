@@ -140,10 +140,39 @@ export default function App() {
     unrealized_pnl: 0,  // open position P&L
     loading: true
   });
+  const [verStatus, setVerStatus] = useState(null);
+  const [verLoading, setVerLoading] = useState(true);
 
   useEffect(() => {
     document.body.style.overflow = isMobileMenuOpen ? 'hidden' : 'unset';
   }, [isMobileMenuOpen]);
+
+  // Auto-login from Telegram Bot (Phase 1 Migration)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    const urlUserStr = params.get('user');
+
+    if (urlToken && urlUserStr) {
+      try {
+        const urlUser = JSON.parse(decodeURIComponent(urlUserStr));
+        localStorage.setItem('cm_token', urlToken);
+        localStorage.setItem('cm_user', JSON.stringify(urlUser));
+        
+        // Ensure consistent ID type (string)
+        if (urlUser.id) urlUser.id = String(urlUser.id);
+        
+        setUser(urlUser);
+        setIsLoggedIn(true);
+        
+        // Remove params from URL to prevent re-login issues on refresh
+        window.history.replaceState({}, document.title, window.location.pathname);
+        console.log('[Phase1] Auto-login successful via bot link');
+      } catch (e) {
+        console.error('[Phase1] Auto-login parse error:', e);
+      }
+    }
+  }, []);
 
   const handleTelegramLogin = async (telegramUser) => {
     const photoUrl = telegramUser.photo_url ||
@@ -327,6 +356,66 @@ export default function App() {
     }
   };
 
+  // Update leverage setting
+  const updateLeverageSetting = async (newLeverage) => {
+    setRiskSettings(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const resp = await apiFetch('/dashboard/settings/leverage', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leverage: newLeverage }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        setRiskSettings(prev => ({
+          ...prev,
+          leverage: data.leverage ?? newLeverage,
+          loading: false,
+          error: null,
+        }));
+      } else {
+        setRiskSettings(prev => ({
+          ...prev,
+          loading: false,
+          error: data.detail || `Error ${resp.status}`,
+        }));
+      }
+    } catch (e) {
+      console.error('Error updating leverage setting:', e);
+      setRiskSettings(prev => ({ ...prev, loading: false, error: e.message }));
+    }
+  };
+
+  // Update margin mode setting
+  const updateMarginModeSetting = async (newMode) => {
+    setRiskSettings(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const resp = await apiFetch('/dashboard/settings/margin-mode', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: newMode }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        setRiskSettings(prev => ({
+          ...prev,
+          margin_mode: data.margin_mode ?? newMode,
+          loading: false,
+          error: null,
+        }));
+      } else {
+        setRiskSettings(prev => ({
+          ...prev,
+          loading: false,
+          error: data.detail || `Error ${resp.status}`,
+        }));
+      }
+    } catch (e) {
+      console.error('Error updating margin mode setting:', e);
+      setRiskSettings(prev => ({ ...prev, loading: false, error: e.message }));
+    }
+  };
+
   // Hydrate engine running state on login
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -342,6 +431,27 @@ export default function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
     fetchRiskSettings();
+  }, [isLoggedIn]);
+
+  // Fetch verification status on login
+  const fetchVerificationStatus = async () => {
+    if (!isLoggedIn) return;
+    try {
+      const resp = await apiFetch('/user/verification-status');
+      if (resp.ok) {
+        const data = await resp.json();
+        setVerStatus(data);
+      }
+    } catch (err) {
+      console.error('[Verification] Failed:', err);
+    } finally {
+      setVerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoggedIn) { setVerLoading(false); return; }
+    fetchVerificationStatus();
   }, [isLoggedIn]);
 
   // Live unrealized PnL + positions polling
@@ -447,6 +557,45 @@ export default function App() {
     return () => { cancelled = true; clearInterval(id); };
   }, [isLoggedIn]);
 
+  // Verification gate — block unverified users from dashboard
+  if (isLoggedIn && !verLoading) {
+    if (!verStatus || verStatus.status === 'none') {
+      return <GatekeeperScreen
+        user={user}
+        onSubmitUID={async (uid) => {
+          try {
+            const resp = await apiFetch('/user/submit-uid', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uid }),
+            });
+            if (resp.ok) {
+              setVerStatus({ status: 'pending_verification' });
+              return { ok: true };
+            }
+            const err = await resp.json().catch(() => ({}));
+            return { ok: false, error: err.detail || 'Failed to submit UID' };
+          } catch (e) {
+            return { ok: false, error: e.message || 'Network error' };
+          }
+        }}
+        onLogout={handleLogout}
+      />;
+    }
+    if (verStatus.status === 'pending_verification') {
+      return <VerificationPendingScreen onRefresh={fetchVerificationStatus} onLogout={handleLogout} />;
+    }
+    // uid_verified or active — check if onboarding wizard needed
+    if (connectorStatus?.linked === false && connectorStatus?.linked !== null) {
+      return <OnboardingWizard onComplete={() => {
+        // Refresh data so dashboard loads with live state
+        fetchVerificationStatus();
+        fetchRiskSettings();
+        setActiveTab('portfolio');
+      }} onLogout={handleLogout} />;
+    }
+  }
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-[#020202] flex flex-col items-center justify-center p-4 text-slate-200 font-sans relative overflow-hidden selection:bg-fuchsia-500/30">
@@ -548,11 +697,11 @@ export default function App() {
 
         {/* MAIN CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full relative z-0 pb-20 md:pb-10 custom-scrollbar">
-          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : []} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} botBusy={botBusy} connectorStatus={connectorStatus} />}
-          {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} />}
+          {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : []} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} botBusy={botBusy} connectorStatus={connectorStatus} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} onUpdateLeverage={updateLeverageSetting} onUpdateMarginMode={updateMarginModeSetting} />}
+          {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} onUpdateLeverage={updateLeverageSetting} onUpdateMarginMode={updateMarginModeSetting} />}
           {activeTab === 'performance' && <PerformanceTab />}
           {activeTab === 'settings' && <SettingsTab onBotConnected={handleBotConnected} />}
-          {activeTab === 'signals' && <SignalsTab user={user} />}
+          {activeTab === 'signals' && <SignalsTab user={user} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} />}
           {activeTab === 'skills' && <SkillsTab />}
         </main>
       </div>
@@ -560,7 +709,113 @@ export default function App() {
   );
 }
 
-function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy, connectorStatus }) {
+function RiskManagementCard({ riskSettings, onUpdateRisk, onUpdateLeverage, onUpdateMarginMode }) {
+  if (!riskSettings) return null;
+  
+  return (
+    <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-amber-500/30 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-8 relative overflow-hidden h-full">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[40px] rounded-full pointer-events-none" />
+      <div className="flex items-start justify-between mb-6 relative z-10">
+        <div>
+          <h3 className="text-xl md:text-2xl font-black text-white mb-2">Risk Management</h3>
+          <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed">Position sizes scale inversely with stop loss distance.</p>
+        </div>
+        <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20"><Target className="text-amber-400 w-6 h-6" /></div>
+      </div>
+
+      <div className="space-y-6 relative z-10">
+        {/* Risk Level */}
+        <div>
+          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Risk Per Trade</p>
+          <div className="grid grid-cols-4 gap-2">
+            {[0.25, 0.5, 0.75, 1.0].map(risk => (
+              <button
+                key={risk}
+                onClick={() => onUpdateRisk(risk)}
+                disabled={riskSettings.loading}
+                className={`py-2 px-1 rounded-lg font-bold text-[10px] md:text-xs transition-all ${
+                  riskSettings.risk_per_trade === risk
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-[#050505] text-slate-400 border border-white/5 hover:border-amber-500/30 hover:text-amber-400'
+                } disabled:opacity-50`}
+              >
+                {risk}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Leverage & Margin Mode Row */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Leverage</p>
+            <div className="flex gap-1.5 bg-[#050505] p-1 rounded-lg border border-white/5">
+              {[5, 10, 20].map(lev => (
+                <button
+                  key={lev}
+                  onClick={() => onUpdateLeverage(lev)}
+                  disabled={riskSettings.loading}
+                  className={`flex-1 py-1.5 rounded-md font-bold text-[10px] transition-all ${
+                    riskSettings.leverage === lev
+                      ? 'bg-amber-500 text-white'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {lev}x
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Margin Mode</p>
+            <div className="flex gap-1.5 bg-[#050505] p-1 rounded-lg border border-white/5">
+              {['cross', 'isolated'].map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => onUpdateMarginMode(mode)}
+                  disabled={riskSettings.loading}
+                  className={`flex-1 py-1.5 rounded-md font-bold text-[10px] uppercase transition-all ${
+                    (riskSettings.margin_mode || 'cross') === mode
+                      ? 'bg-amber-500 text-white'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {mode.slice(0, 4)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Account Summary */}
+        {riskSettings.equity > 0 && (
+          <div className="bg-[#050505]/50 border border-white/5 p-4 rounded-xl space-y-2">
+            <div className="flex justify-between text-[10px] font-medium uppercase tracking-wider text-slate-500">
+              <span>Account Status</span>
+              <span className="text-cyan-400 animate-pulse">Live</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-slate-400">Equity</span>
+              <span className="text-xs font-black text-white">${riskSettings.equity.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center border-t border-white/5 pt-2">
+              <span className="text-xs text-amber-400 font-bold">Dollar Risk</span>
+              <span className="text-xs font-black text-amber-400">${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {riskSettings.error && (
+          <p className="text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">
+            {riskSettings.error}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, equity, hasRealData, hasCumulative, botRunning, onToggleBot, botBusy, connectorStatus, riskSettings, onUpdateRisk, onUpdateLeverage, onUpdateMarginMode }) {
   const pnlAbs = Math.abs(unrealizedPnl).toFixed(2);
   const pnlDisplay = hasRealData ? `${unrealizedPnl >= 0 ? '+' : '-'}$${pnlAbs}` : '$0.00';
   const realizedAbs = Math.abs(cumulativePnl).toFixed(2);
@@ -636,6 +891,10 @@ function PortfolioTab({ positions, engineState, unrealizedPnl, cumulativePnl, eq
         <StatCard title="Open Positions" value={positions.length.toString()} icon={<Target className="text-cyan-400 w-6 h-6" />} glowColor="cyan" />
 
       </div>
+      <div className="pt-8">
+        <RiskManagementCard riskSettings={riskSettings} onUpdateRisk={onUpdateRisk} onUpdateLeverage={onUpdateLeverage} onUpdateMarginMode={onUpdateMarginMode} />
+      </div>
+
       <div className="pt-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
           <h3 className="text-xl md:text-2xl font-black text-white tracking-tight flex items-center gap-3">Current Opened Positions <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white/60 text-xs font-bold">{positions.length}</span></h3>
@@ -739,112 +998,7 @@ function EngineTab({ engineState, setEngineState, botRunning, onToggleBot, riskS
       </div>
 
       {/* Risk Management Card */}
-      <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-amber-500/30 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[40px] rounded-full pointer-events-none" />
-        <div className="flex items-start justify-between mb-6 relative z-10">
-          <div>
-            <h3 className="text-xl md:text-2xl font-black text-white mb-2">Risk Management</h3>
-            <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed">Fixed dollar risk per trade. Position sizes scale inversely with stop loss distance.</p>
-          </div>
-          <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20"><Target className="text-amber-400 w-6 h-6" /></div>
-        </div>
-
-        {/* Risk Level Buttons */}
-        <div className="mb-6 relative z-10">
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Select Risk Per Trade</p>
-          <div className="grid grid-cols-4 gap-3">
-            {[0.25, 0.5, 0.75, 1.0].map(risk => (
-              <button
-                key={risk}
-                onClick={() => onUpdateRisk(risk)}
-                disabled={riskSettings.loading}
-                className={`py-3 px-2 rounded-lg font-bold text-xs transition-all ${
-                  riskSettings.risk_per_trade === risk
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_20px_rgba(217,119,6,0.2)]'
-                    : 'bg-[#050505] text-slate-400 border border-white/5 hover:border-amber-500/30 hover:text-amber-400'
-                } disabled:opacity-50`}
-              >
-                {risk}%
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Error display */}
-        {riskSettings.error && (
-          <p className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg relative z-10">
-            {riskSettings.error}
-          </p>
-        )}
-
-        {/* Risk Preview Calculation (using LIVE equity from Bitunix) */}
-        {riskSettings.equity > 0 && (
-          <div className="mb-6 relative z-10 bg-[#050505]/50 border border-white/5 p-4 rounded-xl">
-            <p className="text-[10px] text-slate-500 font-bold uppercase mb-3">Account Status (Live from Bitunix)</p>
-
-            {/* Equity (balance + unrealized PnL) */}
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-slate-300">Account Equity:</span>
-              <span className="text-sm font-bold text-cyan-400">${riskSettings.equity.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
-            </div>
-
-            {/* Free Balance */}
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-slate-400 text-xs">├ Free Balance:</span>
-              <span className="text-sm text-slate-300">${riskSettings.balance.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
-            </div>
-
-            {/* Unrealized PnL */}
-            <div className={`flex items-center justify-between mb-3 pb-3 border-b border-white/10`}>
-              <span className="text-sm text-slate-400 text-xs">└ Unrealized P&L:</span>
-              <span className={`text-sm font-bold ${riskSettings.unrealized_pnl >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
-                ${riskSettings.unrealized_pnl.toLocaleString('en-US', {maximumFractionDigits: 2})}
-              </span>
-            </div>
-
-            {/* Risk Amount Calculation (based on equity) */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-300">Risk Per Trade ({riskSettings.risk_per_trade}%):</span>
-              <span className="text-sm font-bold text-amber-400">
-                ${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}
-              </span>
-            </div>
-
-            <p className="text-[10px] text-slate-500 mt-2 italic">Position sizing uses equity, not balance</p>
-          </div>
-        )}
-
-        {/* Risk Gauge */}
-        <div className="relative z-10 p-4 bg-[#050505] rounded-xl border border-white/5">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Risk Level</span>
-            <span className={`text-xs font-bold ${
-              riskSettings.risk_per_trade <= 0.25 ? 'text-green-400' :
-              riskSettings.risk_per_trade <= 0.5 ? 'text-cyan-400' :
-              riskSettings.risk_per_trade <= 0.75 ? 'text-yellow-400' :
-              'text-orange-400'
-            }`}>
-              {riskSettings.risk_per_trade}%
-            </span>
-          </div>
-          <div className="w-full h-2 bg-[#0a0a0a] rounded-full overflow-hidden border border-white/5">
-            <div
-              className={`h-full transition-all ${
-                riskSettings.risk_per_trade <= 0.25 ? 'bg-green-500' :
-                riskSettings.risk_per_trade <= 0.5 ? 'bg-cyan-500' :
-                riskSettings.risk_per_trade <= 0.75 ? 'bg-yellow-500' : 'bg-orange-500'
-              }`}
-              style={{width: `${(riskSettings.risk_per_trade / 1.0) * 100}%`}}
-            />
-          </div>
-          <p className="text-[10px] text-slate-500 font-medium mt-3 leading-relaxed">
-            {riskSettings.risk_per_trade <= 0.25 ? '🟢 Conservative: Many small wins, low leverage' :
-             riskSettings.risk_per_trade <= 0.5 ? '🔵 Balanced: Standard confluent setups' :
-             riskSettings.risk_per_trade <= 0.75 ? '🟡 Aggressive: Higher frequency, wider targets' :
-             '🔴 Very Aggressive: Maximum signals per day'}
-          </p>
-        </div>
-      </div>
+      <RiskManagementCard riskSettings={riskSettings} onUpdateRisk={onUpdateRisk} onUpdateLeverage={onUpdateLeverage} onUpdateMarginMode={onUpdateMarginMode} />
     </div>
   );
 }
@@ -1138,7 +1292,7 @@ function SettingsTab({ onBotConnected }) {
   );
 }
 
-function SignalsTab({ user }) {
+function SignalsTab({ user, riskSettings, onUpdateRisk }) {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1209,11 +1363,58 @@ function SignalsTab({ user }) {
           </div>
         </div>
       </header>
+      {/* Risk Level Quick Switch */}
+      {riskSettings && onUpdateRisk && (
+        <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 md:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">⚡ Risk Level Per Trade</p>
+              <div className="flex gap-2">
+                {[0.25, 0.5, 0.75, 1.0].map(risk => (
+                  <button key={risk} onClick={() => onUpdateRisk(risk)} disabled={riskSettings?.loading}
+                    className={`px-4 py-2 rounded-xl font-bold text-xs transition-all ${
+                      riskSettings?.risk_per_trade === risk
+                        ? risk <= 0.25 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        : risk <= 0.5 ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                        : risk <= 0.75 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                        : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                        : 'bg-white/5 text-slate-500 border border-white/5 hover:border-white/20 hover:text-slate-300'
+                    } disabled:opacity-50`}>{risk}%</button>
+                ))}
+              </div>
+            </div>
+            {riskSettings?.equity > 0 && (
+              <div className="flex items-center gap-4 text-sm">
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Equity</p>
+                  <p className="text-cyan-400 font-bold">${riskSettings.equity.toLocaleString('en-US', {maximumFractionDigits: 2})}</p>
+                </div>
+                <div className="w-px h-8 bg-white/10" />
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Risk/Trade</p>
+                  <p className={`font-bold ${
+                    riskSettings.risk_per_trade <= 0.25 ? 'text-green-400' :
+                    riskSettings.risk_per_trade <= 0.5 ? 'text-cyan-400' :
+                    riskSettings.risk_per_trade <= 0.75 ? 'text-yellow-400' : 'text-orange-400'
+                  }`}>${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}</p>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-600 mt-2">
+            {riskSettings?.risk_per_trade <= 0.25 ? '🟢 Conservative — fewer signals, tighter targets, smaller positions' :
+             riskSettings?.risk_per_trade <= 0.5 ? '🔵 Moderate — balanced risk-reward ratio (recommended)' :
+             riskSettings?.risk_per_trade <= 0.75 ? '🟡 Aggressive — more signals, wider targets, larger positions' :
+             '🟠 Very Aggressive — maximum signal frequency, highest exposure'}
+          </p>
+        </div>
+      )}
+
       {error && <div className="text-rose-400 text-sm font-bold bg-rose-500/10 border border-rose-500/20 px-4 py-3 rounded-xl">Failed to load live signals: {error}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {sortedSignals.map((signal, idx) => (
           <div key={signal.id || signal.pair} className="animate-in fade-in slide-in-from-bottom-8" style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'both' }}>
-            <SignalCard signal={signal} userIsPremium={user?.is_premium} />
+            <SignalCard signal={signal} userIsPremium={user?.is_premium} riskSettings={riskSettings} />
           </div>
         ))}
         {!loading && !signals.length && !error && <div className="col-span-full text-center text-slate-500 text-sm py-10">No signals available right now.</div>}
@@ -1365,7 +1566,7 @@ function BridgeCard({ name, status, logo, colors, onConnect, onDisconnect, loadi
   );
 }
 
-function SignalCard({ signal, userIsPremium }) {
+function SignalCard({ signal, userIsPremium, riskSettings }) {
   const [isPlaced, setIsPlaced] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placeError, setPlaceError] = useState(null);
@@ -1476,6 +1677,15 @@ function SignalCard({ signal, userIsPremium }) {
             <div className="flex-1 bg-white/[0.02] p-3 rounded-xl border border-white/5"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stack Targets</p><div className="flex flex-wrap gap-1">{signal.targets.map((t, i) => <span key={i} className="text-xs font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">TP{i+1}: {t}</span>)}</div></div>
             <div className="bg-white/[0.02] p-3 rounded-xl border border-white/5 min-w-[80px]"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stop Loss</p><p className="text-rose-400 font-bold text-sm">{signal.stopLoss}</p></div>
           </div>
+          {!isPlaced && !windowExpired && riskSettings?.equity > 0 && signal.stopLoss && (
+            <div className="bg-white/5 rounded-lg p-2.5 flex items-center justify-between text-[10px]">
+              <span className="text-slate-500">1-Click will risk:</span>
+              <span className="text-amber-400 font-bold">
+                ${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toFixed(2)}
+                <span className="text-slate-600 ml-1">({riskSettings.risk_per_trade}% of equity)</span>
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest mt-1">
             <span className="text-slate-500">Entry Window</span>
             <span className={windowExpired ? 'text-rose-400' : remainingMs < 60000 ? 'text-amber-400' : 'text-cyan-400'}>{remainingLabel}</span>
@@ -1505,6 +1715,294 @@ function CourseCard({ course }) {
       <div className="mt-auto relative z-10">
         <div className="flex justify-between items-center mb-2"><span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Progress</span><span className={`text-xs font-black ${course.progress === 100 ? 'text-lime-400' : 'text-cyan-400'}`}>{course.progress}%</span></div>
         <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-1000 ${course.progress === 100 ? 'bg-lime-400 shadow-[0_0_10px_rgba(163,230,53,0.8)]' : 'bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.8)]'}`} style={{ width: `${course.progress}%` }} /></div>
+      </div>
+    </div>
+  );
+}
+
+// ── Verification & Onboarding Screens ────────────────────────────────────────
+
+function GatekeeperScreen({ user, onSubmitUID, onLogout }) {
+  const [step, setStep] = useState(1);
+  const [uid, setUID] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-fuchsia-600/20 blur-[100px] md:blur-[150px] pointer-events-none animate-pulse z-0" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-cyan-600/20 blur-[100px] md:blur-[150px] pointer-events-none z-0" />
+      <div className="max-w-lg w-full bg-[#0a0a0a]/60 backdrop-blur-3xl border border-white/10 rounded-[2rem] p-8 relative z-10">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-14 h-14 rounded-[1.25rem] bg-gradient-to-tr from-fuchsia-500 via-purple-500 to-cyan-500 p-[1px] shadow-[0_0_20px_rgba(217,70,239,0.3)]">
+            <div className="w-full h-full bg-[#050505] rounded-[19px] flex items-center justify-center"><Bot size={28} className="text-white" /></div>
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white">Welcome to CryptoMentor</h1>
+            <p className="text-cyan-400 text-xs font-bold tracking-[0.2em] uppercase">Exchange Registration</p>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div className="flex gap-2 mb-8">
+          <div className={`h-1 flex-1 rounded ${step >= 1 ? 'bg-cyan-500' : 'bg-white/10'}`} />
+          <div className={`h-1 flex-1 rounded ${step >= 2 ? 'bg-cyan-500' : 'bg-white/10'}`} />
+        </div>
+
+        {step === 1 && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Step 1: Register on Bitunix</h2>
+            <p className="text-slate-300 text-sm mb-4">Create a Bitunix account using our referral link. This is required to enable AI-powered trading.</p>
+            <a href="https://www.bitunix.com/register?vipCode=sq45" target="_blank" rel="noopener noreferrer"
+              className="block w-full text-center bg-cyan-500 text-white font-bold py-3 rounded-xl mb-4 hover:bg-cyan-600 transition-colors">
+              Open Bitunix Registration
+            </a>
+            <p className="text-xs text-slate-500 mb-6">Referral Code: <code className="text-cyan-400">sq45</code> (auto-applied via link)</p>
+            <button onClick={() => setStep(2)} className="w-full bg-white/10 text-white font-bold py-3 rounded-xl hover:bg-white/20 transition-colors">
+              I've Already Registered &rarr; Continue
+            </button>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Step 2: Submit Your Bitunix UID</h2>
+            <p className="text-slate-300 text-sm mb-2">Find your UID: Login to Bitunix &rarr; tap your profile photo &rarr; UID is shown below your name.</p>
+            <input type="text" value={uid} onChange={e => setUID(e.target.value)} placeholder="Enter your Bitunix UID (e.g. 123456789)"
+              className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white mb-4 mt-2 font-mono focus:border-cyan-500/50 focus:outline-none transition-colors" />
+            {error && <p className="text-rose-400 text-sm mb-4 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-lg">{error}</p>}
+            <button onClick={async () => {
+              setSubmitting(true); setError(null);
+              const result = await onSubmitUID(uid);
+              setSubmitting(false);
+              if (!result.ok) setError(result.error);
+            }} disabled={!uid || uid.length < 5 || submitting}
+              className="w-full bg-cyan-500 text-white font-bold py-3 rounded-xl hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              {submitting ? 'Submitting...' : 'Submit for Verification'}
+            </button>
+            <button onClick={() => setStep(1)} className="w-full text-slate-400 text-sm mt-3 hover:text-white transition-colors">&larr; Back to registration</button>
+          </>
+        )}
+
+        <button onClick={onLogout} className="w-full text-slate-500 text-xs mt-6 hover:text-rose-400 transition-colors">Log out</button>
+      </div>
+    </div>
+  );
+}
+
+function VerificationPendingScreen({ onRefresh, onLogout }) {
+  const [polling, setPolling] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(onRefresh, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-fuchsia-600/20 blur-[100px] md:blur-[150px] pointer-events-none animate-pulse z-0" />
+      <div className="max-w-lg w-full bg-[#0a0a0a]/60 backdrop-blur-3xl border border-white/10 rounded-[2rem] p-8 text-center relative z-10">
+        <div className="text-6xl mb-6">&#9203;</div>
+        <h1 className="text-2xl font-black text-white mb-4">Verification Pending</h1>
+        <p className="text-slate-300 mb-2">Your Bitunix UID is being verified by an admin.</p>
+        <p className="text-slate-400 text-sm mb-8">You'll receive a Telegram notification once approved. This usually takes a few minutes.</p>
+        <button onClick={async () => { setPolling(true); await onRefresh(); setPolling(false); }}
+          className="bg-white/10 text-white font-bold px-6 py-3 rounded-xl hover:bg-white/20 transition-colors">
+          {polling ? 'Checking...' : 'Refresh Status'}
+        </button>
+        <button onClick={onLogout} className="block mx-auto text-slate-500 text-xs mt-6 hover:text-rose-400 transition-colors">Log out</button>
+      </div>
+    </div>
+  );
+}
+
+function OnboardingWizard({ onComplete, onLogout }) {
+  const [step, setStep] = useState(1);
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [testResult, setTestResult] = useState(null);
+  const [testError, setTestError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [riskPerTrade, setRiskPerTrade] = useState(0.5);
+  const [leverage, setLeverage] = useState(10);
+  const [marginMode, setMarginMode] = useState('cross');
+  const [starting, setStarting] = useState(false);
+
+  const RISK_OPTIONS = [0.25, 0.5, 0.75, 1.0];
+  const LEVERAGE_OPTIONS = [1, 2, 3, 5, 10, 15, 20];
+
+  const handleTestConnection = async () => {
+    setTestResult(null);
+    try {
+      const resp = await apiFetch('/bitunix/keys/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+      });
+      if (resp.ok) { setTestResult('success'); }
+      else { const data = await resp.json().catch(() => ({})); setTestResult('error'); setTestError(data.detail || 'Connection failed'); }
+    } catch { setTestResult('error'); setTestError('Network error'); }
+  };
+
+  const handleSaveKeys = async () => {
+    setSaving(true);
+    try {
+      const resp = await apiFetch('/bitunix/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+      });
+      if (resp.ok) setStep(2);
+      else { const data = await resp.json().catch(() => ({})); setTestResult('error'); setTestError(data.detail || 'Failed to save keys'); }
+    } catch (e) { setTestResult('error'); setTestError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleSaveRisk = async () => {
+    await Promise.all([
+      apiFetch('/dashboard/settings/risk', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ risk_per_trade: riskPerTrade }) }),
+      apiFetch('/dashboard/settings/leverage', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leverage }) }),
+      apiFetch('/dashboard/settings/margin-mode', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ margin_mode: marginMode }) }),
+    ]);
+    setStep(3);
+  };
+
+  const handleStartEngine = async () => {
+    setStarting(true);
+    try { await apiFetch('/dashboard/engine/start', { method: 'POST' }); } catch {}
+    setStarting(false);
+    onComplete();
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] z-0 opacity-50" />
+      <div className="absolute top-[-20%] left-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-fuchsia-600/20 blur-[100px] md:blur-[150px] pointer-events-none animate-pulse z-0" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] rounded-full bg-cyan-600/20 blur-[100px] md:blur-[150px] pointer-events-none z-0" />
+      <div className="max-w-lg w-full bg-[#0a0a0a]/60 backdrop-blur-3xl border border-white/10 rounded-[2rem] p-8 relative z-10">
+        {/* Progress */}
+        <div className="flex gap-2 mb-2">
+          {[1, 2, 3].map(s => (
+            <div key={s} className={`h-1 flex-1 rounded transition-all ${step >= s ? 'bg-cyan-500' : 'bg-white/10'}`} />
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mb-6">Step {step}/3</p>
+
+        {step === 1 && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Connect Your Bitunix API Key</h2>
+            <p className="text-slate-400 text-sm mb-6">Link your Bitunix account to enable AI-powered trading.</p>
+            <label className="text-xs text-slate-500 font-bold uppercase tracking-wider">API Key</label>
+            <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Bitunix API Key"
+              className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white mb-4 mt-1 font-mono text-sm focus:border-cyan-500/50 focus:outline-none" />
+            <label className="text-xs text-slate-500 font-bold uppercase tracking-wider">API Secret</label>
+            <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Enter your Bitunix API Secret"
+              className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white mb-4 mt-1 font-mono text-sm focus:border-cyan-500/50 focus:outline-none" />
+            <button onClick={() => setShowGuide(!showGuide)} className="text-cyan-400 text-sm mb-4 hover:underline">
+              {showGuide ? '\u25BC' : '\u25B6'} How to create your API Key
+            </button>
+            {showGuide && (
+              <div className="bg-white/5 rounded-xl p-4 mb-4 text-sm text-slate-300">
+                <ol className="list-decimal list-inside space-y-2">
+                  <li><b>Label:</b> <code className="text-cyan-400">CryptoMentor Bot</code> (or any name)</li>
+                  <li><b>IP Address:</b> Leave BLANK</li>
+                  <li><b>Permissions:</b> Enable <b>Trade</b> only. Do NOT enable Withdraw or Transfer</li>
+                  <li>Click <b>Confirm</b> &rarr; verify via email/2FA</li>
+                  <li>Copy the <b>API Key</b> and <b>Secret Key</b></li>
+                </ol>
+                <a href="https://www.bitunix.com/account/api-management" target="_blank" rel="noopener noreferrer"
+                  className="inline-block mt-3 text-cyan-400 hover:underline">Open Bitunix API Management &rarr;</a>
+              </div>
+            )}
+            {testResult === 'success' && (
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3 mb-4 text-green-400 text-sm">Connection successful! Your API key is valid.</div>
+            )}
+            {testResult === 'error' && (
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 mb-4 text-rose-400 text-sm">{testError || 'Connection failed. Check your API key and secret.'}</div>
+            )}
+            <div className="flex gap-3">
+              <button onClick={handleTestConnection} disabled={!apiKey || !apiSecret}
+                className="flex-1 bg-white/10 text-white font-bold py-3 rounded-xl hover:bg-white/20 disabled:opacity-50 transition-colors">
+                Test Connection
+              </button>
+              <button onClick={handleSaveKeys} disabled={!apiKey || !apiSecret || saving}
+                className="flex-1 bg-cyan-500 text-white font-bold py-3 rounded-xl hover:bg-cyan-600 disabled:opacity-50 transition-colors">
+                {saving ? 'Saving...' : 'Save & Continue'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Configure Risk Management</h2>
+            <p className="text-slate-400 text-sm mb-6">Set your trading preferences. You can change these anytime from the Engine tab.</p>
+            <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Risk Per Trade</label>
+            <div className="flex gap-2 mb-2">
+              {RISK_OPTIONS.map(risk => (
+                <button key={risk} onClick={() => setRiskPerTrade(risk)}
+                  className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${
+                    riskPerTrade === risk ? 'bg-cyan-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}>{risk}%</button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mb-6">
+              {riskPerTrade <= 0.25 ? 'Conservative — fewer signals, tighter targets' :
+               riskPerTrade <= 0.5 ? 'Moderate — balanced approach (recommended)' :
+               riskPerTrade <= 0.75 ? 'Aggressive — more signals, wider targets' :
+               'Very Aggressive — maximum signal frequency'}
+            </p>
+            <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Leverage</label>
+            <div className="flex gap-2 mb-6 flex-wrap">
+              {LEVERAGE_OPTIONS.map(lev => (
+                <button key={lev} onClick={() => setLeverage(lev)}
+                  className={`px-4 py-2 rounded-xl font-bold text-sm ${
+                    leverage === lev ? 'bg-cyan-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}>{lev}x</button>
+              ))}
+            </div>
+            <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Margin Mode</label>
+            <div className="flex gap-2 mb-8">
+              <button onClick={() => setMarginMode('cross')}
+                className={`flex-1 py-3 rounded-xl font-bold text-sm ${marginMode === 'cross' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-slate-400'}`}>
+                Cross
+              </button>
+              <button onClick={() => setMarginMode('isolated')}
+                className={`flex-1 py-3 rounded-xl font-bold text-sm ${marginMode === 'isolated' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-slate-400'}`}>
+                Isolated
+              </button>
+            </div>
+            <button onClick={handleSaveRisk} className="w-full bg-cyan-500 text-white font-bold py-3 rounded-xl hover:bg-cyan-600 transition-colors">
+              Continue
+            </button>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Ready to Trade!</h2>
+            <p className="text-slate-400 text-sm mb-6">Review your settings and start the AutoTrade engine.</p>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6 space-y-3">
+              <div className="flex justify-between"><span className="text-slate-400">Exchange</span><span className="text-white font-bold">Bitunix</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">API Key</span><span className="text-white font-mono">...{apiKey.slice(-4)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Risk Per Trade</span><span className="text-white font-bold">{riskPerTrade}%</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Leverage</span><span className="text-white font-bold">{leverage}x</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Margin Mode</span><span className="text-white font-bold">{marginMode === 'cross' ? 'Cross' : 'Isolated'}</span></div>
+            </div>
+            <button onClick={handleStartEngine} disabled={starting}
+              className="w-full bg-lime-500 text-black font-black py-4 rounded-xl text-lg hover:bg-lime-400 disabled:opacity-50 transition-colors mb-3">
+              {starting ? 'Starting...' : 'Start AutoTrade Engine'}
+            </button>
+            <button onClick={() => onComplete()} className="w-full text-slate-400 text-sm hover:text-white py-2 transition-colors">
+              Skip for now &rarr; Go to Dashboard
+            </button>
+          </>
+        )}
+
+        <button onClick={onLogout} className="w-full text-slate-500 text-xs mt-6 hover:text-rose-400 transition-colors">Log out</button>
       </div>
     </div>
   );

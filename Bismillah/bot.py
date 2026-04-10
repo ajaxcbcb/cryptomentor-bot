@@ -192,10 +192,14 @@ class TelegramBot:
             remember_chat(update.effective_user.id, update.effective_chat.id)
         except Exception:
             pass
-        from menu_system import MenuBuilder, get_menu_text, MAIN_MENU
+        user = update.effective_user
         await update.message.reply_text(
             get_menu_text(MAIN_MENU),
-            reply_markup=MenuBuilder.build_main_menu(),
+            reply_markup=MenuBuilder.build_main_menu(
+                user_id=user.id,
+                username=user.username,
+                first_name=user.first_name
+            ),
             parse_mode='MARKDOWN'
         )
 

@@ -84,19 +84,22 @@ class MenuBuilder:
     """Builds InlineKeyboard menus for CryptoMentor AI"""
 
     @staticmethod
-    def build_main_menu() -> InlineKeyboardMarkup:
-        """
-        Build the main menu aligned with Web Dashboard tabs.
-        Primary navigation matches web interface structure.
-        """
+    def build_main_menu(user_id: int = None, username: str = "", first_name: str = "") -> InlineKeyboardMarkup:
+        \"\"\"
+        Simplified Main Menu for Phase 1 Migration:
+        1. 🌐 Open Web Dashboard (Auto-login)
+        2. 📋 Account Status (Callback)
+        3. 💬 Support / Community (Link)
+        \"\"\"
+        from app.lib.auth import generate_dashboard_url
+        dash_url = generate_dashboard_url(user_id, username, first_name) if user_id else "https://dash.cryptomentor.com"
+        
         keyboard = [
-            # Primary Navigation (Web-aligned)
-            [InlineKeyboardButton("📊 Portfolio Status", callback_data=PORTFOLIO_STATUS)],
-            [InlineKeyboardButton("⚙️ Engine Controls", callback_data=ENGINE_CONTROLS)],
-            [InlineKeyboardButton("📈 Signals & Market", callback_data=SIGNALS_MARKET)],
-            [InlineKeyboardButton("📉 Performance", callback_data=PERFORMANCE_METRICS)],
-            [InlineKeyboardButton("🔌 API Settings", callback_data=API_SETTINGS)],
-            [InlineKeyboardButton("🎓 Skills & Education", callback_data=SKILLS_EDUCATION)],
+            [InlineKeyboardButton("🌐 Open Web Dashboard", url=dash_url)],
+            [
+                InlineKeyboardButton("📋 Status", callback_data=PORTFOLIO_STATUS),
+                InlineKeyboardButton("💬 Support", url="https://t.me/BillFarr")
+            ]
         ]
         return InlineKeyboardMarkup(keyboard)
 

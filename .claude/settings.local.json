@@ -30,7 +30,11 @@
       "Bash(python -m py_compile app/routes/signals.py)",
       "Bash(python -m py_compile website-backend/app/routes/signals.py website-backend/app/routes/dashboard.py)",
       "Bash(npm run:*)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(python -m py_compile app/routes/user.py)",
+      "Bash(python -m py_compile app/routes/dashboard.py)",
+      "Bash(python -m py_compile app/middleware/verification_guard.py)",
+      "Bash(python -m py_compile main.py)"
     ]
   }
 }

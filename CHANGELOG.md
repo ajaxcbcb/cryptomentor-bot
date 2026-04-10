@@ -4,6 +4,40 @@ All notable changes to the CryptoMentor Artificial Intelligence Trading project 
 
 ## [Unreleased / Latest] - 2026-04-10
 
+### 🚀 Telegram-to-Web Migration (Phase 1 & 2) — Bot Gatekeeper & Pro Money Management
+**Major Milestone**: Successfully transitioned the Telegram bot from a primary trading interface to a **Web-Dashboard-first Gatekeeper**. Migrated all trading configurations and identity verification to the web, while maintaining the bot as a secure onboarding and notification bridge.
+
+**Changes**:
+- 🔥 **Bot-to-Web Transformation** (`Bismillah/`):
+  - Refactored `handlers_autotrade.py` into a tight **Gatekeeper Flow** (Verified, Pending, Unverified).
+  - Gutted legacy trading handlers from the bot to enforce "Web-First" trading.
+  - Simplified Telegram menu (`menu_system.py`) to a 3-button model focused on the Web Dashboard.
+  - Created `app/lib/auth.py` to generate secure JWT-based auto-login URLs for seamless bot-to-web redirection.
+
+- 🔥 **Identity Verification & Security** (`Bismillah/` & `website-backend/`):
+  - Added dedicated bot-based UID submission flow for non-web users.
+  - Implemented `app/handlers_autotrade_admin.py` for admin approval/rejection of Bitunix UIDs directly in results.
+  - Admins now receive one-click approval buttons; users receive instant approval notifications with dashboard links.
+
+- 🔥 **Professional Money Management (Phase 2)** (`website-frontend/` & `website-backend/`):
+  - Expanded web dashboard settings: Users can now set **Leverage (5x-20x)** and **Margin Mode (Cross/Isolated)** directly from the UI.
+  - Enforced engine hardening: `scalping_engine.py` now strictly honors database-driven risk per trade, leverage, and margin settings.
+  - Added a unified `RiskManagementCard` to the frontend for consistent control across Portfolio and Engine tabs.
+
+- 🔥 **Frontend Core Improvements** (`website-frontend/src/App.jsx`):
+  - Implemented `useEffect` auto-login hook to handle `token` and `user` parameters from bot links.
+  - Added `<GatekeeperScreen />` and `<VerificationPendingScreen />` to block access for unverified or pending users.
+  - Synchronized engine start/stop logic with the backend's new unified controller.
+
+**Benefits**:
+✅ Unified user experience: All trading settings managed in the browser with rich visual feedback.  
+✅ Reduced bot complexity: Telegram bot is now lightweight, resilient, and focused on notifications.  
+✅ Professional risk control: Users have fine-grained control over their capital exposure.  
+✅ Streamlined onboarding: New users are guided through identity verification before accessing trading features.
+
+---
+
+
 ### 🌍 Telegram Bot Localization — English Translation for Onboarding Flow
 **Improvement**: Translated Telegram bot welcome screen and onboarding messages from Indonesian to English for international users.
 
