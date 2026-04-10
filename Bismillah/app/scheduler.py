@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, time
 
 import logging
+import os
 
 
 
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Global signal toggle state
 _signal_enabled = True
+_last_restart_alert_at = {}
+_RESTART_ALERT_COOLDOWN_SECONDS = int(os.getenv("RESTART_ALERT_COOLDOWN_SECONDS", "1800"))
 
 def get_signal_status() -> bool:
     return _signal_enabled
@@ -26,6 +29,38 @@ def toggle_signal(enabled: bool):
     global _signal_enabled
     _signal_enabled = enabled
     logger.info(f"Auto signal toggled: {'ON' if enabled else 'OFF'}")
+
+
+def _should_send_restart_alert(user_id: int) -> bool:
+    """
+    Prevent repeated restart-failed spam notifications for the same user.
+    """
+    now = datetime.utcnow()
+    last = _last_restart_alert_at.get(int(user_id))
+    if last and (now - last).total_seconds() < _RESTART_ALERT_COOLDOWN_SECONDS:
+        return False
+    _last_restart_alert_at[int(user_id)] = now
+    return True
+
+
+def _mark_requires_manual_restart(user_id: int):
+    """
+    Mark session as stopped so health-check won't auto-retry forever.
+    User can start again manually via /autotrade.
+    """
+    try:
+        from app.supabase_repo import _client
+        _client().table("autotrade_sessions").upsert(
+            {
+                "telegram_id": int(user_id),
+                "status": "stopped",
+                "engine_active": False,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            on_conflict="telegram_id",
+        ).execute()
+    except Exception as e:
+        logger.warning(f"[HealthCheck] Failed to mark user {user_id} as stopped: {e}")
 
 
 class TaskScheduler:
@@ -512,16 +547,17 @@ async def _engine_health_check_task(application):
                         keys = get_user_api_keys(user_id)
                         if not keys:
                             logger.error(f"[HealthCheck] User {user_id} - No API keys, cannot restart")
-                            # Notify user
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=(
-                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
-                                    "Your engine stopped unexpectedly and cannot auto-restart because API keys are missing.\n\n"
-                                    "Please restart manually: /autotrade"
-                                ),
-                                parse_mode='HTML'
-                            )
+                            _mark_requires_manual_restart(user_id)
+                            if _should_send_restart_alert(user_id):
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=(
+                                        "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                        "Your engine stopped unexpectedly and cannot auto-restart because API keys are missing.\n\n"
+                                        "Please restart manually: /autotrade"
+                                    ),
+                                    parse_mode='HTML'
+                                )
                             continue
                         
                         # Get settings
@@ -564,17 +600,19 @@ async def _engine_health_check_task(application):
                         
                     except Exception as e:
                         logger.error(f"[HealthCheck] Failed to restart user {user_id}: {e}")
-                        # Notify user of failure
+                        _mark_requires_manual_restart(user_id)
+                        # Notify user of failure (throttled)
                         try:
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=(
-                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
-                                    "Your engine stopped and auto-restart failed.\n\n"
-                                    "Please restart manually: /autotrade"
-                                ),
-                                parse_mode='HTML'
-                            )
+                            if _should_send_restart_alert(user_id):
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=(
+                                        "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                        "Your engine stopped and auto-restart failed.\n\n"
+                                        "Please restart manually: /autotrade"
+                                    ),
+                                    parse_mode='HTML'
+                                )
                         except:
                             pass
             else:
