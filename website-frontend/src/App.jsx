@@ -5,7 +5,8 @@ import {
   Shield, BarChart2, Target, Zap, Layers, RefreshCw,
   GraduationCap, Radio, Cpu, ToggleRight, ToggleLeft,
   Menu, X, Crosshair, ArrowUpRight, ArrowDownRight,
-  PlayCircle, BookOpen, Lock, Clock, Power, StopCircle, XCircle
+  PlayCircle, BookOpen, Lock, Clock, Power, StopCircle, XCircle,
+  Users, Copy, CheckCheck, ExternalLink, AlertCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import bitunixLogo from './assets/bitunix.jpg';
@@ -988,6 +989,7 @@ export default function App() {
             <NavItem icon={<Settings size={20} />} label="API Bridges" active={activeTab === 'settings'} onClick={() => navigateTo('settings')} />
             <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6">Ecosystem</p>
             <NavItem icon={<Radio size={20} />} label="Signals & Market" active={activeTab === 'signals'} onClick={() => navigateTo('signals')} badge={user.is_premium ? "PRO" : "FREE"} />
+            <NavItem icon={<Users size={20} />} label="Referral" active={activeTab === 'referral'} onClick={() => navigateTo('referral')} />
           </nav>
 
           {/* ── Social Proof Ticker ── */}
@@ -1024,6 +1026,7 @@ export default function App() {
           {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} onUpdateLeverage={updateLeverageSetting} onUpdateMarginMode={updateMarginModeSetting} />}
           {activeTab === 'settings' && <SettingsTab onBotConnected={handleBotConnected} />}
           {activeTab === 'signals' && <SignalsTab user={user} riskSettings={riskSettings} onUpdateRisk={updateRiskSetting} />}
+          {activeTab === 'referral' && <ReferralTab user={user} />}
         </main>
       </div>
     </div>
@@ -1823,6 +1826,280 @@ function SkillsTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function ReferralTab({ user }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState('view'); // 'view' | 'form'
+  const [form, setForm] = useState({ community_name: '', bitunix_referral_code: '', bitunix_uid: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiFetch('/dashboard/referral');
+      if (r.ok) setData(await r.json());
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const copyLink = (link) => {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await apiFetch('/dashboard/referral/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(d.detail || 'Registration failed'); setSubmitting(false); return; }
+      await load();
+      setStep('view');
+    } catch (e) {
+      setError(e.message);
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-slate-400 text-sm animate-pulse">Loading referral data...</div>
+    </div>
+  );
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
+      <header className="mb-8">
+        <h2 className="text-3xl md:text-4xl font-black text-white mb-2 tracking-tighter">Referral Partner</h2>
+        <p className="text-slate-400 text-sm md:text-base">Register your community and get an exclusive referral link.</p>
+      </header>
+
+      {/* Info card */}
+      <div className="bg-gradient-to-br from-fuchsia-500/10 to-cyan-500/10 border border-fuchsia-500/20 rounded-2xl p-5 md:p-6">
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-xl bg-fuchsia-500/15 border border-fuchsia-500/20 shrink-0">
+            <Users size={22} className="text-fuchsia-400" />
+          </div>
+          <div>
+            <h3 className="text-white font-bold mb-1">Partner Benefits</h3>
+            <ul className="text-slate-300 text-sm space-y-1">
+              <li>• Exclusive referral link for your community</li>
+              <li>• Track how many members are actively trading</li>
+              <li>• Help your community grow trading volume</li>
+              <li>• Free — no registration fee</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Status: not registered */}
+      {(!data?.registered || step === 'form') && (
+        <div className="bg-[#0a0a0a]/80 border border-white/10 rounded-2xl p-6">
+          {step === 'view' ? (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-4">
+                <Users size={28} className="text-slate-400" />
+              </div>
+              <h3 className="text-white font-bold text-lg mb-2">Not Registered</h3>
+              <p className="text-slate-400 text-sm mb-6">You haven't registered as a Referral Partner yet. Sign up now — it's free!</p>
+              <button
+                onClick={() => setStep('form')}
+                className="px-6 py-3 bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 rounded-xl font-bold hover:bg-fuchsia-500/30 transition-all"
+              >
+                Register Now
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <h3 className="text-white font-bold text-lg mb-4">Register as Referral Partner</h3>
+
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Community Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Crypto Traders, Trading Academy"
+                  value={form.community_name}
+                  onChange={e => setForm(f => ({ ...f, community_name: e.target.value }))}
+                  required
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-fuchsia-500/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Bitunix Referral Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g. ABC123 (Bitunix → Profile → Referral Program)"
+                  value={form.bitunix_referral_code}
+                  onChange={e => setForm(f => ({ ...f, bitunix_referral_code: e.target.value }))}
+                  required
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-fuchsia-500/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Your Bitunix UID</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 123456789 (Login Bitunix → tap profile photo)"
+                  value={form.bitunix_uid}
+                  onChange={e => setForm(f => ({ ...f, bitunix_uid: e.target.value }))}
+                  required
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-fuchsia-500/50"
+                />
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                  <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                  <p className="text-rose-300 text-sm">{error}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setStep('view'); setError(null); }}
+                  className="flex-1 py-3 bg-white/5 text-slate-300 border border-white/10 rounded-xl font-bold hover:bg-white/10 transition-all text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 py-3 bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 rounded-xl font-bold hover:bg-fuchsia-500/30 transition-all text-sm disabled:opacity-50"
+                >
+                  {submitting ? 'Submitting...' : 'Submit Registration'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Status: pending */}
+      {data?.registered && data?.status === 'pending' && step === 'view' && (
+        <div className="bg-[#0a0a0a]/80 border border-amber-500/20 rounded-2xl p-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4">
+            <Clock size={24} className="text-amber-400" />
+          </div>
+          <h3 className="text-white font-bold text-lg mb-2">Pending Approval</h3>
+          <p className="text-slate-400 text-sm mb-1">Community <span className="text-white font-semibold">{data.community_name}</span> is under admin review.</p>
+          <p className="text-slate-500 text-xs">You'll be notified once approved (1–2 business days).</p>
+        </div>
+      )}
+
+      {/* Status: rejected */}
+      {data?.registered && data?.status === 'rejected' && step === 'view' && (
+        <div className="bg-[#0a0a0a]/80 border border-rose-500/20 rounded-2xl p-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mx-auto mb-4">
+            <XCircle size={24} className="text-rose-400" />
+          </div>
+          <h3 className="text-white font-bold text-lg mb-2">Registration Rejected</h3>
+          <p className="text-slate-400 text-sm mb-4">Community <span className="text-white font-semibold">{data.community_name}</span> was not approved.</p>
+          <button
+            onClick={() => { setForm({ community_name: '', bitunix_referral_code: '', bitunix_uid: '' }); setStep('form'); }}
+            className="px-6 py-3 bg-white/5 text-slate-300 border border-white/10 rounded-xl font-bold hover:bg-white/10 transition-all text-sm"
+          >
+            Re-register
+          </button>
+        </div>
+      )}
+
+      {/* Status: active */}
+      {data?.registered && data?.status === 'active' && step === 'view' && (
+        <div className="space-y-4">
+          {/* Active badge */}
+          <div className="bg-[#0a0a0a]/80 border border-lime-500/20 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-lime-500/10 border border-lime-500/20 flex items-center justify-center">
+                  <CheckCheck size={20} className="text-lime-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold">{data.community_name}</h3>
+                  <span className="text-xs font-bold text-lime-400 bg-lime-500/10 border border-lime-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-black text-white">{data.member_count || 0}</p>
+                <p className="text-xs text-slate-400">Members</p>
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-slate-400 mb-1">Community Code</p>
+                <p className="text-white font-mono font-bold text-sm">{data.community_code}</p>
+              </div>
+              <div className="bg-white/5 rounded-xl p-3">
+                <p className="text-xs text-slate-400 mb-1">Bitunix Referral</p>
+                <p className="text-white font-mono font-bold text-sm">{data.bitunix_referral_code}</p>
+              </div>
+            </div>
+
+            {/* Invite link */}
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Community Invite Link</p>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-3">
+                <p className="text-cyan-300 text-sm font-mono flex-1 truncate">{data.invite_link}</p>
+                <button
+                  onClick={() => copyLink(data.invite_link)}
+                  className="shrink-0 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                  title="Copy link"
+                >
+                  {copied ? <CheckCheck size={16} className="text-lime-400" /> : <Copy size={16} className="text-slate-400" />}
+                </button>
+                <a
+                  href={data.invite_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <ExternalLink size={16} className="text-slate-400" />
+                </a>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Share this link with your community members. When they register for autotrade, their UID verification will be sent to you via Telegram.</p>
+            </div>
+          </div>
+
+          {/* Bitunix referral link */}
+          {data.bitunix_referral_url && (
+            <div className="bg-[#0a0a0a]/80 border border-white/10 rounded-2xl p-5">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Bitunix Registration Link (for members)</p>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-3">
+                <p className="text-slate-300 text-xs font-mono flex-1 truncate">{data.bitunix_referral_url}</p>
+                <button
+                  onClick={() => copyLink(data.bitunix_referral_url)}
+                  className="shrink-0 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <Copy size={16} className="text-slate-400" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1074,14 +1074,24 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
     client = get_client(exchange_id, api_key, api_secret)
 
     def _done_cb(task: asyncio.Task):
-        # Update engine_active flag when engine stops
+        # Only set engine_active=False if user explicitly stopped (status=stopped)
+        # If engine crashed/restarted, keep engine_active=True so health check can restore it
         try:
             from app.supabase_repo import _client
             s = _client()
-            s.table("autotrade_sessions").upsert({
-                "telegram_id": int(user_id),
-                "engine_active": False
-            }, on_conflict="telegram_id").execute()
+            # Check current status before overwriting engine_active
+            sess = s.table("autotrade_sessions").select("status").eq(
+                "telegram_id", int(user_id)
+            ).limit(1).execute()
+            current_status = (sess.data or [{}])[0].get("status", "")
+            # Only mark inactive if explicitly stopped by user
+            if current_status == "stopped":
+                s.table("autotrade_sessions").upsert({
+                    "telegram_id": int(user_id),
+                    "engine_active": False
+                }, on_conflict="telegram_id").execute()
+            # If status is active/uid_verified, leave engine_active as-is
+            # Health check will restart the engine automatically
         except Exception as e:
             logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
         

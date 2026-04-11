@@ -1,0 +1,37 @@
+# ========================================
+# COMMANDS UNTUK DIJALANKAN DI PUTTY
+# ========================================
+
+# 1. Buka PuTTY dan connect ke VPS:
+#    Host: 147.93.156.165
+#    Port: 22
+#    Username: root
+
+# 2. Setelah login, jalankan command ini:
+
+# Buat file verification langsung di VPS
+cat > /var/www/cryptomentor/google25bce93832cdac80.html << 'EOF'
+google-site-verification: google25bce93832cdac80.html
+EOF
+
+# Set permissions
+chmod 644 /var/www/cryptomentor/google25bce93832cdac80.html
+chown www-data:www-data /var/www/cryptomentor/google25bce93832cdac80.html
+
+# Verify file
+cat /var/www/cryptomentor/google25bce93832cdac80.html
+
+# Test dengan curl
+curl https://cryptomentor.id/google25bce93832cdac80.html
+
+# ========================================
+# SELESAI!
+# ========================================
+
+# Jika semua berhasil, Anda akan melihat:
+# google-site-verification: google25bce93832cdac80.html
+
+# Selanjutnya:
+# 1. Kembali ke Google Search Console
+# 2. Klik tombol "VERIFIKASI"
+# 3. Done!
