@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\supabase\__init__.py
+# hypothesis_version: 6.151.9
+
+['AClient', 'AClientOptions', 'ASupabaseAuthClient', 'AsyncClient', 'AsyncClientOptions', 'AuthApiError', 'AuthError', 'AuthRetryableError', 'AuthUnknownError', 'AuthorizationError', 'Client', 'ClientOptions', 'FunctionsError', 'FunctionsHttpError', 'FunctionsRelayError', 'NotConnectedError', 'PostgrestAPIError', 'PostgrestAPIResponse', 'StorageException', 'SupabaseAuthClient', '__version__', 'acreate_client', 'create_async_client', 'create_client']

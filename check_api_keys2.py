@@ -1,35 +1,41 @@
-#!/usr/bin/env python3
-"""Check user_api_keys table directly"""
-import os
+import sys, os
+sys.path.insert(0, '/root/cryptomentor-bot/Bismillah')
+sys.path.insert(0, '/root/cryptomentor-bot/Bismillah/venv/lib/python3.12/site-packages')
 
-with open('/root/cryptomentor-bot/.env') as f:
-    for line in f:
-        line = line.strip()
-        if '=' in line and not line.startswith('#'):
-            k, v = line.split('=', 1)
-            os.environ[k.strip()] = v.strip()
+env_path = '/root/cryptomentor-bot/.env'
+for line in open(env_path):
+    line = line.strip()
+    if '=' in line and not line.startswith('#'):
+        k, _, v = line.partition('=')
+        os.environ.setdefault(k.strip(), v.strip())
 
-from supabase import create_client
-c = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_SERVICE_KEY'))
+from app.supabase_repo import _client
+from app.lib.crypto import decrypt
 
-print("=== ALL ROWS IN user_api_keys ===")
-keys = c.table('user_api_keys').select('telegram_id, exchange, api_key, created_at').execute()
-print(f"Total rows: {len(keys.data)}")
-for k in keys.data:
-    hint = k['api_key'][-6:] if k.get('api_key') else 'N/A'
-    print(f"  tg_id={k['telegram_id']} | exchange={k.get('exchange')} | key=...{hint} | created={k.get('created_at','?')[:10]}")
+s = _client()
 
-print()
-print("=== ACTIVE SESSIONS vs API KEYS ===")
-sessions = c.table('autotrade_sessions').select(
-    'telegram_id, status, engine_active'
-).not_.in_('status', ['pending_verification', 'uid_rejected', 'pending', 'stopped']).execute()
+keys_res = s.table('user_api_keys').select('telegram_id, api_key, api_secret_enc, key_hint').execute()
+keys_data = keys_res.data or []
 
-key_ids = {k['telegram_id'] for k in keys.data}
+sessions_res = s.table('autotrade_sessions').select('telegram_id, status, engine_active').not_.in_(
+    'status', ['pending_verification', 'uid_rejected', 'pending', 'stopped']
+).execute()
+sessions = sessions_res.data or []
 
-for s in sessions.data:
-    uid = s['telegram_id']
-    if uid >= 999999990:
-        continue
-    has_key = uid in key_ids
-    print(f"  tg_id={uid} | status={s['status']} | engine={s['engine_active']} | has_api_key={'✅' if has_key else '❌'}")
+print(f"\n=== USER API KEYS ({len(keys_data)} total) ===")
+keys_by_uid = {}
+for k in keys_data:
+    uid = k.get('telegram_id')
+    try:
+        secret = decrypt(k.get('api_secret_enc', ''))
+        status = 'OK'
+    except Exception as e:
+        status = f'DECRYPT_FAIL: {e}'
+    keys_by_uid[uid] = status
+    print(f"  UID {uid} | hint: ...{k.get('key_hint')} | {status}")
+
+print(f"\n=== ACTIVE SESSIONS ({len(sessions)} total) ===")
+for sess in sessions:
+    uid = sess.get('telegram_id')
+    key_status = keys_by_uid.get(uid, 'NO KEY IN DB')
+    print(f"  UID {uid} | status={sess.get('status')} | engine_active={sess.get('engine_active')} | keys={key_status}")

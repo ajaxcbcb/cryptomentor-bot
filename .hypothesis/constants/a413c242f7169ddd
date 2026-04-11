@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\realtime\_async\presence.py
+# hypothesis_version: 6.151.9
+
+['joins', 'leaves', 'metas', 'phx_ref', 'phx_ref_prev', 'presence_ref']

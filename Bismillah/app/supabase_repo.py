@@ -7,9 +7,12 @@ SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 def _client() -> Client:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    # Re-read env vars at call time to handle cases where dotenv loads after module import
+    url = (os.getenv("SUPABASE_URL") or SUPABASE_URL or "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or SUPABASE_SERVICE_KEY
+    if not url or not key:
         raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return create_client(url, key)
 
 # --- READERS ---
 def get_user_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:

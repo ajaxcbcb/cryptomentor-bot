@@ -357,8 +357,15 @@ async def engine_state(tg_id: int = Depends(get_current_user)):
     ).eq("telegram_id", tg_id).limit(1).execute()
     row = (res.data or [{}])[0]
     status = row.get("status")
+    engine_active = bool(row.get("engine_active"))
+    # Single source of truth: status field.
+    # "stopped" = user explicitly stopped → not running
+    # "active" / "uid_verified" = should be running (bot will restore if not in memory)
+    # engine_active flag is secondary — only used as extra confirmation
+    is_stopped = status == "stopped"
+    is_running = not is_stopped and (engine_active or status in ("active", "uid_verified"))
     return {
-        "running": bool(row.get("engine_active")) or status in ("active", "uid_verified"),
+        "running": is_running,
         "status": status,
     }
 
@@ -777,4 +784,141 @@ async def get_portfolio(tg_id: int = Depends(get_current_user)):
             "unrealized_pnl": round(unrealized_pnl, 4),
             "positions": open_positions_live,
         }
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REFERRAL (Community Partners) endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+import re as _re
+
+def _slugify(name: str) -> str:
+    slug = _re.sub(r'[^a-zA-Z0-9]', '', name.lower())
+    return slug[:20]
+
+
+class ReferralRegisterInput(BaseModel):
+    community_name: str
+    bitunix_referral_code: str
+    bitunix_uid: str
+
+
+@router.get("/referral")
+async def get_referral(tg_id: int = Depends(get_current_user)):
+    """Get current user's referral/community partner status."""
+    s = _client()
+    res = s.table("community_partners").select("*").eq("telegram_id", tg_id).limit(1).execute()
+    row = (res.data or [None])[0]
+    if not row:
+        return {"registered": False}
+
+    status = row.get("status", "pending")
+    code = row.get("community_code", "")
+    invite_link = f"https://cryptomentor.id/?ref={code}" if status == "active" else None
+
+    return {
+        "registered": True,
+        "status": status,
+        "community_name": row.get("community_name"),
+        "community_code": code,
+        "bitunix_referral_code": row.get("bitunix_referral_code"),
+        "bitunix_referral_url": row.get("bitunix_referral_url"),
+        "member_count": row.get("member_count", 0),
+        "invite_link": invite_link,
+        "created_at": row.get("created_at"),
+    }
+
+
+@router.post("/referral/register")
+async def register_referral(
+    payload: ReferralRegisterInput,
+    tg_id: int = Depends(get_current_user),
+):
+    """Register as a community partner / referral partner."""
+    name = payload.community_name.strip()
+    if len(name) < 3:
+        raise HTTPException(status_code=400, detail="Nama komunitas minimal 3 karakter")
+    if len(name) > 50:
+        raise HTTPException(status_code=400, detail="Nama komunitas maksimal 50 karakter")
+
+    ref_code = payload.bitunix_referral_code.strip()
+    if len(ref_code) < 2:
+        raise HTTPException(status_code=400, detail="Kode referral Bitunix tidak valid")
+
+    uid = payload.bitunix_uid.strip()
+    if not uid.isdigit() or len(uid) < 5:
+        raise HTTPException(status_code=400, detail="UID Bitunix tidak valid (minimal 5 digit angka)")
+
+    s = _client()
+
+    # Generate unique community code
+    import random
+    code = _slugify(name)
+    existing = s.table("community_partners").select("id").eq("community_code", code).limit(1).execute()
+    if existing.data:
+        code = code + str(random.randint(10, 99))
+
+    ref_url = f"https://www.bitunix.com/register?vipCode={ref_code}"
+
+    try:
+        s.table("community_partners").upsert({
+            "telegram_id": int(tg_id),
+            "community_name": name,
+            "community_code": code,
+            "bitunix_referral_code": ref_code,
+            "bitunix_referral_url": ref_url,
+            "bitunix_uid": uid,
+            "status": "pending",
+            "member_count": 0,
+            "updated_at": datetime.utcnow().isoformat(),
+        }, on_conflict="telegram_id").execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan: {e}")
+
+    # Notify admins via Telegram bot (best-effort)
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    _admin_id_set = set()
+    for _key in ("ADMIN_IDS", "ADMIN1", "ADMIN2", "ADMIN3", "ADMIN_USER_ID", "ADMIN2_USER_ID"):
+        for _part in os.getenv(_key, "").split(","):
+            _part = _part.strip()
+            if _part.isdigit():
+                _admin_id_set.add(int(_part))
+    admin_ids = sorted(_admin_id_set)
+    if bot_token and admin_ids:
+        msg = (
+            f"🔔 <b>Pendaftaran Referral Partner Baru (via Web)</b>\n\n"
+            f"🆔 Telegram ID: <code>{tg_id}</code>\n"
+            f"📛 Nama Komunitas: <b>{name}</b>\n"
+            f"🔑 Kode Bot: <code>{code}</code>\n"
+            f"🎟 Referral Bitunix: <code>{ref_code}</code>\n"
+            f"🆔 UID Bitunix: <code>{uid}</code>\n\n"
+            f"Klik tombol di bawah untuk approve atau reject:"
+        )
+        admin_reply_markup = {
+            "inline_keyboard": [[
+                {"text": "✅ APPROVE", "callback_data": f"community_acc_{tg_id}"},
+                {"text": "❌ REJECT",  "callback_data": f"community_reject_{tg_id}"},
+            ]]
+        }
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            for admin_id in admin_ids:
+                try:
+                    await client.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={
+                            "chat_id": admin_id,
+                            "text": msg,
+                            "parse_mode": "HTML",
+                            "reply_markup": admin_reply_markup,
+                        },
+                    )
+                except Exception:
+                    pass
+
+    return {
+        "success": True,
+        "community_code": code,
+        "status": "pending",
+        "message": "Pendaftaran berhasil! Admin akan mereview dalam 1-2 hari kerja.",
     }

@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\realtime\types.py
+# hypothesis_version: 6.151.9
+
+['*', '1.0.0', 'CHANNEL_ERROR', 'CLOSED', 'DELETE', 'INSERT', 'JOIN', 'LEAVE', 'Payload', 'SUBSCRIBED', 'SYNC', 'TIMED_OUT', 'T_ParamSpec', 'T_Retval', 'UPDATE', 'access_token', 'allow', 'broadcast', 'closed', 'data', 'error', 'errored', 'event', 'filter', 'heartbeat', 'ids', 'joined', 'joining', 'leaving', 'ok', 'phoenix', 'phx_close', 'phx_error', 'phx_join', 'phx_leave', 'phx_reply', 'postgres_changes', 'presence', 'presence_diff', 'presence_state', 'schema', 'system', 'table', 'timeout', 'type']

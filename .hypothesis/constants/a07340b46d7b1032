@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\websockets\asyncio\client.py
+# hypothesis_version: 6.151.9
+
+[300, 301, 302, 303, 307, 308, 500, 502, 503, 504, '10', 'ClientConnection', 'Location', 'User-Agent', 'connect', 'deflate', 'host', 'port', 'server_hostname', 'sock', 'ssl', 'unix', 'unix_connect', 'websockets.client', 'ws://localhost/', 'wss://localhost/']
