@@ -20,7 +20,7 @@ from glob import glob
 VPS_HOST = "147.93.156.165"
 VPS_USER = "root"
 VPS_PORT = 22
-VPS_DEST_DIR = "/root/cryptomentor-bot/website-frontend/dist"  # Sesuai nginx config
+VPS_DEST_DIR = "/var/www/cryptomentor"  # Live nginx web root
 FRONTEND_DIR = "website-frontend"
 DIST_DIR = f"{FRONTEND_DIR}/dist"
 

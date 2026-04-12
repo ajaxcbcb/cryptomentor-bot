@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.1.13] — 2026-04-13 — Production Web Root Deployment Fix (Reflection Issue Resolved)
+
+### 🚀 What Changed
+
+#### 1) Fixed Why UI Changes Were Not Reflecting Publicly
+- Root cause identified: frontend deploy script uploaded to a non-served path
+  (`/root/cryptomentor-bot/website-frontend/dist`) while nginx serves
+  `/var/www/cryptomentor`.
+- Synced latest built assets into live nginx root and reloaded nginx.
+- Public site now serves current bundle:
+  - `/assets/index-BBVyvRMg.js`
+
+#### 2) Updated Deploy Scripts to Correct Live Destination
+- Changed default frontend deploy target to nginx web root:
+  - `deploy_frontend.py` → `/var/www/cryptomentor`
+  - `deploy_frontend.ps1` → `/var/www/cryptomentor`
+
+### ✅ Deploy/State Safety Notes
+
+- Frontend files deployed to live web root and ownership corrected.
+- Reloaded `nginx` only.
+- Trading engine state verified unchanged:
+  - `cryptomentor.service` remains `active`
+  - `ExecMainPID=457177` unchanged
+
 ## [2.1.12] — 2026-04-13 — Precision Risk Input + Non-Blocking Warning UX
 
 ### 🚀 What Changed

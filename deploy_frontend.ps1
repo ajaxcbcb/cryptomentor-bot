@@ -11,7 +11,7 @@ param(
     [string]$Host = "147.93.156.165",
     [string]$User = "root",
     [string]$Password = $env:VPS_PASSWORD,
-    [string]$DestDir = "/root/cryptomentor-bot/website-frontend/dist",
+    [string]$DestDir = "/var/www/cryptomentor",
     [switch]$SkipBuild
 )
 
