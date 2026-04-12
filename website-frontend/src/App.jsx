@@ -327,6 +327,8 @@ export default function App() {
     frozen: 0,
     unrealized_pnl: 0,
     loading: true,
+    loading_autotrade: false,
+    loading_one_click: false,
     error: null,
   });
   const [verLoading, setVerLoading] = useState(true);
@@ -699,6 +701,8 @@ export default function App() {
           frozen: data.frozen || 0,          // locked in positions
           unrealized_pnl: data.unrealized_pnl || 0,
           loading: false,
+          loading_autotrade: false,
+          loading_one_click: false,
         });
       } else {
         // Even on error, unblock the buttons
@@ -717,7 +721,7 @@ export default function App() {
     const previousRisk = Number(riskSettings.risk_per_trade);
     const safePreviousRisk = Number.isFinite(previousRisk) ? previousRisk : 5.0;
 
-    setRiskSettings(prev => ({ ...prev, risk_per_trade: riskValue, loading: true, error: null }));
+    setRiskSettings(prev => ({ ...prev, risk_per_trade: riskValue, loading_autotrade: true, error: null }));
     try {
       const resp = await apiFetch('/dashboard/settings/risk', {
         method: 'PUT',
@@ -730,7 +734,7 @@ export default function App() {
         setRiskSettings(prev => ({
           ...prev,
           risk_per_trade: Number.isFinite(appliedRisk) ? appliedRisk : riskValue,
-          loading: false,
+          loading_autotrade: false,
           error: null,
         }));
       } else {
@@ -738,7 +742,7 @@ export default function App() {
         setRiskSettings(prev => ({
           ...prev,
           risk_per_trade: safePreviousRisk,
-          loading: false,
+          loading_autotrade: false,
           error: data.detail || `Error ${resp.status}`,
         }));
       }
@@ -747,7 +751,7 @@ export default function App() {
       setRiskSettings(prev => ({
         ...prev,
         risk_per_trade: safePreviousRisk,
-        loading: false,
+        loading_autotrade: false,
         error: e.message,
       }));
     }
@@ -758,7 +762,7 @@ export default function App() {
     const riskValue = Number(normalizedRisk.toFixed(2));
 
     try { localStorage.setItem(ONE_CLICK_RISK_STORAGE_KEY, String(riskValue)); } catch {}
-    setRiskSettings(prev => ({ ...prev, one_click_risk_per_trade: riskValue, loading: true, error: null }));
+    setRiskSettings(prev => ({ ...prev, one_click_risk_per_trade: riskValue, loading_one_click: true, error: null }));
     try {
       const resp = await apiFetch('/dashboard/settings/one-click-risk', {
         method: 'PUT',
@@ -771,20 +775,20 @@ export default function App() {
         setRiskSettings(prev => ({
           ...prev,
           one_click_risk_per_trade: Number.isFinite(appliedRisk) ? appliedRisk : riskValue,
-          loading: false,
+          loading_one_click: false,
           error: null,
         }));
       } else {
         setRiskSettings(prev => ({
           ...prev,
-          loading: false,
+          loading_one_click: false,
           error: null,
         }));
       }
     } catch (e) {
       setRiskSettings(prev => ({
         ...prev,
-        loading: false,
+        loading_one_click: false,
         error: null,
       }));
     }
@@ -1326,6 +1330,7 @@ export default function App() {
 
 function RiskManagementCard({ riskSettings, onPreviewRisk, onUpdateRisk, onUpdateLeverage, onUpdateMarginMode }) {
   if (!riskSettings) return null;
+  const autoRiskBusy = riskSettings.loading || riskSettings.loading_autotrade;
   
   return (
     <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-amber-500/30 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-8 relative overflow-hidden h-full">
@@ -1345,7 +1350,7 @@ function RiskManagementCard({ riskSettings, onPreviewRisk, onUpdateRisk, onUpdat
             value={riskSettings.risk_per_trade}
             onPreview={onPreviewRisk}
             onCommit={onUpdateRisk}
-            loading={riskSettings.loading}
+            loading={autoRiskBusy}
             min={AUTOTRADE_RISK_MIN}
             max={AUTOTRADE_RISK_MAX}
             step={AUTOTRADE_RISK_STEP}
@@ -1363,7 +1368,7 @@ function RiskManagementCard({ riskSettings, onPreviewRisk, onUpdateRisk, onUpdat
                 <button
                   key={lev}
                   onClick={() => onUpdateLeverage(lev)}
-                  disabled={riskSettings.loading}
+                  disabled={autoRiskBusy}
                   className={`flex-1 py-1.5 rounded-md font-bold text-[10px] transition-all ${
                     riskSettings.leverage === lev
                       ? 'bg-amber-500 text-white'
@@ -1382,7 +1387,7 @@ function RiskManagementCard({ riskSettings, onPreviewRisk, onUpdateRisk, onUpdat
                 <button
                   key={mode}
                   onClick={() => onUpdateMarginMode(mode)}
-                  disabled={riskSettings.loading}
+                  disabled={autoRiskBusy}
                   className={`flex-1 py-1.5 rounded-md font-bold text-[10px] uppercase transition-all ${
                     (riskSettings.margin_mode || 'cross') === mode
                       ? 'bg-amber-500 text-white'
@@ -1591,6 +1596,8 @@ function EngineTab({
     frozen: 0,
     unrealized_pnl: 0,
     loading: true,
+    loading_autotrade: false,
+    loading_one_click: false,
     error: null,
   },
   onUpdateRisk,
@@ -2006,6 +2013,7 @@ function SignalsTab({ user, riskSettings, realPositions = [], botRunning = false
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
+  const [bundleTag, setBundleTag] = useState('—');
   const [sortBy, setSortBy] = useState('default'); // 'default' | 'confidence' | 'newest'
 
   useEffect(() => {
@@ -2030,6 +2038,13 @@ function SignalsTab({ user, riskSettings, realPositions = [], botRunning = false
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  useEffect(() => {
+    const moduleScript = document.querySelector('script[type="module"][src*="/assets/index-"]');
+    const src = moduleScript?.getAttribute('src') || '';
+    const match = src.match(/index-([^.]+)\.js/);
+    setBundleTag(match?.[1] || '—');
+  }, []);
+
   const stamp = updatedAt ? updatedAt.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC+8' : '—';
 
   const sortedSignals = [...signals].sort((a, b) => {
@@ -2047,7 +2062,7 @@ function SignalsTab({ user, riskSettings, realPositions = [], botRunning = false
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
       <header className="mb-8 md:mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-        <div><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">AI Intelligence Hub</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Real-time market analysis and algorithmic signals. <span className="text-slate-500">Updated {stamp}</span></p></div>
+        <div><h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tighter">AI Intelligence Hub</h2><p className="text-slate-400 font-medium text-sm md:text-lg">Real-time market analysis and algorithmic signals. <span className="text-slate-500">Updated {stamp}</span> <span className="text-slate-600">Build {bundleTag}</span></p></div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Sort buttons */}
           <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
@@ -2081,7 +2096,7 @@ function SignalsTab({ user, riskSettings, realPositions = [], botRunning = false
                 value={riskSettings?.one_click_risk_per_trade}
                 onPreview={onPreviewRisk}
                 onCommit={onUpdateRisk}
-                loading={riskSettings?.loading}
+                loading={riskSettings?.loading_one_click}
                 min={ONECLICK_RISK_MIN}
                 max={ONECLICK_RISK_MAX}
                 step={ONECLICK_RISK_STEP}
@@ -2789,7 +2804,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, realPositions = [], b
                 value={riskSettings?.one_click_risk_per_trade}
                 onPreview={onPreviewRisk}
                 onCommit={onUpdateRisk}
-                loading={riskSettings?.loading}
+                loading={riskSettings?.loading_one_click}
                 min={ONECLICK_RISK_MIN}
                 max={ONECLICK_RISK_MAX}
                 step={ONECLICK_RISK_STEP}

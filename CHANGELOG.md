@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.1.17] — 2026-04-13 — Faster Risk Slider Reflection + Visible Live Build Tag
+
+### 🚀 What Changed
+
+#### 1) Decoupled AutoTrade vs 1-Click Slider Saving State
+- AutoTrade risk slider now uses its own save/loading state.
+- 1-click risk slider now uses a separate save/loading state.
+- This prevents one slider save from blocking the other and improves responsiveness while users adjust risk.
+- File:
+  - `website-frontend/src/App.jsx`
+
+#### 2) Added Visible Live Build Tag in Signals Header
+- Signals header now shows the active bundle hash (`Build <hash>`).
+- This makes it immediately clear whether users are on the latest deployed frontend.
+- File:
+  - `website-frontend/src/App.jsx`
+
+### ✅ Deployment Intent
+
+- Deploy frontend to live nginx root and verify new bundle hash is served.
+- Keep trading engine process state unchanged during rollout.
+
 ## [2.1.16] — 2026-04-13 — Faster User Reflection via In-App Update Detection
 
 ### 🚀 What Changed
