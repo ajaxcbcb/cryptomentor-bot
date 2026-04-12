@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.18] — 2026-04-13 — Fix AutoTrade Risk Slider Reseting to 0.5%
+
+### 🛠️ Bug Fix
+
+#### 1) Fixed Slider Commit Event Bug Causing Min Clamp
+- Root cause: `onMouseUp` / `onTouchEnd` / `onPointerUp` passed event objects into `commitRisk(...)`.
+- `commitRisk` interpreted those events as invalid numbers and normalized to slider min (`0.5%`).
+- Result was AutoTrade risk repeatedly resetting to `0.5%` after slider interactions.
+- Fix:
+  - Wrapped slider release handlers to call `commitRisk()` with no event payload.
+  - AutoTrade risk now commits the actual selected value correctly.
+- File:
+  - `website-frontend/src/App.jsx`
+
 ## [2.1.17] — 2026-04-13 — Faster Risk Slider Reflection + Visible Live Build Tag
 
 ### 🚀 What Changed

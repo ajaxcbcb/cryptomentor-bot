@@ -246,9 +246,9 @@ function RiskSliderControl({
           value={draftRisk}
           disabled={loading}
           onChange={(e) => previewRisk(Number(e.target.value))}
-          onMouseUp={commitRisk}
-          onTouchEnd={commitRisk}
-          onPointerUp={commitRisk}
+          onMouseUp={() => commitRisk()}
+          onTouchEnd={() => commitRisk()}
+          onPointerUp={() => commitRisk()}
           onKeyUp={(e) => { if (e.key === 'Enter') commitRisk(); }}
           className="w-full accent-amber-500 cursor-pointer disabled:opacity-50"
         />
