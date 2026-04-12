@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 bearer = HTTPBearer()
-ALLOWED_RISK_MIN = 0.25
-ALLOWED_RISK_MAX = 5.0
+ALLOWED_RISK_MIN = 0.5
+ALLOWED_AUTOTRADE_RISK_MAX = 10.0
+ALLOWED_ONE_CLICK_RISK_MAX = 100.0
 
 # Autotrade engines persist multiple closed variants, not only plain "closed".
 CLOSED_STATUSES = [
@@ -376,7 +377,8 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     Get current trading settings (risk_per_trade, leverage, etc.)
 
     Returns:
-    - risk_per_trade: Current risk percentage (0.25% to 5.0%)
+    - risk_per_trade: AutoTrade risk percentage (0.5% to 10.0%)
+    - one_click_risk_per_trade: 1-Click risk percentage (0.5% to 100.0%)
     - leverage: Current leverage setting
     - trading_mode: Current mode (auto, scalping, swing)
     - risk_mode: Risk profile (conservative, moderate, aggressive)
@@ -386,7 +388,7 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     """
     s = _client()
     res = s.table("autotrade_sessions").select(
-        "risk_per_trade, leverage, trading_mode, risk_mode"
+        "risk_per_trade, one_click_risk_per_trade, leverage, trading_mode, risk_mode"
     ).eq("telegram_id", tg_id).limit(1).execute()
 
     row = (res.data or [{}])[0]
@@ -414,9 +416,20 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     except Exception as e:
         logger.warning(f"Failed to fetch live equity for {tg_id}: {e}")
 
+    raw_autotrade_risk = row.get("risk_per_trade")
+    autotrade_risk = 5.0 if raw_autotrade_risk is None else float(raw_autotrade_risk or 5.0)
+    autotrade_risk = max(ALLOWED_RISK_MIN, min(ALLOWED_AUTOTRADE_RISK_MAX, autotrade_risk))
+    raw_one_click_risk = row.get("one_click_risk_per_trade")
+    if raw_one_click_risk is None:
+        one_click_risk = autotrade_risk
+    else:
+        one_click_risk = float(raw_one_click_risk or autotrade_risk)
+    one_click_risk = max(ALLOWED_RISK_MIN, min(ALLOWED_ONE_CLICK_RISK_MAX, one_click_risk))
+
     return {
         "success": True,
-        "risk_per_trade": max(ALLOWED_RISK_MIN, min(ALLOWED_RISK_MAX, float(row.get("risk_per_trade") or 1.0))),
+        "risk_per_trade": autotrade_risk,
+        "one_click_risk_per_trade": one_click_risk,
         "leverage": int(row.get("leverage") or 10),
         "trading_mode": row.get("trading_mode") or "auto",
         "risk_mode": row.get("risk_mode") or "moderate",
@@ -432,26 +445,26 @@ async def update_risk_setting(    payload: dict,
     tg_id: int = Depends(get_current_user)
 ):
     """
-    Update risk_per_trade for user (0.25% up to 5.0%).
+    Update AutoTrade risk_per_trade for user (0.5% up to 10.0%).
 
     Fixed dollar risk: position_size = (balance × risk%) / SL_distance
     - Tight SL → Larger position (same dollar risk)
     - Wide SL → Smaller position (same dollar risk)
 
     Args:
-        payload: {"risk_per_trade": 0.5} or {"risk_per_trade": 0.25}
+        payload: {"risk_per_trade": 0.5} or {"risk_per_trade": 25.0}
 
     Returns:
         {"success": True, "risk_per_trade": 0.5, "note": "Updated successfully"}
     """
     from datetime import datetime
 
-    risk = float(payload.get("risk_per_trade") or 1.0)
+    risk = float(payload.get("risk_per_trade") or 5.0)
 
-    if risk < ALLOWED_RISK_MIN or risk > ALLOWED_RISK_MAX:
+    if risk < ALLOWED_RISK_MIN or risk > ALLOWED_AUTOTRADE_RISK_MAX:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid risk: {risk}. Must be between {ALLOWED_RISK_MIN}% and {ALLOWED_RISK_MAX}%"
+            detail=f"Invalid AutoTrade risk: {risk}. Must be between {ALLOWED_RISK_MIN}% and {ALLOWED_AUTOTRADE_RISK_MAX}%"
         )
 
     s = _client()
@@ -471,7 +484,44 @@ async def update_risk_setting(    payload: dict,
     return {
         "success": True,
         "risk_per_trade": risk,
-        "note": f"Risk updated to {risk}% per trade (stored as float: {float(risk)})"
+        "note": f"AutoTrade risk updated to {risk}% per trade (stored as float: {float(risk)})"
+    }
+
+
+@router.put("/settings/one-click-risk")
+async def update_one_click_risk_setting(
+    payload: dict,
+    tg_id: int = Depends(get_current_user)
+):
+    """
+    Update one_click_risk_per_trade for user (0.5% up to 100.0%).
+    """
+    from datetime import datetime
+
+    risk = float(payload.get("one_click_risk_per_trade") or 1.0)
+
+    if risk < ALLOWED_RISK_MIN or risk > ALLOWED_ONE_CLICK_RISK_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid 1-click risk: {risk}. Must be between {ALLOWED_RISK_MIN}% and {ALLOWED_ONE_CLICK_RISK_MAX}%"
+        )
+
+    s = _client()
+    try:
+        risk_value = float(risk)
+        s.table("autotrade_sessions").update({
+            "one_click_risk_per_trade": risk_value,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("telegram_id", tg_id).execute()
+        logger.info(f"[OneClickRisk:{tg_id}] Updated one_click_risk_per_trade to {risk_value}%")
+    except Exception as e:
+        logger.error(f"[OneClickRisk:{tg_id}] Failed to update risk: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update 1-click risk: {e}")
+
+    return {
+        "success": True,
+        "one_click_risk_per_trade": risk_value,
+        "note": f"1-click risk updated to {risk_value}% per trade"
     }
 
 

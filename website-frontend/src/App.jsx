@@ -109,13 +109,16 @@ const MOCK_COURSES = [
   { id: 3, title: "Institutional Order Flow", category: "Masterclass", progress: 0, lessons: 12, locked: true },
 ];
 
-const UI_RISK_MIN = 0.5;
-const UI_RISK_MAX = 100.0;
-const UI_RISK_STEP = 0.5;
+const AUTOTRADE_RISK_MIN = 0.5;
+const AUTOTRADE_RISK_MAX = 10.0;
+const AUTOTRADE_RISK_STEP = 0.1;
+const ONECLICK_RISK_MIN = 0.5;
+const ONECLICK_RISK_MAX = 100.0;
+const ONECLICK_RISK_STEP = 0.5;
 
-const formatRiskPct = (risk) => {
+const formatRiskPct = (risk, maxRisk = ONECLICK_RISK_MAX) => {
   const r = Number(risk) || 0;
-  if (r >= UI_RISK_MAX) return 'ALL IN (100%)';
+  if (maxRisk >= 100 && r >= 100) return 'ALL IN (100%)';
   return `${Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)}%`;
 };
 
@@ -147,72 +150,109 @@ const getRiskDescription = (risk) => {
   return '☠️ ALL IN (100%) — single-trade concentration risk is extreme';
 };
 
-function RiskSliderControl({ value, onPreview, onCommit, loading, title = 'Risk Per Trade', compact = false }) {
-  const [draftRisk, setDraftRisk] = useState(Number(value) || UI_RISK_MIN);
-  const commitTimerRef = useRef(null);
+function RiskSliderControl({
+  value,
+  onPreview,
+  onCommit,
+  loading,
+  title = 'Risk Per Trade',
+  compact = false,
+  min = ONECLICK_RISK_MIN,
+  max = ONECLICK_RISK_MAX,
+  step = ONECLICK_RISK_STEP,
+  showAllIn = true,
+}) {
+  const [draftRisk, setDraftRisk] = useState(Number(value) || min);
+  const [draftInput, setDraftInput] = useState(() => String(Number(value) || min));
 
   useEffect(() => {
     const next = Number(value);
-    if (Number.isFinite(next)) setDraftRisk(next);
+    if (Number.isFinite(next)) {
+      setDraftRisk(next);
+      setDraftInput(String(next));
+    }
   }, [value]);
 
-  const commitRisk = () => {
-    const normalized = Math.max(UI_RISK_MIN, Math.min(UI_RISK_MAX, Number(draftRisk) || UI_RISK_MIN));
+  const normalize = (raw) => {
+    const n = Number(raw);
+    return Math.max(min, Math.min(max, Number.isFinite(n) ? n : min));
+  };
+
+  const commitRisk = (rawValue = draftRisk) => {
+    const normalized = normalize(rawValue);
     const next = Number(normalized.toFixed(2));
     const current = Number(value);
+    setDraftRisk(next);
+    setDraftInput(String(next));
+    onPreview?.(next);
     if (!Number.isFinite(current) || Math.abs(current - next) >= 0.001) onCommit?.(next);
   };
 
-  const scheduleCommitRisk = (nextValue) => {
-    const next = Math.max(UI_RISK_MIN, Math.min(UI_RISK_MAX, Number(nextValue) || UI_RISK_MIN));
+  const previewRisk = (nextValue) => {
+    const next = normalize(nextValue);
     setDraftRisk(next);
+    setDraftInput(String(next));
     onPreview?.(Number(next.toFixed(2)));
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    commitTimerRef.current = setTimeout(() => {
-      const rounded = Number(next.toFixed(2));
-      const current = Number(value);
-      if (!Number.isFinite(current) || Math.abs(current - rounded) >= 0.001) onCommit?.(rounded);
-    }, 220);
   };
-
-  useEffect(() => () => {
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-  }, []);
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="flex items-center justify-between gap-3">
         <p className={`text-[10px] text-slate-500 font-bold uppercase tracking-wider ${compact ? '' : 'mb-0.5'}`}>{title}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setDraftRisk(UI_RISK_MAX);
-            onPreview?.(UI_RISK_MAX);
-            onCommit?.(UI_RISK_MAX);
-          }}
-          disabled={loading}
-          className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
-        >
-          All In
-        </button>
+        {showAllIn && max >= 100 && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraftRisk(100);
+              setDraftInput('100');
+              onPreview?.(100);
+              onCommit?.(100);
+            }}
+            disabled={loading}
+            className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-md bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+          >
+            All In
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-[10px] text-slate-500 font-bold">0.5%</span>
+        <span className="text-[10px] text-slate-500 font-bold">{min}%</span>
         <input
           type="range"
-          min={UI_RISK_MIN}
-          max={UI_RISK_MAX}
-          step={UI_RISK_STEP}
+          min={min}
+          max={max}
+          step={step}
           value={draftRisk}
           disabled={loading}
-          onChange={(e) => scheduleCommitRisk(Number(e.target.value))}
+          onChange={(e) => previewRisk(Number(e.target.value))}
           onMouseUp={commitRisk}
           onTouchEnd={commitRisk}
           onPointerUp={commitRisk}
           onKeyUp={(e) => { if (e.key === 'Enter') commitRisk(); }}
           className="w-full accent-amber-500 cursor-pointer disabled:opacity-50"
         />
-        <span className={`text-[10px] font-black min-w-[84px] text-right ${getRiskValueTone(draftRisk)}`}>{formatRiskPct(draftRisk)}</span>
+        <div className="flex items-center gap-1 min-w-[112px]">
+          <input
+            type="number"
+            min={min}
+            max={max}
+            step={step}
+            value={draftInput}
+            disabled={loading}
+            onChange={(e) => {
+              setDraftInput(e.target.value);
+              const parsed = Number(e.target.value);
+              if (Number.isFinite(parsed)) {
+                setDraftRisk(parsed);
+                onPreview?.(Number(normalize(parsed).toFixed(2)));
+              }
+            }}
+            onBlur={() => commitRisk(draftInput)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitRisk(draftInput); }}
+            className="w-16 bg-white/5 border border-white/15 rounded-md px-2 py-1 text-[10px] text-white font-black focus:outline-none focus:border-cyan-500/50"
+          />
+          <span className={`text-[10px] font-black ${getRiskValueTone(draftRisk)}`}>{formatRiskPct(draftRisk, max)}</span>
+        </div>
       </div>
       <p className={`text-[10px] font-medium ${draftRisk > 5 ? 'text-rose-300' : draftRisk > 1 ? 'text-amber-300' : 'text-slate-500'}`}>
         {getRiskDescription(draftRisk)}
@@ -255,10 +295,11 @@ export default function App() {
   const [botError, setBotError] = useState(null);
   const [showBotStartModal, setShowBotStartModal] = useState(false);
   const [appNotice, setAppNotice] = useState({ open: false, title: '', message: '' });
-  const [riskWarning, setRiskWarning] = useState({ open: false, risk: null, previousRisk: null });
+  const [riskWarning, setRiskWarning] = useState({ open: false, scope: 'autotrade', risk: null, previousRisk: null });
   const [verStatus, setVerStatus] = useState(null); // null = loading, object = loaded
   const [riskSettings, setRiskSettings] = useState({
-    risk_per_trade: 0.5,
+    risk_per_trade: 5.0,
+    one_click_risk_per_trade: 0.5,
     leverage: 10,
     equity: 0,
     balance: 0,
@@ -544,9 +585,15 @@ export default function App() {
   const closeNotice = () => setAppNotice({ open: false, title: '', message: '' });
 
   const previewRiskSetting = (newRisk) => {
-    const normalizedRisk = Math.max(UI_RISK_MIN, Math.min(UI_RISK_MAX, Number(newRisk) || UI_RISK_MIN));
+    const normalizedRisk = Math.max(AUTOTRADE_RISK_MIN, Math.min(AUTOTRADE_RISK_MAX, Number(newRisk) || AUTOTRADE_RISK_MIN));
     const riskValue = Number(normalizedRisk.toFixed(2));
     setRiskSettings(prev => ({ ...prev, risk_per_trade: riskValue }));
+  };
+
+  const previewOneClickRiskSetting = (newRisk) => {
+    const normalizedRisk = Math.max(ONECLICK_RISK_MIN, Math.min(ONECLICK_RISK_MAX, Number(newRisk) || ONECLICK_RISK_MIN));
+    const riskValue = Number(normalizedRisk.toFixed(2));
+    setRiskSettings(prev => ({ ...prev, one_click_risk_per_trade: riskValue }));
   };
 
   const closeOneClickPosition = async (position) => {
@@ -574,8 +621,10 @@ export default function App() {
       if (resp.ok) {
         const data = await resp.json();
         const parsedRisk = Number(data.risk_per_trade);
+        const parsedOneClickRisk = Number(data.one_click_risk_per_trade);
         setRiskSettings({
-          risk_per_trade: Number.isFinite(parsedRisk) ? parsedRisk : UI_RISK_MIN,
+          risk_per_trade: Number.isFinite(parsedRisk) ? parsedRisk : 5.0,
+          one_click_risk_per_trade: Number.isFinite(parsedOneClickRisk) ? parsedOneClickRisk : ONECLICK_RISK_MIN,
           leverage: data.leverage || 10,
           equity: data.equity || 0,
           balance: data.balance || 0,        // free/available only
@@ -596,14 +645,14 @@ export default function App() {
   // Update risk setting
   const updateRiskSetting = async (newRisk, options = {}) => {
     const { skipIntegratedWarning = false } = options;
-    const normalizedRisk = Math.max(UI_RISK_MIN, Math.min(UI_RISK_MAX, Number(newRisk) || UI_RISK_MIN));
+    const normalizedRisk = Math.max(AUTOTRADE_RISK_MIN, Math.min(AUTOTRADE_RISK_MAX, Number(newRisk) || AUTOTRADE_RISK_MIN));
     const riskValue = Number(normalizedRisk.toFixed(2));
     const previousRisk = Number(riskSettings.risk_per_trade);
-    const safePreviousRisk = Number.isFinite(previousRisk) ? previousRisk : UI_RISK_MIN;
+    const safePreviousRisk = Number.isFinite(previousRisk) ? previousRisk : 5.0;
 
     if (riskValue > 5.0 && !skipIntegratedWarning) {
       setRiskSettings(prev => ({ ...prev, risk_per_trade: riskValue, error: null }));
-      setRiskWarning({ open: true, risk: riskValue, previousRisk: safePreviousRisk });
+      setRiskWarning({ open: true, scope: 'autotrade', risk: riskValue, previousRisk: safePreviousRisk });
       return;
     }
 
@@ -643,22 +692,73 @@ export default function App() {
     }
   };
 
+  const updateOneClickRiskSetting = async (newRisk, options = {}) => {
+    const { skipIntegratedWarning = false } = options;
+    const normalizedRisk = Math.max(ONECLICK_RISK_MIN, Math.min(ONECLICK_RISK_MAX, Number(newRisk) || ONECLICK_RISK_MIN));
+    const riskValue = Number(normalizedRisk.toFixed(2));
+    const previousRisk = Number(riskSettings.one_click_risk_per_trade);
+    const safePreviousRisk = Number.isFinite(previousRisk) ? previousRisk : ONECLICK_RISK_MIN;
+
+    if (riskValue > 5.0 && !skipIntegratedWarning) {
+      setRiskSettings(prev => ({ ...prev, one_click_risk_per_trade: riskValue, error: null }));
+      setRiskWarning({ open: true, scope: 'one_click', risk: riskValue, previousRisk: safePreviousRisk });
+      return;
+    }
+
+    setRiskSettings(prev => ({ ...prev, one_click_risk_per_trade: riskValue, loading: true, error: null }));
+    try {
+      const resp = await apiFetch('/dashboard/settings/one-click-risk', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ one_click_risk_per_trade: riskValue }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        const appliedRisk = Number(data.one_click_risk_per_trade);
+        setRiskSettings(prev => ({
+          ...prev,
+          one_click_risk_per_trade: Number.isFinite(appliedRisk) ? appliedRisk : riskValue,
+          loading: false,
+          error: null,
+        }));
+      } else {
+        setRiskSettings(prev => ({
+          ...prev,
+          one_click_risk_per_trade: safePreviousRisk,
+          loading: false,
+          error: data.detail || `Error ${resp.status}`,
+        }));
+      }
+    } catch (e) {
+      setRiskSettings(prev => ({
+        ...prev,
+        one_click_risk_per_trade: safePreviousRisk,
+        loading: false,
+        error: e.message,
+      }));
+    }
+  };
+
   const confirmRiskWarning = async () => {
     const riskToApply = Number(riskWarning.risk);
-    setRiskWarning({ open: false, risk: null, previousRisk: null });
+    const warningScope = riskWarning.scope;
+    setRiskWarning({ open: false, scope: 'autotrade', risk: null, previousRisk: null });
     if (!Number.isFinite(riskToApply)) return;
-    await updateRiskSetting(riskToApply, { skipIntegratedWarning: true });
+    if (warningScope === 'one_click') await updateOneClickRiskSetting(riskToApply, { skipIntegratedWarning: true });
+    else await updateRiskSetting(riskToApply, { skipIntegratedWarning: true });
   };
 
   const cancelRiskWarning = () => {
     const previousRisk = Number(riskWarning.previousRisk);
+    const warningScope = riskWarning.scope;
     setRiskSettings(prev => ({
       ...prev,
-      risk_per_trade: Number.isFinite(previousRisk) ? previousRisk : prev.risk_per_trade,
+      risk_per_trade: warningScope === 'autotrade' && Number.isFinite(previousRisk) ? previousRisk : prev.risk_per_trade,
+      one_click_risk_per_trade: warningScope === 'one_click' && Number.isFinite(previousRisk) ? previousRisk : prev.one_click_risk_per_trade,
       loading: false,
       error: null,
     }));
-    setRiskWarning({ open: false, risk: null, previousRisk: null });
+    setRiskWarning({ open: false, scope: 'autotrade', risk: null, previousRisk: null });
   };
 
   // Update leverage setting
@@ -1170,7 +1270,7 @@ export default function App() {
           {activeTab === 'portfolio' && <PortfolioTab positions={realPositions.length > 0 ? realPositions : []} engineState={engineState} unrealizedPnl={realPnl} cumulativePnl={cumulativePnl} equity={equity} hasRealData={realPositions.length > 0} hasCumulative={hasCumulativePnl} botRunning={botRunning} onToggleBot={handleToggleBot} botBusy={botBusy} connectorStatus={connectorStatus} onCloseOneClickPosition={closeOneClickPosition} />}
           {activeTab === 'engine' && <EngineTab engineState={engineState} setEngineState={setEngineState} botRunning={botRunning} onToggleBot={handleToggleBot} riskSettings={riskSettings} onPreviewRisk={previewRiskSetting} onUpdateRisk={updateRiskSetting} onUpdateLeverage={updateLeverageSetting} onUpdateMarginMode={updateMarginModeSetting} />}
           {activeTab === 'settings' && <SettingsTab onBotConnected={handleBotConnected} />}
-          {activeTab === 'signals' && <SignalsTab user={user} riskSettings={riskSettings} onPreviewRisk={previewRiskSetting} onUpdateRisk={updateRiskSetting} />}
+          {activeTab === 'signals' && <SignalsTab user={user} riskSettings={riskSettings} onPreviewRisk={previewOneClickRiskSetting} onUpdateRisk={updateOneClickRiskSetting} />}
           {activeTab === 'referral' && <ReferralTab user={user} />}
         </main>
       </div>
@@ -1200,7 +1300,11 @@ function RiskManagementCard({ riskSettings, onPreviewRisk, onUpdateRisk, onUpdat
             onPreview={onPreviewRisk}
             onCommit={onUpdateRisk}
             loading={riskSettings.loading}
-            title="Risk Per Trade (0.5% - ALL IN 100%)"
+            min={AUTOTRADE_RISK_MIN}
+            max={AUTOTRADE_RISK_MAX}
+            step={AUTOTRADE_RISK_STEP}
+            showAllIn={false}
+            title="AutoTrade Risk Per Trade (0.5% - 10%)"
           />
         </div>
 
@@ -1433,7 +1537,8 @@ function EngineTab({
   botRunning,
   onToggleBot,
   riskSettings = {
-    risk_per_trade: 0.5,
+    risk_per_trade: 5.0,
+    one_click_risk_per_trade: 0.5,
     leverage: 10,
     equity: 0,
     balance: 0,
@@ -1927,11 +2032,15 @@ function SignalsTab({ user, riskSettings, onPreviewRisk, onUpdateRisk }) {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <RiskSliderControl
-                value={riskSettings?.risk_per_trade}
+                value={riskSettings?.one_click_risk_per_trade}
                 onPreview={onPreviewRisk}
                 onCommit={onUpdateRisk}
                 loading={riskSettings?.loading}
-                title="⚡ Risk Level Per Trade (0.5% - ALL IN 100%)"
+                min={ONECLICK_RISK_MIN}
+                max={ONECLICK_RISK_MAX}
+                step={ONECLICK_RISK_STEP}
+                showAllIn
+                title="⚡ 1-Click Risk Per Trade (0.5% - ALL IN 100%)"
                 compact
               />
             </div>
@@ -1944,7 +2053,7 @@ function SignalsTab({ user, riskSettings, onPreviewRisk, onUpdateRisk }) {
                 <div className="w-px h-8 bg-white/10" />
                 <div className="text-right">
                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Risk/Trade</p>
-                  <p className={`font-bold ${getRiskValueTone(riskSettings.risk_per_trade)}`}>${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}</p>
+                  <p className={`font-bold ${getRiskValueTone(riskSettings.one_click_risk_per_trade)}`}>${(riskSettings.equity * (riskSettings.one_click_risk_per_trade / 100)).toLocaleString('en-US', {maximumFractionDigits: 2})}</p>
                 </div>
               </div>
             )}
@@ -2442,7 +2551,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, onPreviewRisk, onUpda
   const ageMs = Math.max(0, now - generatedMs);
   const remainingMs = Math.max(0, windowMs - ageMs);
   const windowExpired = remainingMs <= 0;
-  const oneClickRiskPct = Number(riskSettings?.risk_per_trade || 1.0);
+  const oneClickRiskPct = Number(riskSettings?.one_click_risk_per_trade || ONECLICK_RISK_MIN);
   const oneClickHighRisk = oneClickRiskPct > 5.0;
   const remainingLabel = windowExpired
     ? 'Entry window closed'
@@ -2541,8 +2650,8 @@ function SignalCard({ signal, userIsPremium, riskSettings, onPreviewRisk, onUpda
               <div className="flex items-center justify-between">
               <span className="text-slate-500">1-Click will risk:</span>
               <span className={`font-bold ${getRiskValueTone(oneClickRiskPct)}`}>
-                ${(riskSettings.equity * (riskSettings.risk_per_trade / 100)).toFixed(2)}
-                <span className={`ml-1 ${oneClickHighRisk ? 'text-amber-200/80' : 'text-slate-600'}`}>({riskSettings.risk_per_trade}% of equity)</span>
+                ${(riskSettings.equity * (riskSettings.one_click_risk_per_trade / 100)).toFixed(2)}
+                <span className={`ml-1 ${oneClickHighRisk ? 'text-amber-200/80' : 'text-slate-600'}`}>({riskSettings.one_click_risk_per_trade}% of equity)</span>
               </span>
               </div>
               {oneClickHighRisk && (
@@ -2553,10 +2662,14 @@ function SignalCard({ signal, userIsPremium, riskSettings, onPreviewRisk, onUpda
           {!isPlaced && !windowExpired && riskSettings && onUpdateRisk && (
             <div className="bg-white/5 rounded-lg p-2.5">
               <RiskSliderControl
-                value={riskSettings?.risk_per_trade}
+                value={riskSettings?.one_click_risk_per_trade}
                 onPreview={onPreviewRisk}
                 onCommit={onUpdateRisk}
                 loading={riskSettings?.loading}
+                min={ONECLICK_RISK_MIN}
+                max={ONECLICK_RISK_MAX}
+                step={ONECLICK_RISK_STEP}
+                showAllIn
                 title="Risk Slider (1-Click, 0.5% - ALL IN 100%)"
                 compact
               />
@@ -2773,7 +2886,7 @@ function OnboardingWizard({ onComplete, onLogout }) {
   const [testError, setTestError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [riskPerTrade, setRiskPerTrade] = useState(0.5);
+  const [riskPerTrade, setRiskPerTrade] = useState(5.0);
   const [leverage, setLeverage] = useState(10);
   const [marginMode, setMarginMode] = useState('cross');
   const [starting, setStarting] = useState(false);
@@ -2891,7 +3004,11 @@ function OnboardingWizard({ onComplete, onLogout }) {
                 value={riskPerTrade}
                 onCommit={setRiskPerTrade}
                 loading={false}
-                title="Risk Per Trade (0.5% - ALL IN 100%)"
+                min={AUTOTRADE_RISK_MIN}
+                max={AUTOTRADE_RISK_MAX}
+                step={AUTOTRADE_RISK_STEP}
+                showAllIn={false}
+                title="AutoTrade Risk Per Trade (0.5% - 10%)"
               />
             </div>
             <label className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-2 block">Leverage</label>

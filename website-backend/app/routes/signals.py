@@ -28,8 +28,8 @@ from app.services import bitunix as bsvc
 from app.auth.jwt import decode_token
 
 logger = logging.getLogger(__name__)
-RISK_MIN_PCT = 0.25
-RISK_MAX_PCT = 5.0
+RISK_MIN_PCT = 0.5
+RISK_MAX_PCT = 100.0
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -76,7 +76,7 @@ _signal_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
-    """Clamp incoming risk setting to supported range [0.25, 5.0]."""
+    """Clamp incoming risk setting to supported range [0.5, 100.0]."""
     try:
         risk = float(raw_value)
     except Exception:
@@ -90,8 +90,6 @@ def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
     >1% is treated as high risk (lower min confidence, wider TP multipliers).
     """
     risk = _normalize_risk_pct(user_risk_pct, default=1.0)
-    if risk <= 0.25:
-        return {"min_confidence": 60, "atr_multiplier": 0.5}
     if risk <= 0.5:
         return {"min_confidence": 50, "atr_multiplier": 1.0}
     if risk <= 0.75:
@@ -196,16 +194,16 @@ async def generate_confluence_signals(
     5. Trend alignment: price above/below EMA200 = +10 pts
 
     Adaptive confidence thresholds based on user risk tolerance:
-    - Conservative (0.25%): min_confidence=60, tighter TPs (0.5×ATR)
+    - Conservative (0.5%): min_confidence=50, standard TPs (1.0×ATR baseline)
     - Moderate (0.5%): min_confidence=50, standard TPs (1.0×ATR baseline)
     - Aggressive (0.75-1.0%): min_confidence=45..40, wider TPs
-    - High risk (>1.0% up to 5.0%): progressively lower min confidence, widest TPs
+    - High risk (>1.0%): progressively lower min confidence, widest TPs
 
     Returns: signal dict if confluent, or None if weak setup
     """
     symbol_upper = symbol.upper()
 
-    # Get config for user's risk level (clamped to [0.25, 5.0])
+    # Get config for user's risk level (clamped to [0.5, 100.0])
     user_risk_pct = _normalize_risk_pct(user_risk_pct, default=1.0)
     config = _risk_profile(user_risk_pct)
     min_confidence = config["min_confidence"]
@@ -686,10 +684,13 @@ async def execute_signal(
 
     s = _client()
     sess_res = s.table("autotrade_sessions").select(
-        "risk_per_trade, leverage"
+        "risk_per_trade, one_click_risk_per_trade, leverage"
     ).eq("telegram_id", tg_id).limit(1).execute()
     sess = (sess_res.data or [{}])[0]
-    risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)  # 0.25%..5.0%
+    one_click_raw = sess.get("one_click_risk_per_trade")
+    if one_click_raw is None:
+        one_click_raw = sess.get("risk_per_trade")
+    risk_pct = _normalize_risk_pct(one_click_raw, default=1.0)  # 0.5%..100.0%
     leverage = int(sess.get("leverage") or 10)
 
     # Re-derive the signal from live market data so dynamic sizing reflects

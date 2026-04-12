@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.1.8] — 2026-04-13 — Segregated AutoTrade vs 1-Click Risk Controls
+
+### 🚀 What Changed
+
+#### 1) Separated Risk Sliders by Trade Type
+- AutoTrade risk and 1-click risk are now independent settings.
+- Engine tab controls `AutoTrade` risk only.
+- Signals/1-click controls update `1-click` risk only.
+- Files:
+  - `website-frontend/src/App.jsx`
+  - `website-backend/app/routes/dashboard.py`
+  - `website-backend/app/routes/signals.py`
+
+#### 2) AutoTrade Risk Range Restored
+- AutoTrade slider range is now **0.5% to 10%**.
+- Default AutoTrade risk is now **5%**.
+- Backend validation now enforces the same range for AutoTrade updates.
+- Files:
+  - `website-frontend/src/App.jsx`
+  - `website-backend/app/routes/dashboard.py`
+
+#### 3) Numeric Risk Input Added Beside Slider
+- Users can type exact risk percentage directly beside each slider.
+- Input respects min/max clamp and commits on `Enter`/blur.
+- Files:
+  - `website-frontend/src/App.jsx`
+
+#### 4) Warning Popup Behavior De-spammed During Sliding
+- Slider drag now previews values live but only commits on release/Enter/blur.
+- High-risk warning modal appears on commit, not repeatedly while dragging.
+- File:
+  - `website-frontend/src/App.jsx`
+
+### ✅ Deploy/State Safety Notes
+
+- Frontend rebuilt and deployed to VPS dist path:
+  - `/root/cryptomentor-bot/website-frontend/dist`
+- Uploaded backend route updates:
+  - `/root/cryptomentor-bot/website-backend/app/routes/dashboard.py`
+  - `/root/cryptomentor-bot/website-backend/app/routes/signals.py`
+- Restarted `cryptomentor-web.service` and confirmed active.
+- Reloaded `nginx` and confirmed active.
+
 ## [2.1.7] — 2026-04-13 — Instant Risk Reflection + Full Web Modal Migration
 
 ### 🚀 What Changed
