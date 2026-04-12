@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.1.3] — 2026-04-12 — V4.0 Branding Sync (Bot + Web)
+
+### 🚀 What Changed
+
+#### 1) Login Hero Version Upgrade
+- Updated login hero version label in web frontend:
+  - `V2.0 AutoTrade Engine` → `V4.0 Unified Trading System`
+- File:
+  - `website-frontend/src/App.jsx`
+
+#### 2) Feature Highlights Synced to Current Platform
+- Replaced legacy login-card bullets to reflect current architecture:
+  - Unified **Bot + Web** control for AutoTrade and 1-Click execution
+  - Adaptive risk engine with position sizing up to **5%** equity risk
+  - Professional trade lifecycle alerts (open, close, live status)
+- File:
+  - `website-frontend/src/App.jsx`
+
+### ✅ Deploy/State Safety Notes
+
+- Frontend-only deploy path used for this change.
+- No trading engine logic, parameters, or backend route behavior changed.
+- Bot/engine runtime state is preserved (no engine session resets required).
+
 ## [2.1.2] — 2026-04-11 — Dashboard Stability, Notification UX, Trade Audio Cues, Data Accuracy
 
 ### 🚀 What Changed

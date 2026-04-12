@@ -1,0 +1,60 @@
+flowchart TD
+    A[Engine Start] --> B{Trading Mode}
+    B -->|scalping| C[ScalpingEngine.run loop]
+    B -->|swing/default| D[autotrade _trade_loop]
+
+    D --> D1[Check stop/cancel flags]
+    D1 --> D2[Fetch account + positions]
+    D2 --> D3{Open positions exist?}
+    D3 -->|yes| D4[Run StackMentor monitor]
+    D4 --> D5[Reversal check _is_reversal]
+    D5 --> D6{Flip approved?}
+    D6 -->|yes| D7[Close current side]
+    D7 --> D8[Open opposite side with TP/SL]
+    D6 -->|no| D9[Continue]
+    D3 -->|no| D9
+
+    D9 --> D10{Max concurrent reached?}
+    D10 -->|yes| Dwait[Sleep scan interval]
+    D10 -->|no| D11[Build available symbols]
+    D11 --> D12[Compute BTC bias]
+    D12 --> D13[Compute _compute_signal_pro per symbol]
+    D13 --> D14{Any candidates?}
+    D14 -->|no| Dwait
+    D14 -->|yes| D15[Sort by confidence and RR]
+    D15 --> D16[Queue + sync signal_queue table]
+    D16 --> D17[Pick next non-processing symbol]
+    D17 --> D18[Risk sizing calc_qty_with_risk]
+    D18 --> D19{qty > 0?}
+    D19 -->|no| Dfail[Cleanup queue as failed]
+    D19 -->|yes| D20[Validate SL/TP vs mark price]
+    D20 --> D21{Valid prices?}
+    D21 -->|no| Dfail
+    D21 -->|yes| D22[place_order_with_tpsl]
+    D22 --> D23{Order success?}
+    D23 -->|no| D24[Retry/Auth-IP handling or skip]
+    D24 --> Dwait
+    D23 -->|yes| D25[Persist trade + register StackMentor + notify + WS tracker]
+    D25 --> Dwait
+
+    C --> C1[Check DB stop flag]
+    C1 --> C2[Monitor existing positions]
+    C2 --> C3[Close sideways over 2m / max hold 30m]
+    C3 --> C4[Scan symbols concurrently]
+    C4 --> C5[generate_scalping_signal]
+    C5 --> C6{Sideways signal?}
+    C6 -->|yes| C7[_try_sideways_signal path]
+    C6 -->|no| C8[autosignal_async trend path]
+    C7 --> C9[validate_scalping_entry]
+    C8 --> C9
+    C9 --> C10{anti-flip + cooldown pass?}
+    C10 -->|no| Cwait[Sleep scan interval]
+    C10 -->|yes| C11[calculate_position_size_pro]
+    C11 --> C12{qty >= min qty?}
+    C12 -->|no| Cwait
+    C12 -->|yes| C13[open_managed_position]
+    C13 --> C14{Execution success?}
+    C14 -->|no| C15[Classify/retry/fail notify]
+    C15 --> Cwait
+    C14 -->|yes| C16[Save position + DB open trade + notify]
+    C16 --> Cwait

@@ -1,0 +1,168 @@
+{
+  "snapshot_scope": "current runtime trading/signal engine and web control plane",
+  "modules": [
+    {
+      "name": "Bismillah/main.py",
+      "type": "entrypoint",
+      "inbound_dependencies": [],
+      "outbound_dependencies": ["Bismillah/bot.py"],
+      "external_services": ["Telegram"]
+    },
+    {
+      "name": "Bismillah/bot.py",
+      "type": "orchestrator",
+      "inbound_dependencies": ["Bismillah/main.py"],
+      "outbound_dependencies": ["Bismillah/app/scheduler.py", "Bismillah/app/auto_mode_switcher.py"],
+      "external_services": ["Telegram", "Supabase"]
+    },
+    {
+      "name": "Bismillah/app/autotrade_engine.py",
+      "type": "swing_engine",
+      "inbound_dependencies": ["Bismillah/bot.py", "website-backend/app/routes/engine.py", "Bismillah/app/scheduler.py"],
+      "outbound_dependencies": [
+        "Bismillah/app/bitunix_autotrade_client.py",
+        "Bismillah/app/scalping_engine.py",
+        "Bismillah/app/stackmentor.py",
+        "Bismillah/app/trade_history.py",
+        "Bismillah/app/trade_execution.py",
+        "Bismillah/app/providers/alternative_klines_provider.py",
+        "Bismillah/app/supabase_repo.py",
+        "Bismillah/app/bitunix_ws_pnl.py"
+      ],
+      "external_services": ["Bitunix REST", "Bitunix WS", "Supabase", "Telegram"]
+    },
+    {
+      "name": "Bismillah/app/scalping_engine.py",
+      "type": "scalping_engine",
+      "inbound_dependencies": ["Bismillah/app/autotrade_engine.py"],
+      "outbound_dependencies": [
+        "Bismillah/app/autosignal_async.py",
+        "Bismillah/app/candle_cache.py",
+        "Bismillah/app/sideways_detector.py",
+        "Bismillah/app/range_analyzer.py",
+        "Bismillah/app/bounce_detector.py",
+        "Bismillah/app/micro_momentum_detector.py",
+        "Bismillah/app/rsi_divergence_detector.py",
+        "Bismillah/app/trade_execution.py",
+        "Bismillah/app/stackmentor.py",
+        "Bismillah/app/supabase_repo.py"
+      ],
+      "external_services": ["Bitunix REST", "Supabase", "Telegram"]
+    },
+    {
+      "name": "Bismillah/app/trade_execution.py",
+      "type": "execution_core",
+      "inbound_dependencies": ["Bismillah/app/scalping_engine.py"],
+      "outbound_dependencies": ["Bismillah/app/stackmentor.py", "Bismillah/app/bitunix_autotrade_client.py"],
+      "external_services": ["Bitunix REST"]
+    },
+    {
+      "name": "Bismillah/app/stackmentor.py",
+      "type": "position_manager",
+      "inbound_dependencies": ["Bismillah/app/autotrade_engine.py", "Bismillah/app/scalping_engine.py", "Bismillah/app/trade_execution.py"],
+      "outbound_dependencies": ["Bismillah/app/bitunix_autotrade_client.py", "Bismillah/app/supabase_repo.py"],
+      "external_services": ["Bitunix REST", "Supabase", "Telegram"]
+    },
+    {
+      "name": "Bismillah/app/bitunix_autotrade_client.py",
+      "type": "exchange_adapter",
+      "inbound_dependencies": [
+        "Bismillah/app/autotrade_engine.py",
+        "Bismillah/app/scalping_engine.py",
+        "Bismillah/app/trade_execution.py",
+        "Bismillah/app/stackmentor.py",
+        "website-backend/app/services/bitunix.py"
+      ],
+      "outbound_dependencies": [],
+      "external_services": ["Bitunix REST", "Proxy endpoints"]
+    },
+    {
+      "name": "Bismillah/app/providers/alternative_klines_provider.py",
+      "type": "market_data_provider",
+      "inbound_dependencies": ["Bismillah/app/autotrade_engine.py", "Bismillah/app/autosignal_async.py", "website-backend/app/routes/signals.py"],
+      "outbound_dependencies": [],
+      "external_services": ["Bitunix Public REST", "Binance Futures REST", "CryptoCompare", "CoinGecko"]
+    },
+    {
+      "name": "Bismillah/app/supabase_repo.py",
+      "type": "persistence_repo",
+      "inbound_dependencies": ["multiple bot modules"],
+      "outbound_dependencies": [],
+      "external_services": ["Supabase"]
+    },
+    {
+      "name": "website-backend/app/routes/engine.py",
+      "type": "web_engine_control",
+      "inbound_dependencies": ["website-backend/main.py"],
+      "outbound_dependencies": ["Bismillah/app/autotrade_engine.py", "website-backend/app/services/bitunix.py", "website-backend/app/db/supabase.py"],
+      "external_services": ["Telegram", "Supabase"]
+    },
+    {
+      "name": "website-backend/app/routes/signals.py",
+      "type": "web_signal_and_execute",
+      "inbound_dependencies": ["website-backend/main.py"],
+      "outbound_dependencies": ["website-backend/app/services/bitunix.py", "website-backend/app/db/supabase.py", "Bismillah/app/providers/alternative_klines_provider.py"],
+      "external_services": ["Binance REST", "Bitunix REST", "Supabase"]
+    },
+    {
+      "name": "website-backend/app/routes/bitunix.py",
+      "type": "web_exchange_api",
+      "inbound_dependencies": ["website-backend/main.py"],
+      "outbound_dependencies": ["website-backend/app/services/bitunix.py", "website-backend/app/db/supabase.py"],
+      "external_services": ["Bitunix REST", "Supabase"]
+    },
+    {
+      "name": "website-backend/app/services/bitunix.py",
+      "type": "web_exchange_service",
+      "inbound_dependencies": ["website-backend routes"],
+      "outbound_dependencies": ["Bismillah/app/bitunix_autotrade_client.py", "website-backend/app/db/supabase.py"],
+      "external_services": ["Bitunix REST", "Supabase"]
+    }
+  ],
+  "external_services": {
+    "exchanges": ["Bitunix", "Binance (market data fallback)"],
+    "data_providers": ["CryptoCompare", "CoinGecko"],
+    "datastore": ["Supabase"],
+    "messaging": ["Telegram"],
+    "transport_aux": ["HTTP proxies via PROXY_URL/BITUNIX_GATEWAY_URL"]
+  },
+  "critical_paths": [
+    {
+      "name": "swing_trade_path",
+      "sequence": [
+        "autotrade_engine.start_engine",
+        "autotrade_engine._trade_loop",
+        "_compute_signal_pro",
+        "risk sizing",
+        "bitunix_autotrade_client.place_order_with_tpsl",
+        "trade_history.save_trade_open",
+        "stackmentor.register_stackmentor_position"
+      ]
+    },
+    {
+      "name": "scalping_trade_path",
+      "sequence": [
+        "ScalpingEngine.run",
+        "generate_scalping_signal",
+        "validate_scalping_entry + anti_flip",
+        "calculate_position_size_pro",
+        "trade_execution.open_managed_position",
+        "stackmentor.monitor_stackmentor_positions"
+      ]
+    },
+    {
+      "name": "web_one_click_path",
+      "sequence": [
+        "routes/signals.execute_signal",
+        "live ticker signal rebuild",
+        "risk sizing from equity",
+        "services/bitunix.place_market_with_tpsl"
+      ]
+    }
+  ],
+  "notes": [
+    "Web backend directly imports bot modules (tight coupling).",
+    "Signal logic exists in both bot and web paths with partial duplication.",
+    "Position source labeling (autotrade vs 1_click) is inferred by DB/live matching in web route."
+  ]
+}

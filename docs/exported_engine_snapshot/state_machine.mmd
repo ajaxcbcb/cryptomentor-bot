@@ -1,0 +1,55 @@
+stateDiagram-v2
+    [*] --> Idle
+
+    Idle --> Starting: start_engine
+    Starting --> RunningSwing: mode == swing/default
+    Starting --> RunningScalping: mode == scalping
+
+    state RunningSwing {
+        [*] --> Scan
+        Scan --> Queueing: candidates found
+        Scan --> Scan: no candidates / max concurrent / blocked
+        Queueing --> Executing: next signal selected
+        Executing --> OpenPosition: order success
+        Executing --> Scan: order failed/skip
+        OpenPosition --> Monitoring
+        Monitoring --> Flipping: reversal approved
+        Monitoring --> Closing: TP/SL/monitor close detected
+        Monitoring --> Scan: continue loop
+        Flipping --> OpenPosition: opposite order success
+        Flipping --> Scan: flip failed
+        Closing --> Scan
+    }
+
+    state RunningScalping {
+        [*] --> ScanScalp
+        ScanScalp --> SignalEval: symbol scan
+        SignalEval --> ScanScalp: cooldown/anti-flip/validation fail
+        SignalEval --> ExecScalp: signal valid
+        ExecScalp --> OpenScalp: execution success
+        ExecScalp --> ScanScalp: execution fail
+        OpenScalp --> MonitorScalp
+        MonitorScalp --> ForceClose2m: sideways max hold exceeded
+        MonitorScalp --> ForceClose30m: max hold exceeded
+        MonitorScalp --> CloseByTPorSL: tp/sl/monitor path
+        MonitorScalp --> ScanScalp: continue loop
+        ForceClose2m --> ScanScalp
+        ForceClose30m --> ScanScalp
+        CloseByTPorSL --> ScanScalp
+    }
+
+    RunningSwing --> Stopping: stop signal/cancel/error-stop
+    RunningScalping --> Stopping: stop signal/cancel/error-stop
+    Stopping --> Idle
+
+    note right of RunningSwing
+      Stateful maps/sets:
+      _signal_queues, _signals_being_processed,
+      _tp1_hit_positions, _flip_cooldown
+    end note
+
+    note right of RunningScalping
+      Stateful maps:
+      positions, cooldown_tracker,
+      signal_streaks, last_closed_meta
+    end note
