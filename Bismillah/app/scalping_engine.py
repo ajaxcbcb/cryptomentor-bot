@@ -993,6 +993,27 @@ class ScalpingEngine:
                     return False  # Silent skip, engine will try other pairs
                 
                 # ═══════════════════════════════════════════════════════════
+                # Multi-user symbol coordination check
+                # ═══════════════════════════════════════════════════════════
+                can_enter, block_reason = await self.coordinator.can_enter(
+                    user_id=self.user_id,
+                    symbol=signal.symbol,
+                    strategy=StrategyOwner.SCALP,
+                    now_ts=time.time()
+                )
+                if not can_enter:
+                    logger.warning(f"[Coordinator:{self.user_id}] Entry BLOCKED for {signal.symbol}: {block_reason}")
+                    await self._notify_user(
+                        f"⚠️ <b>Trade skipped on {signal.symbol}</b>\n\n"
+                        f"<b>Reason:</b> {block_reason}\n\n"
+                        f"Another strategy may own this symbol.\nBot will continue scanning."
+                    )
+                    return False
+
+                # Mark pending
+                await self.coordinator.set_pending(self.user_id, signal.symbol, StrategyOwner.SCALP)
+
+                # ═══════════════════════════════════════════════════════════
                 # Unified entry path — see app/trade_execution.py
                 # Atomic order with TP1 + SL on exchange + StackMentor register
                 # ═══════════════════════════════════════════════════════════
@@ -1042,6 +1063,18 @@ class ScalpingEngine:
                     await self._save_position_to_db(position, signal)
                     await self._notify_stackmentor_opened(position, signal, levels)
 
+                    # Confirm position with coordinator
+                    position_side = PositionSide.LONG if signal.side == "LONG" else PositionSide.SHORT
+                    await self.coordinator.confirm_open(
+                        user_id=self.user_id,
+                        symbol=signal.symbol,
+                        strategy=StrategyOwner.SCALP,
+                        side=position_side,
+                        size=quantity_adjusted,
+                        entry_price=signal.entry_price,
+                        exchange_position_id=getattr(exec_result, 'position_id', None)
+                    )
+
                     logger.info(
                         f"[Scalping:{self.user_id}] StackMentor position opened: "
                         f"{signal.symbol} {side_str} @ {signal.entry_price:.4f}, "
@@ -1057,21 +1090,24 @@ class ScalpingEngine:
                         f"[{error_code}]: {error_msg}"
                     )
 
-                    # Non-retryable conditions
+                    # Non-retryable conditions — clear pending before returning
                     if error_code == "insufficient_balance":
                         await self._notify_user("❌ Order failed: Insufficient balance")
+                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
                         return False
                     if error_code == "invalid_prices":
                         await self._notify_user(
                             f"⚠️ <b>Trade skipped: {signal.symbol}</b>\n\n"
                             f"Market moved before entry: {error_msg}"
                         )
+                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
                         return False
                     if error_code in ("auth", "ip_blocked"):
                         await self._notify_user(
                             f"⚠️ Exchange auth/IP error: {error_msg}\n"
                             f"Engine continues; check API key & proxy."
                         )
+                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
                         return False
                     if error_code == "reconcile_failed":
                         await self._notify_user(
@@ -1081,9 +1117,11 @@ class ScalpingEngine:
                             f"closed to protect your capital.\n\n"
                             f"<code>{error_msg}</code>"
                         )
+                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
                         return False
                     if 'invalid symbol' in error_msg.lower():
                         await self._notify_user(f"❌ Order failed: Invalid symbol {signal.symbol}")
+                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
                         return False
 
                     # Retryable error — backoff
@@ -1212,14 +1250,17 @@ class ScalpingEngine:
                 await self._update_position_closed(
                     position, fill_price, pnl_with_leverage, "max_hold_time_exceeded"
                 )
-                
+
+                # Confirm position closed with coordinator
+                await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+
                 # Update StackMentor tracking
                 try:
                     from app.stackmentor import remove_stackmentor_position
                     remove_stackmentor_position(self.user_id, position.symbol)
                 except Exception as sm_err:
                     logger.warning(f"[Scalping:{self.user_id}] Failed to update StackMentor: {sm_err}")
-                
+
                 # Notify user
                 await self._notify_user(
                     f"⏰ <b>Position Closed (Max Hold Time)</b>\n\n"
@@ -1229,7 +1270,7 @@ class ScalpingEngine:
                     f"Hold Time: 30 minutes\n"
                     f"PnL: <b>{pnl_with_leverage:+.2f} USDT</b>"
                 )
-                
+
                 # Remove from tracking
                 del self.positions[position.symbol]
             else:
@@ -1288,6 +1329,9 @@ class ScalpingEngine:
                     position, fill_price, pnl_with_leverage, "sideways_max_hold_exceeded"
                 )
                 if closed_now:
+                    # Confirm position closed with coordinator
+                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
                         "side": position.side,
@@ -1348,6 +1392,9 @@ class ScalpingEngine:
                 
                 closed_now = await self._update_position_closed(position, fill_price, pnl_with_leverage, "closed_tp")
                 if closed_now:
+                    # Confirm position closed with coordinator
+                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
                         "side": position.side,
@@ -1414,6 +1461,9 @@ class ScalpingEngine:
                 
                 closed_now = await self._update_position_closed(position, fill_price, pnl_with_leverage, "closed_sl")
                 if closed_now:
+                    # Confirm position closed with coordinator
+                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
                         "side": position.side,
@@ -1429,7 +1479,7 @@ class ScalpingEngine:
                             f"Exit: {fill_price:.4f}\n"
                             f"PnL: <b>{pnl_with_leverage:+.2f} USDT</b>"
                         )
-                
+
                 self.positions.pop(position.symbol, None)
         
         except Exception as e:
