@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.1] — 2026-04-14 — Signal Engine Sensitivity Patch
+
+### 📡 Signal Engine Optimization
+- **Decreased Threshold**: Lowered `MIN_CONFIDENCE` from 75% to **72%** in `app/autosignal_fast.py`.
+  - **Goal**: Increase signal frequency during market consolidation by picking up high-probability setups previously filtered by the strict 75% floor.
+  - **Effect**: More frequent broadcasts for top 25 CMC coins while maintaining a significant confidence gap over random noise.
+
+### ✅ Deploy Notes
+1. Updated `Bismillah/app/autosignal_fast.py`
+2. Bot restart required to reload global constant in memory.
+3. Pushed to Ajax Git for live redeployment.
+
+
 ## [2.2.0] — 2026-04-14 — 🎯 Multi-User Coordination, Real-Time Analytics, Position Ownership Tracking
 
 **Major Milestone**: Implemented comprehensive multi-user, multi-symbol position coordination system ensuring single active strategy owner per (user_id, symbol) pair, plus real-time observability dashboard for admin monitoring.
