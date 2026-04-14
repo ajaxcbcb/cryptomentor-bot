@@ -154,10 +154,14 @@ def _load_verification_snapshot(telegram_id: int) -> Dict[str, str]:
     )
     uv_row = (uv.data or [None])[0]
     if uv_row:
-        raw = str(uv_row.get("status") or "").strip().lower()
-        if raw in (VER_APPROVED, VER_PENDING, VER_REJECTED):
+        raw_status = uv_row.get("status")
+        normalized = _normalized_status_from_legacy(raw_status)
+        
+        # If the status is any of our known states, return it.
+        # This now benefits from aliases like 'active', 'uid_verified', etc.
+        if normalized != VER_NONE:
             return {
-                "status": raw,
+                "status": normalized,
                 "uid": uv_row.get("bitunix_uid") or "",
                 "source": "user_verifications",
             }
@@ -393,90 +397,10 @@ async def notify_admins_of_uid(bot, user_id: int, uid: str):
 #  Admin: verifikasi UID user                                         #
 # ------------------------------------------------------------------ #
 
-async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin acc UID user — update status dan notifikasi user."""
-    query = update.callback_query
-    await query.answer("✅ User di-ACC")
-    admin_id = query.from_user.id
-
-    # Parse target user_id dari callback data: uid_acc_{user_id}
-    target_user_id = int(query.data.split("_")[-1])
-
-    # Update status di Supabase
-    try:
-        _client().table("autotrade_sessions").update({
-            "status": "uid_verified",
-            "updated_at": datetime.utcnow().isoformat()
-        }).eq("telegram_id", target_user_id).execute()
-    except Exception:
-        pass
-
-    # Edit pesan admin
-    await query.edit_message_text(
-        query.message.text + f"\n\n✅ <b>Approved by admin</b>",
-        parse_mode='HTML'
-    )
-
-    # Notify user — send dashboard link after approval
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=(
-                "✅ <b>UID Verified!</b>\n\n"
-                "Complete setup:\n"
-                "• Add API key\n"
-                "• Configure risk\n"
-                "• Start trading\n"
-            ),
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌐 Dashboard", url=WEB_DASHBOARD_URL)]
-            ])
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to notify user {target_user_id}: {e}")
+# Redundant admin callbacks removed. 
+# They are now properly registered from handlers_autotrade_admin.py in register_autotrade_handlers().
 
 
-async def callback_uid_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin tolak UID user — update status dan notifikasi user."""
-    query = update.callback_query
-    await query.answer("❌ User rejected")
-
-    target_user_id = int(query.data.split("_")[-1])
-
-    try:
-        _client().table("autotrade_sessions").update({
-            "status": "uid_rejected",
-            "updated_at": datetime.utcnow().isoformat()
-        }).eq("telegram_id", target_user_id).execute()
-    except Exception:
-        pass
-
-    await query.edit_message_text(
-        query.message.text + f"\n\n❌ <b>Rejected by admin</b>",
-        parse_mode='HTML'
-    )
-
-    # Notify user
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=(
-                "❌ <b>UID Rejected</b>\n\n"
-                "Not detected as registered under our referral.\n\n"
-                "Register using the link below, then retry."
-            ),
-            parse_mode='HTML',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔗 Register", url=BITUNIX_REFERRAL_URL)],
-                [InlineKeyboardButton("🔄 Retry", callback_data="submit_uid_bot")],
-            ]),
-            disable_web_page_preview=True
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to notify user {target_user_id}: {e}")
 
 
 # ------------------------------------------------------------------ #
