@@ -34,8 +34,23 @@ from app.stackmentor import (
     monitor_stackmentor_positions,
 )
 from app.trade_execution import MIN_QTY_MAP
+from app.symbol_coordinator import (
+    get_coordinator,
+    StrategyOwner,
+    PositionSide,
+)
 
 _running_tasks: Dict[int, asyncio.Task] = {}
+
+# Multi-user symbol coordinator
+_coordinator = None
+
+def _get_coordinator():
+    """Get or initialize the global coordinator instance."""
+    global _coordinator
+    if _coordinator is None:
+        _coordinator = get_coordinator()
+    return _coordinator
 
 # Track posisi yang sudah hit TP1 (breakeven mode): user_id → set of symbols
 _tp1_hit_positions: Dict[int, set] = {}
@@ -1948,6 +1963,35 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 qty_tp3 = 0
                 tp3 = tp1
 
+            # ── Multi-user symbol coordination check ───────────────────
+            # Check if this user can enter this symbol (no conflicting owner)
+            coordinator = _get_coordinator()
+            import time
+            can_enter, block_reason = await coordinator.can_enter(
+                user_id=user_id,
+                symbol=symbol,
+                strategy=StrategyOwner.SWING,
+                now_ts=time.time()
+            )
+            if not can_enter:
+                logger.warning(f"[Coordinator:{user_id}] Entry BLOCKED for {symbol}: {block_reason}")
+                await bot.send_message(
+                    chat_id=notify_chat_id,
+                    text=(
+                        f"⚠️ <b>Trade skipped on {symbol}</b>\n\n"
+                        f"<b>Reason:</b> {block_reason}\n\n"
+                        f"Another strategy may own this symbol right now.\n"
+                        f"Bot will continue scanning for other opportunities."
+                    ),
+                    parse_mode='HTML'
+                )
+                _cleanup_signal_queue(user_id, symbol, success=False)
+                await asyncio.sleep(cfg["scan_interval"])
+                continue
+
+            # Mark pending (order about to be submitted)
+            await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+
             # ── Set leverage ──────────────────────────────────────────
             await asyncio.to_thread(client.set_leverage, symbol, leverage)
 
@@ -2005,6 +2049,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             if not order_result.get('success'):
                 err = order_result.get('error', 'Unknown')
                 logger.error(f"[Engine:{user_id}] Order FAILED: {err}")
+
+                # Clear pending with coordinator
+                coordinator = _get_coordinator()
+                await coordinator.clear_pending(user_id, symbol)
 
                 # Handle SL price validation error (30029)
                 if '30029' in str(err) or 'SL price must be' in str(err):
@@ -2136,6 +2184,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             # ── Order SUCCESS: Clean up from queue and mark execution complete ──
             _cleanup_signal_queue(user_id, symbol, success=True)
+
+            # Confirm with coordinator that position is now open
+            coordinator = _get_coordinator()
+            import time
+            await coordinator.confirm_open(
+                user_id=user_id,
+                symbol=symbol,
+                strategy=StrategyOwner.SWING,
+                side=PositionSide.LONG if side == "LONG" else PositionSide.SHORT,
+                size=qty,
+                entry_price=entry,
+                exchange_position_id=order_result.get('order_id')
+            )
 
             order_id = order_result.get('order_id', '-')
             trades_today += 1
