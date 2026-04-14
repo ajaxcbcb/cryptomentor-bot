@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, time
 
 import logging
+import os
 
 
 
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Global signal toggle state
 _signal_enabled = True
+_last_restart_alert_at = {}
+_RESTART_ALERT_COOLDOWN_SECONDS = int(os.getenv("RESTART_ALERT_COOLDOWN_SECONDS", "21600"))  # 6 hours default
+
+# Track consecutive API key failures per user — only notify after persistent failures
+_api_key_fail_count = {}
+_API_KEY_FAIL_THRESHOLD = 5  # notify only after 5 consecutive failures (= ~10 minutes)
 
 def get_signal_status() -> bool:
     return _signal_enabled
@@ -26,6 +33,38 @@ def toggle_signal(enabled: bool):
     global _signal_enabled
     _signal_enabled = enabled
     logger.info(f"Auto signal toggled: {'ON' if enabled else 'OFF'}")
+
+
+def _should_send_restart_alert(user_id: int) -> bool:
+    """
+    Prevent repeated restart-failed spam notifications for the same user.
+    """
+    now = datetime.utcnow()
+    last = _last_restart_alert_at.get(int(user_id))
+    if last and (now - last).total_seconds() < _RESTART_ALERT_COOLDOWN_SECONDS:
+        return False
+    _last_restart_alert_at[int(user_id)] = now
+    return True
+
+
+def _mark_requires_manual_restart(user_id: int):
+    """
+    Mark session as stopped so health-check won't auto-retry forever.
+    User can start again manually via /autotrade.
+    """
+    try:
+        from app.supabase_repo import _client
+        _client().table("autotrade_sessions").upsert(
+            {
+                "telegram_id": int(user_id),
+                "status": "stopped",
+                "engine_active": False,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            on_conflict="telegram_id",
+        ).execute()
+    except Exception as e:
+        logger.warning(f"[HealthCheck] Failed to mark user {user_id} as stopped: {e}")
 
 
 class TaskScheduler:
@@ -234,6 +273,61 @@ def start_scheduler(application):
             ).execute()
             sessions = res.data or []
             logger.info(f"[AutoRestore] Found {len(sessions)} active sessions to restore (excluding stopped)")
+
+            # ── AUTO-CREATE sessions for verified users with API keys but no session ──
+            # This handles users who set up API keys but never had a session created
+            try:
+                from datetime import datetime, timezone
+                keys_res = _client().table("user_api_keys").select("telegram_id, exchange").execute()
+                all_key_uids = {
+                    r["telegram_id"] for r in (keys_res.data or [])
+                    if r.get("telegram_id") and int(r.get("telegram_id", 0)) not in
+                    (999999999, 999999998, 999999997, 500000025, 500000026)
+                }
+                # Get verified users
+                ver_res = _client().table("user_verifications").select("telegram_id, status").execute()
+                verified_uids = {
+                    r["telegram_id"] for r in (ver_res.data or [])
+                    if r.get("status") in ("approved", "uid_verified", "active", "verified")
+                }
+                # All sessions (any status) to know who already has one
+                all_sess_res = _client().table("autotrade_sessions").select("telegram_id").execute()
+                existing_session_uids = {r["telegram_id"] for r in (all_sess_res.data or [])}
+
+                # Users with API keys + verified + no session at all
+                needs_session = (all_key_uids & verified_uids) - existing_session_uids
+                if needs_session:
+                    logger.info(f"[AutoRestore] Creating sessions for {len(needs_session)} users with API keys but no session")
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    for uid in needs_session:
+                        try:
+                            _client().table("autotrade_sessions").upsert({
+                                "telegram_id": int(uid),
+                                "status": "active",
+                                "engine_active": True,
+                                "initial_deposit": 10.0,
+                                "current_balance": 10.0,
+                                "total_profit": 0,
+                                "leverage": 10,
+                                "trading_mode": "scalping",
+                                "started_at": now_iso,
+                                "updated_at": now_iso,
+                            }, on_conflict="telegram_id").execute()
+                            logger.info(f"[AutoRestore] Created new session for user {uid}")
+                            # Add to sessions list so engine gets started below
+                            sessions.append({
+                                "telegram_id": uid,
+                                "status": "active",
+                                "engine_active": True,
+                                "initial_deposit": 10.0,
+                                "current_balance": 10.0,
+                                "leverage": 10,
+                                "trading_mode": "scalping",
+                            })
+                        except Exception as e:
+                            logger.error(f"[AutoRestore] Failed to create session for user {uid}: {e}")
+            except Exception as e:
+                logger.error(f"[AutoRestore] Failed to auto-create sessions: {e}")
 
             restored = 0
             skipped = 0
@@ -448,6 +542,10 @@ def start_scheduler(application):
         # ── Engine health check (every 5 minutes) ──────────────────────
         asyncio.create_task(_engine_health_check_task(application))
 
+        # ── Admin daily analytics report (every night 23:00 WIB) ───────
+        from app.admin_daily_report import daily_report_task
+        asyncio.create_task(daily_report_task(application))
+
     asyncio.create_task(_start())
 
 
@@ -492,7 +590,7 @@ async def _engine_health_check_task(application):
                 if user_id in (999999999, 999999998, 999999997, 500000025, 500000026):
                     continue
                 
-                # Check if engine is running
+                # Check if engine is running in memory
                 if not is_running(user_id):
                     dead_engines.append(user_id)
                     logger.warning(f"[HealthCheck] User {user_id} - Engine should be running but is DEAD!")
@@ -511,18 +609,30 @@ async def _engine_health_check_task(application):
                         # Get API keys
                         keys = get_user_api_keys(user_id)
                         if not keys:
-                            logger.error(f"[HealthCheck] User {user_id} - No API keys, cannot restart")
-                            # Notify user
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=(
-                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
-                                    "Your engine stopped unexpectedly and cannot auto-restart because API keys are missing.\n\n"
-                                    "Please restart manually: /autotrade"
-                                ),
-                                parse_mode='HTML'
-                            )
+                            # Track consecutive failures
+                            _api_key_fail_count[user_id] = _api_key_fail_count.get(user_id, 0) + 1
+                            fail_count = _api_key_fail_count[user_id]
+                            logger.warning(f"[HealthCheck] User {user_id} - API keys not found/decrypt failed (attempt {fail_count}/{_API_KEY_FAIL_THRESHOLD}), skipping restart (will retry)")
+                            
+                            # Only notify user after persistent failures (not transient)
+                            if fail_count >= _API_KEY_FAIL_THRESHOLD and _should_send_restart_alert(user_id):
+                                # Mark as stopped in DB so website is in sync with bot notification
+                                _mark_requires_manual_restart(user_id)
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=(
+                                        "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                        "Your engine stopped and could not auto-restart.\n\n"
+                                        "This may be because your API keys need to be re-linked.\n\n"
+                                        "Please go to: /autotrade → Setup API Key"
+                                    ),
+                                    parse_mode='HTML'
+                                )
+                            # CRITICAL: Do NOT call _mark_requires_manual_restart here.
                             continue
+                        
+                        # Reset fail counter on success
+                        _api_key_fail_count.pop(user_id, None)
                         
                         # Get settings
                         amount = float(session.get("initial_deposit") or 10)
@@ -546,6 +656,8 @@ async def _engine_health_check_task(application):
                         )
                         
                         logger.info(f"[HealthCheck] User {user_id} - ✅ Engine restarted")
+                        # Reset fail counter on successful restart
+                        _api_key_fail_count.pop(user_id, None)
                         
                         # Notify user
                         await application.bot.send_message(
@@ -564,17 +676,20 @@ async def _engine_health_check_task(application):
                         
                     except Exception as e:
                         logger.error(f"[HealthCheck] Failed to restart user {user_id}: {e}")
-                        # Notify user of failure
+                        # DO NOT mark as stopped on transient errors (network, exchange timeout, etc.)
+                        # Only mark stopped if it's a permanent failure (e.g. invalid keys confirmed)
+                        # Just log and retry next cycle
                         try:
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text=(
-                                    "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
-                                    "Your engine stopped and auto-restart failed.\n\n"
-                                    "Please restart manually: /autotrade"
-                                ),
-                                parse_mode='HTML'
-                            )
+                            if _should_send_restart_alert(user_id):
+                                await application.bot.send_message(
+                                    chat_id=user_id,
+                                    text=(
+                                        "⚠️ <b>AutoTrade Engine Stopped</b>\n\n"
+                                        "Your engine stopped and auto-restart failed.\n\n"
+                                        "Please restart manually: /autotrade"
+                                    ),
+                                    parse_mode='HTML'
+                                )
                         except:
                             pass
             else:

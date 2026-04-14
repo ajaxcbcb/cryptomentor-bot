@@ -15,6 +15,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 APPROVED_STATUS = "approved"
+PENDING_STATUS = "pending"
+REJECTED_STATUS = "rejected"
+
+_APPROVED_ALIASES = {"approved", "uid_verified", "active", "verified"}
+_PENDING_ALIASES = {"pending", "pending_verification", "awaiting_approval"}
+_REJECTED_ALIASES = {"rejected", "uid_rejected", "denied"}
+
+
+def _normalize_verification_status(raw_status: str) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in _APPROVED_ALIASES:
+        return APPROVED_STATUS
+    if status in _PENDING_ALIASES:
+        return PENDING_STATUS
+    if status in _REJECTED_ALIASES:
+        return REJECTED_STATUS
+    return status or "none"
 
 # Routes that do NOT require exchange verification
 # (Always allowed even if user is not verified on Bitunix)
@@ -121,15 +138,17 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
                 .execute()
             )
             row = (res.data or [None])[0]
+            raw_status = row.get("status") if row else "none"
+            status = _normalize_verification_status(raw_status)
 
-            if not row or row.get("status") != APPROVED_STATUS:
-                status = row.get("status") if row else "none"
+            if status != APPROVED_STATUS:
                 logger.info(f"[Guard:{tg_id}] Blocked access to {path} — status: {status}")
                 return JSONResponse(
                     status_code=403,
                     content={
                         "error": "verification_required",
                         "status": status,
+                        "raw_status": raw_status,
                         "message": "Your Bitunix UID is not approved yet. Submit UID and wait for Telegram admin approval." if status != "rejected" else "Your UID was rejected. Please resubmit a valid UID.",
                     },
                 )

@@ -11,19 +11,49 @@ Strategy: Multi-timeframe confluence + SMC + Risk Management
 import asyncio
 import logging
 import os
-from typing import Dict, Optional, List
+from html import escape
+from typing import Any, Dict, Optional, List
 from datetime import datetime, date
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 
 def _dashboard_keyboard():
-    """Returns an InlineKeyboardMarkup with a 'View on Dashboard' button."""
+    """Returns an InlineKeyboardMarkup with a Dashboard button."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 View on Dashboard", url=WEB_DASHBOARD_URL)]
+        [InlineKeyboardButton("📊 Dashboard", url=WEB_DASHBOARD_URL)]
     ])
+
+
+def _build_trade_url(trade_id: Optional[int] = None, order_id: str = "", symbol: str = "") -> str:
+    """Build dashboard URL with trade-specific query parameters."""
+    try:
+        parsed = urlsplit(WEB_DASHBOARD_URL)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["tab"] = "portfolio"
+        if trade_id:
+            query["trade_id"] = str(trade_id)
+        if order_id and order_id != "-":
+            query["order_id"] = str(order_id)
+        if symbol:
+            query["symbol"] = symbol
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", urlencode(query), parsed.fragment))
+    except Exception:
+        return WEB_DASHBOARD_URL
+
+
+def _trade_detail_keyboard(trade_id: Optional[int] = None, order_id: str = "", symbol: str = "") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 View Trade Details", url=_build_trade_url(trade_id=trade_id, order_id=order_id, symbol=symbol))]
+    ])
+
+
+def _fmt_price(v: float) -> str:
+    s = f"{float(v):,.6f}"
+    return s.rstrip("0").rstrip(".")
 
 # Import StackMentor system
 from app.stackmentor import (
@@ -93,6 +123,41 @@ QTY_PRECISION = {
     "XRPUSDT": 0, "ADAUSDT": 0, "DOGEUSDT": 0, "AVAXUSDT": 2,
     "DOTUSDT": 1, "MATICUSDT": 0,
 }
+
+RISK_MIN_PCT = 0.25
+RISK_MAX_PCT = 5.0
+
+
+def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
+    """Clamp incoming risk to supported autotrade range [0.25, 5.0]."""
+    try:
+        risk = float(raw_value)
+    except Exception:
+        return float(default)
+    return max(RISK_MIN_PCT, min(RISK_MAX_PCT, risk))
+
+
+def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
+    """
+    Map user risk% to confluence selectivity and TP width.
+    Risk > 1% is intentionally treated as high-risk mode.
+    """
+    risk = _normalize_risk_pct(user_risk_pct, default=1.0)
+    if risk <= 0.25:
+        return {"min_confidence": 60, "atr_multiplier": 0.5}
+    if risk <= 0.5:
+        return {"min_confidence": 50, "atr_multiplier": 1.0}
+    if risk <= 0.75:
+        return {"min_confidence": 45, "atr_multiplier": 1.25}
+    if risk <= 1.0:
+        return {"min_confidence": 40, "atr_multiplier": 1.5}
+    if risk <= 2.0:
+        return {"min_confidence": 38, "atr_multiplier": 1.75}
+    if risk <= 3.0:
+        return {"min_confidence": 36, "atr_multiplier": 2.0}
+    if risk <= 4.0:
+        return {"min_confidence": 34, "atr_multiplier": 2.25}
+    return {"min_confidence": 32, "atr_multiplier": 2.5}
 
 # Cooldown tracker: symbol → timestamp terakhir flip
 _flip_cooldown: Dict[str, float] = {}
@@ -482,15 +547,8 @@ def _generate_confluence_signal(
     Adaptive thresholds based on user risk tolerance.
     """
 
-    # Risk config: {min_confidence, atr_multiplier}
-    risk_config = {
-        0.25: {"min_confidence": 60, "atr_multiplier": 0.5},
-        0.5:  {"min_confidence": 50, "atr_multiplier": 1.0},
-        0.75: {"min_confidence": 45, "atr_multiplier": 1.25},
-        1.0:  {"min_confidence": 40, "atr_multiplier": 1.5},
-    }
-
-    config = risk_config.get(user_risk_pct, risk_config[0.5])
+    user_risk_pct = _normalize_risk_pct(user_risk_pct, default=1.0)
+    config = _risk_profile(user_risk_pct)
     min_confidence = config["min_confidence"]
     atr_multiplier = config["atr_multiplier"]
 
@@ -641,7 +699,7 @@ def _generate_confluence_signal(
 # ─────────────────────────────────────────────
 #  Professional Signal Engine (Hybrid Mode)
 # ─────────────────────────────────────────────
-def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None, user_risk_pct: float = 0.5) -> Optional[Dict]:
+def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None, user_risk_pct: float = 1.0) -> Optional[Dict]:
     """
     Hybrid signal generation:
     - PRIMARY: Confluence-based multi-factor detection (S/R + RSI + Volume + Trend)
@@ -653,6 +711,7 @@ def _compute_signal_pro(base_symbol: str, btc_bias: Optional[Dict] = None, user_
     - 0.5% (moderate): min conf 50, standard TPs (0.75-1.5×ATR)
     - 0.75% (aggressive): min conf 45, wider TPs (1.25×ATR)
     - 1.0% (very aggressive): min conf 40, widest TPs (1.5×ATR)
+    - >1.0% to 5.0% (amber-red risk zone): progressively lower min conf, wider TPs
     """
     symbol = base_symbol.upper() + "USDT"
     cfg = ENGINE_CONFIG
@@ -1030,14 +1089,24 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
     client = get_client(exchange_id, api_key, api_secret)
 
     def _done_cb(task: asyncio.Task):
-        # Update engine_active flag when engine stops
+        # Only set engine_active=False if user explicitly stopped (status=stopped)
+        # If engine crashed/restarted, keep engine_active=True so health check can restore it
         try:
             from app.supabase_repo import _client
             s = _client()
-            s.table("autotrade_sessions").upsert({
-                "telegram_id": int(user_id),
-                "engine_active": False
-            }, on_conflict="telegram_id").execute()
+            # Check current status before overwriting engine_active
+            sess = s.table("autotrade_sessions").select("status").eq(
+                "telegram_id", int(user_id)
+            ).limit(1).execute()
+            current_status = (sess.data or [{}])[0].get("status", "")
+            # Only mark inactive if explicitly stopped by user
+            if current_status == "stopped":
+                s.table("autotrade_sessions").upsert({
+                    "telegram_id": int(user_id),
+                    "engine_active": False
+                }, on_conflict="telegram_id").execute()
+            # If status is active/uid_verified, leave engine_active as-is
+            # Health check will restart the engine automatically
         except Exception as e:
             logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
         
@@ -1236,29 +1305,16 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             return qty_fallback, False  # Fallback used
 
     # ── Fetch user's risk_per_trade setting ───────────────────────────
-    user_risk_pct = 0.5  # Default (Moderate)
+    user_risk_pct = 1.0  # Default (1% risk)
     try:
         from app.supabase_repo import get_risk_per_trade
         fetched_risk = get_risk_per_trade(user_id)
 
-        # Valid risk levels: 0.25, 0.5, 0.75, 1.0
-        # Use round() to handle floating-point precision issues
-        valid_risks = {0.25, 0.5, 0.75, 1.0}
-
-        if fetched_risk:
-            # Round to 2 decimal places to handle floating-point comparison
-            rounded_risk = round(float(fetched_risk), 2)
-
-            if rounded_risk in valid_risks:
-                user_risk_pct = rounded_risk
-                logger.info(f"[Engine:{user_id}] Loaded user risk_per_trade: {user_risk_pct}%")
-            else:
-                logger.warning(
-                    f"[Engine:{user_id}] Invalid risk_per_trade from DB: {fetched_risk} "
-                    f"(not in {valid_risks}), using default 0.5%"
-                )
+        if fetched_risk is not None:
+            user_risk_pct = _normalize_risk_pct(fetched_risk, default=1.0)
+            logger.info(f"[Engine:{user_id}] Loaded user risk_per_trade: {user_risk_pct}%")
     except Exception as e:
-        logger.warning(f"[Engine:{user_id}] Failed to load user risk_pct, using default 0.5%: {e}")
+        logger.warning(f"[Engine:{user_id}] Failed to load user risk_pct, using default 1.0%: {e}")
 
     logger.info(f"[Engine:{user_id}] PRO ENGINE STARTED — symbols={cfg['symbols']}, "
                 f"min_conf={cfg['min_confidence']}, min_rr={cfg['min_rr_ratio']}, "
@@ -2250,9 +2306,10 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 )
 
             # ── Simpan ke trade history ───────────────────────────────
+            trade_id = None
             try:
                 from app.trade_history import save_trade_open
-                save_trade_open(
+                trade_id = save_trade_open(
                     telegram_id=user_id,
                     symbol=symbol,
                     side=side,
@@ -2276,12 +2333,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             except Exception as _he:
                 logger.warning(f"[Engine:{user_id}] trade_history save failed: {_he}")
 
-            # ── Kalkulasi risk/reward untuk notifikasi ─────────────────
-            sl_pct      = abs(entry - sl)  / entry * 100
-            tp1_pct     = abs(tp1 - entry) / entry * 100
-            tp2_pct     = abs(tp2 - entry) / entry * 100
-            
-            # Get actual equity and risk info for notification
+            # ── Trade-open notification (compact + web deep-link) ─────
             acc_result = await asyncio.to_thread(client.get_account_info)
             if acc_result.get('success'):
                 current_available = float(acc_result.get('available', 0) or 0)
@@ -2290,83 +2342,34 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 current_unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
                 current_equity = current_balance + current_unrealized
             else:
-                current_available = 0
-                current_frozen = 0
-                current_balance = 0
-                current_unrealized = 0
                 current_equity = 0
 
-            risk_amount = current_equity * (user_risk_pct / 100) if current_equity > 0 else (amount * (sl_pct / 100) * leverage)
-            
-            # Calculate potential profit based on actual position size
-            reward_tp1  = qty * abs(tp1 - entry)
-            reward_tp2  = qty * abs(tp2 - entry)
-
-            trend_1h   = sig.get('trend_1h', '-')
-            struct      = sig.get('market_structure', 'ranging')
-            rsi_15      = sig.get('rsi_15', 0)
-            atr_pct     = sig.get('atr_pct', 0)
-            vol_ratio   = sig.get('vol_ratio', 1)
-            all_reasons = sig.get('reasons', [])
-
-            struct_emoji = {"uptrend": "📈", "downtrend": "📉", "ranging": "↔️"}.get(struct, "↔️")
-            trend_emoji  = {"LONG": "🟢", "SHORT": "🔴", "NEUTRAL": "⚪"}.get(trend_1h, "⚪")
-
-            reasons_text = "\n".join(f"  • {r}" for r in all_reasons[:5])
+            risk_amount = qty * abs(entry - sl)
+            risk_pct_equity = (risk_amount / current_equity * 100) if current_equity > 0 else None
+            direction = "Long" if side.upper() in ("LONG", "BUY") else "Short"
+            opened_at = datetime.utcnow().strftime("%d %b %Y %H:%M:%S UTC")
+            order_id_text = escape(str(order_id or "-"))
 
             await bot.send_message(
                 chat_id=notify_chat_id,
                 text=(
-                    f"✅ <b>ORDER EXECUTED</b>  [#{trades_today} today]\n\n"
-                    f"📊 {symbol} | {side}\n"
-                    f"💵 Entry: <code>{entry:.4f}</code>\n"
+                    "🤖 <b>Cryptomentor AI Autotrade</b>\n\n"
+                    f"<b>Direction:</b> {direction}\n"
+                    f"<b>Trading Pair:</b> {symbol}\n"
+                    f"<b>Entry:</b> {_fmt_price(entry)}\n"
+                    f"<b>TP:</b> {_fmt_price(tp1)}\n"
+                    f"<b>SL:</b> {_fmt_price(sl)}\n"
+                    f"<b>Risk PNL:</b> ${risk_amount:.2f}\n"
                     + (
-                        f"🎯 TP1: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%) — 60% position\n"
-                        f"🎯 TP2: <code>{tp2:.4f}</code> (+{tp2_pct:.1f}%) — 30% position\n"
-                        f"🎯 TP3: <code>{tp3:.4f}</code> (+{abs(tp3 - entry) / entry * 100:.1f}%) — 10% position\n"
-                        f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
-                        f"📦 Qty: {qty}\n\n"
-                        f"⚖️ R:R: <b>1:2 → 1:3 → 1:5</b> (StackMentor 🎯)\n"
-                        f"🤖 <i>Automatic partial close when price hits TP</i>\n"
-                        f"🔒 After TP1 hit → SL moves to entry (breakeven)\n"
-                        if stackmentor_enabled else
-                        (
-                            f"🎯 TP1: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%) — 75% position\n"
-                            f"🎯 TP2: <code>{tp2:.4f}</code> (+{tp2_pct:.1f}%) — 25% position\n"
-                            f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
-                            f"📦 Qty: {qty}\n\n"
-                            f"⚖️ R:R: <b>1:2 → 1:3</b> (dual TP)\n"
-                            f"🤖 <i>Automatic partial close when price hits TP</i>\n"
-                            f"🔒 After TP1 hit → SL moves to entry (breakeven)\n"
-                            if _dual_tp_enabled else
-                            f"🎯 TP: <code>{tp1:.4f}</code> (+{tp1_pct:.1f}%)\n"
-                            f"🛑 SL: <code>{sl:.4f}</code> (-{sl_pct:.1f}%)\n"
-                            f"📦 Qty: {qty}\n\n"
-                            f"⚖️ R:R Ratio: <b>1:{rr_ratio:.1f}</b>\n"
-                        )
+                        f"<b>Risk % on equity:</b> {risk_pct_equity:.2f}%\n"
+                        if risk_pct_equity is not None else
+                        "<b>Risk % on equity:</b> N/A\n"
                     )
-                    + f"{trend_emoji} 1H Trend: <b>{trend_1h}</b>\n"
-                    f"{struct_emoji} Structure: <b>{struct}</b>\n"
-                    f"📊 RSI 15M: {rsi_15} | ATR: {atr_pct:.2f}% | Vol: {vol_ratio:.1f}x\n\n"
-                    f"🧠 Reasons:\n{reasons_text}\n\n"
-                    + (
-                        f"💰 Potential profit: +{reward_tp2:.2f} USDT (full TP)\n"
-                        if _dual_tp_enabled or stackmentor_enabled else
-                        f"💰 Potential profit: +{reward_tp1:.2f} USDT\n"
-                    )
-                    + f"⚠️ Max loss: -{risk_amount:.2f} USDT\n"
-                    + (f"💼 Equity: ${current_equity:.2f} (Balance: ${current_balance:.2f}, Unrealized: ${current_unrealized:.2f}) | Risk: {user_risk_pct}%\n" if current_equity > 0 else "")
-                    + f"🧠 Confidence: {confidence}%\n"
-                    + (
-                        f"🎯 <b>StackMentor Active</b> (3-tier TP)\n"
-                        if stackmentor_enabled else
-                        f"💡 StackMentor disabled in config\n"
-                        if not _dual_tp_enabled else
-                        ""
-                    )
-                    + f"🔖 Order ID: <code>{order_id}</code>"
+                    + f"<b>Order ID:</b> <code>{order_id_text}</code>\n"
+                    + f"<b>Date and time:</b> {opened_at}"
                 ),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=_trade_detail_keyboard(trade_id=trade_id, order_id=order_id, symbol=symbol),
             )
 
             # ── Start PnL tracker ─────────────────────────────────────

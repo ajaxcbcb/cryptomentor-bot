@@ -4,6 +4,7 @@ Redirection flow from Telegram Bot to Web Dashboard.
 """
 
 import os
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,8 +13,9 @@ from telegram.ext import (
 )
 from typing import Optional, Dict
 
-from app.supabase_repo import get_autotrade_session, save_autotrade_session
+from app.supabase_repo import _client
 from app.lib.auth import generate_dashboard_url
+from app.lib.crypto import encrypt, decrypt
 
 # Conversation states
 WAITING_BITUNIX_UID = 6
@@ -22,6 +24,12 @@ WAITING_BITUNIX_UID = 6
 BITUNIX_REFERRAL_URL  = "https://www.bitunix.com/register?vipCode=sq45"
 BITUNIX_REFERRAL_CODE = "sq45"
 WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
+logger = logging.getLogger(__name__)
+
+VER_NONE = "none"
+VER_PENDING = "pending"
+VER_APPROVED = "approved"
+VER_REJECTED = "rejected"
 
 # ── Exchange selection helpers ──────────────────────────────────────
 def _get_user_exchange(context) -> str:
@@ -117,6 +125,62 @@ def update_autotrade_status(telegram_id: int, status: str):
     ).execute()
 
 
+def _normalized_status_from_legacy(raw_status: str) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in ("active", "uid_verified"):
+        return VER_APPROVED
+    if status == "pending_verification":
+        return VER_PENDING
+    if status == "uid_rejected":
+        return VER_REJECTED
+    return VER_NONE
+
+
+def _load_verification_snapshot(telegram_id: int) -> Dict[str, str]:
+    """
+    Single source of truth priority:
+    1) user_verifications (web + bot unified)
+    2) autotrade_sessions (legacy fallback)
+    """
+    s = _client()
+
+    # Central table used by website gatekeeper.
+    uv = (
+        s.table("user_verifications")
+        .select("status, bitunix_uid")
+        .eq("telegram_id", int(telegram_id))
+        .limit(1)
+        .execute()
+    )
+    uv_row = (uv.data or [None])[0]
+    if uv_row:
+        raw = str(uv_row.get("status") or "").strip().lower()
+        if raw in (VER_APPROVED, VER_PENDING, VER_REJECTED):
+            return {
+                "status": raw,
+                "uid": uv_row.get("bitunix_uid") or "",
+                "source": "user_verifications",
+            }
+
+    # Legacy compatibility fallback.
+    sess = (
+        s.table("autotrade_sessions")
+        .select("status, bitunix_uid")
+        .eq("telegram_id", int(telegram_id))
+        .limit(1)
+        .execute()
+    )
+    sess_row = (sess.data or [None])[0]
+    if not sess_row:
+        return {"status": VER_NONE, "uid": "", "source": "none"}
+
+    return {
+        "status": _normalized_status_from_legacy(sess_row.get("status")),
+        "uid": sess_row.get("bitunix_uid") or "",
+        "source": "autotrade_sessions",
+    }
+
+
 # ------------------------------------------------------------------ #
 #  Conversation: /autotrade entry                                     #
 # ------------------------------------------------------------------ #
@@ -141,57 +205,69 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception: pass
     asyncio.create_task(_register_user())
 
-    # 1. Check Verification Status from Supabase
+    # 1. Check unified verification status from Supabase
     try:
-        session = get_autotrade_session(user_id)
-        status = session.get("status", "none") if session else "none"
-        uid = session.get("bitunix_uid") if session else None
-    except Exception:
-        status = "none"
-        uid = None
+        snap = _load_verification_snapshot(user_id)
+    except Exception as e:
+        logger.warning("Verification lookup failed for %s: %s", user_id, e)
+        snap = {"status": VER_NONE, "uid": "", "source": "none"}
+
+    status = snap.get("status", VER_NONE)
+    uid = snap.get("uid") or ""
 
     dash_url = generate_dashboard_url(user_id, user.username, user.first_name)
 
     # 2. Gatekeeper Logic
-    if status == "active" or status == "uid_verified":
+    if status == VER_APPROVED:
         text = (
             f"✅ <b>Identity Verified</b>\n\n"
-            f"UID: <code>{uid}</code>\n"
-            f"Status: <b>{status.upper()}</b>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n"
+            f"Status: <b>APPROVED</b>\n\n"
             f"Your account is verified. You can now manage all trading operations, "
             f"API keys, and risk settings directly from the web dashboard."
         )
-        keyboard = [
-            [InlineKeyboardButton("🌐 Go to Web Dashboard", url=dash_url)],
-            [InlineKeyboardButton("📊 Portfolio Status", callback_data=PORTFOLIO_STATUS)]
-        ]
+        keyboard = [[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         return
 
-    if status == "pending_verification":
+    if status == VER_PENDING:
         text = (
             f"⏳ <b>Verification Pending</b>\n\n"
-            f"UID: <code>{uid}</code>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n\n"
             f"Your UID is currently being verified by our team. "
             f"Once approved, you will be notified here and can start trading on the dashboard."
         )
-        keyboard = [[InlineKeyboardButton("🌐 Open Web Dashboard", url=dash_url)]]
+        keyboard = [[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        return
+
+    if status == VER_REJECTED:
+        text = (
+            "❌ <b>Verification Rejected</b>\n\n"
+            f"UID: <code>{uid or '-'}</code>\n\n"
+            "Please submit a valid Bitunix UID again from the dashboard or directly in this bot."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
+            [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
+            [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)],
+        ]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         return
 
     # User not yet verified or session missing
     text = (
         f"🚀 <b>Welcome to CryptoMentor AI</b>\n\n"
-        f"To start automated trading, you need to verify your account by connecting it to your Bitunix UID.\n\n"
-        f"1️⃣ <b>Register on Bitunix</b> (if you haven't)\n"
-        f"2️⃣ <b>Submit your UID</b> for verification\n"
-        f"3️⃣ <b>Configure API</b> on the Web Dashboard\n\n"
-        f"Choose an option below:"
+        f"To start trading, verify your Bitunix account:\n\n"
+        f"1️⃣ Register on Bitunix\n"
+        f"2️⃣ Submit your UID\n"
+        f"3️⃣ Configure API on dashboard\n\n"
+        f"Choose an option:"
     )
     keyboard = [
-        [InlineKeyboardButton("🌐 Register / Open Dashboard", url=dash_url)],
-        [InlineKeyboardButton("🆔 Submit UID here", callback_data="submit_uid_bot")],
-        [InlineKeyboardButton("🔗 Register on Bitunix", url=BITUNIX_REFERRAL_URL)]
+        [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
+        [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
+        [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)]
     ]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
@@ -207,7 +283,7 @@ async def handle_submit_uid_bot(update: Update, context: ContextTypes.DEFAULT_TY
     await query.message.reply_text(
         "📝 <b>Submit Bitunix UID</b>\n\n"
         "Please enter your Bitunix UID (numbers only).\n\n"
-        "<i>Note: If you don't have one, please register using the link in the previous menu first.</i>",
+        "<i>You can also submit from web dashboard; both paths sync to the same verification status.</i>",
         parse_mode='HTML'
     )
     return WAITING_BITUNIX_UID
@@ -217,8 +293,8 @@ async def process_uid_input_bot(update: Update, context: ContextTypes.DEFAULT_TY
     uid = update.message.text.strip()
     user_id = update.effective_user.id
     
-    if not uid.isdigit():
-        await update.message.reply_text("❌ UID must be numbers only. Please try again:")
+    if not uid.isdigit() or len(uid) < 5:
+        await update.message.reply_text("❌ UID must be numeric and at least 5 digits. Please try again:")
         return WAITING_BITUNIX_UID
         
     try:
@@ -256,12 +332,11 @@ async def process_uid_input_bot(update: Update, context: ContextTypes.DEFAULT_TY
         dash_url = generate_dashboard_url(user_id, update.effective_user.username, update.effective_user.first_name)
         
         await update.message.reply_text(
-            f"✅ <b>UID Submitted!</b>\n\n"
+            f"✅ <b>UID Submitted</b>\n\n"
             f"UID: <code>{uid}</code>\n"
-            f"Status: <b>PENDING VERIFICATION</b>\n\n"
-            f"We will verify your UID and notify you shortly. In the meantime, "
-            f"you can explore the Web Dashboard.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Dashboard", url=dash_url)]]),
+            f"Status: Pending verification\n\n"
+            f"We'll notify you when approved.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]),
             parse_mode='HTML'
         )
     except Exception as e:
@@ -347,15 +422,15 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=target_user_id,
             text=(
-                "✅ <b>Your UID Has Been Verified!</b>\n\n"
-                "Now complete your setup on the dashboard:\n"
-                "• Connect your Bitunix API Key\n"
-                "• Configure risk settings\n"
+                "✅ <b>UID Verified!</b>\n\n"
+                "Complete setup:\n"
+                "• Add API key\n"
+                "• Configure risk\n"
                 "• Start trading\n"
             ),
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌐 Open Dashboard", url=WEB_DASHBOARD_URL)]
+                [InlineKeyboardButton("🌐 Dashboard", url=WEB_DASHBOARD_URL)]
             ])
         )
     except Exception as e:
@@ -388,16 +463,14 @@ async def callback_uid_reject(update: Update, context: ContextTypes.DEFAULT_TYPE
         await context.bot.send_message(
             chat_id=target_user_id,
             text=(
-                "❌ <b>UID Verification Rejected</b>\n\n"
-                "Your Bitunix UID was not detected as registered under our referral.\n\n"
-                "Make sure you registered on Bitunix using the following link:\n"
-                f"🔗 <code>{BITUNIX_REFERRAL_URL}</code>\n\n"
-                "After re-registering with the correct referral, send your new UID with /autotrade."
+                "❌ <b>UID Rejected</b>\n\n"
+                "Not detected as registered under our referral.\n\n"
+                "Register using the link below, then retry."
             ),
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔗 Re-register via Referral", url=BITUNIX_REFERRAL_URL)],
-                [InlineKeyboardButton("🔄 Try Again", callback_data="at_confirm_referral")],
+                [InlineKeyboardButton("🔗 Register", url=BITUNIX_REFERRAL_URL)],
+                [InlineKeyboardButton("🔄 Retry", callback_data="submit_uid_bot")],
             ]),
             disable_web_page_preview=True
         )

@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\supafunc\_async\functions_client.py
+# hypothesis_version: 6.151.9
+
+['Authorization', 'Content-Type', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'User-Agent', 'any', 'application/json', 'body', 'error', 'headers', 'json', 'region', 'responseType', 'text/plain', 'true', 'x-region', 'x-relay-header']

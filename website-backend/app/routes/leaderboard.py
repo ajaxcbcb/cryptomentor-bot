@@ -18,6 +18,16 @@ from app.db.supabase import _client
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 
 MIN_ITEMS = 12  # minimum items to always show in banner
+CLOSED_STATUSES = [
+    "closed",
+    "closed_tp",
+    "closed_sl",
+    "closed_tp1",
+    "closed_tp2",
+    "closed_tp3",
+    "closed_flip",
+    "closed_manual",
+]
 
 # ── Historical seed data (realistic, varied) ─────────────────────────────────
 _SEED: List[Dict[str, Any]] = [
@@ -74,7 +84,7 @@ async def get_ticker():
         # Fetch recent profitable closed trades + join user info
         res = s.table("autotrade_trades").select(
             "telegram_id, symbol, pnl_usdt, entry_price, exit_price, closed_at"
-        ).eq("status", "closed").gt("pnl_usdt", 0).gte(
+        ).in_("status", CLOSED_STATUSES).gt("pnl_usdt", 0).gte(
             "closed_at", since
         ).order("closed_at", desc=True).limit(50).execute()
 

@@ -28,6 +28,21 @@ VER_PENDING = "pending"
 VER_APPROVED = "approved"
 VER_REJECTED = "rejected"
 
+_APPROVED_ALIASES = {VER_APPROVED, "uid_verified", "active", "verified"}
+_PENDING_ALIASES = {VER_PENDING, "pending_verification", "awaiting_approval"}
+_REJECTED_ALIASES = {VER_REJECTED, "uid_rejected", "denied"}
+
+
+def _normalize_verification_status(raw_status: str) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in _APPROVED_ALIASES:
+        return VER_APPROVED
+    if status in _PENDING_ALIASES:
+        return VER_PENDING
+    if status in _REJECTED_ALIASES:
+        return VER_REJECTED
+    return status or "none"
+
 
 def _load_admin_ids() -> list[int]:
     """Load admin IDs from multiple env keys for resilience."""
@@ -71,8 +86,10 @@ async def get_verification_status(tg_id: int = Depends(get_current_user)):
     row = (res.data or [None])[0]
     if not row:
         return {"status": "none", "exchange": None, "uid": None}
+    normalized_status = _normalize_verification_status(row.get("status"))
     return {
-        "status": row.get("status") or "none",
+        "status": normalized_status,
+        "raw_status": row.get("status") or "none",
         "exchange": "bitunix",
         "uid": row.get("bitunix_uid"),
         "submitted_via": row.get("submitted_via"),
@@ -99,7 +116,7 @@ async def submit_uid(payload: SubmitUIDRequest, tg_id: int = Depends(get_current
         .execute()
     )
     row = (res.data or [None])[0]
-    current_status = row.get("status") if row else "none"
+    current_status = _normalize_verification_status(row.get("status") if row else "none")
     if current_status == VER_APPROVED:
         raise HTTPException(status_code=400, detail="Your UID is already verified.")
 

@@ -1,0 +1,4 @@
+# file: C:\V3-Final-Version\marketing\agent\core\ab_testing.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.01, 3600, '+00:00', 'A', 'B', 'Z', 'campaign_id', 'caption_length', 'completed', 'content_format', 'content_id', 'ctr', 'evaluation_at', 'hook_type', 'id', 'kill', 'killed', 'marketing_ab_tests', 'marketing_analytics', 'post_time', 'running', 'started_at', 'status', 'test_variable', 'variant_a_content_id', 'variant_a_ctr', 'variant_b_content_id', 'variant_b_ctr', 'winner_variant']

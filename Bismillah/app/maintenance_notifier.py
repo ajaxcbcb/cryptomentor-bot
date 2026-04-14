@@ -19,6 +19,11 @@ async def send_maintenance_notifications(bot, restored_user_ids: set = None):
         restored_user_ids: Set of user IDs that were attempted to be restored.
                           If provided, only notify these users.
     """
+    # CRITICAL FIX: Wait for engine_restore to finish before checking status.
+    # Engine restore runs concurrently — give it 90 seconds to start all engines.
+    logger.info("[Maintenance] Waiting 90s for engine restore to complete before sending notifications...")
+    await asyncio.sleep(90)
+    
     logger.info("=" * 80)
     logger.info("[Maintenance] Sending notifications to users with autotrade sessions...")
     logger.info("=" * 80)
@@ -53,10 +58,20 @@ async def send_maintenance_notifications(bot, restored_user_ids: set = None):
             
             status = session.get("status", "")
             
-            # Check if engine is actually running now
+            # Check if engine is actually running now (in-memory)
             engine_running = is_running(user_id)
             
-            if engine_running:
+            # CRITICAL FIX: If engine not in memory yet, check Supabase engine_active flag.
+            # On bot restart, engine_restore runs AFTER maintenance_notifier, so engines
+            # may not be in memory yet even though they should be active.
+            # We treat engine_active=True in DB as "will be restored shortly" = active.
+            db_engine_active = session.get("engine_active", False)
+            
+            # Consider engine "running" if either in-memory OR DB says active
+            # (DB flag is set by engine_restore after restart)
+            effectively_running = engine_running or (db_engine_active and status in ("active", "uid_verified"))
+            
+            if effectively_running:
                 active_count += 1
                 message = (
                     "🔧 <b>Pemberitahuan Maintenance</b>\n\n"
@@ -103,7 +118,7 @@ async def send_maintenance_notifications(bot, restored_user_ids: set = None):
                     parse_mode='HTML'
                 )
                 sent += 1
-                status_label = "Active" if engine_running else ("Stopped" if status == "stopped" else "Inactive")
+                status_label = "Active" if effectively_running else ("Stopped" if status == "stopped" else "Inactive")
                 logger.info(f"[Maintenance] ✅ Notified user {user_id} (Engine: {status_label})")
                 await asyncio.sleep(0.05)  # Rate limiting
                 
@@ -122,11 +137,13 @@ async def send_maintenance_notifications(bot, restored_user_ids: set = None):
         
         # Schedule follow-up reminder ONLY for users that should be active but aren't
         # Don't remind users who explicitly stopped their engine
+        # CRITICAL FIX: Check both in-memory AND Supabase engine_active flag
         truly_inactive = [
             s for s in sessions
             if s.get("telegram_id") and s.get("telegram_id") < 999999990
             and not is_running(s.get("telegram_id"))
-            and s.get("status") not in ("stopped", "pending_verification", "uid_rejected", "pending")
+            and not s.get("engine_active", False)  # also check DB flag
+            and s.get("status") not in ("stopped", "pending_verification", "uid_rejected", "pending", "active", "uid_verified")
         ]
         if truly_inactive:
             logger.info(f"[Maintenance] Scheduling follow-up reminder in 1 hour for {len(truly_inactive)} inactive engines")

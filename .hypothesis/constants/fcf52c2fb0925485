@@ -1,0 +1,4 @@
+# file: C:\Users\dragon\AppData\Roaming\Python\Python311\site-packages\websockets\uri.py
+# hypothesis_version: 6.151.9
+
+[443, '/', ":/?#[]@!$&'()*+,;=", '?', 'WebSocketURI', 'ascii', 'idna', 'parse_uri', 'ws', 'wss']

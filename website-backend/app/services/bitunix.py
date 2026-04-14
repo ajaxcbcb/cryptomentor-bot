@@ -160,3 +160,20 @@ async def place_market_with_tpsl(
     return await asyncio.to_thread(
         client.place_order_with_tpsl, symbol, side, qty, tp_price, sl_price
     )
+
+
+async def close_market_position(
+    telegram_id: int,
+    symbol: str,
+    close_side: str,
+    qty: float,
+    position_side: str | None = None,
+) -> Dict[str, Any]:
+    """
+    Close position via reduce-only market order.
+    close_side: SELL to close LONG, BUY to close SHORT.
+    """
+    client = _client_for(telegram_id)
+    return await asyncio.to_thread(
+        client.close_partial, symbol, close_side, qty, position_side
+    )

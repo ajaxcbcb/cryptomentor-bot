@@ -5,9 +5,14 @@ High-frequency trading engine for 5-minute scalping with 30-minute max hold time
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional, Dict
 from datetime import datetime
+from html import escape
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.trading_mode import ScalpingConfig, ScalpingSignal, ScalpingPosition
 from app.supabase_repo import _client
@@ -18,6 +23,34 @@ from app.symbol_coordinator import (
 )
 
 logger = logging.getLogger(__name__)
+WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
+
+
+def _fmt_price(v: float) -> str:
+    s = f"{float(v):,.6f}"
+    return s.rstrip("0").rstrip(".")
+
+
+def _build_trade_url(trade_id: Optional[int] = None, order_id: str = "", symbol: str = "") -> str:
+    try:
+        parsed = urlsplit(WEB_DASHBOARD_URL)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["tab"] = "portfolio"
+        if trade_id:
+            query["trade_id"] = str(trade_id)
+        if order_id and order_id != "-":
+            query["order_id"] = str(order_id)
+        if symbol:
+            query["symbol"] = symbol
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", urlencode(query), parsed.fragment))
+    except Exception:
+        return WEB_DASHBOARD_URL
+
+
+def _trade_detail_keyboard(trade_id: Optional[int] = None, order_id: str = "", symbol: str = "") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 View Trade Details", url=_build_trade_url(trade_id=trade_id, order_id=order_id, symbol=symbol))]
+    ])
 
 
 class ScalpingEngine:
@@ -1060,8 +1093,14 @@ class ScalpingEngine:
                         position.is_sideways = True
 
                     # Save to database + notify user
-                    await self._save_position_to_db(position, signal)
-                    await self._notify_stackmentor_opened(position, signal, levels)
+                    trade_id = await self._save_position_to_db(position, signal, order_id=exec_result.order_id or "")
+                    await self._notify_stackmentor_opened(
+                        position,
+                        signal,
+                        levels,
+                        order_id=exec_result.order_id or "-",
+                        trade_id=trade_id,
+                    )
 
                     # Confirm position with coordinator
                     position_side = PositionSide.LONG if signal.side == "LONG" else PositionSide.SHORT
@@ -1519,8 +1558,8 @@ class ScalpingEngine:
         self.cooldown_tracker[symbol] = time.time() + self.config.cooldown_seconds
         logger.debug(f"[Scalping:{self.user_id}] Cooldown marked for {symbol} (2.5 minutes)")
     
-    async def _save_position_to_db(self, position: ScalpingPosition, signal):
-        """Save position to database, including sideways metadata if applicable"""
+    async def _save_position_to_db(self, position: ScalpingPosition, signal, order_id: str = ""):
+        """Save position to database, including sideways metadata if applicable."""
         try:
             from app.trading_mode import MicroScalpSignal as _MicroScalpSignal
             s = _client()
@@ -1538,6 +1577,7 @@ class ScalpingEngine:
                 "timeframe": "5m",
                 "confidence": signal.confidence,
                 "status": "open",
+                "order_id": order_id or "",
                 "opened_at": datetime.utcnow().isoformat(),
             }
 
@@ -1559,9 +1599,11 @@ class ScalpingEngine:
                     "max_hold_time": 1800,
                 })
 
-            s.table("autotrade_trades").insert(row).execute()
+            res = s.table("autotrade_trades").insert(row).execute()
+            return res.data[0]["id"] if getattr(res, "data", None) else None
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] Error saving position to DB: {e}")
+            return None
     
     async def _update_position_closed(self, position: ScalpingPosition, close_price: float,
                                      pnl: float, close_reason: str) -> bool:
@@ -1664,38 +1706,52 @@ class ScalpingEngine:
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] Error sending notification: {e}")
     
-    async def _notify_stackmentor_opened(self, position: ScalpingPosition, signal, levels):
+    async def _notify_stackmentor_opened(
+        self,
+        position: ScalpingPosition,
+        signal,
+        levels,
+        order_id: str = "-",
+        trade_id: Optional[int] = None,
+    ):
         """Notify user when StackMentor position opened.
 
         `levels` is a `StackMentorLevels` dataclass from app.trade_execution.
         """
         try:
-            reasons_text = "\n".join(f"• {r}" for r in signal.reasons) if hasattr(signal, 'reasons') else "Signal detected"
-
-            # Calculate R:R ratios
-            sl_distance = abs(position.entry_price - levels.sl)
-            rr1 = abs(levels.tp1 - position.entry_price) / sl_distance if sl_distance > 0 else 0
-            rr2 = abs(levels.tp2 - position.entry_price) / sl_distance if sl_distance > 0 else 0
-            rr3 = abs(levels.tp3 - position.entry_price) / sl_distance if sl_distance > 0 else 0
+            risk_amount = abs(position.entry_price - levels.sl) * position.quantity
+            acc_result = await asyncio.to_thread(self.client.get_account_info)
+            current_equity = 0.0
+            if acc_result.get("success"):
+                available = float(acc_result.get("available", 0) or 0)
+                frozen = float(acc_result.get("frozen", 0) or 0)
+                unrealized = float(acc_result.get("total_unrealized_pnl", 0) or 0)
+                current_equity = available + frozen + unrealized
+            risk_pct_equity = (risk_amount / current_equity * 100) if current_equity > 0 else None
+            direction = "Long" if position.side.upper() in ("BUY", "LONG") else "Short"
+            opened_at = datetime.utcnow().strftime("%d %b %Y %H:%M:%S UTC")
+            order_id_text = escape(str(order_id or "-"))
 
             await self.bot.send_message(
                 chat_id=self.notify_chat_id,
                 text=(
-                    f"⚡ <b>SCALP Trade Opened (StackMentor)</b>\n\n"
-                    f"Symbol: {position.symbol}\n"
-                    f"Side: {position.side}\n"
-                    f"Entry: {position.entry_price:.4f}\n"
-                    f"Quantity: {position.quantity:.6f}\n\n"
-                    f"🎯 <b>3-Tier Take Profit:</b>\n"
-                    f"TP1: {levels.tp1:.4f} ({rr1:.1f}R) - {levels.qty_tp1:.6f} (60%)\n"
-                    f"TP2: {levels.tp2:.4f} ({rr2:.1f}R) - {levels.qty_tp2:.6f} (30%)\n"
-                    f"TP3: {levels.tp3:.4f} ({rr3:.1f}R) - {levels.qty_tp3:.6f} (10%)\n\n"
-                    f"🛡️ <b>Stop Loss:</b> {levels.sl:.4f}\n"
-                    f"💡 <b>Auto-Breakeven:</b> SL moves to entry when TP1 hit\n\n"
-                    f"<b>Reasons:</b>\n{reasons_text}\n\n"
-                    f"✅ TP/SL ter-set dengan StackMentor system!"
+                    "🤖 <b>Cryptomentor AI Autotrade</b>\n\n"
+                    f"<b>Direction:</b> {direction}\n"
+                    f"<b>Trading Pair:</b> {position.symbol}\n"
+                    f"<b>Entry:</b> {_fmt_price(position.entry_price)}\n"
+                    f"<b>TP:</b> {_fmt_price(levels.tp1)}\n"
+                    f"<b>SL:</b> {_fmt_price(levels.sl)}\n"
+                    f"<b>Risk PNL:</b> ${risk_amount:.2f}\n"
+                    + (
+                        f"<b>Risk % on equity:</b> {risk_pct_equity:.2f}%\n"
+                        if risk_pct_equity is not None else
+                        "<b>Risk % on equity:</b> N/A\n"
+                    )
+                    + f"<b>Order ID:</b> <code>{order_id_text}</code>\n"
+                    + f"<b>Date and time:</b> {opened_at}"
                 ),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=_trade_detail_keyboard(trade_id=trade_id, order_id=order_id, symbol=position.symbol),
             )
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] Error sending StackMentor notification: {e}")

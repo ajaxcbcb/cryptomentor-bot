@@ -10,6 +10,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from app.auth.jwt import decode_token
+from app.db.supabase import _client
 from app.services import bitunix as bsvc
 
 router = APIRouter(prefix="/bitunix", tags=["bitunix"])
@@ -23,6 +24,12 @@ class TPSLUpdate(BaseModel):
 class ApiKeysInput(BaseModel):
     api_key: str
     api_secret: str
+
+
+class ClosePositionInput(BaseModel):
+    symbol: str
+    side: str | None = None
+    source: str | None = None
 
 
 def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> int:
@@ -40,6 +47,96 @@ def _require_keys(tg_id: int):
             detail="Bitunix API keys not configured. Please set them up via the Telegram bot (/autotrade).",
         )
     return keys
+
+
+def _norm_symbol(symbol: str | None) -> str:
+    return str(symbol or "").replace("/", "").upper().strip()
+
+
+def _norm_side(side: str | None) -> str:
+    s = str(side or "").upper().strip()
+    if s in ("LONG", "BUY"):
+        return "LONG"
+    if s in ("SHORT", "SELL"):
+        return "SHORT"
+    return ""
+
+
+def _is_same_position(live_pos: dict, db_trade: dict) -> bool:
+    if _norm_symbol(live_pos.get("symbol")) != _norm_symbol(db_trade.get("symbol")):
+        return False
+    if _norm_side(live_pos.get("side")) != _norm_side(db_trade.get("side")):
+        return False
+
+    # Try quantity similarity first (most stable)
+    try:
+        live_qty = float(live_pos.get("qty") or live_pos.get("size") or 0)
+        db_qty = float(db_trade.get("qty") or db_trade.get("quantity") or 0)
+        if live_qty > 0 and db_qty > 0:
+            diff_pct = abs(live_qty - db_qty) / max(live_qty, db_qty)
+            if diff_pct <= 0.2:
+                return True
+    except Exception:
+        pass
+
+    # Fallback to entry-price similarity
+    try:
+        live_entry = float(live_pos.get("entry_price") or 0)
+        db_entry = float(db_trade.get("entry_price") or 0)
+        if live_entry > 0 and db_entry > 0:
+            diff_pct = abs(live_entry - db_entry) / max(live_entry, db_entry)
+            if diff_pct <= 0.03:
+                return True
+    except Exception:
+        pass
+
+    # Final fallback: symbol+side already match.
+    return True
+
+
+def _annotate_position_sources(tg_id: int, positions: list[dict]) -> list[dict]:
+    """
+    Mark each live exchange position as:
+    - source=autotrade: matched with an open row in autotrade_trades
+    - source=1_click: unmatched live position (opened manually/1-click)
+    """
+    try:
+        s = _client()
+        db_res = s.table("autotrade_trades").select(
+            "id, symbol, side, qty, quantity, entry_price, status"
+        ).eq("telegram_id", int(tg_id)).eq("status", "open").execute()
+        db_open = db_res.data or []
+    except Exception:
+        # Safe fallback: if DB lookup fails, classify as autotrade to avoid
+        # exposing close-manual action on potentially managed positions.
+        fallback = []
+        for pos in positions:
+            enriched = dict(pos)
+            enriched["source"] = "autotrade"
+            enriched["source_label"] = "AutoTrade"
+            enriched["autotrade_trade_id"] = None
+            fallback.append(enriched)
+        return fallback
+
+    remaining_db = list(db_open)
+    annotated: list[dict] = []
+
+    for pos in positions:
+        enriched = dict(pos)
+        source = "1_click"
+        matched_trade_id = None
+        for idx, db_trade in enumerate(remaining_db):
+            if _is_same_position(enriched, db_trade):
+                source = "autotrade"
+                matched_trade_id = db_trade.get("id")
+                remaining_db.pop(idx)
+                break
+        enriched["source"] = source
+        enriched["source_label"] = "AutoTrade" if source == "autotrade" else "1-Click"
+        enriched["autotrade_trade_id"] = matched_trade_id
+        annotated.append(enriched)
+
+    return annotated
 
 
 # ------------------------------------------------------------------ status -- #
@@ -99,12 +196,90 @@ async def bitunix_positions(tg_id: int = Depends(get_current_user)):
     if not res.get("success"):
         raise HTTPException(status_code=502, detail=res.get("message") or "Bitunix positions fetch failed")
 
-    positions = res.get("positions", [])
+    positions = _annotate_position_sources(tg_id, res.get("positions", []))
     total_upnl = sum(float(p.get("pnl") or 0) for p in positions)
     return {
         "total_positions": len(positions),
+        "autotrade_positions": sum(1 for p in positions if p.get("source") == "autotrade"),
+        "one_click_positions": sum(1 for p in positions if p.get("source") == "1_click"),
         "total_unrealized_pnl": round(total_upnl, 4),
         "positions": positions,
+    }
+
+
+@router.post("/positions/close")
+async def bitunix_close_position(
+    req: ClosePositionInput,
+    tg_id: int = Depends(get_current_user),
+):
+    """
+    Close a live position with reduce-only market order.
+    This endpoint is intended for 1-click/manual positions from web dashboard.
+    """
+    _require_keys(tg_id)
+
+    symbol = _norm_symbol(req.symbol)
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Missing symbol")
+
+    if req.source and req.source != "1_click":
+        raise HTTPException(status_code=400, detail="Only 1-click positions can be closed from this action")
+
+    try:
+        live = await bsvc.fetch_positions(tg_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Bitunix error: {e}")
+    if not live.get("success"):
+        raise HTTPException(status_code=502, detail=live.get("message") or "Bitunix positions fetch failed")
+
+    positions = _annotate_position_sources(tg_id, live.get("positions", []))
+    target_side = _norm_side(req.side)
+
+    target = None
+    for p in positions:
+        if _norm_symbol(p.get("symbol")) != symbol:
+            continue
+        if p.get("source") != "1_click":
+            continue
+        if target_side and _norm_side(p.get("side")) != target_side:
+            continue
+        target = p
+        break
+
+    if not target:
+        raise HTTPException(status_code=404, detail="1-click position not found (or already closed)")
+
+    position_side = _norm_side(target.get("side"))
+    qty = float(target.get("qty") or target.get("size") or 0)
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="Position size is zero")
+    if position_side not in ("LONG", "SHORT"):
+        raise HTTPException(status_code=400, detail="Unable to resolve position side")
+
+    close_side = "SELL" if position_side == "LONG" else "BUY"
+    try:
+        close_res = await bsvc.close_market_position(
+            telegram_id=tg_id,
+            symbol=symbol,
+            close_side=close_side,
+            qty=qty,
+            position_side=position_side,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Close order failed: {e}")
+
+    if not close_res.get("success"):
+        raise HTTPException(
+            status_code=502,
+            detail=close_res.get("error") or close_res.get("message") or "Close order rejected by exchange",
+        )
+
+    return {
+        "success": True,
+        "symbol": symbol,
+        "source": "1_click",
+        "closed_qty": qty,
+        "order": close_res,
     }
 
 

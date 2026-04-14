@@ -164,6 +164,57 @@
 
 - **Memory**: ~1KB per (user_id, symbol) position + metadata (~100 bytes overhead per symbol)
 
+## [2.1.2] — 2026-04-11 — Dashboard Stability, Notification UX, Trade Audio Cues, Data Accuracy
+
+### 🚀 What Changed
+
+#### 1) Dashboard Access and Rendering Stability
+- Fixed dashboard render blocker caused by missing `riskSettings` wiring in frontend tabs.
+- Added safer defaults and session boot error handling to avoid blank/indefinite loading states.
+- Improved verification/session resilience in web login flow and gatekeeper transitions.
+
+#### 2) Portfolio/Engine Risk UI Cleanup
+- Removed duplicate **Risk Management** card from Engine Controls.
+- Removed Risk Management block from Portfolio Status to prevent layout collisions.
+- Kept single canonical risk control surface in Engine Controls.
+
+#### 3) Responsive Layout Hardening
+- Fixed resize/overflow issues in Portfolio Status:
+  - Better wrapping behavior for header controls.
+  - Safer flex shrink behavior (`min-w-0`) in main content.
+  - Grid breakpoint tuning to prevent card clipping on medium widths.
+  - Horizontal overflow guards added to root/main containers.
+
+#### 4) Branding Update
+- Replaced Bitunix branding image with `bitunix.jpg` and updated rendered card usage.
+
+#### 5) Trade Notifications (Telegram, Professional Format)
+- Added admin-triggerable web endpoint to send sample trade notifications:
+  - `POST /dashboard/admin/broadcast-sample-trades`
+  - Supports **trade opened** + **trade closed** messages.
+  - Professional emoji-rich formatting and CTA button.
+  - Added optional `target_chat_id` for single-user test sends before mass broadcast.
+- Sent verified sample open/close notifications to Telegram user `1187119989`.
+
+#### 6) Realized PnL / Closed Trades Accuracy Fix
+- Fixed backend trade aggregation that incorrectly filtered only `status = closed`.
+- Updated portfolio/performance/leaderboard queries to include real close variants:
+  - `closed_tp`, `closed_sl`, `closed_tp1`, `closed_tp2`, `closed_tp3`, `closed_flip`, `closed_manual`.
+- Result: 30D realized PnL and closed trade counts now reflect real engine outcomes.
+
+#### 7) Web Sound Effects for Trade Lifecycle
+- Added browser-side audio cues in dashboard:
+  - Trade Open: ascending chime.
+  - Trade Close: descending confirmation tone.
+- Implemented with Web Audio API and live position diff detection from polling.
+- Includes user-interaction unlock handling for browser autoplay restrictions.
+
+### ✅ Deploy/Verification Notes
+
+1. Frontend was rebuilt and redeployed multiple times with final responsive + audio updates.
+2. Backend (`cryptomentor-web.service`) was restarted with notification and PnL-status fixes.
+3. Telegram sample notification delivery to `1187119989` returned Telegram API `ok: true` for both open and close messages.
+
 ## [2.1.1] — 2026-04-10 — Unified Verification, Anti-Flip Stabilization, StackMentor 1:3, UI Hardening
 
 ### 🚀 What Changed

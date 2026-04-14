@@ -7,9 +7,12 @@ SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 def _client() -> Client:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    # Re-read env vars at call time to handle cases where dotenv loads after module import
+    url = (os.getenv("SUPABASE_URL") or SUPABASE_URL or "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_KEY") or SUPABASE_SERVICE_KEY
+    if not url or not key:
         raise RuntimeError("Set SUPABASE_URL & SUPABASE_SERVICE_KEY (Service role).")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return create_client(url, key)
 
 # --- READERS ---
 def get_user_by_tid(tg_id: int) -> Optional[Dict[str, Any]]:
@@ -314,8 +317,8 @@ def get_risk_per_trade(telegram_id: int) -> float:
     Get user's risk percentage per trade from database.
 
     Returns:
-        Risk percentage as float (e.g., 0.25, 0.5, 0.75, 1.0)
-        Default: 0.5 (moderate risk) if not set
+        Risk percentage as float in range 0.25 - 5.0.
+        Default: 1.0 if not set
     """
     try:
         s = _client()
@@ -327,22 +330,24 @@ def get_risk_per_trade(telegram_id: int) -> float:
             stored_value = res.data[0].get("risk_per_trade")
             if stored_value is not None:
                 risk_value = float(stored_value)
+                # Safety clamp: enforce dashboard/autotrade supported range.
+                risk_value = max(0.25, min(5.0, risk_value))
                 # Log to help debug
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.info(f"[RiskFetch:{telegram_id}] Retrieved risk_per_trade: {risk_value}")
                 return risk_value
 
-        # Default: 0.5 (moderate risk) if not set
+        # Default: 1.0 if not set
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"[RiskFetch:{telegram_id}] No risk_per_trade found, using default 0.5")
-        return 0.5
+        logger.info(f"[RiskFetch:{telegram_id}] No risk_per_trade found, using default 1.0")
+        return 1.0
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"[RiskFetch:{telegram_id}] Error fetching risk_per_trade: {e}")
-        return 0.5  # Safe default
+        return 1.0  # Safe default
 
 
 def get_risk_mode(telegram_id: int) -> str:
@@ -426,7 +431,7 @@ def set_risk_per_trade(telegram_id: int, risk_pct: float) -> Dict[str, Any]:
     
     Args:
         telegram_id: User's Telegram ID
-        risk_pct: Risk percentage (0.5 - 10.0)
+        risk_pct: Risk percentage (0.25 - 5.0)
     
     Returns:
         {
@@ -437,10 +442,10 @@ def set_risk_per_trade(telegram_id: int, risk_pct: float) -> Dict[str, Any]:
     """
     try:
         # Validate risk percentage
-        if risk_pct < 0.5 or risk_pct > 10.0:
+        if risk_pct < 0.25 or risk_pct > 5.0:
             return {
                 'success': False,
-                'error': 'Risk must be between 0.5% and 10%',
+                'error': 'Risk must be between 0.25% and 5%',
                 'risk_per_trade': 0
             }
         

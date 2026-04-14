@@ -1,50 +1,48 @@
-#!/usr/bin/env python3
-"""Check which active users have/don't have API keys"""
-import os, sys
+import sys, os
 sys.path.insert(0, '/root/cryptomentor-bot/Bismillah')
 
-# Load env manually
-with open('/root/cryptomentor-bot/.env') as f:
-    for line in f:
-        line = line.strip()
-        if '=' in line and not line.startswith('#'):
-            k, v = line.split('=', 1)
-            os.environ[k.strip()] = v.strip()
+# Load env
+env_path = '/root/cryptomentor-bot/.env'
+for line in open(env_path):
+    line = line.strip()
+    if '=' in line and not line.startswith('#'):
+        k, _, v = line.partition('=')
+        os.environ.setdefault(k.strip(), v.strip())
 
-from supabase import create_client
-url = os.getenv('SUPABASE_URL')
-key = os.getenv('SUPABASE_SERVICE_KEY')
-c = create_client(url, key)
+from app.supabase_repo import _client
+from app.lib.crypto import decrypt
 
-# Get all active sessions
-sessions = c.table('autotrade_sessions').select(
-    'telegram_id, status, engine_active, trading_mode'
-).not_.in_('status', ['pending_verification', 'uid_rejected', 'pending', 'stopped']).execute()
+s = _client()
 
-print(f"Total active sessions: {len(sessions.data)}")
-print()
+# Get all user_api_keys
+keys_res = s.table('user_api_keys').select('telegram_id, api_key, api_secret_enc, key_hint').execute()
+keys_data = keys_res.data or []
 
-has_keys = []
-no_keys = []
+# Get all autotrade_sessions that should be active
+sessions_res = s.table('autotrade_sessions').select('telegram_id, status, engine_active').not_.in_(
+    'status', ['pending_verification', 'uid_rejected', 'pending', 'stopped']
+).execute()
+sessions = sessions_res.data or []
 
-for s in sessions.data:
-    uid = s['telegram_id']
-    if uid >= 999999990:
-        continue
-    
-    # Check API keys
-    keys = c.table('user_api_keys').select('telegram_id, exchange, api_key').eq('telegram_id', uid).limit(1).execute()
-    
-    if keys.data:
-        has_keys.append({'uid': uid, 'status': s['status'], 'engine': s['engine_active'], 'exchange': keys.data[0].get('exchange')})
+print(f"\n=== USER API KEYS IN DATABASE ({len(keys_data)} total) ===")
+keys_by_uid = {}
+for k in keys_data:
+    uid = k.get('telegram_id')
+    try:
+        secret = decrypt(k.get('api_secret_enc', ''))
+        status = 'OK'
+    except Exception as e:
+        secret = None
+        status = f'DECRYPT_FAIL: {e}'
+    keys_by_uid[uid] = status
+    print(f"  UID {uid} | hint: {k.get('key_hint')} | decrypt: {status}")
+
+print(f"\n=== ACTIVE SESSIONS WITHOUT VALID API KEYS ===")
+for sess in sessions:
+    uid = sess.get('telegram_id')
+    if uid not in keys_by_uid:
+        print(f"  UID {uid} | status={sess.get('status')} | NO API KEY IN DB")
+    elif 'FAIL' in keys_by_uid.get(uid, ''):
+        print(f"  UID {uid} | status={sess.get('status')} | {keys_by_uid[uid]}")
     else:
-        no_keys.append({'uid': uid, 'status': s['status'], 'engine': s['engine_active']})
-
-print(f"✅ Users WITH API keys ({len(has_keys)}):")
-for u in has_keys:
-    print(f"  tg_id={u['uid']} | status={u['status']} | engine_active={u['engine']} | exchange={u['exchange']}")
-
-print()
-print(f"❌ Users WITHOUT API keys ({len(no_keys)}):")
-for u in no_keys:
-    print(f"  tg_id={u['uid']} | status={u['status']} | engine_active={u['engine']}")
+        print(f"  UID {uid} | status={sess.get('status')} | API key OK")

@@ -10,6 +10,17 @@ from app.db.supabase import _client
 
 router = APIRouter(prefix="/dashboard", tags=["performance"])
 
+CLOSED_STATUSES = [
+    "closed",
+    "closed_tp",
+    "closed_sl",
+    "closed_tp1",
+    "closed_tp2",
+    "closed_tp3",
+    "closed_flip",
+    "closed_manual",
+]
+
 
 @router.get("/performance")
 async def get_performance(tg_id: int = Depends(get_current_user)):
@@ -19,7 +30,7 @@ async def get_performance(tg_id: int = Depends(get_current_user)):
     # Fetch closed trades last 90 days
     res = s.table("autotrade_trades").select(
         "pnl_usdt, closed_at, tp1_hit, tp2_hit, tp3_hit, status"
-    ).eq("telegram_id", tg_id).eq("status", "closed").gte(
+    ).eq("telegram_id", tg_id).in_("status", CLOSED_STATUSES).gte(
         "closed_at", since_90d
     ).order("closed_at").execute()
 

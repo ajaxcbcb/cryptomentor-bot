@@ -92,3 +92,6 @@ set
   bitunix_uid = excluded.bitunix_uid,
   status = excluded.status,
   updated_at = now();
+
+-- Allow bitunix_uid to be NULL (admin may reject before UID is submitted)
+alter table public.user_verifications alter column bitunix_uid drop not null;

@@ -28,6 +28,8 @@ from app.services import bitunix as bsvc
 from app.auth.jwt import decode_token
 
 logger = logging.getLogger(__name__)
+RISK_MIN_PCT = 0.25
+RISK_MAX_PCT = 5.0
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -71,6 +73,38 @@ router = APIRouter(prefix="/dashboard", tags=["signals"])
 # A cached signal is reused until it expires (>= SIGNAL_ENTRY_WINDOW_SECONDS old),
 # at which point a fresh signal is generated with a new generated_at timestamp.
 _signal_cache: Dict[str, Dict[str, Any]] = {}
+
+
+def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
+    """Clamp incoming risk setting to supported range [0.25, 5.0]."""
+    try:
+        risk = float(raw_value)
+    except Exception:
+        return float(default)
+    return max(RISK_MIN_PCT, min(RISK_MAX_PCT, risk))
+
+
+def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
+    """
+    Map user risk% to confluence selectivity and TP width.
+    >1% is treated as high risk (lower min confidence, wider TP multipliers).
+    """
+    risk = _normalize_risk_pct(user_risk_pct, default=1.0)
+    if risk <= 0.25:
+        return {"min_confidence": 60, "atr_multiplier": 0.5}
+    if risk <= 0.5:
+        return {"min_confidence": 50, "atr_multiplier": 1.0}
+    if risk <= 0.75:
+        return {"min_confidence": 45, "atr_multiplier": 1.25}
+    if risk <= 1.0:
+        return {"min_confidence": 40, "atr_multiplier": 1.5}
+    if risk <= 2.0:
+        return {"min_confidence": 38, "atr_multiplier": 1.75}
+    if risk <= 3.0:
+        return {"min_confidence": 36, "atr_multiplier": 2.0}
+    if risk <= 4.0:
+        return {"min_confidence": 34, "atr_multiplier": 2.25}
+    return {"min_confidence": 32, "atr_multiplier": 2.5}
 
 # (display_pair, binance_symbol, tier, type)
 # All pairs are free — more pairs = more trading volume
@@ -163,24 +197,17 @@ async def generate_confluence_signals(
 
     Adaptive confidence thresholds based on user risk tolerance:
     - Conservative (0.25%): min_confidence=60, tighter TPs (0.5×ATR)
-    - Moderate (0.5%): min_confidence=50, standard TPs (0.75–1.5×ATR)
-    - Aggressive (0.75%): min_confidence=45, wider TPs (1.25×ATR)
-    - Very Aggressive (1.0%): min_confidence=40, widest TPs (1.5×ATR)
+    - Moderate (0.5%): min_confidence=50, standard TPs (1.0×ATR baseline)
+    - Aggressive (0.75-1.0%): min_confidence=45..40, wider TPs
+    - High risk (>1.0% up to 5.0%): progressively lower min confidence, widest TPs
 
     Returns: signal dict if confluent, or None if weak setup
     """
     symbol_upper = symbol.upper()
 
-    # Map risk tolerance to confidence threshold and TP scaling
-    risk_config = {
-        0.25: {"min_confidence": 60, "atr_multiplier": 0.5},
-        0.5:  {"min_confidence": 50, "atr_multiplier": 1.0},
-        0.75: {"min_confidence": 45, "atr_multiplier": 1.25},
-        1.0:  {"min_confidence": 40, "atr_multiplier": 1.5},
-    }
-
-    # Get config for user's risk level (default to 0.5 if not in map)
-    config = risk_config.get(user_risk_pct, risk_config[0.5])
+    # Get config for user's risk level (clamped to [0.25, 5.0])
+    user_risk_pct = _normalize_risk_pct(user_risk_pct, default=1.0)
+    config = _risk_profile(user_risk_pct)
     min_confidence = config["min_confidence"]
     atr_multiplier = config["atr_multiplier"]
 
@@ -469,7 +496,7 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
     now_utc = datetime.now(timezone.utc)
 
     # Fetch user's risk preference (for adaptive signal confidence threshold)
-    user_risk_pct = 0.5  # Default: moderate risk
+    user_risk_pct = 1.0  # Default: 1% risk
     if tg_id:
         try:
             s = _client()
@@ -477,10 +504,10 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
                 "risk_per_trade"
             ).eq("telegram_id", tg_id).limit(1).execute()
             sess = (res.data or [{}])[0]
-            user_risk_pct = float(sess.get("risk_per_trade") or 0.5)
+            user_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)
         except Exception as e:
             logger.warning(f"Failed to fetch user risk setting: {e}")
-            user_risk_pct = 0.5
+            user_risk_pct = 1.0
 
     # Get trade status (for in-position or closed trade tracking)
     try:
@@ -662,7 +689,7 @@ async def execute_signal(
         "risk_per_trade, leverage"
     ).eq("telegram_id", tg_id).limit(1).execute()
     sess = (sess_res.data or [{}])[0]
-    risk_pct = float(sess.get("risk_per_trade") or 0.5)  # Default to 0.5% if not set
+    risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)  # 0.25%..5.0%
     leverage = int(sess.get("leverage") or 10)
 
     # Re-derive the signal from live market data so dynamic sizing reflects
@@ -698,6 +725,7 @@ async def execute_signal(
     risk_amount = equity * (risk_pct / 100.0)
     position_size_usdt = risk_amount / sl_distance_pct
     margin_required = position_size_usdt / leverage
+    risk_zone = "amber_red" if risk_pct > 1.0 else "normal"
 
     # Cap margin at 95% of available balance (not equity) to ensure we have buffer
     if margin_required > balance * 0.95:
@@ -754,6 +782,8 @@ async def execute_signal(
             "margin_required": round(margin_required, 2),
             "risk_amount": round(risk_amount, 2),
             "risk_pct": risk_pct,
+            "risk_zone": risk_zone,
+            "high_risk": risk_pct > 1.0,
             "sl_distance_pct": round(sl_distance_pct * 100, 3),
             "leverage": leverage,
             "signal_age_seconds": int(age),
