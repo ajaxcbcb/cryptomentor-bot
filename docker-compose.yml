@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile.analytics
+    container_name: cryptomentor-analytics
+    ports:
+      - "8896:8896"
+    environment:
+      # Load from .env file
+      - ADMIN_IDS=${ADMIN_IDS}
+      - ADMIN1=${ADMIN1}
+      - ADMIN2=${ADMIN2}
+      - ADMIN3=${ADMIN3}
+      - ADMIN4=${ADMIN4}
+      - ADMIN5=${ADMIN5}
+      - JWT_SECRET=<REDACTED_JWT_SECRET>
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=<REDACTED_SUPABASE_KEY>
+      - ANALYTICS_PORT=8896
+      - ANALYTICS_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/app/logs
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8896/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - cryptomentor
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  cryptomentor:
+    driver: bridge

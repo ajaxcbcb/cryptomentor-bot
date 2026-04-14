@@ -1,0 +1,49 @@
+[Unit]
+Description=CryptoMentor Analytics API (v2.2.0)
+Documentation=file:///opt/cryptomentor/ANALYTICS_SETUP.md
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cryptomentor
+Group=cryptomentor
+WorkingDirectory=/opt/cryptomentor
+
+# Environment variables - set these in .env file
+EnvironmentFile=/opt/cryptomentor/.env
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/opt/cryptomentor"
+
+# Command
+ExecStart=/opt/cryptomentor/venv/bin/uvicorn Bismillah.analytics_api:app \
+    --host 0.0.0.0 \
+    --port 8896 \
+    --workers 4 \
+    --timeout-keep-alive 60
+
+# Process management
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cryptomentor/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cryptomentor-analytics
+
+[Install]
+WantedBy=multi-user.target
