@@ -11,6 +11,11 @@ from datetime import datetime
 
 from app.trading_mode import ScalpingConfig, ScalpingSignal, ScalpingPosition
 from app.supabase_repo import _client
+from app.symbol_coordinator import (
+    get_coordinator,
+    StrategyOwner,
+    PositionSide,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +64,10 @@ class ScalpingEngine:
         
         # Running state
         self.running = False
-        
+
+        # Multi-user symbol coordinator
+        self.coordinator = get_coordinator()
+
         logger.info(f"[Scalping:{user_id}] Engine initialized with config: {self.config}")
     
     async def run(self):
