@@ -51,17 +51,47 @@ def _mark_requires_manual_restart(user_id: int):
     """
     Mark session as stopped so health-check won't auto-retry forever.
     User can start again manually via /autotrade.
+
+    EXCEPTION: if the user is still approved in user_verifications, restore
+    their status to 'uid_verified' so the health-check can resume once the
+    API key issue is resolved — do NOT permanently lock them out.
     """
     try:
         from app.supabase_repo import _client
-        _client().table("autotrade_sessions").upsert(
-            {
+        s = _client()
+
+        # Check whether user is still approved in user_verifications
+        ver = s.table("user_verifications").select("status, bitunix_uid").eq(
+            "telegram_id", int(user_id)
+        ).limit(1).execute()
+        is_approved = bool(ver.data) and ver.data[0].get("status") == "approved"
+
+        if is_approved:
+            # Keep them as uid_verified so health-check retries after API key fix;
+            # also sync bitunix_uid in case it drifted
+            uid = ver.data[0].get("bitunix_uid")
+            row = {
+                "telegram_id": int(user_id),
+                "status": "uid_verified",
+                "engine_active": False,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            if uid:
+                row["bitunix_uid"] = uid
+            logger.info(
+                f"[HealthCheck] User {user_id} is still approved in user_verifications "
+                f"— resetting to uid_verified instead of stopped"
+            )
+        else:
+            row = {
                 "telegram_id": int(user_id),
                 "status": "stopped",
                 "engine_active": False,
                 "updated_at": datetime.utcnow().isoformat(),
-            },
-            on_conflict="telegram_id",
+            }
+
+        s.table("autotrade_sessions").upsert(
+            row, on_conflict="telegram_id"
         ).execute()
     except Exception as e:
         logger.warning(f"[HealthCheck] Failed to mark user {user_id} as stopped: {e}")

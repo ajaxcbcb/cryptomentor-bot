@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.3] — 2026-04-14 — Health-Check Status Restoration Fix
+
+### 🛠️ Platform Stability
+- **Graceful Error Recovery**: Updated health-check logic in `handlers_autotrade.py` and `scheduler.py` to restore user status to `uid_verified` (instead of a hard `stopped`) if their API key fails but their Bitunix UID is still approved.
+  - **Goal**: Prevent users from being permanently "stopped" due to transient API key issues or rotation, allowing the system to resume once keys are updated.
+
 ## [2.2.2] — 2026-04-14 — Auto Max-Safe Leverage Enforcement
 
 ### 🛡️ Risk Management Optimization
