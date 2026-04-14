@@ -16,7 +16,7 @@ from app.safe_send import safe_dm
 MIN_INTERVAL_SEC = 1800
 DEFAULT_INTERVAL_SEC = 1800
 TOP_N = 25
-MIN_CONFIDENCE = 75
+MIN_CONFIDENCE = 72
 TIMEFRAME = os.getenv("FUTURES_TF", "15m")
 QUOTE = os.getenv("FUTURES_QUOTE", "USDT").upper()
 COOLDOWN_MIN = int(os.getenv("AUTOSIGNAL_COOLDOWN_MIN", "60"))
