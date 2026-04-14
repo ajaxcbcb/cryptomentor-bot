@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.2] — 2026-04-14 — Auto Max-Safe Leverage Enforcement
+
+### 🛡️ Risk Management Optimization
+- **Centralized Leverage Enforcement**: Implemented `calculate_max_safe_leverage` based on SL distance to dynamically maximize capital efficiency while preventing early liquidations.
+  - **Goal**: Allow users to open trades safely using minimal required margin without violating the Stop Loss price buffer (15% safety bound for maintenance margin).
+  - **Effect**: Deprecated the "Legacy baseline setting" (e.g. 10x/20x hardcoded limits) in favor of intelligent, dynamic leverage capping (up to exchange max 125x) calculated per-trade based on the precise entry/SL distance.
+
+### ✅ Deploy Notes
+1. Updated `Bismillah/app/position_sizing.py` to add `calculate_max_safe_leverage`.
+2. Updated `Bismillah/app/scalping_engine.py` and `Bismillah/app/autotrade_engine.py` to remove hardcoded limits and pass `effective_leverage` properly to the risk calculation and `trade_execution` pipeline.
+3. Live VPS codebase synchronized.
+
 ## [2.2.1] — 2026-04-14 — Signal Engine Sensitivity Patch
 
 ### 📡 Signal Engine Optimization

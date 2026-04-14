@@ -1757,7 +1757,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 side=new_side,
                                 entry_price=new_entry,
                                 qty=flip_qty,
-                                leverage=leverage,
+                                leverage=effective_leverage,
                                 tp_price=new_tp,
                                 sl_price=new_sl,
                                 signal=rev_sig,
@@ -1961,9 +1961,25 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             except Exception as _qst_err:
                 logger.debug(f"[Engine:{user_id}] Queue status notification failed: {_qst_err}")
 
+            # ── Auto Max-Safe Leverage Calculation ──
+            from app.position_sizing import calculate_max_safe_leverage
+            effective_leverage = calculate_max_safe_leverage(entry, sl, symbol)
+            
+            logger.info(f"[Engine:{user_id}] Auto Max-Safe Leverage for {symbol}: {effective_leverage}x (Baseline: {leverage}x)")
+
+            # Sync signal execution update to Supabase including effective leverage
+            try:
+                from app.supabase_repo import _client
+                s = _client()
+                s.table("signal_queue").update({
+                    "reason": f"Executed with Auto Max-Safe Leverage: {effective_leverage}x"
+                }).eq("user_id", user_id).eq("symbol", symbol).eq("status", "executing").execute()
+            except Exception:
+                pass
+
             # ── Hitung qty dengan risk-based sizing (Phase 2) ─────────────
             # Try risk-based position sizing first, fallback to fixed margin if fails
-            qty, used_risk_sizing = await calc_qty_with_risk(symbol, entry, sl, leverage)
+            qty, used_risk_sizing = await calc_qty_with_risk(symbol, entry, sl, effective_leverage)
             
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
@@ -2073,7 +2089,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
 
             # ── Set leverage ──────────────────────────────────────────
-            await asyncio.to_thread(client.set_leverage, symbol, leverage)
+            await asyncio.to_thread(client.set_leverage, symbol, effective_leverage)
 
             # ── Validate SL price before placing order ────────────────
             # Get current mark price to ensure SL is valid
@@ -2302,7 +2318,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     qty_tp2=qty_tp2,
                     qty_tp3=qty_tp3,
                     side=side,
-                    leverage=leverage
+                    leverage=effective_leverage
                 )
 
             # ── Simpan ke trade history ───────────────────────────────
@@ -2315,7 +2331,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     side=side,
                     entry_price=entry,
                     qty=qty,
-                    leverage=leverage,
+                    leverage=effective_leverage,
                     tp_price=tp1,
                     sl_price=sl,
                     signal=sig,

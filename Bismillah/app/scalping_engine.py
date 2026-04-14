@@ -108,6 +108,21 @@ class ScalpingEngine:
         self.running = True
         logger.info(f"[Scalping:{self.user_id}] Engine started")
         
+        # ── Recover existing state ───────────────────────────────────────────
+        # 1. Reconcile DB with Exchange (close stale rows if positions closed manually)
+        try:
+            from app.trade_history import reconcile_open_trades_with_exchange
+            reconciled = await asyncio.to_thread(
+                reconcile_open_trades_with_exchange, self.user_id, self.client
+            )
+            if reconciled > 0:
+                logger.info(f"[Scalping:{self.user_id}] Reconciled {reconciled} stale positions on startup")
+        except Exception as e:
+            logger.error(f"[Scalping:{self.user_id}] Reconciliation failed: {e}")
+
+        # 2. Load open positions from DB to resume monitoring
+        await self._load_existing_positions()
+        
         # Send startup notification
         try:
             await self.bot.send_message(
@@ -656,8 +671,8 @@ class ScalpingEngine:
             (position_size, used_risk_sizing): tuple of (quantity, whether risk sizing was used)
         """
         try:
-            # CRITICAL: Cap leverage at 10x for scalping (safety)
-            leverage = min(leverage, 10)
+            # Auto Max-Safe leverage is passed in from caller
+            # leverage = min(leverage, 10)  # Removed hardcoded cap
             
             # Get risk percentage from database
             from app.supabase_repo import get_risk_per_trade
@@ -706,7 +721,7 @@ class ScalpingEngine:
             logger.info(
                 f"[Scalping:{self.user_id}] RISK-BASED sizing: "
                 f"Balance=${balance:.2f}, Risk={risk_pct}% (capped at 5%), "
-                f"Leverage={leverage}x (capped at 10x), "
+                f"Leverage={leverage}x (Auto Max-Safe), "
                 f"Entry=${entry_price:.2f}, SL=${sl_price:.2f}, "
                 f"SL_Dist={sizing['sl_distance_pct']:.2f}%, "
                 f"Position=${sizing['position_size_usdt']:.2f}, "
@@ -982,12 +997,18 @@ class ScalpingEngine:
                 capital = float(session.data[0].get("initial_deposit", 100))
                 leverage = int(session.data[0].get("leverage", 10))
                 
+                # ── Auto Max-Safe Leverage Calculation ──
+                from app.position_sizing import calculate_max_safe_leverage
+                effective_leverage = calculate_max_safe_leverage(signal.entry_price, signal.sl_price, signal.symbol)
+                
+                logger.info(f"[Scalping:{self.user_id}] Auto Max-Safe Leverage for {signal.symbol}: {effective_leverage}x (Baseline: {leverage}x)")
+                
                 # CRITICAL: Calculate position size based on risk (Phase 2)
                 quantity, used_risk_sizing = self.calculate_position_size_pro(
                     entry_price=signal.entry_price,
                     sl_price=signal.sl_price,
                     capital=capital,
-                    leverage=leverage
+                    leverage=effective_leverage
                 )
                 
                 if used_risk_sizing:
@@ -1014,7 +1035,6 @@ class ScalpingEngine:
                     "ATOMUSDT": 0.1,  "XAUUSDT": 0.01, "CLUSDT": 0.01, "QQQUSDT": 0.1
                 }
                 min_qty = MIN_QTY_MAP.get(signal.symbol, 0.001)
-                effective_leverage = leverage
                 
                 # CRITICAL: Skip trade if qty too small - NEVER auto-raise leverage
                 # Auto-raising leverage breaks risk management (user set leverage for specific risk %)
@@ -1777,3 +1797,58 @@ class ScalpingEngine:
         self._recent_close_notifications[dedupe_key] = now
         await self._notify_user(message)
 
+    async def _load_existing_positions(self):
+        """Load open positions from database on startup to resume monitoring"""
+        try:
+            from app.supabase_repo import _client as _sc
+            from app.trading_mode import ScalpingPosition
+            from datetime import datetime
+            
+            s = _sc()
+            res = s.table("autotrade_trades").select("*").eq(
+                "telegram_id", self.user_id
+            ).eq("status", "open").execute()
+            
+            if res.data:
+                logger.info(f"[Scalping:{self.user_id}] Found {len(res.data)} open trades in DB. Resuming tracking...")
+                for row in res.data:
+                    symbol = row.get("symbol")
+                    if not symbol or symbol in self.positions:
+                        continue
+                    
+                    # Convert ISO string to Unix timestamp
+                    opened_at_str = row.get("opened_at")
+                    try:
+                        if opened_at_str:
+                            # Handle different ISO formats (Z vs +00:00)
+                            if opened_at_str.endswith('Z'):
+                                opened_at_str = opened_at_str.replace('Z', '+00:00')
+                            dt = datetime.fromisoformat(opened_at_str)
+                            opened_at = dt.timestamp()
+                        else:
+                            opened_at = time.time()
+                    except Exception as parse_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Could not parse timestamp {opened_at_str}: {parse_err}")
+                        opened_at = time.time()
+                    
+                    pos = ScalpingPosition(
+                        user_id=self.user_id,
+                        symbol=symbol,
+                        side=row.get("side", "BUY"),
+                        entry_price=float(row.get("entry_price", 0)),
+                        quantity=float(row.get("quantity", 0)),
+                        leverage=int(row.get("leverage", 10)),
+                        tp_price=float(row.get("tp_price", 0)),
+                        sl_price=float(row.get("sl_price", 0)),
+                        opened_at=opened_at
+                    )
+                    
+                    # Check if it was a sideways trade
+                    if row.get("trade_subtype") == "sideways_scalp":
+                        pos.is_sideways = True
+                    
+                    self.positions[symbol] = pos
+                    logger.info(f"[Scalping:{self.user_id}] Resumed tracking for {symbol} (opened {int(time.time() - opened_at)}s ago)")
+            
+        except Exception as e:
+            logger.error(f"[Scalping:{self.user_id}] Failed to load existing positions: {e}")
