@@ -304,12 +304,12 @@ async def get_trading_stats(
         # Get stats for specific user or all users
         if user_id:
             result = db.table("autotrade_trades").select(
-                "telegram_id, symbol, status, side, qty, entry_price, exit_price, pnl_usdt, created_at, closed_at"
-            ).eq("telegram_id", user_id).gte("created_at", start_date).execute()
+                "telegram_id, symbol, status, side, qty, entry_price, exit_price, pnl_usdt, opened_at, closed_at"
+            ).eq("telegram_id", user_id).gte("opened_at", start_date).execute()
         else:
             result = db.table("autotrade_trades").select(
-                "telegram_id, symbol, status, side, qty, entry_price, exit_price, pnl_usdt, created_at, closed_at"
-            ).gte("created_at", start_date).execute()
+                "telegram_id, symbol, status, side, qty, entry_price, exit_price, pnl_usdt, opened_at, closed_at"
+            ).gte("opened_at", start_date).execute()
 
         trades = result.data if result.data else []
 
@@ -329,7 +329,7 @@ async def get_trading_stats(
                 }
 
             status = trade.get("status", "")
-            pnl = float(trade.get("pnl_usdt", 0))
+            pnl = float(trade.get("pnl_usdt") or 0)
 
             if status == "open":
                 user_stats[uid]["open_positions"] += 1
@@ -342,7 +342,7 @@ async def get_trading_stats(
             user_stats[uid]["total_trades"] += 1
 
             # Aggregate daily stats
-            created = trade.get("created_at", "")[:10]  # YYYY-MM-DD
+            created = trade.get("opened_at", "")[:10]  # YYYY-MM-DD
             if created:
                 if created not in user_stats[uid]["daily"]:
                     user_stats[uid]["daily"][created] = {"trades": 0, "pnl": 0.0}
@@ -351,9 +351,9 @@ async def get_trading_stats(
                     user_stats[uid]["daily"][created]["pnl"] += pnl
 
             # Track trade durations
-            if status != "open" and trade.get("created_at") and trade.get("closed_at"):
+            if status != "open" and trade.get("opened_at") and trade.get("closed_at"):
                 try:
-                    created_dt = dt.fromisoformat(trade["created_at"].replace("Z", "+00:00"))
+                    created_dt = dt.fromisoformat(trade["opened_at"].replace("Z", "+00:00"))
                     closed_dt = dt.fromisoformat(trade["closed_at"].replace("Z", "+00:00"))
                     duration = (closed_dt - created_dt).total_seconds()
                     user_stats[uid]["trade_durations"].append(duration)
@@ -461,14 +461,17 @@ async def get_engine_health(
             uid = session["telegram_id"]
             running = session.get("engine_active", False)
 
-            # Get error count in last 24 hours
-            error_result = db.table("error_logs").select(
-                "count"
-            ).eq("telegram_id", uid).gte(
-                "created_at", (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-            ).execute()
-
-            error_count = error_result.count if hasattr(error_result, "count") else 0
+            # Get error count in last 24 hours (error_logs table may not exist)
+            error_count = 0
+            try:
+                error_result = db.table("error_logs").select(
+                    "count"
+                ).eq("telegram_id", uid).gte(
+                    "created_at", (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+                ).execute()
+                error_count = error_result.count if hasattr(error_result, "count") else 0
+            except Exception:
+                pass
 
             engines[uid] = {
                 "running": running,
