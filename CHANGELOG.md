@@ -1,5 +1,169 @@
 # Changelog
 
+## [2.2.0] — 2026-04-14 — 🎯 Multi-User Coordination, Real-Time Analytics, Position Ownership Tracking
+
+**Major Milestone**: Implemented comprehensive multi-user, multi-symbol position coordination system ensuring single active strategy owner per (user_id, symbol) pair, plus real-time observability dashboard for admin monitoring.
+
+### 🎯 Core Changes
+
+#### 1) Multi-User Symbol Coordination System
+- **New Module**: `Bismillah/app/symbol_coordinator.py` (591 lines)
+  - `MultiUserSymbolCoordinator` class manages position ownership across SWING, SCALP, ONE_CLICK, MANUAL strategies
+  - `StrategyOwner` enum: NONE, SCALP, SWING, ONE_CLICK, MANUAL, UNKNOWN
+  - `PositionSide` enum: NONE, LONG, SHORT
+  - `SymbolState` dataclass: tracks ownership, position metadata, pending orders, cooldowns
+  - Per-(user_id, symbol) asyncio.Lock ensures thread-safe concurrent access
+  - 5-minute cooldown after position close prevents immediate re-entry
+
+- **Core Methods**:
+  - `can_enter()`: Gate before order submission (blocks if another strategy owns symbol)
+  - `set_pending()`: Mark strategy intent before order submission
+  - `confirm_open()`: Lock ownership after successful execution
+  - `confirm_closed()`: Release ownership when position closes
+  - `reconcile_user()`: Restore state on startup from exchange positions + DB hints
+  - `export_debug_snapshot()`: Admin observability snapshot
+  - `force_reset_symbol()`: Admin emergency override
+
+- **Safety Features**:
+  - UNKNOWN owner state blocks all automation (orphaned position protection)
+  - Reversals allowed: same strategy can re-enter during reversal without explicit close
+  - Multi-user isolation: User A's BTC swing doesn't affect User B's BTC
+  - Multi-symbol independence: User A's BTC swing doesn't block User A's ETH scalp
+
+#### 2) Coordinator Integration Across All Engines
+
+- **Swing/AutoTrade Engine** (`Bismillah/app/autotrade_engine.py`):
+  - Added can_enter() gate before set_leverage + place_order_with_tpsl
+  - Added set_pending() on allowed entry
+  - Added confirm_open() after successful order execution
+  - Added confirm_closed() after position close (TP/SL/flip)
+  - Non-blocking: failed gates notify user but don't crash engine
+
+- **Scalping Engine** (`Bismillah/app/scalping_engine.py`):
+  - Added can_enter() gate before open_managed_position
+  - Added set_pending() on allowed entry
+  - Added confirm_open() after position creation
+  - Added clear_pending() in all error paths
+  - Added confirm_closed() in all close methods:
+    - `_close_position_max_hold()` (30min max hold)
+    - `_close_sideways_max_hold()` (2min sideways max hold)
+    - `_close_position_tp()` (take profit)
+    - `_close_position_sl()` (stop loss)
+
+- **Engine Restore** (`Bismillah/app/engine_restore.py`):
+  - Added `reconcile_coordinator_state()` function
+  - Calls coordinator.reconcile_user() with:
+    - Live exchange positions (via client.get_open_positions)
+    - DB open trades (strategy hints for ownership inference)
+  - Scheduled as background task on engine startup
+  - Ensures coordinator state matches actual positions after bot restart
+
+- **StackMentor** (`Bismillah/app/stackmentor.py`):
+  - Added confirm_closed() in handle_tp1_hit() when position closes
+  - Coordinator state synced with TP/SL hit events
+
+#### 3) Real-Time Analytics Dashboard & API
+
+- **Analytics Backend API** (`Bismillah/analytics_api.py`, 517 lines):
+  - FastAPI app on port 8896 (analytics4896.cryptomentor.id)
+  - Admin-only JWT authentication (validates against ADMIN_ALLOWLIST from bot.py)
+  - Rate limiting: 100 req/minute per authenticated admin
+  - CORS enabled for frontend dashboard
+  - Real data pulled from DB and coordinator (never faked)
+
+- **Analytics Endpoints**:
+  - `GET /health`: Health check (no auth required)
+  - `GET /api/analytics/coordinator-state`: Symbol ownership and position state
+    - Shows SWING/SCALP/UNKNOWN/etc owners per user+symbol
+    - Tracks pending orders, cooldowns, position metadata
+    - Filterable by user_id and symbol
+  - `GET /api/analytics/trading-stats`: Trading performance analytics
+    - Win rate, total PnL, trade duration statistics
+    - Daily aggregations for last N days
+    - Open/closed position counts per user
+  - `GET /api/analytics/engine-health`: Engine status and error tracking
+    - Running/stopped status per user
+    - 24h error count from error logs
+    - Strategy mode detection
+
+- **Analytics Frontend Dashboard** (`Bismillah/analytics_dashboard.html`, 661 lines):
+  - Modern dark theme with neon (#00ff88) aesthetics
+  - Admin JWT authentication (token reused from API)
+  - Responsive design: desktop, tablet, mobile
+  - Three main panels: Coordination State, Engine Health, Trading Performance
+  - Interactive filtering by user ID and symbol
+  - Auto-refresh every 30 seconds + manual refresh
+  - Detailed table view of all coordinator states
+  - Local storage caching of JWT token
+  - Smooth animations and hover effects
+
+#### 4) Test Coverage
+
+- **Coordinator Unit Tests** (`tests/test_coordinator.py`, 16.6 KB):
+  - 20 comprehensive tests covering:
+    - Entry gating (9 tests): fresh symbols, pending orders, strategy conflicts, multi-user/symbol isolation, UNKNOWN blocking, cooldown, reversals
+    - Pending order lifecycle (2 tests): mark/clear with owner preservation
+    - Position lifecycle (3 tests): open with metadata, close with cooldown, pending flag clearing
+    - Reconciliation (3 tests): with DB hints, orphaned positions, multiple positions
+    - Concurrency (2 tests): parallel ops on different symbols, serialized same-symbol
+    - Debug export (1 test): snapshot generation
+  - All 20 tests passing
+
+- **Non-Regression Tests** (`tests/test_regression.py`, 386 lines):
+  - Ensures coordinator integration doesn't break existing behavior
+  - Risk calculation tests: qty calculations, exposure limits, edge cases
+  - Signal generation tests: confidence thresholds, same-direction rejection
+  - Trade execution tests: StackMentor levels, LONG/SHORT handling
+  - StackMentor tracking tests: registration, removal, lifecycle
+  - Scalping engine tests: config defaults, position creation, cooldown
+  - Engine loop tests: cooldown expiration, trade history, daily stats
+  - Error handling tests: graceful failures, exception handling
+  - All tests use pytest + asyncio + mocks
+
+### ✅ Required Actions After Deploy
+
+1. **Database Setup**:
+   - No schema changes needed (coordinator is in-memory)
+   - Ensure error_logs table exists for analytics engine-health endpoint
+
+2. **Environment Variables**:
+   - Ensure ADMIN_IDS, ADMIN1-5 are set (used by both bot and analytics API)
+   - Set JWT_SECRET if custom JWT validation needed (default: "analytics-secret-key")
+
+3. **Deploy & Restart**:
+   - Deploy new files:
+     - Bismillah/app/symbol_coordinator.py
+     - Bismillah/analytics_api.py
+     - Bismillah/analytics_dashboard.html (serve from web server)
+   - Restart Telegram bot (uses updated autotrade_engine.py, scalping_engine.py, engine_restore.py)
+   - Start analytics API: `uvicorn Bismillah.analytics_api:app --host 0.0.0.0 --port 8896`
+
+4. **Smoke Tests**:
+   - Verify no two SWING positions on same (user, symbol)
+   - Verify SCALP blocks SWING on same (user, symbol) and vice versa
+   - Verify reversals still work (same strategy can re-enter)
+   - Verify multi-user isolation (User A's swing doesn't affect User B)
+   - Verify analytics dashboard authenticates with admin token
+   - Verify coordinator state snapshot shows correct ownership
+   - Run non-regression tests: `pytest tests/test_regression.py -v`
+
+### 📊 Statistics
+
+- **Lines Added**: ~3,500 (coordinator + analytics + tests)
+- **New Files**: 4 (coordinator, analytics_api, analytics_dashboard, test_regression)
+- **Modified Files**: 4 (autotrade_engine, scalping_engine, engine_restore, stackmentor)
+- **Git Commits**: 6 (Phase 2B-2F + Phase 3-4 + Phase 6)
+- **Test Coverage**: 40 tests covering coordinator and regression
+
+### 🚀 Performance Impact
+
+- **Minimal**: Coordinator is in-memory async-safe with per-symbol locks
+  - Lock contention only on same (user_id, symbol) pairs
+  - No DB calls in critical path
+  - Analytics API is separate and doesn't block trading engines
+
+- **Memory**: ~1KB per (user_id, symbol) position + metadata (~100 bytes overhead per symbol)
+
 ## [2.1.1] — 2026-04-10 — Unified Verification, Anti-Flip Stabilization, StackMentor 1:3, UI Hardening
 
 ### 🚀 What Changed
