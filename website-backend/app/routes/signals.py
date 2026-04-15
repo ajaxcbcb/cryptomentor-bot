@@ -25,11 +25,23 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.db.supabase import _client
 from app.routes.dashboard import get_current_user
 from app.services import bitunix as bsvc
+from app.services import conflict_gate
+from app.services.risk_policy import (
+    AUTO_RISK_MAX_PCT,
+    AUTO_RISK_MIN_PCT,
+    HIGH_RISK_WARN_PCT,
+    ONE_CLICK_RISK_MAX_PCT,
+    ONE_CLICK_RISK_MIN_PCT,
+    clamp_auto_risk,
+    clamp_one_click_risk,
+    is_high_risk,
+    risk_band,
+)
 from app.auth.jwt import decode_token
 
 logger = logging.getLogger(__name__)
-RISK_MIN_PCT = 0.25
-RISK_MAX_PCT = 5.0
+RISK_MIN_PCT = AUTO_RISK_MIN_PCT
+RISK_MAX_PCT = AUTO_RISK_MAX_PCT
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -65,6 +77,33 @@ _QTY_PRECISION = {
     "LTCUSDT":  2,
 }
 
+# Keep aligned with Bismillah/app/position_sizing.py auto max pair leverage map.
+_SYMBOL_MAX_LEVERAGE = {
+    "BTCUSDT": 200,
+    "ETHUSDT": 100,
+    "SOLUSDT": 75,
+    "DOGEUSDT": 75,
+    "XRPUSDT": 75,
+    "ADAUSDT": 75,
+    "BNBUSDT": 75,
+    "AVAXUSDT": 50,
+    "DOTUSDT": 50,
+    "MATICUSDT": 50,
+    "LINKUSDT": 50,
+    "UNIUSDT": 50,
+    "ATOMUSDT": 50,
+    "XAUUSDT": 100,
+    "CLUSDT": 100,
+    "QQQUSDT": 100,
+}
+
+
+def _max_pair_leverage(symbol: str) -> int:
+    try:
+        return max(1, int(_SYMBOL_MAX_LEVERAGE.get(str(symbol or "").upper(), 200)))
+    except Exception:
+        return 200
+
 router = APIRouter(prefix="/dashboard", tags=["signals"])
 
 # ── Signal cache ─────────────────────────────────────────────────────────────
@@ -76,12 +115,12 @@ _signal_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
-    """Clamp incoming risk setting to supported range [0.25, 5.0]."""
-    try:
-        risk = float(raw_value)
-    except Exception:
-        return float(default)
-    return max(RISK_MIN_PCT, min(RISK_MAX_PCT, risk))
+    """Clamp incoming AutoTrade risk setting to supported range [0.25, 10.0]."""
+    return clamp_auto_risk(raw_value, default=default)
+
+
+def _normalize_one_click_risk_pct(raw_value: Any, default: float = 1.0) -> float:
+    return clamp_one_click_risk(raw_value, default=default)
 
 
 def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
@@ -94,17 +133,15 @@ def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
         return {"min_confidence": 60, "atr_multiplier": 0.5}
     if risk <= 0.5:
         return {"min_confidence": 50, "atr_multiplier": 1.0}
-    if risk <= 0.75:
-        return {"min_confidence": 45, "atr_multiplier": 1.25}
     if risk <= 1.0:
-        return {"min_confidence": 40, "atr_multiplier": 1.5}
+        return {"min_confidence": 42, "atr_multiplier": 1.5}
     if risk <= 2.0:
-        return {"min_confidence": 38, "atr_multiplier": 1.75}
-    if risk <= 3.0:
-        return {"min_confidence": 36, "atr_multiplier": 2.0}
-    if risk <= 4.0:
-        return {"min_confidence": 34, "atr_multiplier": 2.25}
-    return {"min_confidence": 32, "atr_multiplier": 2.5}
+        return {"min_confidence": 38, "atr_multiplier": 1.9}
+    if risk <= 5.0:
+        return {"min_confidence": 34, "atr_multiplier": 2.4}
+    if risk <= 7.5:
+        return {"min_confidence": 32, "atr_multiplier": 2.8}
+    return {"min_confidence": 30, "atr_multiplier": 3.1}
 
 # (display_pair, binance_symbol, tier, type)
 # All pairs are free — more pairs = more trading volume
@@ -638,6 +675,8 @@ async def execute_signal(
     """
     symbol = (payload.get("symbol") or "").upper().replace("/", "")
     generated_at_raw = payload.get("generated_at")
+    risk_override = payload.get("risk_override_pct")
+    all_in = bool(payload.get("all_in", False))
 
     wl = _watchlist_entry(symbol)
     if not wl:
@@ -689,8 +728,19 @@ async def execute_signal(
         "risk_per_trade, leverage"
     ).eq("telegram_id", tg_id).limit(1).execute()
     sess = (sess_res.data or [{}])[0]
-    risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)  # 0.25%..5.0%
-    leverage = int(sess.get("leverage") or 10)
+    risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)  # baseline from profile
+    requested_risk_pct = risk_pct
+    if risk_override is not None:
+        try:
+            requested_risk_pct = float(risk_override)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid risk_override_pct")
+        risk_pct = _normalize_one_click_risk_pct(risk_override, default=risk_pct)
+    if all_in:
+        requested_risk_pct = ONE_CLICK_RISK_MAX_PCT
+        risk_pct = ONE_CLICK_RISK_MAX_PCT
+    baseline_leverage = int(sess.get("leverage") or 10)
+    leverage = _max_pair_leverage(sym)
 
     # Re-derive the signal from live market data so dynamic sizing reflects
     # the *current* SL distance, not the stale snapshot in the user's UI.
@@ -702,6 +752,23 @@ async def execute_signal(
     direction = live_sig["direction"]
     side = "BUY" if direction == "LONG" else "SELL"
     entry_price = float(live_sig["price"])
+
+    conflict = await conflict_gate.check_entry_conflicts(
+        tg_id=tg_id,
+        symbol=sym,
+        requested_side=side,
+        strategy="one_click",
+    )
+    if not conflict.get("allowed"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Order blocked by conflict gate",
+                "reason_code": conflict.get("reason_code"),
+                "reason": conflict.get("reason"),
+                "symbol": sym,
+            },
+        )
 
     # entry zone string is "low - high"; pull the SL we serialized as text.
     sl_price = float(str(live_sig["stopLoss"]).replace(",", ""))
@@ -725,7 +792,7 @@ async def execute_signal(
     risk_amount = equity * (risk_pct / 100.0)
     position_size_usdt = risk_amount / sl_distance_pct
     margin_required = position_size_usdt / leverage
-    risk_zone = "amber_red" if risk_pct > 1.0 else "normal"
+    risk_zone = "amber_red" if is_high_risk(risk_pct) else "normal"
 
     # Cap margin at 95% of available balance (not equity) to ensure we have buffer
     if margin_required > balance * 0.95:
@@ -746,6 +813,7 @@ async def execute_signal(
             detail=f"Computed qty {qty} below exchange minimum {min_qty}",
         )
 
+    await conflict_gate.mark_pending(tg_id=tg_id, symbol=sym, strategy="one_click")
     try:
         result = await bsvc.place_market_with_tpsl(
             telegram_id=tg_id,
@@ -757,17 +825,37 @@ async def execute_signal(
             leverage=leverage,
         )
     except Exception as e:
+        await conflict_gate.clear_pending(tg_id=tg_id, symbol=sym)
         raise HTTPException(status_code=502, detail=f"Order placement failed: {e}")
 
     if not result.get("success"):
+        await conflict_gate.clear_pending(tg_id=tg_id, symbol=sym)
         raise HTTPException(
             status_code=502,
             detail=f"Order rejected by exchange: {result.get('message') or result}",
         )
+    await conflict_gate.confirm_open(
+        tg_id=tg_id,
+        symbol=sym,
+        strategy="one_click",
+        side=side,
+        qty=qty,
+        entry_price=entry_price,
+        exchange_position_id=str(result.get("position_id") or result.get("order_id") or ""),
+    )
+
+    corrected = abs(float(requested_risk_pct) - float(risk_pct)) > 1e-9
+    band = risk_band(risk_pct, all_in=all_in)
 
     return {
         "success": True,
         "order": result,
+        "conflict_gate": {
+            "allowed": True,
+            "reason_code": "ok",
+            "reason": "passed",
+            "symbol": sym,
+        },
         "account": {
             "balance": round(balance, 2),  # Free balance
             "unrealized_pnl": round(unrealized_pnl, 2),  # Open position P&L
@@ -781,11 +869,18 @@ async def execute_signal(
             "position_size_usdt": round(position_size_usdt, 2),
             "margin_required": round(margin_required, 2),
             "risk_amount": round(risk_amount, 2),
+            "requested_risk_pct": round(float(requested_risk_pct), 4),
             "risk_pct": risk_pct,
             "risk_zone": risk_zone,
-            "high_risk": risk_pct > 1.0,
+            "high_risk": is_high_risk(risk_pct),
+            "risk_band_key": band.key,
+            "risk_band_label": band.label,
+            "all_in": all_in,
+            "corrected": corrected,
             "sl_distance_pct": round(sl_distance_pct * 100, 3),
             "leverage": leverage,
+            "leverage_mode": "auto_max_pair",
+            "baseline_leverage": baseline_leverage,
             "signal_age_seconds": int(age),
         },
     }
