@@ -700,8 +700,9 @@ class ScalpingEngine:
         streak = self.signal_streaks.get(symbol)
         if not streak:
             self.signal_streaks[symbol] = {"direction": direction, "count": 1, "ts": now}
-            logger.info(f"[Scalping:{self.user_id}] {symbol} anti-flip: first {direction} signal seen, waiting confirmation")
-            return False
+            if required > 1:
+                logger.info(f"[Scalping:{self.user_id}] {symbol} anti-flip: first {direction} signal seen, waiting confirmation")
+                return False
 
         last_dir = streak.get("direction")
         last_ts = float(streak.get("ts", 0))
@@ -714,8 +715,9 @@ class ScalpingEngine:
                 return False
         else:
             self.signal_streaks[symbol] = {"direction": direction, "count": 1, "ts": now}
-            logger.info(f"[Scalping:{self.user_id}] {symbol} anti-flip: direction changed/reset to {direction}, waiting confirmation")
-            return False
+            if required > 1:
+                logger.info(f"[Scalping:{self.user_id}] {symbol} anti-flip: direction changed/reset to {direction}, waiting confirmation")
+                return False
 
         # 2) Opposite-direction re-entry cooldown after close
         closed = self.last_closed_meta.get(symbol)
