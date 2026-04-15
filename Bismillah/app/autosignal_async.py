@@ -107,8 +107,8 @@ async def compute_signal_scalping_async(base_symbol: str) -> Optional[Dict[str, 
         rsi_5m = _calc_rsi(c5)
         atr_5m = _calc_atr(h5, l5, c5, 14)
         vol_ratio = _calc_volume_ratio(v5, 20)
-        min_vol_strong = 2.0 if not feed_degraded else 1.6
-        min_vol_weak = 1.5 if not feed_degraded else 1.2
+        min_vol_strong = 1.6 if not feed_degraded else 1.3
+        min_vol_weak = 1.0 if not feed_degraded else 0.9
         
         # ===== Step 3: Signal logic (SCALPING - more flexible) =====
         side = None
@@ -165,6 +165,27 @@ async def compute_signal_scalping_async(base_symbol: str) -> Optional[Dict[str, 
                     reasons.append(f"Ranging market + 5M overbought (RSI {rsi_5m:.0f})")
                     reasons.append(f"Volume {vol_ratio:.1f}x - sell resistance")
                     reasons.append("Scalping range high")
+
+        # Outage/low-vol fallback: still emit conservative candidates so scanner
+        # stays productive instead of returning all-None under partial data gaps.
+        if side is None and vol_ratio >= 0.9:
+            if trend_15m == "LONG" and rsi_5m <= 50:
+                side = "LONG"
+                confidence = 72 if not feed_degraded else 73
+                reasons.append(f"Fallback LONG: trend={trend_15m}, RSI={rsi_5m:.0f}, vol={vol_ratio:.1f}x")
+            elif trend_15m == "SHORT" and rsi_5m >= 50:
+                side = "SHORT"
+                confidence = 72 if not feed_degraded else 73
+                reasons.append(f"Fallback SHORT: trend={trend_15m}, RSI={rsi_5m:.0f}, vol={vol_ratio:.1f}x")
+            elif trend_15m == "NEUTRAL":
+                if rsi_5m <= 48:
+                    side = "LONG"
+                    confidence = 72
+                    reasons.append(f"Fallback NEUTRAL LONG: RSI={rsi_5m:.0f}, vol={vol_ratio:.1f}x")
+                elif rsi_5m >= 52:
+                    side = "SHORT"
+                    confidence = 72
+                    reasons.append(f"Fallback NEUTRAL SHORT: RSI={rsi_5m:.0f}, vol={vol_ratio:.1f}x")
         
         if side is None:
             return None
