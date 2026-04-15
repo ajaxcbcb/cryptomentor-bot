@@ -869,6 +869,7 @@ class ScalpingEngine:
             if required > 1:
                 logger.info(f"[Scalping:{self.user_id}] {symbol} anti-flip: first {direction} signal seen, waiting confirmation")
                 return False
+            streak = self.signal_streaks[symbol]
 
         last_dir = streak.get("direction")
         last_ts = float(streak.get("ts", 0))
