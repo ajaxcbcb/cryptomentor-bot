@@ -473,7 +473,8 @@ def start_scheduler(application):
                                     f"• Max concurrent: <b>4 positions</b>\n"
                                     "• Trading pairs: <b>15 pairs</b>\n\n"
                                     f"💰 Capital: <b>{amount} USDT</b>\n"
-                                    f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                    f"⚡ Base leverage setting: <b>{leverage}x</b>\n"
+                                    "⚙️ Applied leverage is auto-adjusted per pair (max-safe).\n\n"
                                     "Bot will scan for high-probability setups every 15 seconds.\n"
                                     "Patience = profit. 🎯"
                                 ),
@@ -495,7 +496,8 @@ def start_scheduler(application):
                                     f"• Max concurrent: <b>4 positions</b>\n"
                                     "• Trading pairs: <b>15 pairs</b>\n\n"
                                     f"💰 Capital: <b>{amount} USDT</b>\n"
-                                    f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                    f"⚡ Base leverage setting: <b>{leverage}x</b>\n"
+                                    "⚙️ Applied leverage is auto-adjusted per pair (max-safe).\n\n"
                                     "Bot will scan for high-quality setups every 45 seconds.\n"
                                     "Professional trading = patience. 🎯"
                                 ),
@@ -697,7 +699,8 @@ async def _engine_health_check_task(application):
                                 "Your engine stopped unexpectedly and has been automatically restarted.\n\n"
                                 f"📊 Mode: <b>{trading_mode.title()}</b>\n"
                                 f"💰 Capital: <b>{amount} USDT</b>\n"
-                                f"⚡ Leverage: <b>{leverage}x</b>\n\n"
+                                f"⚡ Base leverage setting: <b>{leverage}x</b>\n"
+                                "⚙️ Applied leverage is auto-adjusted per pair (max-safe).\n\n"
                                 "If this happens frequently, please contact support.\n\n"
                                 "Use /autotrade to check status."
                             ),
