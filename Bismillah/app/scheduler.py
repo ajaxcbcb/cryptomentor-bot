@@ -465,7 +465,8 @@ def start_scheduler(application):
                         leverage=leverage,
                         notify_chat_id=user_id,
                         is_premium=is_premium,
-                        silent=False,  # Send notification so user knows engine restarted
+                        # Keep a single startup notification path (scheduler message below).
+                        silent=True,
                         exchange_id=exchange_id,
                     )
                     restored += 1
@@ -704,7 +705,8 @@ async def _engine_health_check_task(application):
                             leverage=leverage,
                             notify_chat_id=user_id,
                             is_premium=is_premium,
-                            silent=False,
+                            # Keep a single startup notification path (health-check message below).
+                            silent=True,
                             exchange_id=exchange_id,
                         )
                         
