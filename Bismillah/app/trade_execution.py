@@ -92,16 +92,24 @@ def build_stackmentor_levels(
     total_qty: float,
     symbol: str,
     precision: int = 3,
+    tp_price: Optional[float] = None,
 ) -> StackMentorLevels:
     """
     Compute the 3-tier StackMentor TP levels and quantity splits.
     Side must be "LONG" or "SHORT".
     """
-    tp1, tp2, tp3 = calculate_stackmentor_levels(
-        entry_price=entry_price,
-        sl_price=sl_price,
-        side=side,
-    )
+    # If caller provides an explicit TP, use it as the canonical target so
+    # execution stays aligned with strategy-level RR validation.
+    if tp_price is not None and tp_price > 0:
+        tp1 = float(tp_price)
+        tp2 = float(tp_price)
+        tp3 = float(tp_price)
+    else:
+        tp1, tp2, tp3 = calculate_stackmentor_levels(
+            entry_price=entry_price,
+            sl_price=sl_price,
+            side=side,
+        )
     
     # Calculate splits preserving Bitunix MIN_QTY limits
     min_qty = MIN_QTY_MAP.get(symbol, 0.001)
@@ -128,31 +136,22 @@ def validate_entry_prices(
     """
     Validate that SL/TP make sense relative to current mark price.
 
-    Returns: (is_valid, possibly_adjusted_sl, error_msg)
-      * If SL is on the wrong side of mark we nudge it 2% away from mark
-        and return the new value (adjusted_sl).
-      * If TP is on the wrong side of mark we abort the trade entirely.
+    Returns: (is_valid, sl, error_msg)
+      * If SL/TP is on the wrong side of mark we abort the trade.
+      * We intentionally do not auto-adjust SL because changing SL without
+        re-sizing quantity breaks the original risk model.
     """
-    adjusted_sl = sl
     if side == "LONG":
         if sl >= mark_price:
-            adjusted_sl = mark_price * 0.98
-            logger.warning(
-                "[trade_execution] LONG SL %.6f >= mark %.6f — adjusted to %.6f",
-                sl, mark_price, adjusted_sl,
-            )
+            return False, sl, f"LONG SL {sl:.6f} >= mark {mark_price:.6f}"
         if tp1 <= mark_price:
-            return False, adjusted_sl, f"LONG TP1 {tp1:.6f} <= mark {mark_price:.6f}"
+            return False, sl, f"LONG TP1 {tp1:.6f} <= mark {mark_price:.6f}"
     else:  # SHORT
         if sl <= mark_price:
-            adjusted_sl = mark_price * 1.02
-            logger.warning(
-                "[trade_execution] SHORT SL %.6f <= mark %.6f — adjusted to %.6f",
-                sl, mark_price, adjusted_sl,
-            )
+            return False, sl, f"SHORT SL {sl:.6f} <= mark {mark_price:.6f}"
         if tp1 >= mark_price:
-            return False, adjusted_sl, f"SHORT TP1 {tp1:.6f} >= mark {mark_price:.6f}"
-    return True, adjusted_sl, None
+            return False, sl, f"SHORT TP1 {tp1:.6f} >= mark {mark_price:.6f}"
+    return True, sl, None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -302,6 +301,7 @@ async def open_managed_position(
     sl_price: float,
     quantity: float,
     leverage: int,
+    tp_price: Optional[float] = None,
     precision: int = 3,
     set_leverage: bool = True,
     register_in_stackmentor: bool = True,
@@ -314,7 +314,7 @@ async def open_managed_position(
     Both the scalping and swing engines call this function so the on-exchange
     behavior is identical:
 
-      1. Compute TP1/TP2/TP3 + qty splits
+      1. Compute TP1/TP2/TP3 + qty splits (or honor explicit TP when provided)
       2. Get mark price → validate SL/TP, possibly adjust SL
       3. Set leverage on the symbol
       4. Atomic `place_order_with_tpsl` (TP1 + SL attached at entry)
@@ -341,6 +341,7 @@ async def open_managed_position(
             total_qty=quantity,
             symbol=symbol,
             precision=precision,
+            tp_price=tp_price,
         )
     except Exception as e:
         logger.exception("[trade_execution:%s] level calc failed", user_id)

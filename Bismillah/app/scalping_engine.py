@@ -1436,6 +1436,7 @@ class ScalpingEngine:
                     side=signal.side,                # "LONG" / "SHORT"
                     entry_price=signal.entry_price,
                     sl_price=signal.sl_price,
+                    tp_price=signal.tp_price,
                     quantity=quantity_adjusted,
                     leverage=effective_leverage,
                     # Sideways positions have very tight TP/SL — skip reconcile
@@ -2098,6 +2099,9 @@ class ScalpingEngine:
         """Notify user when position opened"""
         try:
             reasons_text = "\n".join(f"• {r}" for r in signal.reasons)
+            risk = abs(position.entry_price - position.sl_price)
+            reward = abs(position.tp_price - position.entry_price)
+            rr_live = (reward / risk) if risk > 0 else 0.0
             
             await self.bot.send_message(
                 chat_id=self.notify_chat_id,
@@ -2106,7 +2110,7 @@ class ScalpingEngine:
                     f"Symbol: {position.symbol}\n"
                     f"Side: {position.side}\n"
                     f"Entry: {position.entry_price:.4f}\n"
-                    f"TP: {position.tp_price:.4f} (1.5R)\n"
+                    f"TP: {position.tp_price:.4f} (R:R 1:{rr_live:.2f})\n"
                     f"SL: {position.sl_price:.4f}\n"
                     f"Confidence: {signal.confidence:.0f}%\n"
                     f"Max Hold: 30 minutes\n\n"

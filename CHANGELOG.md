@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.2.7] — 2026-04-16 — Scalping SL/TP Risk-Reward Consistency Fix
+
+### 🛡️ Scalping Risk Management Consistency
+- Fixed a critical RR drift path where entry validation could mutate SL against live mark price while keeping TP unchanged.
+  - This could produce executed trades with mismatched TP/SL RR versus pre-trade risk sizing.
+  - New behavior: invalid SL/TP vs mark now **fails fast** (`invalid_prices`) instead of auto-adjusting SL.
+
+### 🎯 Execution-Level TP Alignment
+- Updated unified execution path to support explicit TP passthrough from strategy signal:
+  - `open_managed_position(..., tp_price=...)` now honors signal TP when provided.
+  - Scalping engine now passes `signal.tp_price` into execution, so validated RR matches placed TP/SL.
+
+### 📣 Notification Accuracy
+- Updated scalping open notification text to display computed live RR from actual entry/TP/SL instead of hardcoded `1.5R`.
+
+### 🗂️ Files Updated
+- `Bismillah/app/trade_execution.py`
+- `Bismillah/app/scalping_engine.py`
+
 ## [2.2.6] — 2026-04-16 — Onboarding Group Invite Follow-Up
 
 ### 🤖 Telegram Onboarding UX
