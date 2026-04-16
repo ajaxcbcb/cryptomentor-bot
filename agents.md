@@ -22,6 +22,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 - `Bismillah/app/volume_pair_selector.py`
 - Must enforce:
 - No stale pending locks (`set_pending` must be paired with clear/confirm paths).
+- Stale pending lock policy: auto-expire pending-without-position after 90s; run restart/startup pending cleanup per user.
 - Risk behavior consistent with user profile and safety fallback.
 - SL/TP validation must never mutate SL/TP in a way that changes pre-sized risk.
 - Executed TP/SL must match the strategy signal used for entry validation.
@@ -29,6 +30,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 - Runtime pair universe for swing + scalp must use Bitunix dynamic top-volume routing (top 10 by `quoteVol`, highest-first priority).
 - Volume selector fallback policy is fixed: last-good cache first, bootstrap list only if cache unavailable.
 - Queue/scan priority must preserve volume rank before secondary quality sort (confidence/R:R).
+- Blocked pending skip alerts must be deduped per symbol (10-minute TTL) while keeping full logs.
 - Required checks:
 - Compile/syntax pass for touched files.
 - Negative-path verification (timeouts, order failure, validation skip).

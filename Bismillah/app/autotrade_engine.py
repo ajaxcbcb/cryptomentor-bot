@@ -11,6 +11,7 @@ Strategy: Multi-timeframe confluence + SMC + Risk Management
 import asyncio
 import logging
 import os
+import time
 from html import escape
 from typing import Any, Dict, Optional, List
 from datetime import datetime, date, timezone
@@ -72,6 +73,10 @@ from app.symbol_coordinator import (
 from app.volume_pair_selector import get_ranked_top_volume_pairs
 
 _running_tasks: Dict[int, asyncio.Task] = {}
+_engine_lifecycle_locks: Dict[int, asyncio.Lock] = {}
+_scalping_engines: Dict[int, Any] = {}
+_blocked_pending_notify_ts: Dict[tuple, float] = {}
+_BLOCKED_PENDING_NOTIFY_TTL_SECONDS = 600.0
 
 # Multi-user symbol coordinator
 _coordinator = None
@@ -82,6 +87,28 @@ def _get_coordinator():
     if _coordinator is None:
         _coordinator = get_coordinator()
     return _coordinator
+
+
+def get_engine(user_id: int):
+    """Return running scalping engine instance for this user when available."""
+    return _scalping_engines.get(int(user_id))
+
+
+def _get_lifecycle_lock(user_id: int) -> asyncio.Lock:
+    uid = int(user_id)
+    if uid not in _engine_lifecycle_locks:
+        _engine_lifecycle_locks[uid] = asyncio.Lock()
+    return _engine_lifecycle_locks[uid]
+
+
+def _should_notify_blocked_pending(user_id: int, symbol: str) -> bool:
+    now_ts = time.time()
+    key = (int(user_id), str(symbol).upper())
+    last = _blocked_pending_notify_ts.get(key, 0.0)
+    if now_ts - last < _BLOCKED_PENDING_NOTIFY_TTL_SECONDS:
+        return False
+    _blocked_pending_notify_ts[key] = now_ts
+    return True
 
 # Track posisi yang sudah hit TP1 (breakeven mode): user_id → set of symbols
 _tp1_hit_positions: Dict[int, set] = {}
@@ -1093,28 +1120,80 @@ def is_running(user_id: int) -> bool:
     return t is not None and not t.done()
 
 
-def stop_engine(user_id: int):
-    t = _running_tasks.get(user_id)
-    if t and not t.done():
-        t.cancel()
-        logger.info(f"AutoTrade stopped for user {user_id}")
-    
-    # Update engine_active flag in database
+async def _set_engine_active_flag(user_id: int, active: bool) -> None:
     try:
         from app.supabase_repo import _client
         s = _client()
-        s.table("autotrade_sessions").upsert({
-            "telegram_id": int(user_id),
-            "engine_active": False
-        }, on_conflict="telegram_id").execute()
+        await asyncio.to_thread(
+            lambda: s.table("autotrade_sessions").upsert({
+                "telegram_id": int(user_id),
+                "engine_active": bool(active)
+            }, on_conflict="telegram_id").execute()
+        )
     except Exception as e:
         logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
 
 
-def start_engine(bot, user_id: int, api_key: str, api_secret: str,
-                 amount: float, leverage: int, notify_chat_id: int,
-                 is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
-    stop_engine(user_id)
+async def _stop_engine_locked(user_id: int, mark_inactive: bool) -> None:
+    t = _running_tasks.get(user_id)
+    if t and not t.done():
+        current = asyncio.current_task()
+        if t is current:
+            # Self-stop path: do not cancel current task immediately; let caller return gracefully.
+            logger.info(f"[Engine:{user_id}] stop requested from current task, using graceful self-stop")
+        else:
+            t.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(t), timeout=12.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"[Engine:{user_id}] stop timeout waiting cancelled task")
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"[Engine:{user_id}] stop wait raised: {e}")
+        logger.info(f"AutoTrade stopped for user {user_id}")
+
+    _running_tasks.pop(int(user_id), None)
+    _scalping_engines.pop(int(user_id), None)
+
+    try:
+        cleared = await _get_coordinator().clear_all_pending_without_position_for_user(
+            int(user_id), reason="engine_stop_cleanup"
+        )
+        if cleared:
+            logger.warning(f"[Engine:{user_id}] Cleared {cleared} pending lock(s) during stop cleanup")
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] stop cleanup pending clear failed: {e}")
+
+    if mark_inactive:
+        await _set_engine_active_flag(user_id, False)
+
+
+async def stop_engine_async(user_id: int, mark_inactive: bool = True) -> None:
+    lock = _get_lifecycle_lock(int(user_id))
+    async with lock:
+        await _stop_engine_locked(int(user_id), mark_inactive=mark_inactive)
+
+
+def stop_engine(user_id: int):
+    """
+    Backward-compatible sync wrapper.
+    Schedules stop on the running loop when available.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(stop_engine_async(user_id, mark_inactive=True))
+    except RuntimeError:
+        asyncio.run(stop_engine_async(user_id, mark_inactive=True))
+
+
+async def start_engine_async(bot, user_id: int, api_key: str, api_secret: str,
+                             amount: float, leverage: int, notify_chat_id: int,
+                             is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
+    lock = _get_lifecycle_lock(int(user_id))
+    async with lock:
+        # Restart path: wait for full stop + cleanup before new task starts.
+        await _stop_engine_locked(int(user_id), mark_inactive=False)
     
     # Load trading mode
     from app.trading_mode_manager import TradingModeManager, TradingMode
@@ -1151,6 +1230,8 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
         elif task.exception():
             exc = task.exception()
             logger.error(f"AutoTrade CRASHED for user {user_id}: {exc}", exc_info=exc)
+        _running_tasks.pop(int(user_id), None)
+        _scalping_engines.pop(int(user_id), None)
 
     # Start appropriate engine based on mode
     if trading_mode == TradingMode.SCALPING:
@@ -1162,27 +1243,62 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
             notify_chat_id=notify_chat_id
         )
         task = asyncio.create_task(engine.run())
+        _scalping_engines[int(user_id)] = engine
         logger.info(f"[AutoTrade:{user_id}] Started SCALPING engine (exchange={exchange_id})")
     else:
         # Existing swing trading logic
         task = asyncio.create_task(
             _trade_loop(bot, user_id, api_key, api_secret, amount, leverage, notify_chat_id, is_premium, silent, exchange_id)
         )
+        _scalping_engines.pop(int(user_id), None)
         logger.info(f"[AutoTrade:{user_id}] Started SWING engine (exchange={exchange_id}, amount={amount}, leverage={leverage}x, premium={is_premium})")
     
     task.add_done_callback(_done_cb)
     _running_tasks[user_id] = task
     
     # Update engine_active flag in database
+    await _set_engine_active_flag(user_id, True)
+    return task
+
+
+def start_engine(bot, user_id: int, api_key: str, api_secret: str,
+                 amount: float, leverage: int, notify_chat_id: int,
+                 is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
+    """
+    Backward-compatible sync wrapper.
+    Schedules async serialized start.
+    """
     try:
-        from app.supabase_repo import _client
-        s = _client()
-        s.table("autotrade_sessions").upsert({
-            "telegram_id": int(user_id),
-            "engine_active": True
-        }, on_conflict="telegram_id").execute()
-    except Exception as e:
-        logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            start_engine_async(
+                bot=bot,
+                user_id=user_id,
+                api_key=api_key,
+                api_secret=api_secret,
+                amount=amount,
+                leverage=leverage,
+                notify_chat_id=notify_chat_id,
+                is_premium=is_premium,
+                silent=silent,
+                exchange_id=exchange_id,
+            )
+        )
+    except RuntimeError:
+        asyncio.run(
+            start_engine_async(
+                bot=bot,
+                user_id=user_id,
+                api_key=api_key,
+                api_secret=api_secret,
+                amount=amount,
+                leverage=leverage,
+                notify_chat_id=notify_chat_id,
+                is_premium=is_premium,
+                silent=silent,
+                exchange_id=exchange_id,
+            )
+        )
 
 
 # ─────────────────────────────────────────────
@@ -1210,6 +1326,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     cfg    = ENGINE_CONFIG
 
     logger.info(f"[Engine:{user_id}] Using exchange: {ex_cfg['name']} ({exchange_id})")
+    # Startup sanitize: clear orphan pending locks from previous crashed/restarted loops.
+    try:
+        coordinator = _get_coordinator()
+        cleared_any = await coordinator.clear_all_pending_without_position_for_user(
+            int(user_id), reason="startup_sanitize"
+        )
+        cleared_stale = await coordinator.clear_stale_pending_for_user(int(user_id), now_ts=time.time())
+        if cleared_any or cleared_stale:
+            logger.warning(
+                f"[Engine:{user_id}] Startup pending cleanup: immediate={cleared_any}, stale={cleared_stale}"
+            )
+    except Exception as _co_init_err:
+        logger.warning(f"[Engine:{user_id}] Startup pending cleanup failed: {_co_init_err}")
 
     # Premium user: RR 1:3 dengan dual TP (75%/25%) + breakeven SL
     # Free user: RR 1:2 single TP (behaviour lama)
@@ -1504,7 +1633,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 ),
                                 parse_mode='HTML'
                             )
-                            stop_engine(user_id)
+                            await stop_engine_async(user_id, mark_inactive=True)
                             logger.info(f"[Engine:{user_id}] Demo user stopped: equity ${demo_equity:.2f} > ${DEMO_BALANCE_LIMIT:.0f}")
                             return
                 except Exception as e:
@@ -2216,16 +2345,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             )
             if not can_enter:
                 logger.warning(f"[Coordinator:{user_id}] Entry BLOCKED for {symbol}: {block_reason}")
-                await bot.send_message(
-                    chat_id=notify_chat_id,
-                    text=(
-                        f"⚠️ <b>Trade skipped on {symbol}</b>\n\n"
-                        f"<b>Reason:</b> {block_reason}\n\n"
-                        f"Another strategy may own this symbol right now.\n"
-                        f"Bot will continue scanning for other opportunities."
-                    ),
-                    parse_mode='HTML'
-                )
+                should_notify = True
+                if "blocked_pending_order" in str(block_reason):
+                    should_notify = _should_notify_blocked_pending(user_id, symbol)
+                if should_notify:
+                    await bot.send_message(
+                        chat_id=notify_chat_id,
+                        text=(
+                            f"⚠️ <b>Trade skipped on {symbol}</b>\n\n"
+                            f"<b>Reason:</b> {block_reason}\n\n"
+                            f"Another strategy may own this symbol right now.\n"
+                            f"Bot will continue scanning for other opportunities."
+                        ),
+                        parse_mode='HTML'
+                    )
                 _cleanup_signal_queue(user_id, symbol, success=False)
                 await asyncio.sleep(cfg["scan_interval"])
                 continue

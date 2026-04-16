@@ -67,6 +67,10 @@ class SymbolState:
     symbol: str
     has_position: bool = False          # Is there an open position?
     pending_order: bool = False         # Is an order pending at the exchange?
+    pending_since_ts: Optional[float] = None
+    pending_owner: Optional[str] = None
+    pending_set_by_task_id: Optional[str] = None
+    last_pending_clear_reason: Optional[str] = None
     owner: StrategyOwner = StrategyOwner.NONE
     side: PositionSide = PositionSide.NONE
     size: float = 0.0                   # Position quantity
@@ -80,6 +84,7 @@ class SymbolState:
             f"owner={self.owner.value}, "
             f"position={'YES' if self.has_position else 'NO'}, "
             f"pending={'YES' if self.pending_order else 'NO'}, "
+            f"pending_since={self.pending_since_ts}, "
             f"side={self.side.value}, size={self.size})"
         )
 
@@ -108,6 +113,7 @@ class MultiUserSymbolCoordinator:
         # After close, don't allow re-entry until cooldown expires
         self._cooldown_map: Dict[int, Dict[str, float]] = {}
         self._cooldown_seconds = 300  # 5-minute cooldown (configurable)
+        self._pending_ttl_seconds = 90.0
 
         logger.info("[Coordinator] Initialized")
 
@@ -174,7 +180,41 @@ class MultiUserSymbolCoordinator:
 
             # Rule 2: Pending order blocks entry (prevent double-entry)
             if state.pending_order:
-                return False, f"blocked_pending_order: {symbol} already has pending order"
+                pending_age = None
+                if state.pending_since_ts is not None:
+                    pending_age = max(0.0, now_ts - state.pending_since_ts)
+
+                # Self-heal stale pending locks if no open position exists.
+                if (
+                    not state.has_position
+                    and pending_age is not None
+                    and pending_age > self._pending_ttl_seconds
+                ):
+                    prev_owner = state.pending_owner or state.owner.value
+                    state.pending_order = False
+                    state.pending_since_ts = None
+                    state.pending_owner = None
+                    state.pending_set_by_task_id = None
+                    if not state.has_position:
+                        state.owner = StrategyOwner.NONE
+                    state.last_pending_clear_reason = "ttl_expired"
+                    logger.warning(
+                        "[Coordinator] blocked_pending_order_stale_cleared "
+                        "user=%s symbol=%s age=%.1fs prev_owner=%s reason=ttl_expired",
+                        user_id,
+                        symbol,
+                        pending_age,
+                        prev_owner,
+                    )
+                else:
+                    age_text = f" age={pending_age:.1f}s" if pending_age is not None else ""
+                    logger.info(
+                        "[Coordinator] blocked_pending_order_active user=%s symbol=%s%s",
+                        user_id,
+                        symbol,
+                        age_text,
+                    )
+                    return False, f"blocked_pending_order: {symbol} already has pending order"
 
             # Rule 3: Different strategy owns symbol (conflict)
             if state.owner != StrategyOwner.NONE and state.owner != strategy:
@@ -211,10 +251,15 @@ class MultiUserSymbolCoordinator:
         async with lock:
             state = self._ensure_state(user_id, symbol)
             state.pending_order = True
+            state.pending_since_ts = time.time()
+            state.pending_owner = strategy.value
+            current_task = asyncio.current_task()
+            state.pending_set_by_task_id = str(id(current_task)) if current_task else None
             state.owner = strategy  # Tentatively assign owner
+            state.last_pending_clear_reason = None
             logger.debug(f"[Coordinator] {user_id}:{symbol} marked pending (strategy={strategy.value})")
 
-    async def clear_pending(self, user_id: int, symbol: str) -> None:
+    async def clear_pending(self, user_id: int, symbol: str, reason: str = "explicit_clear") -> None:
         """
         Clear pending order flag (order failed, was rejected, or timed out).
 
@@ -226,10 +271,14 @@ class MultiUserSymbolCoordinator:
             state = self._ensure_state(user_id, symbol)
             if state.pending_order:
                 state.pending_order = False
+                state.pending_since_ts = None
+                state.pending_owner = None
+                state.pending_set_by_task_id = None
+                state.last_pending_clear_reason = reason
                 # If no position open, clear owner
                 if not state.has_position:
                     state.owner = StrategyOwner.NONE
-                logger.debug(f"[Coordinator] {user_id}:{symbol} pending cleared")
+                logger.debug(f"[Coordinator] {user_id}:{symbol} pending cleared ({reason})")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Position Lifecycle
@@ -256,6 +305,10 @@ class MultiUserSymbolCoordinator:
             state = self._ensure_state(user_id, symbol)
             state.has_position = True
             state.pending_order = False
+            state.pending_since_ts = None
+            state.pending_owner = None
+            state.pending_set_by_task_id = None
+            state.last_pending_clear_reason = "confirm_open"
             state.owner = strategy
             state.side = side
             state.size = size
@@ -286,6 +339,10 @@ class MultiUserSymbolCoordinator:
             # Clear position
             state.has_position = False
             state.pending_order = False
+            state.pending_since_ts = None
+            state.pending_owner = None
+            state.pending_set_by_task_id = None
+            state.last_pending_clear_reason = "confirm_closed"
             state.owner = StrategyOwner.NONE
             state.side = PositionSide.NONE
             state.size = 0.0
@@ -330,12 +387,14 @@ class MultiUserSymbolCoordinator:
         notes = {}
 
         db_trades = {(t.get("symbol") or "").upper(): t for t in (db_open_trades or [])}
+        exchange_symbols = set()
 
         # Process each exchange position
         for ex_pos in (exchange_positions or []):
             sym = (ex_pos.get("symbol") or "").upper().replace("/", "")
             if not sym:
                 continue
+            exchange_symbols.add(sym)
 
             # Determine owner from DB hint
             owner = StrategyOwner.UNKNOWN
@@ -362,6 +421,10 @@ class MultiUserSymbolCoordinator:
             # Set state
             state = self._ensure_state(user_id, sym)
             state.has_position = True
+            state.pending_order = False
+            state.pending_since_ts = None
+            state.pending_owner = None
+            state.pending_set_by_task_id = None
             state.owner = owner
             state.side = side
             state.size = float(ex_pos.get("amount", 0) or 0)
@@ -373,7 +436,93 @@ class MultiUserSymbolCoordinator:
                 f"owner={owner.value}, side={side.value}, size={state.size}"
             )
 
+        # Cleanup pending-only orphans for symbols absent from exchange positions.
+        existing_symbols = list(self._user_symbol_states.get(user_id, {}).keys())
+        for sym in existing_symbols:
+            if sym in exchange_symbols:
+                continue
+            _cleared = await self.clear_pending_if_no_position(
+                user_id=user_id,
+                symbol=sym,
+                reason="reconcile_no_exchange_position",
+            )
+            if _cleared:
+                logger.warning(
+                    "[Coordinator] reconcile cleared pending-only orphan user=%s symbol=%s",
+                    user_id,
+                    sym,
+                )
+
         return notes
+
+    async def clear_pending_if_no_position(self, user_id: int, symbol: str, reason: str) -> bool:
+        """
+        Clear pending state only when no position is open on the symbol.
+        Returns True if clear occurred.
+        """
+        lock = self._get_lock(user_id, symbol)
+        async with lock:
+            state = self._ensure_state(user_id, symbol)
+            if state.pending_order and not state.has_position:
+                state.pending_order = False
+                state.pending_since_ts = None
+                state.pending_owner = None
+                state.pending_set_by_task_id = None
+                state.last_pending_clear_reason = reason
+                state.owner = StrategyOwner.NONE
+                return True
+            return False
+
+    async def clear_stale_pending_for_user(self, user_id: int, now_ts: Optional[float] = None) -> int:
+        """
+        Sweep a user's symbols and clear pending locks older than TTL where no position exists.
+        Returns number of cleared symbols.
+        """
+        if now_ts is None:
+            now_ts = time.time()
+        cleared = 0
+        symbols = list(self._user_symbol_states.get(user_id, {}).keys())
+        for symbol in symbols:
+            lock = self._get_lock(user_id, symbol)
+            async with lock:
+                state = self._ensure_state(user_id, symbol)
+                if not state.pending_order or state.has_position:
+                    continue
+                if state.pending_since_ts is None:
+                    age = self._pending_ttl_seconds + 1
+                else:
+                    age = max(0.0, now_ts - state.pending_since_ts)
+                if age <= self._pending_ttl_seconds:
+                    continue
+                prev_owner = state.pending_owner or state.owner.value
+                state.pending_order = False
+                state.pending_since_ts = None
+                state.pending_owner = None
+                state.pending_set_by_task_id = None
+                state.owner = StrategyOwner.NONE
+                state.last_pending_clear_reason = "ttl_expired_sweep"
+                cleared += 1
+                logger.warning(
+                    "[Coordinator] stale_pending_sweep_cleared user=%s symbol=%s age=%.1fs prev_owner=%s",
+                    user_id,
+                    symbol,
+                    age,
+                    prev_owner,
+                )
+        return cleared
+
+    async def clear_all_pending_without_position_for_user(self, user_id: int, reason: str) -> int:
+        """
+        Clear all pending flags for a user where no position is open, regardless of age.
+        Useful during stop/restart cleanup.
+        """
+        cleared = 0
+        symbols = list(self._user_symbol_states.get(user_id, {}).keys())
+        for symbol in symbols:
+            ok = await self.clear_pending_if_no_position(user_id, symbol, reason=reason)
+            if ok:
+                cleared += 1
+        return cleared
 
     # ──────────────────────────────────────────────────────────────────────────
     # Debug / Admin
@@ -423,6 +572,11 @@ class MultiUserSymbolCoordinator:
                 user_data["symbols"][sym] = {
                     "has_position": state.has_position,
                     "pending_order": state.pending_order,
+                    "pending_since_ts": state.pending_since_ts,
+                    "pending_owner": state.pending_owner,
+                    "pending_set_by_task_id": state.pending_set_by_task_id,
+                    "last_pending_clear_reason": state.last_pending_clear_reason,
+                    "pending_age_seconds": (max(0.0, now - state.pending_since_ts) if state.pending_since_ts else None),
                     "owner": state.owner.value,
                     "side": state.side.value,
                     "size": state.size,
@@ -452,6 +606,10 @@ class MultiUserSymbolCoordinator:
             state = self._ensure_state(user_id, symbol)
             state.has_position = False
             state.pending_order = False
+            state.pending_since_ts = None
+            state.pending_owner = None
+            state.pending_set_by_task_id = None
+            state.last_pending_clear_reason = "force_reset_symbol"
             state.owner = StrategyOwner.NONE
             state.side = PositionSide.NONE
             state.size = 0.0

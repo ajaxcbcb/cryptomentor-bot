@@ -337,7 +337,7 @@ def start_scheduler(application):
         try:
             from app.supabase_repo import _client
             from app.handlers_autotrade import get_user_api_keys
-            from app.autotrade_engine import start_engine, is_running
+            from app.autotrade_engine import start_engine_async, is_running
             from app.engine_restore import migrate_to_risk_based, set_scalping_mode
             from app.skills_repo import has_skill
 
@@ -481,7 +481,7 @@ def start_scheduler(application):
                     is_premium = has_skill(user_id, "dual_tp_rr3")
                     
                     # Start engine
-                    start_engine(
+                    await start_engine_async(
                         bot=application.bot,
                         user_id=user_id,
                         api_key=keys["api_key"],
@@ -649,7 +649,7 @@ async def _engine_health_check_task(application):
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
             
             from app.supabase_repo import _client
-            from app.autotrade_engine import is_running, start_engine
+            from app.autotrade_engine import is_running, start_engine_async
             from app.handlers_autotrade import get_user_api_keys
             from app.skills_repo import has_skill
             
@@ -727,7 +727,7 @@ async def _engine_health_check_task(application):
                         is_premium = has_skill(user_id, "dual_tp_rr3")
                         
                         # Restart engine
-                        start_engine(
+                        await start_engine_async(
                             bot=application.bot,
                             user_id=user_id,
                             api_key=keys["api_key"],

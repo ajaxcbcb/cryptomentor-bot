@@ -108,7 +108,7 @@ class TradingModeManager:
             
             # Step 2: Stop engine (close sideways positions first if switching from scalping)
             try:
-                from app.autotrade_engine import stop_engine, get_engine
+                from app.autotrade_engine import stop_engine_async, get_engine
                 # Close open sideways positions before stopping if switching away from scalping
                 if current_mode == TradingMode.SCALPING and new_mode != TradingMode.SCALPING:
                     try:
@@ -124,7 +124,7 @@ class TradingModeManager:
                                 logger.info(f"[ModeSwitch:{user_id}] Closed sideways position {sym} before mode switch")
                     except Exception as sw_err:
                         logger.warning(f"[ModeSwitch:{user_id}] Could not close sideways positions: {sw_err}")
-                stop_engine(user_id)
+                await stop_engine_async(user_id, mark_inactive=False)
                 engine_stopped = True
                 logger.info(f"[ModeSwitch:{user_id}] Stopped {current_mode.value} engine")
             except Exception as e:
@@ -208,7 +208,7 @@ class TradingModeManager:
             bot: Telegram bot instance
             context: Telegram context
         """
-        from app.autotrade_engine import start_engine
+        from app.autotrade_engine import start_engine_async
         from app.handlers_autotrade import get_user_api_keys, get_autotrade_session
         from app.supabase_repo import get_user_by_tid
         
@@ -224,7 +224,7 @@ class TradingModeManager:
         is_premium = user_data.get("premium_active", False) if user_data else False
         
         # Start engine with mode-specific config (silent=False to send notification)
-        start_engine(
+        await start_engine_async(
             bot=bot,
             user_id=user_id,
             api_key=keys['api_key'],

@@ -269,6 +269,71 @@ class TestPendingOrderLifecycle:
         assert state.pending_order is False
         assert state.owner == StrategyOwner.SWING  # Still owns it
 
+    @pytest.mark.asyncio
+    async def test_pending_auto_expires_after_ttl_if_no_position(self, coordinator):
+        """Stale pending lock auto-clears after TTL when no position exists."""
+        user_id = 123
+        symbol = "AVAXUSDT"
+        t0 = time.time()
+        await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+
+        # Before TTL, still blocked.
+        allowed1, reason1 = await coordinator.can_enter(
+            user_id, symbol, StrategyOwner.SWING, t0 + 30
+        )
+        assert allowed1 is False
+        assert "pending_order" in reason1
+
+        # After TTL (90s), pending lock self-heals and entry allowed.
+        allowed2, reason2 = await coordinator.can_enter(
+            user_id, symbol, StrategyOwner.SWING, t0 + 95
+        )
+        assert allowed2 is True
+        assert reason2 == "allowed"
+        state = await coordinator.get_state(user_id, symbol)
+        assert state.pending_order is False
+        assert state.last_pending_clear_reason == "ttl_expired"
+
+    @pytest.mark.asyncio
+    async def test_pending_does_not_auto_expire_when_position_open(self, coordinator):
+        """TTL auto-expiry must not clear pending if symbol has open position."""
+        user_id = 123
+        symbol = "LINKUSDT"
+        t0 = time.time()
+        await coordinator.confirm_open(
+            user_id, symbol, StrategyOwner.SWING,
+            PositionSide.LONG, 1.0, 10.0
+        )
+        await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+
+        allowed, reason = await coordinator.can_enter(
+            user_id, symbol, StrategyOwner.SWING, t0 + 95
+        )
+        assert allowed is False
+        assert "pending_order" in reason
+
+    @pytest.mark.asyncio
+    async def test_clear_all_pending_without_position_for_user(self, coordinator):
+        """Restart cleanup clears only pending symbols that are flat."""
+        user_id = 123
+        await coordinator.set_pending(user_id, "ADAUSDT", StrategyOwner.SWING)  # should clear
+        await coordinator.confirm_open(
+            user_id, "BTCUSDT", StrategyOwner.SWING,
+            PositionSide.LONG, 0.1, 45000.0
+        )
+        await coordinator.set_pending(user_id, "BTCUSDT", StrategyOwner.SWING)  # should stay (has position)
+
+        cleared = await coordinator.clear_all_pending_without_position_for_user(
+            user_id, reason="engine_stop_cleanup"
+        )
+        assert cleared == 1
+
+        ada = await coordinator.get_state(user_id, "ADAUSDT")
+        btc = await coordinator.get_state(user_id, "BTCUSDT")
+        assert ada.pending_order is False
+        assert ada.last_pending_clear_reason == "engine_stop_cleanup"
+        assert btc.pending_order is True
+
 
 class TestPositionLifecycle:
     """Test confirm_open() and confirm_closed()."""

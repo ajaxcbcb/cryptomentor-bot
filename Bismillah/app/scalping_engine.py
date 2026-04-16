@@ -96,6 +96,7 @@ class ScalpingEngine:
         self.sideways_error_counter: Dict[str, int] = {}
         self.signal_streaks: Dict[str, Dict[str, float]] = {}
         self.last_closed_meta: Dict[str, Dict[str, float]] = {}
+        self._blocked_pending_notify_ts: Dict[str, float] = {}
         
         # Running state
         self.running = False
@@ -116,6 +117,15 @@ class ScalpingEngine:
         self.coordinator = get_coordinator()
 
         logger.info(f"[Scalping:{user_id}] Engine initialized with config: {self.config}")
+
+    def _should_notify_blocked_pending(self, symbol: str, ttl_sec: int = 600) -> bool:
+        now_ts = time.time()
+        key = str(symbol).upper()
+        last = self._blocked_pending_notify_ts.get(key, 0.0)
+        if now_ts - last < float(ttl_sec):
+            return False
+        self._blocked_pending_notify_ts[key] = now_ts
+        return True
 
     def _fmt_pnl_usdt(self, pnl: float) -> str:
         """Format PnL with higher precision for tiny values."""
@@ -221,6 +231,20 @@ class ScalpingEngine:
 
         # 2. Load open positions from DB to resume monitoring
         await self._load_existing_positions()
+        # 2b. Startup sanitize: clear orphan pending locks with no position.
+        try:
+            cleared_any = await self.coordinator.clear_all_pending_without_position_for_user(
+                int(self.user_id), reason="startup_sanitize"
+            )
+            cleared_stale = await self.coordinator.clear_stale_pending_for_user(
+                int(self.user_id), now_ts=time.time()
+            )
+            if cleared_any or cleared_stale:
+                logger.warning(
+                    f"[Scalping:{self.user_id}] Startup pending cleanup: immediate={cleared_any}, stale={cleared_stale}"
+                )
+        except Exception as _co_err:
+            logger.warning(f"[Scalping:{self.user_id}] Startup pending cleanup failed: {_co_err}")
         
         # Send startup notification
         try:
@@ -1477,11 +1501,15 @@ class ScalpingEngine:
                 )
                 if not can_enter:
                     logger.warning(f"[Coordinator:{self.user_id}] Entry BLOCKED for {signal.symbol}: {block_reason}")
-                    await self._notify_user(
-                        f"⚠️ <b>Trade skipped on {signal.symbol}</b>\n\n"
-                        f"<b>Reason:</b> {block_reason}\n\n"
-                        f"Another strategy may own this symbol.\nBot will continue scanning."
-                    )
+                    should_notify = True
+                    if "blocked_pending_order" in str(block_reason):
+                        should_notify = self._should_notify_blocked_pending(signal.symbol, ttl_sec=600)
+                    if should_notify:
+                        await self._notify_user(
+                            f"⚠️ <b>Trade skipped on {signal.symbol}</b>\n\n"
+                            f"<b>Reason:</b> {block_reason}\n\n"
+                            f"Another strategy may own this symbol.\nBot will continue scanning."
+                        )
                     return False
 
                 # Mark pending

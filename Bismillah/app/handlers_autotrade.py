@@ -808,15 +808,13 @@ async def _apply_new_amount(msg_or_query, user_id: int, amount: float,
         pass
 
     # Restart engine jika sedang berjalan
-    from app.autotrade_engine import is_running, start_engine, stop_engine
+    from app.autotrade_engine import is_running, start_engine_async, stop_engine_async
     engine_restarted = ""
     if is_running(user_id) and keys and session:
-        stop_engine(user_id)
-        import asyncio
-        await asyncio.sleep(0.5)
         bot = msg_or_query.get_bot() if from_callback else context.bot
         exchange_id = keys.get("exchange", "bitunix")
-        start_engine(
+        await stop_engine_async(user_id, mark_inactive=False)
+        await start_engine_async(
             bot=bot,
             user_id=user_id,
             api_key=keys['api_key'],
@@ -956,15 +954,13 @@ async def _apply_new_leverage(msg_or_query, user_id: int, leverage: int,
             apply_status = f"\n\n⚠️ Failed to apply to Bitunix: {e}"
 
     # Restart engine with new leverage if running
-    from app.autotrade_engine import is_running, start_engine, stop_engine
+    from app.autotrade_engine import is_running, start_engine_async, stop_engine_async
     engine_restarted = ""
     if is_running(user_id) and keys and session:
-        stop_engine(user_id)
-        import asyncio
-        await asyncio.sleep(0.5)
         bot = msg_or_query.get_bot() if from_callback else context.bot
         exchange_id = keys.get("exchange", "bitunix")
-        start_engine(
+        await stop_engine_async(user_id, mark_inactive=False)
+        await start_engine_async(
             bot=bot,
             user_id=user_id,
             api_key=keys['api_key'],

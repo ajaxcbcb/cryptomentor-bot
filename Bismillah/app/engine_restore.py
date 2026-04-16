@@ -125,7 +125,7 @@ async def reconcile_coordinator_state(user_id: int, client) -> None:
         # Non-fatal — engine can still run
 
 
-def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
+async def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
     """
     Restore autotrade engine for a single user.
     Returns True if successful.
@@ -149,7 +149,7 @@ def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
         set_scalping_mode(user_id)
 
         # Check if engine already running
-        from app.autotrade_engine import is_running, start_engine
+        from app.autotrade_engine import is_running, start_engine_async
         if is_running(user_id):
             logger.info(f"[Restore] Engine already running for user {user_id}")
             return True
@@ -159,7 +159,7 @@ def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
         is_premium = has_skill(user_id, "dual_tp_rr3")
 
         # Start engine
-        start_engine(
+        await start_engine_async(
             bot=bot,
             user_id=user_id,
             api_key=keys['api_key'],
@@ -228,7 +228,7 @@ async def restore_all_engines(bot):
                 continue
             
             # Restore engine
-            if restore_user_engine(bot, session, keys):
+            if await restore_user_engine(bot, session, keys):
                 restored += 1
                 
                 # Send notification to user

@@ -1,5 +1,44 @@
 # Changelog
 
+## [2.2.10] — 2026-04-16 — Pending-Lock Self-Healing + Restart Serialization
+
+### 🛡️ Coordinator Hardening (`blocked_pending_order`)
+- Updated `Bismillah/app/symbol_coordinator.py` with stale-pending metadata and self-healing:
+  - `pending_since_ts`, `pending_owner`, `pending_set_by_task_id`, `last_pending_clear_reason`
+  - `can_enter()` now auto-clears pending locks older than 90s when no position exists
+  - added user-scoped cleanup helpers for restart/startup sanitization:
+    - `clear_stale_pending_for_user(...)`
+    - `clear_pending_if_no_position(...)`
+    - `clear_all_pending_without_position_for_user(...)`
+- Added structured coordinator logs:
+  - `blocked_pending_order_active`
+  - `blocked_pending_order_stale_cleared`
+
+### 🔄 Engine Lifecycle Race Fix
+- `Bismillah/app/autotrade_engine.py`:
+  - added serialized async lifecycle with per-user locks:
+    - `start_engine_async(...)`
+    - `stop_engine_async(...)`
+  - stop path now cancels + awaits old task, then clears pending-only locks before restart.
+  - preserved sync wrappers (`start_engine`, `stop_engine`) for compatibility.
+- Restart callpaths now use serialized async start/stop:
+  - `Bismillah/app/scheduler.py`
+  - `Bismillah/app/handlers_autotrade.py`
+  - `Bismillah/app/trading_mode_manager.py`
+  - `Bismillah/app/engine_restore.py`
+
+### 🚦 Startup Sanitization + UX Dedupe
+- Startup pending cleanup added before scanning in:
+  - swing loop (`autotrade_engine`)
+  - scalping loop (`scalping_engine`)
+- Repeated `blocked_pending_order` user alerts are now deduped per symbol for 10 minutes (logs remain complete).
+
+### ✅ Tests
+- Extended `tests/test_coordinator.py`:
+  - stale-pending auto-expiry (>90s) behavior
+  - no auto-expiry when position is open
+  - restart cleanup clears only pending-without-position symbols
+
 ## [2.2.9] — 2026-04-16 — Dynamic Top-10 Volume Routing + Equity Messaging Alignment
 
 ### 📈 Dynamic Pair Universe (Bitunix `quoteVol`)
