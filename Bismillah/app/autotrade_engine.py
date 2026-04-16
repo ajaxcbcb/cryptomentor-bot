@@ -1459,17 +1459,37 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     open_db_trades = get_open_trades(user_id)
                     for db_trade in open_db_trades:
                         sym_base = db_trade["symbol"].replace("USDT", "")
-                        # Ambil harga terakhir untuk estimasi exit
-                        # FIXED: Gunakan mark price dari exchange, bukan klines
+                        # Prefer exchange-realized roundtrip financials (close realized + fees).
+                        # Fallback to mark/klines estimation only when exchange history is unavailable.
+                        fin = {}
                         try:
-                            # Try to get current mark price from exchange
-                            ticker_result = await asyncio.to_thread(client.get_ticker, db_trade["symbol"])
-                            if ticker_result.get('success') and ticker_result.get('mark_price'):
-                                exit_px = float(ticker_result['mark_price'])
+                            fin = await asyncio.to_thread(
+                                client.get_roundtrip_financials,
+                                db_trade["symbol"],
+                                str(db_trade.get("order_id") or ""),
+                                str(db_trade.get("side") or ""),
+                                str(db_trade.get("opened_at") or ""),
+                                200,
+                            )
+                        except Exception as _fin_err:
+                            logger.warning(
+                                f"[Engine:{user_id}] roundtrip financial lookup failed for "
+                                f"{db_trade.get('symbol')}: {_fin_err}"
+                            )
+
+                        # Ambil harga terakhir untuk estimasi exit jika tidak ada close avg price dari history.
+                        try:
+                            if fin.get("success") and fin.get("close_avg_price"):
+                                exit_px = float(fin.get("close_avg_price"))
                             else:
-                                # Fallback to klines
-                                klines = alternative_klines_provider.get_klines(sym_base, interval='1m', limit=2)
-                                exit_px = float(klines[-1][4]) if klines else float(db_trade.get("entry_price", 0))
+                                # Try mark price from exchange
+                                ticker_result = await asyncio.to_thread(client.get_ticker, db_trade["symbol"])
+                                if ticker_result.get('success') and ticker_result.get('mark_price'):
+                                    exit_px = float(ticker_result['mark_price'])
+                                else:
+                                    # Fallback to klines
+                                    klines = alternative_klines_provider.get_klines(sym_base, interval='1m', limit=2)
+                                    exit_px = float(klines[-1][4]) if klines else float(db_trade.get("entry_price", 0))
                         except Exception as e:
                             logger.warning(f"[Engine:{user_id}] Failed to get exit price for {sym_base}: {e}")
                             # Last resort: use entry price (will result in 0 PnL)
@@ -1478,7 +1498,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         entry_px = float(db_trade.get("entry_price", 0))
                         db_side  = db_trade.get("side", "LONG")
                         raw_pnl  = (exit_px - entry_px) if db_side == "LONG" else (entry_px - exit_px)
-                        pnl_usdt = raw_pnl * float(db_trade.get("qty", 0))
+                        est_pnl_usdt = raw_pnl * float(db_trade.get("qty", 0))
+
+                        if fin.get("success") and fin.get("net_pnl") is not None:
+                            pnl_usdt = float(fin.get("net_pnl"))
+                        else:
+                            pnl_usdt = est_pnl_usdt
 
                         if pnl_usdt < 0:
                             # Loss — generate reasoning
@@ -1931,6 +1956,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             sl         = sig['sl']
             confidence = sig['confidence']
             rr_ratio   = sig['rr_ratio']
+            pending_marked = False
 
             logger.info(
                 f"[Engine:{user_id}] Processing signal from queue: {symbol} {side} "
@@ -2095,6 +2121,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             # Mark pending (order about to be submitted)
             await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+            pending_marked = True
 
             # ── Set leverage ──────────────────────────────────────────
             await asyncio.to_thread(client.set_leverage, symbol, effective_leverage)
@@ -2122,6 +2149,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     if side == "LONG":
                         if tp1 <= current_mark_price:
                             logger.warning(f"[Engine:{user_id}] Invalid TP for LONG: {tp1:.4f} <= {current_mark_price:.4f}, skipping trade")
+                            await coordinator.clear_pending(user_id, symbol)
+                            pending_marked = False
                             # Clean up: remove from queue and unmark as processing
                             if user_id in _signal_queues:
                                 _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
@@ -2131,6 +2160,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     else:  # SHORT
                         if tp1 >= current_mark_price:
                             logger.warning(f"[Engine:{user_id}] Invalid TP for SHORT: {tp1:.4f} >= {current_mark_price:.4f}, skipping trade")
+                            await coordinator.clear_pending(user_id, symbol)
+                            pending_marked = False
                             # Clean up: remove from queue and unmark as processing
                             if user_id in _signal_queues:
                                 _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
@@ -2157,6 +2188,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 # Clear pending with coordinator
                 coordinator = _get_coordinator()
                 await coordinator.clear_pending(user_id, symbol)
+                pending_marked = False
 
                 # Handle SL price validation error (30029)
                 if '30029' in str(err) or 'SL price must be' in str(err):
@@ -2301,6 +2333,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 entry_price=entry,
                 exchange_position_id=order_result.get('order_id')
             )
+            pending_marked = False
 
             order_id = order_result.get('order_id', '-')
             trades_today += 1
@@ -2411,6 +2444,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             await asyncio.sleep(cfg["scan_interval"])
 
         except asyncio.CancelledError:
+            # Safety: avoid stale pending lock if cancellation happens mid-entry.
+            try:
+                if 'pending_marked' in locals() and pending_marked:
+                    await _get_coordinator().clear_pending(user_id, symbol)
+            except Exception:
+                pass
             stop_pnl_tracker(user_id)
             try:
                 await bot.send_message(chat_id=notify_chat_id,
@@ -2422,6 +2461,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             return
 
         except Exception as e:
+            # Safety: release pending lock on unexpected loop errors.
+            try:
+                if 'pending_marked' in locals() and pending_marked:
+                    await _get_coordinator().clear_pending(user_id, symbol)
+            except Exception:
+                pass
             err_str = str(e)
             logger.error(f"[Engine:{user_id}] Loop error: {e}", exc_info=True)
             # Jangan stop engine karena network/timeout error — hanya retry

@@ -1335,6 +1335,7 @@ class ScalpingEngine:
         
         max_retries = 3
         base_delay = 1.0
+        pending_marked = False
         
         for attempt in range(max_retries):
             try:
@@ -1418,6 +1419,7 @@ class ScalpingEngine:
 
                 # Mark pending
                 await self.coordinator.set_pending(self.user_id, signal.symbol, StrategyOwner.SCALP)
+                pending_marked = True
 
                 # ═══════════════════════════════════════════════════════════
                 # Unified entry path — see app/trade_execution.py
@@ -1487,6 +1489,7 @@ class ScalpingEngine:
                         entry_price=signal.entry_price,
                         exchange_position_id=getattr(exec_result, 'position_id', None)
                     )
+                    pending_marked = False
 
                     logger.info(
                         f"[Scalping:{self.user_id}] StackMentor position opened: "
@@ -1507,6 +1510,7 @@ class ScalpingEngine:
                     if error_code == "insufficient_balance":
                         await self._notify_user("❌ Order failed: Insufficient balance")
                         await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        pending_marked = False
                         return False
                     if error_code == "invalid_prices":
                         await self._notify_user(
@@ -1514,6 +1518,7 @@ class ScalpingEngine:
                             f"Market moved before entry: {error_msg}"
                         )
                         await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        pending_marked = False
                         return False
                     if error_code in ("auth", "ip_blocked"):
                         await self._notify_user(
@@ -1521,6 +1526,7 @@ class ScalpingEngine:
                             f"Engine continues; check API key & proxy."
                         )
                         await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        pending_marked = False
                         return False
                     if error_code == "reconcile_failed":
                         await self._notify_user(
@@ -1531,10 +1537,12 @@ class ScalpingEngine:
                             f"<code>{error_msg}</code>"
                         )
                         await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        pending_marked = False
                         return False
                     if 'invalid symbol' in error_msg.lower():
                         await self._notify_user(f"❌ Order failed: Invalid symbol {signal.symbol}")
                         await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        pending_marked = False
                         return False
 
                     # Retryable error — backoff
@@ -1544,15 +1552,24 @@ class ScalpingEngine:
             
             except asyncio.TimeoutError:
                 logger.warning(f"[Scalping:{self.user_id}] Order timeout (attempt {attempt+1})")
+                if attempt == max_retries - 1 and pending_marked:
+                    await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                    pending_marked = False
                 if attempt < max_retries - 1:
                     await asyncio.sleep(base_delay * (2 ** attempt))
             
             except Exception as e:
                 logger.error(f"[Scalping:{self.user_id}] Order exception (attempt {attempt+1}): {e}")
+                if attempt == max_retries - 1 and pending_marked:
+                    await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                    pending_marked = False
                 if attempt < max_retries - 1:
                     await asyncio.sleep(base_delay * (2 ** attempt))
         
         # All retries failed — set cooldown to prevent spam
+        if pending_marked:
+            await self.coordinator.clear_pending(self.user_id, signal.symbol)
+            pending_marked = False
         self.mark_cooldown(signal.symbol)
         await self._notify_user(
             f"❌ Failed to place order for {signal.symbol} after {max_retries} attempts.\n"

@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.2.5] — 2026-04-16 — Pending-Lock Reliability Fix + Scalping Pair Standardization (15 Pairs)
+
+### 🛡️ Engine Reliability (Coordinator Pending Lock)
+- **Fixed stale `blocked_pending_order` lock paths** in both engines so symbols do not remain falsely blocked after failed/aborted entries.
+  - `Bismillah/app/autotrade_engine.py`
+    - Added pending lifecycle guard and cleanup on:
+      - TP-validation skip paths (pre-order abort)
+      - unexpected loop exceptions
+      - cancellation paths
+  - `Bismillah/app/scalping_engine.py`
+    - Added pending lifecycle guard and cleanup on:
+      - terminal timeout/exception retry exhaustion
+      - all terminal failure exits
+      - preserved pending state correctly on successful open
+
+### 📊 Trading Pair Standard
+- **Scalping runtime standard set to 15 pairs** (aligned with startup messaging standard).
+  - Updated `Bismillah/app/trading_mode.py` `ScalpingConfig.pairs` by adding:
+    - `CLUSDT`
+    - `QQQUSDT`
+  - Runtime verification result: `PAIR_COUNT=15`.
+
+### 🚀 Ops / Deployment Notes (2026-04-16)
+- Restarted bot/engine worker service on VPS:
+  - `systemctl restart cryptomentor`
+  - Service status verified: `active/running`.
+- Deployed updated `trading_mode.py` to VPS and re-verified live runtime pair count = 15.
+- Executed targeted Telegram promo broadcast to **non-verified** users:
+  - Targeted: `212`
+  - Sent: `66`
+  - Failed: `146`
+  - Blocked/Forbidden subset: `42`
+
 ## [2.2.4] — 2026-04-15 — Confidence & Startup Message Accuracy + Single Notification Flow
 
 ### 🎯 Signal & Mode Accuracy
