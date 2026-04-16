@@ -26,6 +26,12 @@ BITUNIX_REFERRAL_CODE = "sq45"
 WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 logger = logging.getLogger(__name__)
 
+try:
+    from app.exchange_registry import get_exchange
+    BITUNIX_GROUP_URL = get_exchange("bitunix").get("group_url")
+except Exception:
+    BITUNIX_GROUP_URL = os.getenv("BITUNIX_GROUP_URL", "")
+
 VER_NONE = "none"
 VER_PENDING = "pending"
 VER_APPROVED = "approved"
@@ -249,13 +255,20 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             "❌ <b>Verification Rejected</b>\n\n"
             f"UID: <code>{uid or '-'}</code>\n\n"
-            "Please submit a valid Bitunix UID again from the dashboard or directly in this bot."
+            "Please submit a valid Bitunix UID again from the dashboard or directly in this bot.\n\n"
+            "Next steps:\n"
+            "1️⃣ Register on Bitunix (if not done yet)\n"
+            "2️⃣ Submit your UID again\n"
+            "3️⃣ Configure API on dashboard\n"
+            "4️⃣ Join CryptoMentor x Bitunix Group"
         )
         keyboard = [
             [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
             [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
             [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)],
         ]
+        if BITUNIX_GROUP_URL:
+            keyboard.append([InlineKeyboardButton("👥 Join CryptoMentor x Bitunix Group", url=BITUNIX_GROUP_URL)])
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         return
 
@@ -265,7 +278,8 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"To start trading, verify your Bitunix account:\n\n"
         f"1️⃣ Register on Bitunix\n"
         f"2️⃣ Submit your UID\n"
-        f"3️⃣ Configure API on dashboard\n\n"
+        f"3️⃣ Configure API on dashboard\n"
+        f"4️⃣ Join CryptoMentor x Bitunix Group\n\n"
         f"Choose an option:"
     )
     keyboard = [
@@ -273,6 +287,8 @@ async def cmd_autotrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
         [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)]
     ]
+    if BITUNIX_GROUP_URL:
+        keyboard.append([InlineKeyboardButton("👥 Join CryptoMentor x Bitunix Group", url=BITUNIX_GROUP_URL)])
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
 
@@ -296,13 +312,15 @@ async def callback_start_onboarding(update: Update, context: ContextTypes.DEFAUL
         "Follow these quick steps:\n"
         "1️⃣ Register on Bitunix\n"
         "2️⃣ Submit your UID\n"
-        "3️⃣ Open dashboard to continue setup\n\n"
+        "3️⃣ Open dashboard to continue setup\n"
+        "4️⃣ Join CryptoMentor x Bitunix Group\n\n"
         "Choose an option below:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🌐 Dashboard", url=dash_url)],
             [InlineKeyboardButton("🆔 Submit UID", callback_data="submit_uid_bot")],
             [InlineKeyboardButton("🔗 Bitunix", url=BITUNIX_REFERRAL_URL)],
+            *([[InlineKeyboardButton("👥 Join CryptoMentor x Bitunix Group", url=BITUNIX_GROUP_URL)]] if BITUNIX_GROUP_URL else []),
         ]),
     )
 
@@ -397,6 +415,7 @@ async def process_uid_input_bot(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]),
             parse_mode='HTML'
         )
+        await _send_group_invite_followup(context.bot, user_id)
     except Exception as e:
         await update.message.reply_text(f"❌ Error saving UID: {e}")
         
@@ -442,6 +461,27 @@ async def notify_admins_of_uid(bot, user_id: int, uid: str):
         try:
             await bot.send_message(chat_id=aid, text=msg, parse_mode='HTML', reply_markup=keyboard)
         except Exception: pass
+
+
+async def _send_group_invite_followup(bot, chat_id: int):
+    """Send dedicated post-onboarding group invite follow-up."""
+    if not BITUNIX_GROUP_URL:
+        return
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "🚀 <b>AutoTrade Setup Complete</b>\n\n"
+            "Great job — your onboarding is done.\n\n"
+            "✅ Next step:\n"
+            "Join our official community group to get updates, event announcements, and support.\n\n"
+            "Tap below to join:"
+        ),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("👥 Join CryptoMentor x Bitunix Group", url=BITUNIX_GROUP_URL)]]
+        ),
+        disable_web_page_preview=True,
+    )
 
 
 

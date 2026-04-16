@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.2.6] — 2026-04-16 — Onboarding Group Invite Follow-Up
+
+### 🤖 Telegram Onboarding UX
+- Updated onboarding flow to consistently include Telegram group join as the next step:
+  - Added Step 4 in onboarding copy: **Join CryptoMentor x Bitunix Group**
+  - Added button in onboarding paths: `👥 Join CryptoMentor x Bitunix Group`
+  - Added same group step/button in `VER_REJECTED` path for consistency.
+
+### 📩 New Post-Onboarding Follow-Up Message
+- Added dedicated follow-up message sent to users after onboarding milestones:
+  - After UID submission via bot (`process_uid_input_bot`)
+  - After admin approval of UID (`callback_uid_acc`)
+- Message includes CTA button to join group:
+  - URL source: `exchange_registry.bitunix.group_url`
+  - Fallback: `BITUNIX_GROUP_URL` env var.
+
+### 🗂️ Files Updated
+- `Bismillah/app/handlers_autotrade.py`
+- `Bismillah/app/handlers_autotrade_admin.py`
+
 ## [2.2.5] — 2026-04-16 — Pending-Lock Reliability Fix + Scalping Pair Standardization (15 Pairs)
 
 ### 🛡️ Engine Reliability (Coordinator Pending Lock)

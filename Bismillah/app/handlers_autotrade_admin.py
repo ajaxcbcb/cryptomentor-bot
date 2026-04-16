@@ -11,6 +11,12 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+try:
+    from app.exchange_registry import get_exchange
+    BITUNIX_GROUP_URL = get_exchange("bitunix").get("group_url")
+except Exception:
+    BITUNIX_GROUP_URL = os.getenv("BITUNIX_GROUP_URL", "")
+
 
 def _is_admin(user_id: int) -> bool:
     admin_ids = set()
@@ -82,6 +88,22 @@ async def callback_uid_acc(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             parse_mode="HTML",
         )
+        if BITUNIX_GROUP_URL:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "🚀 <b>AutoTrade Setup Complete</b>\n\n"
+                    "Great job — your onboarding is done.\n\n"
+                    "✅ Next step:\n"
+                    "Join our official community group to get updates, event announcements, and support.\n\n"
+                    "Tap below to join:"
+                ),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("👥 Join CryptoMentor x Bitunix Group", url=BITUNIX_GROUP_URL)]]
+                ),
+                disable_web_page_preview=True,
+            )
         await query.edit_message_text(f"✅ Approved User {user_id}")
     except Exception as e:
         logger.error("Error in callback_uid_acc: %s", e)
