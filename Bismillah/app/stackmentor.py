@@ -246,7 +246,25 @@ async def handle_tp1_hit(bot, user_id: int, client, notify_chat_id: int,
     # 4. Update database
     try:
         from app.supabase_repo import _client
+        from app.trade_history import build_win_reasoning
+        from app.win_playbook import compute_playbook_match_from_reasons
         profit_tp1 = abs(mark_price - entry) * qty_tp1
+        open_row_res = _client().table("autotrade_trades").select("*").eq(
+            "telegram_id", user_id
+        ).eq("symbol", symbol).eq("status", "open").order("opened_at", desc=True).limit(1).execute()
+        open_row = open_row_res.data[0] if open_row_res.data else {}
+        match_meta = compute_playbook_match_from_reasons(open_row.get("entry_reasons", []))
+        trade_ctx = dict(open_row)
+        trade_ctx.update({
+            "exit_price": mark_price,
+            "pnl_usdt": profit_tp1,
+            "close_reason": "closed_tp",
+        })
+        win_reasoning = build_win_reasoning(
+            trade_ctx,
+            playbook_tags=match_meta.get("matched_tags", []),
+            playbook_score=match_meta.get("playbook_match_score"),
+        )
         
         _client().table("autotrade_trades").update({
             "tp1_hit": True,
@@ -258,7 +276,13 @@ async def handle_tp1_hit(bot, user_id: int, client, notify_chat_id: int,
             "breakeven_mode": False,
             "profit_tp1": profit_tp1,
             "pnl_usdt": profit_tp1,
+            "close_reason": "closed_tp",
             "status": "closed_tp",
+            "win_reasoning": win_reasoning,
+            "win_reason_tags": match_meta.get("matched_tags", []),
+            "playbook_match_score": float(match_meta.get("playbook_match_score", open_row.get("playbook_match_score", 0.0) or 0.0)),
+            "effective_risk_pct": open_row.get("effective_risk_pct"),
+            "risk_overlay_pct": open_row.get("risk_overlay_pct"),
             "closed_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("telegram_id", user_id).eq("symbol", symbol).eq("status", "open").execute()
@@ -417,13 +441,37 @@ async def handle_tp3_hit(bot, user_id: int, client, notify_chat_id: int,
     # Update database - position fully closed
     try:
         from app.supabase_repo import _client
+        from app.trade_history import build_win_reasoning
+        from app.win_playbook import compute_playbook_match_from_reasons
+        open_row_res = _client().table("autotrade_trades").select("*").eq(
+            "telegram_id", user_id
+        ).eq("symbol", symbol).eq("status", "open").order("opened_at", desc=True).limit(1).execute()
+        open_row = open_row_res.data[0] if open_row_res.data else {}
+        match_meta = compute_playbook_match_from_reasons(open_row.get("entry_reasons", []))
+        trade_ctx = dict(open_row)
+        trade_ctx.update({
+            "exit_price": mark_price,
+            "pnl_usdt": total_profit,
+            "close_reason": "closed_tp3",
+        })
+        win_reasoning = build_win_reasoning(
+            trade_ctx,
+            playbook_tags=match_meta.get("matched_tags", []),
+            playbook_score=match_meta.get("playbook_match_score"),
+        )
         
         _client().table("autotrade_trades").update({
             "tp3_hit": True,
             "tp3_hit_at": datetime.utcnow().isoformat(),
             "profit_tp3": profit_tp3,
             "pnl_usdt": total_profit,
+            "close_reason": "closed_tp3",
             "status": "closed_tp3",
+            "win_reasoning": win_reasoning,
+            "win_reason_tags": match_meta.get("matched_tags", []),
+            "playbook_match_score": float(match_meta.get("playbook_match_score", open_row.get("playbook_match_score", 0.0) or 0.0)),
+            "effective_risk_pct": open_row.get("effective_risk_pct"),
+            "risk_overlay_pct": open_row.get("risk_overlay_pct"),
             "closed_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("telegram_id", user_id).eq("symbol", symbol).eq("status", "open").execute()

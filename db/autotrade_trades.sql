@@ -23,6 +23,11 @@ create table if not exists public.autotrade_trades (
   atr_pct         numeric(6,4),
   entry_reasons   jsonb default '[]',     -- array alasan entry dari sinyal
   loss_reasoning  text,                   -- analisis kenapa loss (diisi saat close dengan SL)
+  win_reasoning   text,                   -- analisis kenapa win (diisi saat close profitable)
+  win_reason_tags jsonb default '[]',
+  playbook_match_score numeric(6,3),      -- snapshot score from global win playbook
+  effective_risk_pct numeric(6,3),        -- runtime effective risk used for sizing
+  risk_overlay_pct numeric(6,3),          -- runtime-only overlay component
   is_flip         boolean default false,  -- apakah ini hasil dari reversal/flip
   order_id        text,                   -- order ID dari Bitunix
   opened_at       timestamptz not null default now(),

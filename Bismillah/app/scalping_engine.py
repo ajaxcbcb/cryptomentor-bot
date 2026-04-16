@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Optional, Dict
+from typing import Any, Optional, Dict
 from datetime import datetime
 from html import escape
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -24,6 +24,12 @@ from app.symbol_coordinator import (
 from app.adaptive_confluence import refresh_global_adaptive_state, get_adaptive_overrides
 from app.volume_pair_selector import get_ranked_top_volume_pairs
 from app.leverage_policy import get_auto_max_safe_leverage
+from app.win_playbook import (
+    refresh_global_win_playbook_state,
+    get_win_playbook_snapshot,
+    evaluate_signal_risk,
+    compute_playbook_match_from_reasons,
+)
 
 logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
@@ -113,6 +119,15 @@ class ScalpingEngine:
         }
         self._adaptive_next_refresh = 0.0
         self._active_scan_pairs = list(self.config.pairs)
+        self._win_playbook_snapshot: Dict[str, Any] = {
+            "risk_overlay_pct": 0.0,
+            "rolling_win_rate": 0.0,
+            "rolling_expectancy": 0.0,
+            "sample_size": 0,
+            "active_tags": [],
+            "guardrails_healthy": False,
+        }
+        self._win_playbook_next_refresh = 0.0
 
         # Multi-user symbol coordinator
         self.coordinator = get_coordinator()
@@ -276,6 +291,11 @@ class ScalpingEngine:
             except Exception as adapt_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial adaptive load failed: {adapt_err}")
             try:
+                await asyncio.to_thread(refresh_global_win_playbook_state)
+                self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
+            except Exception as playbook_err:
+                logger.warning(f"[Scalping:{self.user_id}] Initial win-playbook load failed: {playbook_err}")
+            try:
                 self._active_scan_pairs = await asyncio.to_thread(get_ranked_top_volume_pairs, 10)
             except Exception as vol_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial volume pair load failed: {vol_err}")
@@ -295,7 +315,9 @@ class ScalpingEngine:
                     f"• Max concurrent: {self.config.max_concurrent_positions} positions\n"
                     f"• Trading pairs: Top {len(self._active_scan_pairs)} by volume\n\n"
                     f"• Adaptive conf delta: {int(self._adaptive_overlay.get('conf_delta', 0)):+d}\n"
-                    f"• Adaptive vol delta: {float(self._adaptive_overlay.get('volume_min_ratio_delta', 0.0)):+.2f}\n\n"
+                    f"• Adaptive vol delta: {float(self._adaptive_overlay.get('volume_min_ratio_delta', 0.0)):+.2f}\n"
+                    f"• Win playbook tags: {len(self._win_playbook_snapshot.get('active_tags', []) or [])}\n"
+                    f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n\n"
                     f"Bot will scan for high-probability setups every {self.config.scan_interval} seconds.\n"
                     "Patience = profit. 🎯"
                 ),
@@ -355,6 +377,21 @@ class ScalpingEngine:
                         except Exception as adapt_err:
                             logger.warning(f"[Scalping:{self.user_id}] Adaptive refresh failed: {adapt_err}")
                         self._adaptive_next_refresh = now_ts + 600.0  # 10 minutes
+                    if now_ts >= self._win_playbook_next_refresh:
+                        try:
+                            await asyncio.to_thread(refresh_global_win_playbook_state)
+                            self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
+                            logger.info(
+                                f"[Scalping:{self.user_id}] Win playbook refreshed — "
+                                f"sample={self._win_playbook_snapshot.get('sample_size')} "
+                                f"wr={float(self._win_playbook_snapshot.get('rolling_win_rate', 0.0)):.3f} "
+                                f"exp={float(self._win_playbook_snapshot.get('rolling_expectancy', 0.0)):+.4f} "
+                                f"overlay={float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):.2f}% "
+                                f"active_tags={len(self._win_playbook_snapshot.get('active_tags', []) or [])}"
+                            )
+                        except Exception as playbook_err:
+                            logger.warning(f"[Scalping:{self.user_id}] Win playbook refresh failed: {playbook_err}")
+                        self._win_playbook_next_refresh = now_ts + 600.0
                     logger.info(f"[Scalping:{self.user_id}] Scan cycle #{scan_count} starting...")
                     
                     # Monitor existing positions first (priority)
@@ -1090,8 +1127,14 @@ class ScalpingEngine:
         self.signal_streaks.pop(symbol, None)
         return True
 
-    def calculate_position_size_pro(self, entry_price: float, sl_price: float, 
-                                    capital: float, leverage: int) -> tuple:
+    def calculate_position_size_pro(
+        self,
+        entry_price: float,
+        sl_price: float,
+        capital: float,
+        leverage: int,
+        effective_risk_pct_override: Optional[float] = None,
+    ) -> tuple:
         """
         Calculate position size based on risk % per trade (PRO TRADER METHOD)
         
@@ -1110,12 +1153,14 @@ class ScalpingEngine:
             # Auto Max-Safe leverage is passed in from caller
             # leverage = min(leverage, 10)  # Removed hardcoded cap
             
-            # Get risk percentage from database
+            # Get base risk percentage from database
             from app.supabase_repo import get_risk_per_trade
-            risk_pct = get_risk_per_trade(self.user_id)
-            
-            # CRITICAL: Cap risk at 5% maximum for scalping
-            risk_pct = min(risk_pct, 5.0)
+            base_risk_pct = float(get_risk_per_trade(self.user_id) or 1.0)
+            base_risk_pct = max(0.25, min(base_risk_pct, 5.0))
+            if effective_risk_pct_override is None:
+                risk_pct = base_risk_pct
+            else:
+                risk_pct = max(0.25, min(float(effective_risk_pct_override), 10.0))
             
             # Get current balance from exchange
             bal_result = self.client.get_balance()
@@ -1156,7 +1201,7 @@ class ScalpingEngine:
             
             logger.info(
                 f"[Scalping:{self.user_id}] RISK-BASED sizing: "
-                f"Balance=${balance:.2f}, Risk={risk_pct}% (capped at 5%), "
+                f"Balance=${balance:.2f}, BaseRisk={base_risk_pct}% EffectiveRisk={risk_pct}%, "
                 f"Leverage={leverage}x (Auto Max-Safe), "
                 f"Entry=${entry_price:.2f}, SL=${sl_price:.2f}, "
                 f"SL_Dist={sizing['sl_distance_pct']:.2f}%, "
@@ -1474,13 +1519,50 @@ class ScalpingEngine:
                     f"[Scalping:{self.user_id}] leverage_mode=auto_max_safe symbol={signal.symbol} "
                     f"baseline_leverage={leverage} effective_leverage={effective_leverage}"
                 )
+                from app.supabase_repo import get_risk_per_trade
+                base_risk_pct = float(get_risk_per_trade(self.user_id) or 1.0)
+                try:
+                    risk_eval = await asyncio.to_thread(
+                        evaluate_signal_risk,
+                        base_risk_pct=base_risk_pct,
+                        raw_reasons=getattr(signal, "reasons", []),
+                    )
+                except Exception as risk_eval_err:
+                    logger.warning(
+                        f"[Scalping:{self.user_id}] Win playbook eval failed for {signal.symbol}, "
+                        f"fallback to base risk: {risk_eval_err}"
+                    )
+                    risk_eval = {
+                        "effective_risk_pct": base_risk_pct,
+                        "risk_overlay_pct": 0.0,
+                        "playbook_match_score": 0.0,
+                        "playbook_match_tags": [],
+                        "guardrails_healthy": False,
+                        "overlay_action": "fallback_base_risk",
+                    }
+                effective_risk_pct = float(risk_eval.get("effective_risk_pct", 1.0))
+                risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
+                playbook_match_score = float(risk_eval.get("playbook_match_score", 0.0))
+                playbook_match_tags = list(risk_eval.get("playbook_match_tags", []))
+                setattr(signal, "playbook_match_score", playbook_match_score)
+                setattr(signal, "playbook_match_tags", playbook_match_tags)
+                setattr(signal, "effective_risk_pct", effective_risk_pct)
+                setattr(signal, "risk_overlay_pct", risk_overlay_pct)
+                logger.info(
+                    f"[Scalping:{self.user_id}] Win playbook eval {signal.symbol} — "
+                    f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
+                    f"guardrails={bool(risk_eval.get('guardrails_healthy', False))} "
+                    f"overlay={risk_overlay_pct:.2f}% -> effective_risk={effective_risk_pct:.2f}% "
+                    f"action={risk_eval.get('overlay_action')}"
+                )
                 
                 # CRITICAL: Calculate position size based on risk (Phase 2)
                 quantity, used_risk_sizing = self.calculate_position_size_pro(
                     entry_price=signal.entry_price,
                     sl_price=signal.sl_price,
                     capital=capital,
-                    leverage=effective_leverage
+                    leverage=effective_leverage,
+                    effective_risk_pct_override=effective_risk_pct,
                 )
                 
                 if used_risk_sizing:
@@ -1585,6 +1667,11 @@ class ScalpingEngine:
                         opened_at=time.time(),
                         breakeven_set=False,
                     )
+                    setattr(position, "entry_reasons", list(getattr(signal, "reasons", []) or []))
+                    setattr(position, "playbook_match_score", float(getattr(signal, "playbook_match_score", 0.0) or 0.0))
+                    setattr(position, "playbook_match_tags", list(getattr(signal, "playbook_match_tags", []) or []))
+                    setattr(position, "effective_risk_pct", float(getattr(signal, "effective_risk_pct", 0.0) or 0.0))
+                    setattr(position, "risk_overlay_pct", float(getattr(signal, "risk_overlay_pct", 0.0) or 0.0))
                     self.positions[signal.symbol] = position
 
                     # Mark as sideways position if signal is MicroScalpSignal
@@ -2104,6 +2191,7 @@ class ScalpingEngine:
                 "symbol": position.symbol,
                 "side": position.side,
                 "entry_price": position.entry_price,
+                "qty": position.quantity,
                 "quantity": position.quantity,
                 "leverage": position.leverage,
                 "tp_price": position.tp_price,
@@ -2111,6 +2199,10 @@ class ScalpingEngine:
                 "trade_type": "scalping",
                 "timeframe": "5m",
                 "confidence": signal.confidence,
+                "entry_reasons": list(getattr(signal, "reasons", []) or []),
+                "playbook_match_score": float(getattr(signal, "playbook_match_score", 0.0) or 0.0),
+                "effective_risk_pct": float(getattr(signal, "effective_risk_pct", 0.0) or 0.0),
+                "risk_overlay_pct": float(getattr(signal, "risk_overlay_pct", 0.0) or 0.0),
                 "status": "open",
                 "order_id": order_id or "",
                 "opened_at": datetime.utcnow().isoformat(),
@@ -2140,8 +2232,14 @@ class ScalpingEngine:
             logger.error(f"[Scalping:{self.user_id}] Error saving position to DB: {e}")
             return None
     
-    async def _update_position_closed(self, position: ScalpingPosition, close_price: float,
-                                     pnl: float, close_reason: str) -> bool:
+    async def _update_position_closed(
+        self,
+        position: ScalpingPosition,
+        close_price: float,
+        pnl: float,
+        close_reason: str,
+        win_metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """Update position in database when closed.
         Returns True only when this call successfully closed an OPEN row.
         """
@@ -2155,13 +2253,60 @@ class ScalpingEngine:
                 return False
 
             trade_id = open_rows.data[0]["id"]
-            res = s.table("autotrade_trades").update({
+            update_payload: Dict[str, Any] = {
                 "close_price": close_price,
+                "exit_price": close_price,
                 "pnl_usdt": pnl,
                 "close_reason": close_reason,
                 "status": close_reason,
                 "closed_at": datetime.utcnow().isoformat(),
-            }).eq("id", trade_id).eq("status", "open").execute()
+            }
+
+            if win_metadata:
+                if win_metadata.get("playbook_match_score") is not None:
+                    update_payload["playbook_match_score"] = float(win_metadata.get("playbook_match_score"))
+                if win_metadata.get("effective_risk_pct") is not None:
+                    update_payload["effective_risk_pct"] = float(win_metadata.get("effective_risk_pct"))
+                if win_metadata.get("risk_overlay_pct") is not None:
+                    update_payload["risk_overlay_pct"] = float(win_metadata.get("risk_overlay_pct"))
+                if win_metadata.get("win_reason_tags") is not None:
+                    update_payload["win_reason_tags"] = list(win_metadata.get("win_reason_tags") or [])
+                if win_metadata.get("win_reasoning"):
+                    update_payload["win_reasoning"] = str(win_metadata.get("win_reasoning"))
+
+            is_win_close = (
+                float(pnl) > 0
+                and close_reason in {"closed_tp", "closed_tp3", "closed_flip"}
+            )
+            if is_win_close and not update_payload.get("win_reasoning"):
+                from app.trade_history import build_win_reasoning
+
+                entry_reasons = list(getattr(position, "entry_reasons", []) or [])
+                match_meta = compute_playbook_match_from_reasons(entry_reasons, self._win_playbook_snapshot)
+                trade_ctx = {
+                    "symbol": position.symbol,
+                    "side": "LONG" if position.side == "BUY" else "SHORT",
+                    "entry_price": position.entry_price,
+                    "exit_price": close_price,
+                    "pnl_usdt": pnl,
+                    "close_reason": close_reason,
+                    "entry_reasons": entry_reasons,
+                    "confidence": 0,
+                    "rr_ratio": 0,
+                }
+                update_payload["win_reasoning"] = build_win_reasoning(
+                    trade_ctx,
+                    playbook_tags=match_meta.get("matched_tags", []),
+                    playbook_score=match_meta.get("playbook_match_score"),
+                )
+                update_payload["win_reason_tags"] = match_meta.get("matched_tags", [])
+                update_payload["playbook_match_score"] = float(
+                    match_meta.get("playbook_match_score", getattr(position, "playbook_match_score", 0.0) or 0.0)
+                )
+                update_payload["effective_risk_pct"] = float(getattr(position, "effective_risk_pct", 0.0) or 0.0)
+                update_payload["risk_overlay_pct"] = float(getattr(position, "risk_overlay_pct", 0.0) or 0.0)
+
+            res = s.table("autotrade_trades").update(update_payload).eq("id", trade_id).eq("status", "open").execute()
             if not getattr(res, "data", None):
                 logger.info(f"[Scalping:{self.user_id}] DB close skipped for {position.symbol} (race already closed)")
                 return False
@@ -2354,12 +2499,16 @@ class ScalpingEngine:
                         symbol=symbol,
                         side=row.get("side", "BUY"),
                         entry_price=float(row.get("entry_price", 0)),
-                        quantity=float(row.get("quantity", 0)),
+                        quantity=float(row.get("qty", row.get("quantity", 0)) or 0),
                         leverage=int(row.get("leverage", 10)),
                         tp_price=float(row.get("tp_price", 0)),
                         sl_price=float(row.get("sl_price", 0)),
                         opened_at=opened_at
                     )
+                    setattr(pos, "entry_reasons", list(row.get("entry_reasons", []) or []))
+                    setattr(pos, "playbook_match_score", float(row.get("playbook_match_score", 0) or 0))
+                    setattr(pos, "effective_risk_pct", float(row.get("effective_risk_pct", 0) or 0))
+                    setattr(pos, "risk_overlay_pct", float(row.get("risk_overlay_pct", 0) or 0))
                     
                     # Check if it was a sideways trade
                     if row.get("trade_subtype") == "sideways_scalp":

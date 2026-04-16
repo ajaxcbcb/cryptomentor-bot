@@ -1,5 +1,69 @@
 # Changelog
 
+## [2.2.13] — 2026-04-17 — Global Win Playbook + Runtime Risk Overlay (v4.0)
+
+### 🏆 Win Playbook Subsystem (Global)
+- Added `Bismillah/app/win_playbook.py`:
+  - builds global playbook from recent strategy outcomes (same learning horizon pattern as adaptive controller),
+  - normalizes/filters noisy reasons and computes tag support, win-rate, and lift,
+  - activates positive-lift tags with minimum support,
+  - computes deterministic `playbook_match_score` and matched tags for candidate signals.
+- Refresh cadence integrated at 10 minutes in both Swing and Scalping loops.
+
+### 📈 Runtime Risk Overlay (All Users, Runtime-Only)
+- Added global runtime overlay logic:
+  - `risk_overlay_pct` runtime state in `[0, +5]`,
+  - `effective_risk_pct = min(10, base_risk_pct + risk_overlay_pct)`.
+- Ramp-up only on strong playbook match with healthy guardrails:
+  - rolling win rate >= 75%,
+  - rolling expectancy > 0.
+- Gradual brake-down when guardrails weaken (stepwise, not instant reset).
+- Overlay applies to position sizing only; signal-quality gates remain unchanged.
+
+### ⚙️ Engine Integration (Swing + Scalping)
+- `Bismillah/app/autotrade_engine.py`:
+  - candidate scoring now includes playbook match snapshot,
+  - execution path computes runtime effective risk and feeds it into risk-based qty sizing,
+  - profitable close paths now persist win metadata (`win_reasoning`, tags, playbook score, risk snapshot),
+  - flip path now uses the same runtime risk overlay sizing pipeline.
+- `Bismillah/app/scalping_engine.py`:
+  - open-trade rows now always persist `entry_reasons`,
+  - playbook + overlay evaluation applied before qty sizing,
+  - sizing helper now accepts explicit `effective_risk_pct_override`,
+  - close pipeline now writes consistent close reason + win reasoning/tags for profitable TP closures.
+
+### 🧾 Durable Win Reason Tracking
+- `Bismillah/app/trade_history.py`:
+  - added `build_win_reasoning(...)` (parallel to existing loss reasoning),
+  - extended `save_trade_close(...)` with optional win metadata payload and auto-win-reason generation for profitable TP/flip closes,
+  - extended `save_trade_open(...)` to store execution metadata snapshot.
+- `Bismillah/app/stackmentor.py`:
+  - TP/TP3 close updates now set `close_reason` consistently,
+  - TP/TP3 close updates now persist win reasoning + matched playbook tags + risk snapshot fields.
+
+### 🗄️ Schema
+- Added migration `db/add_win_playbook_fields.sql` for `autotrade_trades`:
+  - `win_reasoning text`
+  - `win_reason_tags jsonb default '[]'`
+  - `playbook_match_score numeric(6,3)`
+  - `effective_risk_pct numeric(6,3)`
+  - `risk_overlay_pct numeric(6,3)`
+- Updated base schema definition in `db/autotrade_trades.sql` with the same fields.
+
+### 👀 Admin Visibility
+- `Bismillah/app/admin_daily_report.py` now includes Win Playbook section:
+  - active playbook tags (top contributors),
+  - current runtime overlay and effective risk bounds,
+  - win-reason coverage on winners,
+  - playbook-matched wins vs non-matched wins KPI.
+
+### ✅ Tests
+- Added `tests/test_win_playbook.py`:
+  - tag activation + noise filtering,
+  - match-score determinism,
+  - risk ramp/brake behavior and cap enforcement.
+- Added `tests/test_trade_history_win_reasoning.py` for win reasoning composition.
+
 ## [2.2.12] — 2026-04-16 — Unified Auto Max-Safe Leverage Compliance
 
 ### ⚙️ Canonical Leverage Policy

@@ -156,6 +156,7 @@ QTY_PRECISION = {
 
 RISK_MIN_PCT = 0.25
 RISK_MAX_PCT = 5.0
+EFFECTIVE_RISK_MAX_PCT = 10.0
 
 
 def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
@@ -165,6 +166,15 @@ def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
     except Exception:
         return float(default)
     return max(RISK_MIN_PCT, min(RISK_MAX_PCT, risk))
+
+
+def _normalize_effective_risk_pct(raw_value: Any, default: float = 1.0) -> float:
+    """Clamp runtime effective risk to [0.25, 10.0] for overlay sizing."""
+    try:
+        risk = float(raw_value)
+    except Exception:
+        return float(default)
+    return max(RISK_MIN_PCT, min(EFFECTIVE_RISK_MAX_PCT, risk))
 
 
 def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
@@ -1320,6 +1330,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         refresh_global_adaptive_state,
         get_adaptive_overrides,
     )
+    from app.win_playbook import (
+        refresh_global_win_playbook_state,
+        get_win_playbook_snapshot,
+        evaluate_signal_risk,
+        compute_playbook_match_from_reasons,
+    )
 
     # Get exchange-specific client
     ex_cfg = get_exchange(exchange_id)
@@ -1366,7 +1382,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         min_qty = 10 ** (-precision) if precision > 0 else 1
         return qty if qty >= min_qty else 0.0
     
-    async def calc_qty_with_risk(symbol: str, entry: float, sl: float, leverage: int) -> tuple:
+    async def calc_qty_with_risk(
+        symbol: str,
+        entry: float,
+        sl: float,
+        leverage: int,
+        effective_risk_pct_override: Optional[float] = None,
+    ) -> tuple:
         """
         Calculate position size using risk-based sizing with EQUITY (not balance).
 
@@ -1385,9 +1407,11 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             (qty, used_risk_sizing): tuple of (quantity, whether risk sizing was used)
         """
         try:
-            # Get risk percentage from database (already loaded in trading loop)
-            # Use the user_risk_pct from the outer scope
-            risk_pct = user_risk_pct
+            # Runtime-only risk overlay can override base risk for sizing.
+            risk_pct = _normalize_effective_risk_pct(
+                effective_risk_pct_override if effective_risk_pct_override is not None else user_risk_pct,
+                default=user_risk_pct,
+            )
 
             # Get account info: available, frozen, and unrealized PnL
             acc_result = await asyncio.to_thread(client.get_account_info)
@@ -1502,6 +1526,15 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         "updated_at": None,
     }
     adaptive_next_refresh_ts = 0.0
+    win_playbook_state: Dict[str, Any] = {
+        "risk_overlay_pct": 0.0,
+        "rolling_win_rate": 0.0,
+        "rolling_expectancy": 0.0,
+        "sample_size": 0,
+        "active_tags": [],
+        "guardrails_healthy": False,
+    }
+    win_playbook_next_refresh_ts = 0.0
 
     logger.info(
         f"[Engine:{user_id}] PRO ENGINE STARTED — symbols_mode=dynamic_top10_volume "
@@ -1557,6 +1590,22 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 except Exception as adapt_err:
                     logger.warning(f"[Engine:{user_id}] Adaptive refresh failed, using last state: {adapt_err}")
                 adaptive_next_refresh_ts = now_ts + 600.0  # every 10 minutes
+            if now_ts >= win_playbook_next_refresh_ts:
+                try:
+                    await asyncio.to_thread(refresh_global_win_playbook_state)
+                    win_playbook_state = await asyncio.to_thread(get_win_playbook_snapshot)
+                    logger.info(
+                        f"[Engine:{user_id}] Win playbook refreshed — "
+                        f"sample={win_playbook_state.get('sample_size')} "
+                        f"wr={float(win_playbook_state.get('rolling_win_rate', 0.0)):.3f} "
+                        f"exp={float(win_playbook_state.get('rolling_expectancy', 0.0)):+.4f} "
+                        f"overlay={float(win_playbook_state.get('risk_overlay_pct', 0.0)):.2f}% "
+                        f"active_tags={len(win_playbook_state.get('active_tags', []) or [])} "
+                        f"guardrails={bool(win_playbook_state.get('guardrails_healthy', False))}"
+                    )
+                except Exception as playbook_err:
+                    logger.warning(f"[Engine:{user_id}] Win playbook refresh failed, using last snapshot: {playbook_err}")
+                win_playbook_next_refresh_ts = now_ts + 600.0  # every 10 minutes
 
             # ── Initialize btc_bias for this iteration ────────────────
             btc_bias = {"bias": "NEUTRAL", "strength": 0, "reasons": []}
@@ -1655,7 +1704,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                 # ── Update trade history: posisi ditutup ──────────────
                 try:
-                    from app.trade_history import get_open_trades, save_trade_close, build_loss_reasoning
+                    from app.trade_history import (
+                        get_open_trades,
+                        save_trade_close,
+                        build_loss_reasoning,
+                        build_win_reasoning,
+                    )
                     from app.providers.alternative_klines_provider import alternative_klines_provider
                     open_db_trades = get_open_trades(user_id)
                     for db_trade in open_db_trades:
@@ -1706,6 +1760,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         else:
                             pnl_usdt = est_pnl_usdt
 
+                        win_metadata = None
                         if pnl_usdt < 0:
                             # Loss — generate reasoning
                             try:
@@ -1719,6 +1774,23 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         else:
                             loss_reason  = ""
                             close_status = "closed_tp"
+                            match_meta = await asyncio.to_thread(
+                                compute_playbook_match_from_reasons,
+                                db_trade.get("entry_reasons", []),
+                                win_playbook_state,
+                            )
+                            win_metadata = {
+                                "playbook_match_score": match_meta.get("playbook_match_score"),
+                                "win_reason_tags": match_meta.get("matched_tags", []),
+                                "effective_risk_pct": db_trade.get("effective_risk_pct"),
+                                "risk_overlay_pct": db_trade.get("risk_overlay_pct"),
+                                "win_reasoning": build_win_reasoning(
+                                    db_trade,
+                                    current_signal=None,
+                                    playbook_tags=match_meta.get("matched_tags", []),
+                                    playbook_score=match_meta.get("playbook_match_score"),
+                                ),
+                            }
 
                         save_trade_close(
                             trade_id=db_trade["id"],
@@ -1726,6 +1798,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             pnl_usdt=pnl_usdt,
                             close_reason=close_status,
                             loss_reasoning=loss_reason,
+                            win_metadata=win_metadata,
                         )
 
                         # Confirm position closed with coordinator
@@ -1944,7 +2017,35 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         f"baseline_leverage={leverage} effective_leverage={flip_effective_leverage}"
                     )
 
-                    flip_qty = calc_qty(pos_symbol, amount * flip_effective_leverage, new_entry)
+                    try:
+                        flip_risk_eval = await asyncio.to_thread(
+                            evaluate_signal_risk,
+                            user_risk_pct,
+                            rev_sig.get("reasons", []),
+                        )
+                    except Exception as flip_eval_err:
+                        logger.warning(f"[Engine:{user_id}] Flip win playbook eval failed, fallback to base risk: {flip_eval_err}")
+                        flip_risk_eval = {
+                            "effective_risk_pct": user_risk_pct,
+                            "risk_overlay_pct": 0.0,
+                            "playbook_match_score": 0.0,
+                            "playbook_match_tags": [],
+                        }
+                    flip_effective_risk_pct = float(flip_risk_eval.get("effective_risk_pct", user_risk_pct))
+                    flip_risk_overlay_pct = float(flip_risk_eval.get("risk_overlay_pct", 0.0))
+                    flip_playbook_score = float(flip_risk_eval.get("playbook_match_score", 0.0))
+                    flip_playbook_tags = list(flip_risk_eval.get("playbook_match_tags", []))
+                    flip_qty, _ = await calc_qty_with_risk(
+                        pos_symbol,
+                        new_entry,
+                        new_sl,
+                        flip_effective_leverage,
+                        effective_risk_pct_override=flip_effective_risk_pct,
+                    )
+                    rev_sig["playbook_match_score"] = flip_playbook_score
+                    rev_sig["playbook_match_tags"] = flip_playbook_tags
+                    rev_sig["effective_risk_pct"] = flip_effective_risk_pct
+                    rev_sig["risk_overlay_pct"] = flip_risk_overlay_pct
                     if flip_qty <= 0:
                         logger.warning(f"[Engine:{user_id}] Flip qty=0 for {pos_symbol}, skip open")
                         continue
@@ -1966,6 +2067,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         try:
                             from app.trade_history import (
                                 close_open_trades_by_symbol, save_trade_open, build_loss_reasoning,
+                                build_win_reasoning,
                                 get_open_trades
                             )
                             # Estimasi PnL trade lama
@@ -1977,6 +2079,25 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                     raw_pnl   = (new_entry - old_entry) if old_side == "LONG" else (old_entry - new_entry)
                                     pnl_est   = raw_pnl * float(ot.get("qty", 0))
                                     loss_r    = build_loss_reasoning(ot, rev_sig) if pnl_est < 0 else ""
+                                    win_meta = None
+                                    if pnl_est >= 0:
+                                        old_match = await asyncio.to_thread(
+                                            compute_playbook_match_from_reasons,
+                                            ot.get("entry_reasons", []),
+                                            win_playbook_state,
+                                        )
+                                        win_meta = {
+                                            "playbook_match_score": old_match.get("playbook_match_score"),
+                                            "win_reason_tags": old_match.get("matched_tags", []),
+                                            "effective_risk_pct": ot.get("effective_risk_pct"),
+                                            "risk_overlay_pct": ot.get("risk_overlay_pct"),
+                                            "win_reasoning": build_win_reasoning(
+                                                ot,
+                                                current_signal=rev_sig,
+                                                playbook_tags=old_match.get("matched_tags", []),
+                                                playbook_score=old_match.get("playbook_match_score"),
+                                            ),
+                                        }
                                     from app.trade_history import save_trade_close
                                     save_trade_close(
                                         trade_id=ot["id"],
@@ -1984,6 +2105,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                         pnl_usdt=pnl_est,
                                         close_reason="closed_flip",
                                         loss_reasoning=loss_r,
+                                        win_metadata=win_meta,
                                     )
 
                                     # Confirm old position closed with coordinator
@@ -2010,6 +2132,11 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 signal=rev_sig,
                                 order_id=open_result.get("order_id", ""),
                                 is_flip=True,
+                                execution_meta={
+                                    "playbook_match_score": flip_playbook_score,
+                                    "effective_risk_pct": flip_effective_risk_pct,
+                                    "risk_overlay_pct": flip_risk_overlay_pct,
+                                },
                             )
                         except Exception as _he:
                             logger.warning(f"[Engine:{user_id}] flip trade_history failed: {_he}")
@@ -2088,10 +2215,18 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         _compute_signal_pro, sym, btc_bias, user_risk_pct, adaptive_state
                     )
                     if sig and sig.get('confidence', 0) >= min_conf_scan:
+                        match_meta = await asyncio.to_thread(
+                            compute_playbook_match_from_reasons,
+                            sig.get("reasons", []),
+                            win_playbook_state,
+                        )
+                        sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
+                        sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
                         sig["_volume_rank"] = volume_rank.get(sym, 9999)
                         candidates.append(sig)
                         logger.info(f"[Engine:{user_id}] Candidate: {sym} {sig['side']} "
-                                    f"conf={sig['confidence']}% RR={sig['rr_ratio']} rank={sig['_volume_rank']}"
+                                    f"conf={sig['confidence']}% RR={sig['rr_ratio']} rank={sig['_volume_rank']} "
+                                    f"playbook={sig.get('playbook_match_score', 0.0):.3f}"
                                     f"{' [SIDEWAYS]' if sig.get('btc_is_sideways') else ''}")
                 except Exception as e:
                     logger.warning(f"[Engine:{user_id}] Scan error {sym}: {e}")
@@ -2107,6 +2242,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 key=lambda s: (
                     int(s.get("_volume_rank", 9999)),
                     -float(s.get("confidence", 0)),
+                    -float(s.get("playbook_match_score", 0.0)),
                     -float(s.get("rr_ratio", 0)),
                 )
             )
@@ -2116,11 +2252,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             for idx, cand in enumerate(candidates, 1):
                 logger.info(
                     f"  [{idx}] {cand['symbol']}: rank={cand.get('_volume_rank', '?')} "
-                    f"{cand['side']} conf={cand['confidence']}% RR={cand['rr_ratio']:.1f}"
+                    f"{cand['side']} conf={cand['confidence']}% RR={cand['rr_ratio']:.1f} "
+                    f"PB={float(cand.get('playbook_match_score', 0.0)):.3f}"
                 )
                 queue_msg += (
                     f"{idx}. <b>{cand['symbol']}</b> (Vol Rank #{cand.get('_volume_rank', '?')}) "
-                    f"{cand['side']} | Conf: {cand['confidence']}% | R:R: 1:{cand['rr_ratio']:.1f}\n"
+                    f"{cand['side']} | Conf: {cand['confidence']}% | R:R: 1:{cand['rr_ratio']:.1f} "
+                    f"| PB: {float(cand.get('playbook_match_score', 0.0)):.2f}\n"
                 )
 
             # Store candidates in signal queue for this user
@@ -2258,6 +2396,37 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 f"[Engine:{user_id}] leverage_mode=auto_max_safe symbol={symbol} "
                 f"baseline_leverage={leverage} effective_leverage={effective_leverage}"
             )
+            try:
+                risk_eval = await asyncio.to_thread(
+                    evaluate_signal_risk,
+                    user_risk_pct,
+                    sig.get("reasons", []),
+                )
+            except Exception as risk_eval_err:
+                logger.warning(f"[Engine:{user_id}] Win playbook eval failed for {symbol}, fallback to base risk: {risk_eval_err}")
+                risk_eval = {
+                    "effective_risk_pct": user_risk_pct,
+                    "risk_overlay_pct": 0.0,
+                    "playbook_match_score": float(sig.get("playbook_match_score", 0.0)),
+                    "playbook_match_tags": list(sig.get("playbook_match_tags", [])),
+                    "guardrails_healthy": False,
+                    "overlay_action": "fallback_base_risk",
+                }
+            effective_risk_pct = float(risk_eval.get("effective_risk_pct", user_risk_pct))
+            risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
+            playbook_match_score = float(risk_eval.get("playbook_match_score", sig.get("playbook_match_score", 0.0)))
+            playbook_match_tags = list(risk_eval.get("playbook_match_tags", sig.get("playbook_match_tags", [])))
+            sig["playbook_match_score"] = playbook_match_score
+            sig["playbook_match_tags"] = playbook_match_tags
+            sig["effective_risk_pct"] = effective_risk_pct
+            sig["risk_overlay_pct"] = risk_overlay_pct
+            logger.info(
+                f"[Engine:{user_id}] Win playbook eval {symbol} — "
+                f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
+                f"guardrails={bool(risk_eval.get('guardrails_healthy', False))} "
+                f"overlay={risk_overlay_pct:.2f}% -> effective_risk={effective_risk_pct:.2f}% "
+                f"action={risk_eval.get('overlay_action')}"
+            )
 
             # Sync signal execution update to Supabase including effective leverage
             try:
@@ -2271,7 +2440,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             # ── Hitung qty dengan risk-based sizing (Phase 2) ─────────────
             # Try risk-based position sizing first, fallback to fixed margin if fails
-            qty, used_risk_sizing = await calc_qty_with_risk(symbol, entry, sl, effective_leverage)
+            qty, used_risk_sizing = await calc_qty_with_risk(
+                symbol,
+                entry,
+                sl,
+                effective_leverage,
+                effective_risk_pct_override=effective_risk_pct,
+            )
             
             if qty <= 0:
                 logger.warning(f"[Engine:{user_id}] qty=0 for {symbol}, skip")
@@ -2648,6 +2823,11 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     qty_tp2=qty_tp2,
                     qty_tp3=qty_tp3,
                     strategy="stackmentor" if stackmentor_enabled else "legacy",
+                    execution_meta={
+                        "playbook_match_score": sig.get("playbook_match_score"),
+                        "effective_risk_pct": sig.get("effective_risk_pct"),
+                        "risk_overlay_pct": sig.get("risk_overlay_pct"),
+                    },
                 )
             except Exception as _he:
                 logger.warning(f"[Engine:{user_id}] trade_history save failed: {_he}")

@@ -4,7 +4,7 @@ Setiap order masuk/keluar dicatat lengkap dengan reasoning.
 """
 import logging
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Any, Optional, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def save_trade_open(
     qty_tp2: Optional[float] = None,
     qty_tp3: Optional[float] = None,
     strategy: str = "stackmentor",
+    execution_meta: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
     """Simpan trade baru ke Supabase. Return trade_id."""
     try:
@@ -78,6 +79,13 @@ def save_trade_open(
             row["qty_tp2"] = float(qty_tp2)
         if qty_tp3 is not None:
             row["qty_tp3"] = float(qty_tp3)
+        if execution_meta:
+            if execution_meta.get("playbook_match_score") is not None:
+                row["playbook_match_score"] = float(execution_meta.get("playbook_match_score"))
+            if execution_meta.get("effective_risk_pct") is not None:
+                row["effective_risk_pct"] = float(execution_meta.get("effective_risk_pct"))
+            if execution_meta.get("risk_overlay_pct") is not None:
+                row["risk_overlay_pct"] = float(execution_meta.get("risk_overlay_pct"))
         
         res = _db().table("autotrade_trades").insert(row).execute()
         trade_id = res.data[0]["id"] if res.data else None
@@ -98,9 +106,12 @@ def save_trade_close(
     pnl_usdt: float,
     close_reason: str,   # closed_tp / closed_sl / closed_flip / closed_manual
     loss_reasoning: str = "",
+    win_metadata: Optional[Dict[str, Any]] = None,
 ):
     """Update trade yang sudah ada dengan data close."""
     try:
+        res_open = _db().table("autotrade_trades").select("*").eq("id", trade_id).limit(1).execute()
+        trade_row = (res_open.data or [{}])[0] if res_open else {}
         update = {
             "exit_price":     float(exit_price),
             "pnl_usdt":       float(pnl_usdt),
@@ -110,6 +121,40 @@ def save_trade_close(
         }
         if loss_reasoning:
             update["loss_reasoning"] = loss_reasoning
+        if win_metadata:
+            if win_metadata.get("playbook_match_score") is not None:
+                update["playbook_match_score"] = float(win_metadata.get("playbook_match_score"))
+            if win_metadata.get("effective_risk_pct") is not None:
+                update["effective_risk_pct"] = float(win_metadata.get("effective_risk_pct"))
+            if win_metadata.get("risk_overlay_pct") is not None:
+                update["risk_overlay_pct"] = float(win_metadata.get("risk_overlay_pct"))
+            tags = win_metadata.get("win_reason_tags")
+            if tags is not None:
+                update["win_reason_tags"] = tags
+            if win_metadata.get("win_reasoning"):
+                update["win_reasoning"] = str(win_metadata.get("win_reasoning"))
+
+        is_win_close = (
+            float(pnl_usdt) > 0
+            and str(close_reason).startswith("closed_tp")
+        ) or (str(close_reason) == "closed_flip" and float(pnl_usdt) > 0)
+        if is_win_close and not update.get("win_reasoning"):
+            merged_trade = dict(trade_row or {})
+            merged_trade.update({
+                "exit_price": float(exit_price),
+                "pnl_usdt": float(pnl_usdt),
+                "close_reason": close_reason,
+            })
+            matched_tags = []
+            if win_metadata and isinstance(win_metadata.get("win_reason_tags"), list):
+                matched_tags = list(win_metadata.get("win_reason_tags"))
+            update["win_reasoning"] = build_win_reasoning(
+                merged_trade,
+                playbook_tags=matched_tags,
+                playbook_score=(win_metadata or {}).get("playbook_match_score"),
+            )
+            if matched_tags:
+                update["win_reason_tags"] = matched_tags
 
         _db().table("autotrade_trades").update(update).eq("id", trade_id).execute()
         logger.info(f"[TradeHistory] Closed trade #{trade_id} — {close_reason} PnL={pnl_usdt:.4f}")
@@ -124,6 +169,7 @@ def close_open_trades_by_symbol(
     pnl_usdt: float,
     close_reason: str,
     loss_reasoning: str = "",
+    win_metadata: Optional[Dict[str, Any]] = None,
 ):
     """Close semua open trade untuk symbol tertentu (dipakai saat flip/SL hit)."""
     try:
@@ -141,6 +187,7 @@ def close_open_trades_by_symbol(
                 pnl_usdt=pnl_usdt,
                 close_reason=close_reason,
                 loss_reasoning=loss_reasoning,
+                win_metadata=win_metadata,
             )
     except Exception as e:
         logger.error(f"[TradeHistory] Failed to close trades for {symbol}: {e}")
@@ -373,3 +420,65 @@ def build_loss_reasoning(trade: Dict, current_signal: Optional[Dict] = None) -> 
             reasons.append("⚠️ Tidak ada Order Block / FVG sebagai support/resistance")
 
     return " | ".join(reasons)
+
+
+def build_win_reasoning(
+    trade: Dict[str, Any],
+    current_signal: Optional[Dict[str, Any]] = None,
+    playbook_tags: Optional[List[str]] = None,
+    playbook_score: Optional[float] = None,
+) -> str:
+    """
+    Generate concise reasoning for winning closes.
+    Mirrors `build_loss_reasoning` style but focuses on factors behind wins.
+    """
+    reasons: List[str] = []
+
+    side = str(trade.get("side", "?"))
+    entry = trade.get("entry_price", "?")
+    exit_price = trade.get("exit_price", trade.get("close_price", "?"))
+    pnl = float(trade.get("pnl_usdt") or 0.0)
+    conf = trade.get("confidence", 0)
+    trend = trade.get("trend_1h", "?")
+    structure = trade.get("market_structure", "?")
+    rr = trade.get("rr_ratio", "?")
+    close_reason = str(trade.get("close_reason") or trade.get("status") or "")
+    entry_reasons = trade.get("entry_reasons", []) or []
+
+    reasons.append(f"Win: {side} {trade.get('symbol', '')} {entry} -> {exit_price} ({close_reason})")
+    reasons.append(f"Entry quality — Conf: {conf}% | R:R: {rr} | 1H: {trend} | Struct: {structure}")
+
+    if playbook_tags:
+        reasons.append(f"Playbook tags matched: {', '.join(playbook_tags[:5])}")
+    if playbook_score is not None:
+        try:
+            reasons.append(f"Playbook match score: {float(playbook_score):.3f}")
+        except Exception:
+            pass
+
+    if entry_reasons:
+        has_volume = any("volume" in str(r).lower() for r in entry_reasons)
+        has_ob_fvg = any(("ob" in str(r).lower()) or ("fvg" in str(r).lower()) for r in entry_reasons)
+        has_btc_align = any("btc" in str(r).lower() for r in entry_reasons)
+        alignment = []
+        if has_volume:
+            alignment.append("volume confirmation")
+        if has_ob_fvg:
+            alignment.append("OB/FVG structure")
+        if has_btc_align:
+            alignment.append("BTC bias alignment")
+        if alignment:
+            reasons.append(f"Alignment factors: {', '.join(alignment)}")
+
+    if current_signal:
+        curr_trend = current_signal.get("trend_1h", "?")
+        curr_struct = current_signal.get("market_structure", "?")
+        if str(curr_trend) == str(trend):
+            reasons.append(f"Trend persisted post-entry ({trend})")
+        if str(curr_struct) == str(structure):
+            reasons.append(f"Structure remained supportive ({structure})")
+
+    if pnl > 0:
+        reasons.append(f"Realized positive expectancy captured: +{pnl:.4f} USDT")
+
+    return " | ".join([r for r in reasons if str(r).strip()])

@@ -70,6 +70,7 @@ async def send_daily_report(bot):
         from app.autotrade_engine import is_running
         from app.handlers_autotrade import get_user_api_keys
         from app.adaptive_confluence import classify_outcome_class, get_adaptive_overrides
+        from app.win_playbook import refresh_global_win_playbook_state, get_win_playbook_snapshot
 
         s = _client()
         now_wib = datetime.now(TZ_WIB)
@@ -103,7 +104,8 @@ async def send_daily_report(bot):
 
         # ── 2. Today's trades ─────────────────────────────────────────
         trades_res = s.table("autotrade_trades").select(
-            "telegram_id, symbol, side, pnl_usdt, status, close_reason, loss_reasoning, opened_at, closed_at"
+            "telegram_id, symbol, side, pnl_usdt, status, close_reason, loss_reasoning, "
+            "win_reasoning, playbook_match_score, effective_risk_pct, risk_overlay_pct, opened_at, closed_at"
         ).gte("opened_at", since_24h).execute()
         trades_today = trades_res.data or []
 
@@ -140,6 +142,22 @@ async def send_daily_report(bot):
         )
 
         adaptive = get_adaptive_overrides()
+        try:
+            refresh_global_win_playbook_state()
+        except Exception:
+            pass
+        playbook_snapshot = get_win_playbook_snapshot()
+        overlay_pct = float(playbook_snapshot.get("risk_overlay_pct", 0.0) or 0.0)
+        effective_risk_min = min(10.0, 0.25 + overlay_pct)
+        effective_risk_max = min(10.0, 5.0 + overlay_pct)
+        active_tags = playbook_snapshot.get("active_tags", []) or []
+        top_tags = [str(t.get("tag")) for t in active_tags[:5]]
+        wins_with_reason = [w for w in wins if str(w.get("win_reasoning") or "").strip()]
+        win_reason_coverage = (len(wins_with_reason) / len(wins) * 100) if wins else 0.0
+        playbook_matched_wins = [
+            w for w in wins if float(w.get("playbook_match_score") or 0) >= 0.55
+        ]
+        non_matched_wins = max(0, len(wins) - len(playbook_matched_wins))
 
         # 7-day trend from closed trades
         since_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -204,6 +222,19 @@ async def send_daily_report(bot):
             f"ob_mode=<b>{adaptive.get('ob_fvg_requirement_mode', 'soft')}</b>\n"
             f"• 7-day trend: strategy_loss=<b>{strategy_loss_rate_7d:.1f}%</b>, "
             f"strategy_trades/day=<b>{trades_per_day_7d:.1f}</b>\n\n"
+
+            f"🏆 <b>WIN PLAYBOOK (Global)</b>\n"
+            f"• Active tags: <b>{len(active_tags)}</b>"
+            + (f" ({', '.join(top_tags)})" if top_tags else "") + "\n"
+            f"• Runtime overlay: <b>{overlay_pct:+.2f}%</b>\n"
+            f"• Effective risk bounds: <b>{effective_risk_min:.2f}% - {effective_risk_max:.2f}%</b>\n"
+            f"• Guardrails: win_rate=<b>{float(playbook_snapshot.get('rolling_win_rate', 0.0))*100:.1f}%</b>, "
+            f"expectancy=<b>{float(playbook_snapshot.get('rolling_expectancy', 0.0)):+.4f}</b>, "
+            f"sample=<b>{int(playbook_snapshot.get('sample_size', 0) or 0)}</b>\n"
+            f"• Win-reason coverage: <b>{win_reason_coverage:.1f}%</b> "
+            f"({len(wins_with_reason)}/{len(wins) if wins else 0})\n"
+            f"• Playbook-matched wins: <b>{len(playbook_matched_wins)}</b> | "
+            f"Non-matched wins: <b>{non_matched_wins}</b>\n\n"
         )
 
         # ── 6. Stopped engines with reasoning ────────────────────────
