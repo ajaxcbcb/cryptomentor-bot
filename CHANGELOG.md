@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.2.14] — 2026-04-17 — Timeout-Loss Reduction (Dynamic Pre-Timeout Protection, Flagged)
+
+### ⏱️ Timeout Protection Layer (Scalping)
+- Added runtime-flagged timeout protection policy in `Bismillah/app/scalping_engine.py`:
+  - phase checkpoints: `early` / `mid` / `late` based on time-in-trade,
+  - mid/late breakeven promotion when unrealized move exceeds trigger,
+  - soft trailing SL before forced timeout exits,
+  - extra late-phase tightening for sideways positions.
+- Added structured observability markers:
+  - `timeout_protection_applied`
+  - `timeout_exit_with_protection`
+  - `timeout_exit_without_protection`
+- Timeout close handlers now persist timeout-loss reasoning tags to DB (`loss_reasoning`) for KPI tracking.
+
+### ⚙️ New Runtime Config Keys (Default Safe/Off)
+- Added internal config knobs in `Bismillah/app/trading_mode.py`:
+  - `adaptive_timeout_protection_enabled` (default `false`)
+  - `timeout_be_trigger_pct`
+  - `timeout_trailing_trigger_pct`
+  - `timeout_late_tighten_multiplier`
+  - `timeout_protection_min_update_seconds`
+  - `timeout_near_flat_usdt_threshold`
+
+### 📊 Daily Report KPI Expansion
+- Updated `Bismillah/app/admin_daily_report.py` with timeout-specific metrics:
+  - timeout loss count/rate,
+  - timeout loss PnL + avg timeout loss,
+  - timeout protection effectiveness (% near-flat among protected timeout exits).
+
+### ✅ Tests
+- Added `tests/test_timeout_protection_policy.py`:
+  - timeout phase boundary checks,
+  - breakeven/trailing SL activation in mid-phase favorable scenario.
+
 ## [2.2.13] — 2026-04-17 — Global Win Playbook + Runtime Risk Overlay (v4.0)
 
 ### 🏆 Win Playbook Subsystem (Global)

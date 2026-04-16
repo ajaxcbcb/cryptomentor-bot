@@ -1672,6 +1672,10 @@ class ScalpingEngine:
                     setattr(position, "playbook_match_tags", list(getattr(signal, "playbook_match_tags", []) or []))
                     setattr(position, "effective_risk_pct", float(getattr(signal, "effective_risk_pct", 0.0) or 0.0))
                     setattr(position, "risk_overlay_pct", float(getattr(signal, "risk_overlay_pct", 0.0) or 0.0))
+                    setattr(position, "initial_sl_price", float(levels.sl))
+                    setattr(position, "timeout_protection_applied", False)
+                    setattr(position, "timeout_protection_phase", "early")
+                    setattr(position, "timeout_last_sl_update_ts", 0.0)
                     self.positions[signal.symbol] = position
 
                     # Mark as sideways position if signal is MicroScalpSignal
@@ -1815,6 +1819,15 @@ class ScalpingEngine:
             position = self.positions[symbol]
             
             try:
+                if bool(getattr(self.config, "adaptive_timeout_protection_enabled", False)):
+                    try:
+                        await self._apply_timeout_protection(position)
+                    except Exception as protect_err:
+                        logger.warning(
+                            f"[Scalping:{self.user_id}] timeout protection check failed for "
+                            f"{position.symbol}: {protect_err}"
+                        )
+
                 # Check sideways max hold (2 minutes) - local check only
                 if getattr(position, 'is_sideways', False):
                     elapsed = time.time() - position.opened_at
@@ -1830,13 +1843,154 @@ class ScalpingEngine:
             except Exception as e:
                 logger.error(f"[Scalping:{self.user_id}] Error checking {symbol}: {e}")
                 continue
+
+    def _max_hold_seconds_for_position(self, position: ScalpingPosition) -> int:
+        return 120 if bool(getattr(position, "is_sideways", False)) else int(self.config.max_hold_time)
+
+    def _timeout_phase(self, elapsed_seconds: float, max_hold_seconds: int) -> str:
+        if max_hold_seconds <= 0:
+            return "late"
+        ratio = max(0.0, min(1.0, float(elapsed_seconds) / float(max_hold_seconds)))
+        if ratio < 0.50:
+            return "early"
+        if ratio < 0.80:
+            return "mid"
+        return "late"
+
+    def _build_timeout_loss_reasoning(
+        self,
+        position: ScalpingPosition,
+        pnl: float,
+        phase: str,
+        protected: bool,
+        near_flat: bool,
+    ) -> str:
+        return (
+            f"timeout_exit; timeout_protection={'applied' if protected else 'none'}; "
+            f"phase={phase}; near_flat={1 if near_flat else 0}; pnl={float(pnl):+.6f}; "
+            f"symbol={position.symbol}; side={position.side}"
+        )
+
+    async def _apply_timeout_protection(self, position: ScalpingPosition):
+        """
+        Apply phased timeout protection:
+        - mid phase: breakeven promotion when unrealized progress is sufficient
+        - late phase: tighten trailing SL (more aggressive for sideways trades)
+        """
+        max_hold = self._max_hold_seconds_for_position(position)
+        now_ts = time.time()
+        elapsed = max(0.0, now_ts - float(position.opened_at))
+        phase = self._timeout_phase(elapsed, max_hold)
+        setattr(position, "timeout_protection_phase", phase)
+
+        if phase == "early":
+            return
+
+        last_update_ts = float(getattr(position, "timeout_last_sl_update_ts", 0.0) or 0.0)
+        min_update_gap = float(getattr(self.config, "timeout_protection_min_update_seconds", 45) or 45)
+        if now_ts - last_update_ts < min_update_gap:
+            return
+
+        ticker = await asyncio.to_thread(self.client.get_ticker, position.symbol)
+        if not ticker or not ticker.get("success"):
+            return
+        current_price = float(ticker.get("mark_price") or ticker.get("last_price") or ticker.get("price") or 0)
+        if current_price <= 0:
+            return
+
+        entry = float(position.entry_price)
+        old_sl = float(position.sl_price)
+        initial_sl = float(getattr(position, "initial_sl_price", old_sl) or old_sl)
+        if initial_sl <= 0:
+            initial_sl = old_sl
+            setattr(position, "initial_sl_price", initial_sl)
+
+        if position.side == "BUY":
+            favorable_pct = ((current_price - entry) / entry) * 100.0 if entry > 0 else 0.0
+            unrealized_pnl = (current_price - entry) * float(position.quantity)
+        else:
+            favorable_pct = ((entry - current_price) / entry) * 100.0 if entry > 0 else 0.0
+            unrealized_pnl = (entry - current_price) * float(position.quantity)
+
+        be_trigger = float(getattr(self.config, "timeout_be_trigger_pct", 0.20) or 0.20)
+        trailing_trigger = float(getattr(self.config, "timeout_trailing_trigger_pct", 0.35) or 0.35)
+        tighten = float(getattr(self.config, "timeout_late_tighten_multiplier", 1.4) or 1.4)
+        if phase == "late" and bool(getattr(position, "is_sideways", False)):
+            tighten *= 1.5
+        elif phase == "late":
+            tighten *= 1.2
+
+        new_sl = old_sl
+        reason = None
+        if favorable_pct >= be_trigger and not bool(getattr(position, "breakeven_set", False)):
+            new_sl = entry
+            reason = "breakeven"
+
+        if favorable_pct >= trailing_trigger:
+            risk_gap = abs(entry - initial_sl)
+            if risk_gap > 0:
+                trail_gap = risk_gap / max(1.0, tighten)
+                if position.side == "BUY":
+                    trail_target = max(entry, current_price - trail_gap)
+                    if trail_target > new_sl:
+                        new_sl = trail_target
+                        reason = "soft_trailing"
+                else:
+                    trail_target = min(entry, current_price + trail_gap)
+                    if trail_target < new_sl:
+                        new_sl = trail_target
+                        reason = "soft_trailing"
+
+        eps = max(1e-8, abs(entry) * 1e-6)
+        improve = (new_sl > old_sl + eps) if position.side == "BUY" else (new_sl < old_sl - eps)
+        if not improve:
+            return
+
+        if position.side == "BUY" and new_sl >= current_price:
+            return
+        if position.side == "SELL" and new_sl <= current_price:
+            return
+
+        result = await asyncio.to_thread(self.client.set_position_sl, position.symbol, float(new_sl))
+        if not result.get("success"):
+            logger.warning(
+                f"[Scalping:{self.user_id}] timeout_protection_apply_failed "
+                f"symbol={position.symbol} phase={phase} old_sl={old_sl:.6f} new_sl={new_sl:.6f} "
+                f"reason={reason} err={result.get('error')}"
+            )
+            return
+
+        position.sl_price = float(new_sl)
+        if reason == "breakeven" or (position.side == "BUY" and new_sl >= entry) or (position.side == "SELL" and new_sl <= entry):
+            position.breakeven_set = True
+        setattr(position, "timeout_last_sl_update_ts", now_ts)
+        setattr(position, "timeout_protection_applied", True)
+
+        logger.info(
+            f"[Scalping:{self.user_id}] timeout_protection_applied symbol={position.symbol} "
+            f"phase={phase} old_sl={old_sl:.6f} new_sl={new_sl:.6f} reason={reason} "
+            f"unrealized_pnl={unrealized_pnl:+.6f} minutes_open={elapsed/60.0:.2f}"
+        )
     
     async def _move_sl_to_breakeven(self, position: ScalpingPosition, current_price: float):
         """Move stop loss to breakeven (entry price) to protect profits"""
         try:
             # Update position SL to entry price
             old_sl = position.sl_price
+            result = await asyncio.to_thread(
+                self.client.set_position_sl, position.symbol, float(position.entry_price)
+            )
+            if not result.get("success"):
+                logger.warning(
+                    f"[Scalping:{self.user_id}] breakeven_sl_update_failed symbol={position.symbol} "
+                    f"old_sl={old_sl:.6f} new_sl={position.entry_price:.6f} err={result.get('error')}"
+                )
+                return
             position.sl_price = position.entry_price
+            position.breakeven_set = True
+            setattr(position, "timeout_last_sl_update_ts", time.time())
+            setattr(position, "timeout_protection_applied", True)
+            setattr(position, "timeout_protection_phase", "mid")
             
             # Notify user
             await self._notify_user(
@@ -1895,10 +2049,32 @@ class ScalpingEngine:
                     open_order_id=getattr(position, "open_order_id", "") or "",
                     close_order_id=close_order_id,
                 )
+                timeout_phase = str(getattr(position, "timeout_protection_phase", "late"))
+                timeout_protected = bool(getattr(position, "timeout_protection_applied", False))
+                near_flat_thr = float(getattr(self.config, "timeout_near_flat_usdt_threshold", 0.02) or 0.02)
+                near_flat = abs(float(pnl_net)) <= near_flat_thr
+                loss_reasoning = self._build_timeout_loss_reasoning(
+                    position=position,
+                    pnl=pnl_net,
+                    phase=timeout_phase,
+                    protected=timeout_protected,
+                    near_flat=near_flat,
+                )
                 
                 # Update database
                 await self._update_position_closed(
-                    position, fill_price, pnl_net, "max_hold_time_exceeded"
+                    position,
+                    fill_price,
+                    pnl_net,
+                    "max_hold_time_exceeded",
+                    loss_reasoning=loss_reasoning,
+                )
+
+                logger.info(
+                    f"[Scalping:{self.user_id}] "
+                    f"{'timeout_exit_with_protection' if timeout_protected else 'timeout_exit_without_protection'} "
+                    f"symbol={position.symbol} reason=max_hold_time_exceeded phase={timeout_phase} "
+                    f"near_flat={int(near_flat)} pnl={pnl_net:+.6f}"
                 )
 
                 # Confirm position closed with coordinator
@@ -1983,11 +2159,32 @@ class ScalpingEngine:
                     open_order_id=getattr(position, "open_order_id", "") or "",
                     close_order_id=close_order_id,
                 )
+                timeout_phase = str(getattr(position, "timeout_protection_phase", "late"))
+                timeout_protected = bool(getattr(position, "timeout_protection_applied", False))
+                near_flat_thr = float(getattr(self.config, "timeout_near_flat_usdt_threshold", 0.02) or 0.02)
+                near_flat = abs(float(pnl_net)) <= near_flat_thr
+                loss_reasoning = self._build_timeout_loss_reasoning(
+                    position=position,
+                    pnl=pnl_net,
+                    phase=timeout_phase,
+                    protected=timeout_protected,
+                    near_flat=near_flat,
+                )
 
                 closed_now = await self._update_position_closed(
-                    position, fill_price, pnl_net, "sideways_max_hold_exceeded"
+                    position,
+                    fill_price,
+                    pnl_net,
+                    "sideways_max_hold_exceeded",
+                    loss_reasoning=loss_reasoning,
                 )
                 if closed_now:
+                    logger.info(
+                        f"[Scalping:{self.user_id}] "
+                        f"{'timeout_exit_with_protection' if timeout_protected else 'timeout_exit_without_protection'} "
+                        f"symbol={position.symbol} reason=sideways_max_hold_exceeded phase={timeout_phase} "
+                        f"near_flat={int(near_flat)} pnl={pnl_net:+.6f}"
+                    )
                     # Confirm position closed with coordinator
                     await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
 
@@ -2238,6 +2435,7 @@ class ScalpingEngine:
         close_price: float,
         pnl: float,
         close_reason: str,
+        loss_reasoning: str = "",
         win_metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Update position in database when closed.
@@ -2261,6 +2459,8 @@ class ScalpingEngine:
                 "status": close_reason,
                 "closed_at": datetime.utcnow().isoformat(),
             }
+            if loss_reasoning:
+                update_payload["loss_reasoning"] = str(loss_reasoning)
 
             if win_metadata:
                 if win_metadata.get("playbook_match_score") is not None:
@@ -2509,6 +2709,10 @@ class ScalpingEngine:
                     setattr(pos, "playbook_match_score", float(row.get("playbook_match_score", 0) or 0))
                     setattr(pos, "effective_risk_pct", float(row.get("effective_risk_pct", 0) or 0))
                     setattr(pos, "risk_overlay_pct", float(row.get("risk_overlay_pct", 0) or 0))
+                    setattr(pos, "initial_sl_price", float(row.get("sl_price", 0) or 0))
+                    setattr(pos, "timeout_protection_applied", False)
+                    setattr(pos, "timeout_protection_phase", "early")
+                    setattr(pos, "timeout_last_sl_update_ts", 0.0)
                     
                     # Check if it was a sideways trade
                     if row.get("trade_subtype") == "sideways_scalp":

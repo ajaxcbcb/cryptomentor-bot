@@ -140,6 +140,29 @@ async def send_daily_report(bot):
             taxonomy_counts["ops_reconcile"] / len(closed_trades) * 100
             if closed_trades else 0.0
         )
+        timeout_exits = [t for t in closed_trades if classify_outcome_class(t) == "timeout_exit"]
+        timeout_losses = [t for t in timeout_exits if float(t.get("pnl_usdt") or 0) < 0]
+        timeout_loss_pnl = sum(float(t.get("pnl_usdt") or 0) for t in timeout_losses)
+        timeout_loss_count = len(timeout_losses)
+        timeout_loss_rate = (
+            timeout_loss_count / len(timeout_exits) * 100
+            if timeout_exits else 0.0
+        )
+        timeout_avg_loss = (
+            timeout_loss_pnl / timeout_loss_count if timeout_loss_count > 0 else 0.0
+        )
+        timeout_protected = [
+            t for t in timeout_exits
+            if "timeout_protection=applied" in str(t.get("loss_reasoning") or "").lower()
+        ]
+        timeout_protected_near_flat = [
+            t for t in timeout_protected
+            if abs(float(t.get("pnl_usdt") or 0)) <= 0.02
+        ]
+        timeout_protection_effectiveness = (
+            len(timeout_protected_near_flat) / len(timeout_protected) * 100
+            if timeout_protected else 0.0
+        )
 
         adaptive = get_adaptive_overrides()
         try:
@@ -217,6 +240,12 @@ async def send_daily_report(bot):
             f"• Strategy loss rate: <b>{strategy_loss_rate_24h:.1f}%</b>\n"
             f"• Timeout exits: <b>{taxonomy_counts['timeout_exit']}</b>\n"
             f"• Ops/reconcile closures: <b>{taxonomy_counts['ops_reconcile']}</b> ({ops_rate_24h:.1f}%)\n"
+            f"• Timeout losses: <b>{timeout_loss_count}</b> "
+            f"({timeout_loss_rate:.1f}% of timeout exits)\n"
+            f"• Timeout loss PnL: <b>{_fmt(timeout_loss_pnl)}</b> "
+            f"(avg <b>{_fmt(timeout_avg_loss)}</b>)\n"
+            f"• Timeout protection effectiveness: <b>{timeout_protection_effectiveness:.1f}%</b> "
+            f"(near-flat {len(timeout_protected_near_flat)}/{len(timeout_protected)})\n"
             f"• Active thresholds: conf_delta=<b>{int(adaptive.get('conf_delta', 0)):+d}</b>, "
             f"vol_delta=<b>{float(adaptive.get('volume_min_ratio_delta', 0.0)):+.2f}</b>, "
             f"ob_mode=<b>{adaptive.get('ob_fvg_requirement_mode', 'soft')}</b>\n"

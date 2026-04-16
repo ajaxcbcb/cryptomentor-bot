@@ -56,6 +56,14 @@ class ScalpingConfig:
     # Position management
     max_hold_time: int = 1800  # 30 minutes in seconds
     single_tp_multiplier: float = 1.5  # TP at 1.5R
+    adaptive_timeout_protection_enabled: bool = os.getenv(
+        "SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED", "false"
+    ).lower() == "true"
+    timeout_be_trigger_pct: float = float(os.getenv("SCALPING_TIMEOUT_BE_TRIGGER_PCT", "0.20"))
+    timeout_trailing_trigger_pct: float = float(os.getenv("SCALPING_TIMEOUT_TRAILING_TRIGGER_PCT", "0.35"))
+    timeout_late_tighten_multiplier: float = float(os.getenv("SCALPING_TIMEOUT_LATE_TIGHTEN_MULTIPLIER", "1.4"))
+    timeout_protection_min_update_seconds: int = int(os.getenv("SCALPING_TIMEOUT_PROTECTION_MIN_UPDATE_SECONDS", "45"))
+    timeout_near_flat_usdt_threshold: float = float(os.getenv("SCALPING_TIMEOUT_NEAR_FLAT_USDT_THRESHOLD", "0.02"))
     
     # Risk management
     max_concurrent_positions: int = 4  # Shared with swing mode
