@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.15] — 2026-04-17 — Timeout Flag Env Alias Hotfix
+
+### 🩹 Runtime Flag Compatibility Fix
+- Updated `Bismillah/app/trading_mode.py` timeout feature-flag loading to accept both:
+  - `SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` (primary), and
+  - `SCALPING_TIMEOUT_PROTECTION_ENABLED` (legacy/ops alias fallback).
+- This fixes cases where timeout protection remained disabled even after enabling the flag in `.env` under the legacy name.
+
 ## [2.2.14] — 2026-04-17 — Timeout-Loss Reduction (Dynamic Pre-Timeout Protection, Flagged)
 
 ### ⏱️ Timeout Protection Layer (Scalping)

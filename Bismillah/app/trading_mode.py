@@ -57,7 +57,8 @@ class ScalpingConfig:
     max_hold_time: int = 1800  # 30 minutes in seconds
     single_tp_multiplier: float = 1.5  # TP at 1.5R
     adaptive_timeout_protection_enabled: bool = os.getenv(
-        "SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED", "false"
+        "SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED",
+        os.getenv("SCALPING_TIMEOUT_PROTECTION_ENABLED", "false"),
     ).lower() == "true"
     timeout_be_trigger_pct: float = float(os.getenv("SCALPING_TIMEOUT_BE_TRIGGER_PCT", "0.20"))
     timeout_trailing_trigger_pct: float = float(os.getenv("SCALPING_TIMEOUT_TRAILING_TRIGGER_PCT", "0.35"))
