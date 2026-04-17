@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.2.25] — 2026-04-17 — Intro Deck Scroll-Native Story Mode (Intro Color Match)
+
+### 🎨 Frontend UX Refactor (Onboarding Deck)
+- Updated `website-frontend/public/cryptomentor-onboarding-deck.html` to switch from slideshow navigation to scroll-native storytelling:
+  - replaced stacked slide-state behavior with vertical scroll sections and viewport snap (`scroll-snap-type: y mandatory`),
+  - converted slide activation flow to `IntersectionObserver` state tracking for current section and animations,
+  - removed autoplay/pause/prev/next/timeline slideshow controls and related runtime logic,
+  - added scroll progress UI:
+    - fixed top progress bar,
+    - fixed right-side section dots for direct scene navigation.
+- Matched intro theme palette/style direction to align with `intro.cryptomentor.id`:
+  - base and accents aligned to intro tokens (`--bg: #04060f`, `--cyan: #22d3ee`, `--emerald: #34d399`),
+  - panel/surface contrast and glow/border treatment tuned to intro visual language.
+- Preserved core onboarding content architecture and critical values:
+  - 8 sections retained in same order,
+  - signal cards unchanged for key pairs/percentages:
+    - `BTCUSDT 89%`, `ETHUSDT 73%`, `SOLUSDT 58%`, `XRPUSDT 81%`,
+  - projection milestones unchanged:
+    - `$1,000 -> $1,360 -> $1,920 -> $2,670`,
+  - EN/ID translation model and CTA destinations preserved.
+
+### ✅ Validation
+- Inline JS parse check passed after runtime refactor.
+- `data-i18n` key coverage check passed (no missing translation keys).
+- Structural checks passed:
+  - section count remains `8`,
+  - required signal/projection values remain present,
+  - scroll snap and scroll progress UI markers detected.
+
 ## [2.2.24] — 2026-04-17 — Intro Deck Cinematic AI Engine Redesign (In-Place)
 
 ### 🎨 Frontend Redesign (Onboarding Deck)
