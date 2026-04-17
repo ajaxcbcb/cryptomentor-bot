@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.16] — 2026-04-17 — Intro Onboarding 404 Hardening
+
+### 🌐 Intro Subdomain Deploy Reliability
+- Hardened `scripts/deploy_intro_onboarding.sh` to prevent persistent nginx `404 Not Found` on `intro.cryptomentor.id`:
+  - switched default static root to nginx-safe path `/var/www/intro-cryptomentor` (with backward-compatible override support for `ROOT_DIR`/`SITE_ROOT`),
+  - replaced wildcard `scp` with tar-over-ssh deploy flow and enforced readable file permissions (`chmod -R a+rX`) on deployed assets,
+  - added automatic cleanup for conflicting `sites-enabled` server blocks that also claim `intro.cryptomentor.id`,
+  - added VPS-local routing verification (`curl -H "Host: ..." http://127.0.0.1`) that fails deploy if `/` is not `302` or onboarding file is not `200`.
+- Updated `nginx/intro-cryptomentor.conf.example` to document the same safe root (`/var/www/intro-cryptomentor`) for both HTTP-first and HTTPS phases.
+
 ## [2.2.15] — 2026-04-17 — Timeout Flag Env Alias Hotfix
 
 ### 🩹 Runtime Flag Compatibility Fix
