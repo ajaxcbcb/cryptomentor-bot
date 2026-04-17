@@ -1,5 +1,53 @@
 # Changelog
 
+## [2.2.24] — 2026-04-17 — Intro Deck Cinematic AI Engine Redesign (In-Place)
+
+### 🎨 Frontend Redesign (Onboarding Deck)
+- Updated `website-frontend/public/cryptomentor-onboarding-deck.html` in place with a premium cinematic style while preserving deck architecture and behavior:
+  - dark neon token system (`#080B0F`, lime/blue accents), glass panels, glow borders, animated grid/scan overlays,
+  - stronger launch-style typography hierarchy and refined spacing rhythm,
+  - upgraded EN/ID language toggle presentation and deck control polish (including pause chip state styling),
+  - hero refactor to AI-engine activation narrative with status chips and stronger CTA hierarchy,
+  - progression-node restyle for step journey (Connect/Configure/Activate/Scale labels),
+  - market confidence cards reworked into live signal widgets while preserving required values:
+    - `BTCUSDT 89%`, `ETHUSDT 73%`, `SOLUSDT 58%`, `XRPUSDT 81%`,
+  - inserted compact in-flow “WHAT THE ENGINE IS WATCHING” live status panel,
+  - projection path reframed as scenario milestones while preserving values:
+    - `$1,000 -> $1,360 -> $1,920 -> $2,670`,
+  - final CTA slide upgraded to “SYSTEM READY” conversion framing while keeping website-first CTA target (`https://cryptomentor.id`).
+- Kept core runtime behavior unchanged:
+  - 8-slide structure,
+  - EN/ID translation architecture,
+  - autoplay/pause/timeline/keyboard/wheel/touch navigation logic.
+
+### ✅ Validation
+- JS parse check passed for inline script block.
+- `data-i18n` coverage check passed (no missing keys).
+- Structural invariants verified:
+  - `8` slides present,
+  - required signal and projection values preserved.
+
+## [2.2.23] — 2026-04-17 — Intro HTTPS Fallback Guardrail (Cert Reuse + Misroute Block)
+
+### 🔒 Deploy/Sync Hardening (Intro Subdomain)
+- Updated `scripts/deploy_intro_onboarding.sh` to prevent `https://intro.cryptomentor.id` from silently falling onto a token-protected backend when SSL issuance is skipped:
+  - now auto-detects and reuses an existing Let’s Encrypt cert for the intro domain, enabling HTTPS vhost without forcing a fresh cert issue,
+  - keeps the previous `ISSUE_SSL=1` flow for first-time cert issuance,
+  - in no-cert + no-issue mode, now runs an HTTPS misroute probe and hard-fails if response body contains `Invalid or missing token`.
+- Verification output now includes HTTPS URLs whenever HTTPS is active via either freshly issued or reused cert.
+
+## [2.2.22] — 2026-04-17 — Intro HTTPS Routing Guardrail (Onboarding Deck)
+
+### 🔒 Deploy/Sync Hardening (Intro Subdomain)
+- Updated `scripts/deploy_intro_onboarding.sh` SSL flow to prevent silent HTTPS misroutes:
+  - added explicit HTTPS + SNI validation via `curl --resolve ${DOMAIN}:443:127.0.0.1` after nginx reload,
+  - verifies expected status codes on:
+    - `https://<domain>/` (`302`)
+    - `https://<domain>/intro.html` (`200`)
+    - `https://<domain>/cryptomentor-onboarding-deck.html` (`200`)
+  - fails deploy if onboarding deck body contains auth middleware payload (`Invalid or missing token`), catching wrong-vhost/proxy routing immediately.
+- Step output numbering for SSL path updated to reflect added verification phase (`[8/10]`, `[9/10]`, `[10/10]`).
+
 ## [2.2.21] — 2026-04-17 — Adaptive Exit + Sideways Recovery (Balanced Fast Rollout)
 
 ### 🎯 Trading Engine Runtime Upgrades
