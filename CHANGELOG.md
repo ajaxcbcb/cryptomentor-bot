@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.2.20] — 2026-04-17 — Onboarding Slide-1 Social Proof Panel (Alignment Fix)
+
+### 🎨 Intro Deck UI Patch (Production-Facing)
+- Updated `website-frontend/public/cryptomentor-onboarding-deck.html` slide-1 right panel:
+  - removed the misaligned terminal chart block,
+  - replaced it with a full compliance-safe social proof panel (trust badges, user-outcome callouts, and "Why users stay" checklist),
+  - preserved deck visual style and responsive behavior.
+- Added new EN/ID `data-i18n` keys for all social proof content to keep bilingual rendering complete.
+- Removed unused hero-chart JS/CSS remnants in the same file to prevent dead code drift.
+
+## [2.2.19] — 2026-04-17 — Open-Trade Risk Audit Transparency (Swing + Scalping)
+
+### 🔎 Per-Order Risk Audit Line (User + Ops)
+- Added shared helper `Bismillah/app/risk_audit.py`:
+  - `format_risk_audit_line(...)`
+  - `emit_order_open_risk_audit(...)`
+- Updated swing open-notification path in `Bismillah/app/autotrade_engine.py`:
+  - appends one-line Telegram audit with `base_risk`, `overlay`, `effective_risk`, `implied_risk_usdt`,
+  - emits structured backend `order_open_risk_audit` log event per successful open order.
+- Updated scalping StackMentor open-notification path in `Bismillah/app/scalping_engine.py`:
+  - persists `base_risk_pct` on signal context,
+  - appends same one-line Telegram audit,
+  - emits structured backend `order_open_risk_audit` log event per successful open order.
+
+### ✅ Tests + Ops Docs
+- Added `tests/test_risk_audit.py` to validate:
+  - output formatting,
+  - invalid-value fallback handling,
+  - structured log emission for `order_open_risk_audit`.
+- Updated `docs/02_AUTOTRADE_SYSTEM.md` with runtime transparency section and ready-to-run `journalctl/grep` verification commands.
+
 ## [2.2.18] — 2026-04-17 — 1-Click UX Hardening (Tokenized Deterministic Execute + Preview + Idempotency)
 
 ### 🔐 Deterministic 1-Click Signal Execution

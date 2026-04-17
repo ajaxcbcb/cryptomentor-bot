@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>CryptoMentor AI — Interactive Deck</title>
+<style>
+:root{
+  --bg:#04060f;--cyan:#22d3ee;--emerald:#34d399;--amber:#fbbf24;
+  --rose:#fb7185;--indigo:#818cf8;--violet:#a78bfa;
+  --text:#e2e8f0;--muted:#94a3b8;--dim:#475569;
+  --glass:rgba(8,14,28,0.75);--border:rgba(34,211,238,0.18);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text)}
+
+/* ── CANVAS BG ── */
+#bg-canvas{position:fixed;inset:0;z-index:0;pointer-events:none}
+
+/* ── DECK ── */
+.deck{position:relative;width:100vw;height:100vh;z-index:1;overflow:hidden}
+
+/* ── SLIDE ── */
+.slide{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;
+  padding:clamp(.9rem,2vh,1.6rem) clamp(1.25rem,4vw,4rem);
+  opacity:0;pointer-events:none;
+  transition:opacity .05s;
+}
+.slide.active{opacity:1;pointer-events:auto}
+
+/* ── SLIDE BACKGROUNDS (unique per slide) ── */
+.slide-1{background:radial-gradient(ellipse 90% 70% at 10% 5%,rgba(34,211,238,.14),transparent 55%),radial-gradient(ellipse 60% 60% at 90% 90%,rgba(52,211,153,.1),transparent 50%),var(--bg)}
+.slide-2{background:radial-gradient(ellipse 70% 80% at 95% 10%,rgba(129,140,248,.14),transparent 55%),radial-gradient(ellipse 50% 50% at 5% 95%,rgba(34,211,238,.08),transparent 50%),var(--bg)}
+.slide-3{background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(251,191,36,.1),transparent 50%),radial-gradient(ellipse 40% 60% at 90% 80%,rgba(52,211,153,.08),transparent 40%),var(--bg)}
+.slide-4{background:radial-gradient(ellipse 70% 60% at 5% 50%,rgba(251,113,133,.1),transparent 55%),radial-gradient(ellipse 60% 60% at 95% 10%,rgba(34,211,238,.08),transparent 50%),var(--bg)}
+.slide-5{background:radial-gradient(ellipse 80% 60% at 80% 50%,rgba(52,211,153,.12),transparent 55%),radial-gradient(ellipse 50% 50% at 10% 5%,rgba(34,211,238,.08),transparent 40%),var(--bg)}
+.slide-6{background:radial-gradient(ellipse 70% 70% at 50% 50%,rgba(129,140,248,.12),transparent 55%),radial-gradient(ellipse 50% 40% at 10% 90%,rgba(34,211,238,.08),transparent 40%),var(--bg)}
+
+/* ── TOP BAR ── */
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:clamp(.4rem,1vh,.9rem);flex-shrink:0}
+.logo{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:.95rem;letter-spacing:-.01em}
+.logo-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--emerald));animation:pdot 2s ease-in-out infinite}
+@keyframes pdot{0%,100%{box-shadow:0 0 0 0 rgba(34,211,238,.6)}50%{box-shadow:0 0 0 5px rgba(34,211,238,0)}}
+.topbar-right{display:flex;align-items:center;gap:.75rem}
+.lang-toggle{display:flex;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:99px;padding:3px;gap:2px}
+.lang-btn{border:none;background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;padding:.25rem .65rem;border-radius:99px;cursor:pointer;letter-spacing:.05em;transition:all .2s}
+.lang-btn.active{background:linear-gradient(135deg,var(--cyan),var(--emerald));color:#04060f}
+.slide-counter{font-size:.78rem;color:var(--muted);font-weight:600;letter-spacing:.05em}
+
+/* ── EYEBROW ── */
+.eyebrow{font-size:.7rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);margin-bottom:.5rem}
+.eyebrow-pill{display:inline-flex;align-self:flex-start;align-items:center;gap:.4rem;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.25);border-radius:99px;padding:.22rem .8rem;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--cyan);margin-bottom:.5rem}
+.eyebrow-pill::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--cyan);animation:pdot 2s ease-in-out infinite}
+
+/* ── HEADINGS ── */
+h1{font-size:clamp(1.7rem,3.4vw,3.4rem);font-weight:900;line-height:1.05;letter-spacing:-.03em;margin-bottom:.4rem}
+h2{font-size:clamp(1.4rem,2.6vw,2.6rem);font-weight:800;line-height:1.1;letter-spacing:-.025em;margin-bottom:.4rem}
+.grad{background:linear-gradient(135deg,var(--cyan) 0%,var(--emerald) 50%,var(--indigo) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.grad-amber{background:linear-gradient(135deg,var(--amber),var(--rose));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sub{color:var(--muted);font-size:clamp(.78rem,1vw,.95rem);line-height:1.6;max-width:560px;margin-bottom:.5rem}
+
+/* ── BODY AREA ── */
+.body{flex:1;min-height:0;display:grid;gap:.75rem}
+.split-2{grid-template-columns:1fr 1fr}
+.split-lg{grid-template-columns:1.3fr 1fr}
+.split-sm{grid-template-columns:1fr 1.3fr}
+.col{display:flex;flex-direction:column;gap:.6rem;min-height:0}
+
+/* ── GLASS PANEL ── */
+.panel{background:var(--glass);border:1px solid var(--border);border-radius:18px;padding:.85rem 1rem;backdrop-filter:blur(14px);position:relative;overflow:hidden}
+.panel::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 80% 20%,rgba(34,211,238,.04),transparent 60%);pointer-events:none}
+
+/* ── KPI CARDS ── */
+.kpi-grid{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.kpi-card{background:rgba(8,14,28,.8);border:1px solid rgba(148,163,184,.15);border-radius:14px;padding:.6rem .85rem}
+.kpi-val{font-size:1.25rem;font-weight:900;letter-spacing:-.03em;line-height:1;margin-bottom:.18rem}
+.kpi-label{font-size:.7rem;color:var(--muted);line-height:1.35}
+
+/* ── CHECKLIST ── */
+.checklist{list-style:none;display:flex;flex-direction:column;gap:.5rem}
+.checklist li{display:flex;gap:.7rem;align-items:flex-start;font-size:.88rem;color:#cbd5e1;line-height:1.55}
+.checklist li::before{content:'';width:18px;height:18px;border-radius:50%;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%2334d399' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-size:65%;background-repeat:no-repeat;background-position:center}
+.bad-list{list-style:none;display:flex;flex-direction:column;gap:.5rem}
+.bad-list li{display:flex;gap:.7rem;align-items:flex-start;font-size:.88rem;color:#cbd5e1;line-height:1.55}
+.bad-list li::before{content:'';width:18px;height:18px;border-radius:50%;background:rgba(251,113,133,.12);border:1px solid rgba(251,113,133,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 3l6 6M9 3l-6 6' stroke='%23fb7185' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-size:60%;background-repeat:no-repeat;background-position:center}
+
+/* ── TAGS ── */
+.tag{display:inline-block;font-size:.7rem;padding:.2rem .6rem;border-radius:99px;border:1px solid rgba(148,163,184,.3);color:var(--muted);margin:.2rem .2rem 0 0}
+.tag-cyan{border-color:rgba(34,211,238,.3);color:var(--cyan);background:rgba(34,211,238,.06)}
+.tag-emerald{border-color:rgba(52,211,153,.3);color:var(--emerald);background:rgba(52,211,153,.06)}
+.tag-amber{border-color:rgba(251,191,36,.3);color:var(--amber);background:rgba(251,191,36,.06)}
+.tag-rose{border-color:rgba(251,113,133,.3);color:var(--rose);background:rgba(251,113,133,.06)}
+.tag-indigo{border-color:rgba(129,140,248,.3);color:var(--indigo);background:rgba(129,140,248,.06)}
+
+/* ── REGIME INDICATOR ── */
+.regime-wrap{display:flex;flex-direction:column;gap:.6rem}
+.regime-row{display:flex;align-items:center;gap:.75rem;padding:.6rem .9rem;border-radius:12px;border:1px solid transparent;transition:all .3s;cursor:default}
+.regime-row.active-regime{background:rgba(34,211,238,.08);border-color:rgba(34,211,238,.25)}
+.regime-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.regime-name{font-size:.85rem;font-weight:700;flex:1}
+.regime-action{font-size:.75rem;color:var(--muted)}
+.regime-badge{font-size:.65rem;font-weight:700;padding:.15rem .5rem;border-radius:99px;background:rgba(34,211,238,.15);color:var(--cyan);border:1px solid rgba(34,211,238,.25)}
+
+/* ── SOCIAL PROOF PANEL ── */
+.social-proof-shell{
+  background:rgba(6,12,24,.9);border:1px solid rgba(34,211,238,.22);border-radius:18px;
+  overflow:hidden;display:flex;flex-direction:column;gap:.6rem;padding:.8rem;backdrop-filter:blur(16px)
+}
+.social-proof-head{padding:.2rem .2rem 0 .2rem}
+.social-proof-eyebrow{
+  font-size:.67rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin-bottom:.35rem
+}
+.social-proof-head h3{font-size:clamp(1.05rem,1.8vw,1.45rem);font-weight:800;letter-spacing:-.02em;margin-bottom:.35rem}
+.social-proof-head p{font-size:.8rem;line-height:1.55;color:var(--muted)}
+.social-proof-badges{display:flex;gap:.35rem;flex-wrap:wrap;padding:0 .1rem}
+.social-proof-quote-grid{display:grid;grid-template-columns:1fr;gap:.55rem}
+.social-proof-quote{padding:.65rem .78rem}
+.social-proof-quote-mark{font-size:1rem;color:var(--cyan);font-weight:900;line-height:1}
+.social-proof-quote p{font-size:.8rem;line-height:1.5;color:#dbe6f3;margin-top:.2rem}
+.social-proof-source{
+  display:block;margin-top:.32rem;font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em
+}
+.social-proof-callout{padding:.6rem .78rem;font-size:.78rem;line-height:1.45;color:#dbe6f3}
+.social-proof-callout strong{color:var(--emerald)}
+.social-proof-stay{padding:.72rem .82rem;display:flex;flex-direction:column;gap:.3rem}
+.social-proof-stay-title{
+  font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.1rem
+}
+
+/* ── SIGNAL ROWS ── */
+.signal-list{display:flex;flex-direction:column;gap:.45rem}
+.signal-row{display:flex;align-items:center;gap:.75rem;padding:.55rem .75rem;background:rgba(8,14,28,.7);border:1px solid rgba(148,163,184,.1);border-radius:10px;font-size:.82rem}
+.signal-pair{font-weight:700;min-width:80px}
+.signal-price{color:var(--muted);flex:1}
+.sig-badge{padding:.15rem .55rem;border-radius:99px;font-size:.68rem;font-weight:700}
+.sig-buy{background:rgba(52,211,153,.15);color:var(--emerald);border:1px solid rgba(52,211,153,.3)}
+.sig-short{background:rgba(251,113,133,.12);color:var(--rose);border:1px solid rgba(251,113,133,.25)}
+.sig-watch{background:rgba(129,140,248,.12);color:var(--indigo);border:1px solid rgba(129,140,248,.25)}
+.sig-hold{background:rgba(251,191,36,.1);color:var(--amber);border:1px solid rgba(251,191,36,.22)}
+.sig-conf{font-size:.72rem;color:var(--muted)}
+
+/* ── STAT NUMBER (animated counter) ── */
+.big-stat{font-size:clamp(2.5rem,5vw,4.5rem);font-weight:900;letter-spacing:-.04em;line-height:1}
+
+/* ── METER BAR ── */
+.meter{margin-bottom:.75rem}
+.meter-head{display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.3rem}
+.meter-val{font-weight:700;color:var(--cyan)}
+.meter-track{height:7px;background:rgba(148,163,184,.12);border-radius:99px;overflow:hidden}
+.meter-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--cyan),var(--emerald));width:0;transition:width 1.4s cubic-bezier(.2,.9,.2,1)}
+
+/* ── PHASE TIMELINE ── */
+.phase-row{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;position:relative}
+.phase-row::before{content:'';position:absolute;top:28px;left:calc(16.66% + .5rem);right:calc(16.66% + .5rem);height:2px;background:linear-gradient(90deg,var(--cyan),var(--emerald),var(--indigo));opacity:.35;z-index:0}
+.phase-card{background:rgba(8,14,28,.8);border:1px solid var(--border);border-radius:16px;padding:1.1rem;text-align:center;position:relative;z-index:1;transition:transform .25s,border-color .25s}
+.phase-card:hover{transform:translateY(-4px);border-color:rgba(34,211,238,.4)}
+.phase-num{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1rem;margin:0 auto .75rem;color:#04060f}
+.p1-num{background:linear-gradient(135deg,var(--cyan),var(--emerald))}
+.p2-num{background:linear-gradient(135deg,var(--emerald),var(--indigo))}
+.p3-num{background:linear-gradient(135deg,var(--indigo),var(--violet))}
+.phase-title{font-size:.95rem;font-weight:700;margin-bottom:.4rem}
+.phase-desc{font-size:.78rem;color:var(--muted);line-height:1.55}
+
+/* ── COMPARE TABLE ── */
+.compare-wrap{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;flex:1;min-height:0}
+.compare-col-head{font-size:.75rem;font-weight:700;padding:.45rem .9rem;border-radius:9px;margin-bottom:.6rem;text-align:center}
+.bad-head{background:rgba(251,113,133,.1);color:var(--rose);border:1px solid rgba(251,113,133,.2)}
+.good-head{background:rgba(52,211,153,.1);color:var(--emerald);border:1px solid rgba(52,211,153,.2)}
+.compare-item{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .5rem;font-size:.8rem;color:#cbd5e1;line-height:1.5;border-bottom:1px solid rgba(148,163,184,.07)}
+.compare-item:last-child{border-bottom:none}
+.ci{flex-shrink:0;font-size:.75rem;margin-top:1px;font-weight:700}
+.ci-bad{color:var(--rose)}
+.ci-good{color:var(--emerald)}
+
+/* ── COMPOUNDING VISUAL ── */
+.compound-bar-wrap{display:flex;flex-direction:column;gap:.5rem;flex:1;justify-content:center}
+.cbar-row{display:flex;align-items:center;gap:.75rem;font-size:.78rem}
+.cbar-label{min-width:60px;color:var(--muted)}
+.cbar-track{flex:1;height:22px;background:rgba(148,163,184,.08);border-radius:8px;overflow:hidden;position:relative}
+.cbar-fill{height:100%;border-radius:8px;display:flex;align-items:center;padding-left:.75rem;font-size:.72rem;font-weight:700;color:#04060f;transition:width 1.6s cubic-bezier(.2,.9,.2,1);width:0}
+
+/* ── BOTTOM BAR ── */
+.bottombar{display:flex;justify-content:space-between;align-items:center;margin-top:clamp(.3rem,.8vh,.6rem);flex-shrink:0}
+.progress-dots{display:flex;gap:.3rem;align-items:center}
+.pdot{width:6px;height:6px;border-radius:50%;background:rgba(148,163,184,.3);transition:all .3s;cursor:pointer}
+.pdot.active{width:22px;border-radius:99px;background:linear-gradient(90deg,var(--cyan),var(--emerald))}
+.hint-text{font-size:.72rem;color:var(--dim);letter-spacing:.04em}
+
+/* ── NAV BUTTONS ── */
+.nav{position:fixed;bottom:1.5rem;right:1.75rem;display:flex;gap:.5rem;z-index:50}
+.nav-btn{display:flex;align-items:center;gap:.4rem;border:1px solid rgba(148,163,184,.25);background:rgba(8,14,28,.8);color:var(--text);border-radius:12px;padding:.55rem 1rem;font-weight:700;font-size:.82rem;cursor:pointer;backdrop-filter:blur(10px);transition:border-color .2s,background .2s,transform .15s}
+.nav-btn:hover{border-color:var(--cyan);transform:translateY(-2px)}
+.nav-btn.primary{background:linear-gradient(135deg,var(--cyan),var(--emerald));color:#04060f;border-color:transparent}
+.nav-btn.primary:hover{opacity:.9}
+.nav-btn:disabled{opacity:.3;cursor:default;transform:none}
+.back-btn{border-color:rgba(148,163,184,.15);font-size:.75rem;padding:.4rem .7rem}
+
+/* ── LIVE BLINK ── */
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--emerald);animation:liveblink 1.4s ease-in-out infinite;display:inline-block}
+@keyframes liveblink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── GRID LINES ── */
+body::after{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(34,211,238,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,238,.025) 1px,transparent 1px);background-size:60px 60px}
+
+/* ── SLIDE-IN ENTER ANIMATION ── */
+@keyframes slideIn{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.slide.active > *{animation:slideIn .55s cubic-bezier(.2,.9,.2,1) both}
+.slide.active > *:nth-child(1){animation-delay:.0s}
+.slide.active > *:nth-child(2){animation-delay:.07s}
+.slide.active > *:nth-child(3){animation-delay:.14s}
+.slide.active > *:nth-child(4){animation-delay:.21s}
+.slide.active > *:nth-child(5){animation-delay:.28s}
+
+/* ── RESPONSIVE ── */
+@media(max-width:900px){
+  .split-2,.split-lg,.split-sm{grid-template-columns:1fr}
+  .phase-row{grid-template-columns:1fr}
+  .phase-row::before{display:none}
+  .compare-wrap{grid-template-columns:1fr}
+  h1{font-size:clamp(1.6rem,7vw,3rem)}
+  h2{font-size:clamp(1.4rem,5vw,2.2rem)}
+  .nav{bottom:1rem;right:1rem}
+}
+@media(max-width:600px){
+  .slide{padding:1rem 1.25rem}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="deck" id="deck">
+
+<!-- ══════════════════════════════════════════
+     SLIDE 1 — WELCOME
+══════════════════════════════════════════ -->
+<section class="slide slide-1 active" data-slide="0">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter" id="counter">01 / 06</span>
+    </div>
+  </div>
+
+  <div class="body split-2" style="align-items:stretch;gap:1.25rem">
+
+    <!-- LEFT: headline + sub + 2×2 KPI grid -->
+    <div class="col" style="justify-content:center;gap:.7rem">
+      <div class="eyebrow-pill" data-i18n="s1_eyebrow">Interactive Onboarding Deck</div>
+      <h1 style="margin-bottom:0">
+        <span data-i18n="s1_h1a">Trade with</span><br>
+        <span class="grad" data-i18n="s1_h1b">AI-powered discipline.</span>
+      </h1>
+      <p class="sub" data-i18n="s1_sub">CryptoMentor AI adapts to market conditions, protects your capital, and compounds your portfolio steadily — without emotion.</p>
+      <div class="kpi-grid" style="grid-template-columns:1fr 1fr">
+        <div class="kpi-card"><div class="kpi-val grad">24/7</div><div class="kpi-label" data-i18n="s1_k1">Market monitoring</div></div>
+        <div class="kpi-card"><div class="kpi-val" style="color:var(--emerald)">Adaptive</div><div class="kpi-label" data-i18n="s1_k2">3-regime engine</div></div>
+        <div class="kpi-card"><div class="kpi-val" style="color:var(--amber)">Capital-first</div><div class="kpi-label" data-i18n="s1_k3">Risk before every trade</div></div>
+        <div class="kpi-card"><div class="kpi-val" style="color:var(--indigo)">Multi-pair</div><div class="kpi-label" data-i18n="s1_k4">Simultaneous scanning</div></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: social proof panel -->
+    <div class="social-proof-shell">
+      <div class="social-proof-head">
+        <div class="social-proof-eyebrow" data-i18n="s1_sp_eyebrow">Trusted by process-driven traders</div>
+        <h3 data-i18n="s1_sp_title">Proof of discipline, not hype.</h3>
+        <p data-i18n="s1_sp_sub">Users stay because execution remains calm, rules stay clear, and risk is controlled in every market regime.</p>
+      </div>
+
+      <div class="social-proof-badges">
+        <span class="tag tag-cyan" data-i18n="s1_sp_badge1">Rule-based execution</span>
+        <span class="tag tag-emerald" data-i18n="s1_sp_badge2">Risk-first framework</span>
+        <span class="tag tag-indigo" data-i18n="s1_sp_badge3">Transparent decision flow</span>
+      </div>
+
+      <div class="social-proof-quote-grid">
+        <div class="panel social-proof-quote">
+          <span class="social-proof-quote-mark">"</span>
+          <p data-i18n="s1_sp_q1">I stopped forcing entries. Every trade now has a clear reason and a predefined invalidation point.</p>
+          <span class="social-proof-source" data-i18n="s1_sp_q1_src">Discipline-focused member</span>
+        </div>
+        <div class="panel social-proof-quote">
+          <span class="social-proof-quote-mark">"</span>
+          <p data-i18n="s1_sp_q2">The biggest change is emotional control. I review decisions with a process instead of reacting to every candle.</p>
+          <span class="social-proof-source" data-i18n="s1_sp_q2_src">Risk-managed user feedback</span>
+        </div>
+      </div>
+
+      <div class="panel social-proof-callout">
+        <strong data-i18n="s1_sp_c1_title">Shared outcome:</strong>
+        <span data-i18n="s1_sp_c1">less second-guessing during volatile sessions.</span>
+      </div>
+
+      <div class="panel social-proof-stay" style="margin-top:auto">
+        <div class="social-proof-stay-title" data-i18n="s1_sp_stay_title">Why users stay</div>
+        <ul class="checklist">
+          <li data-i18n="s1_sp_li1">Clear setup criteria reduce impulsive entries.</li>
+          <li data-i18n="s1_sp_li2">Position sizing stays aligned with risk tolerance.</li>
+          <li data-i18n="s1_sp_li3">Post-trade reviews are easier because logic is explicit.</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s1_hint">Arrow keys, scroll, or swipe</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 2 — ADAPTIVE INTELLIGENCE
+══════════════════════════════════════════ -->
+<section class="slide slide-2" data-slide="1">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter">02 / 06</span>
+    </div>
+  </div>
+
+  <div class="eyebrow" data-i18n="s2_eyebrow">Why Adaptive Matters</div>
+  <h2 data-i18n="s2_h2">Static bots break. <span class="grad">Adaptive systems survive.</span></h2>
+
+  <div class="body split-2" style="align-items:start">
+    <div class="col">
+      <div class="panel">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.9rem" data-i18n="s2_regime_title">Live Regime Detector</div>
+        <div class="regime-wrap">
+          <div class="regime-row active-regime" id="r-trend">
+            <div class="regime-dot" style="background:var(--emerald)"></div>
+            <div class="regime-name" style="color:var(--emerald)" data-i18n="s2_r1_name">Trend Following</div>
+            <div class="regime-action" data-i18n="s2_r1_action">Wide scans, momentum entries</div>
+            <div class="regime-badge" data-i18n="s2_active">ACTIVE</div>
+          </div>
+          <div class="regime-row" id="r-range">
+            <div class="regime-dot" style="background:var(--amber)"></div>
+            <div class="regime-name" style="color:var(--amber)" data-i18n="s2_r2_name">Range Defense</div>
+            <div class="regime-action" data-i18n="s2_r2_action">Boundary entries, tight stops</div>
+          </div>
+          <div class="regime-row" id="r-vol">
+            <div class="regime-dot" style="background:var(--rose)"></div>
+            <div class="regime-name" style="color:var(--rose)" data-i18n="s2_r3_name">Volatility Guard</div>
+            <div class="regime-action" data-i18n="s2_r3_action">Reduced size, high-quality only</div>
+          </div>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:.35rem;flex-wrap:wrap">
+          <span class="tag tag-cyan" data-i18n="s2_t1">Regime detection</span>
+          <span class="tag tag-emerald" data-i18n="s2_t2">Dynamic sizing</span>
+          <span class="tag tag-amber" data-i18n="s2_t3">Signal filtering</span>
+          <span class="tag tag-indigo" data-i18n="s2_t4">Auto-switch</span>
+        </div>
+      </div>
+      <div class="panel">
+        <ul class="checklist">
+          <li data-i18n="s2_li1">Monitors trend, momentum, and volatility simultaneously</li>
+          <li data-i18n="s2_li2">Reduces aggressiveness in ranging or choppy conditions</li>
+          <li data-i18n="s2_li3">Expands scanning when momentum confirms new structure</li>
+          <li data-i18n="s2_li4">Position sizing + stop logic update from risk profile, not emotion</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel" style="flex:1">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.9rem" data-i18n="s2_sig_title">Signal Feed</div>
+        <div class="signal-list">
+          <div class="signal-row">
+            <span class="signal-pair">BTC/USDT</span>
+            <span class="signal-price">$67,240</span>
+            <span class="sig-badge sig-buy" data-i18n="sig_long">LONG</span>
+            <span class="sig-conf">92%</span>
+          </div>
+          <div class="signal-row">
+            <span class="signal-pair">ETH/USDT</span>
+            <span class="signal-price">$3,490</span>
+            <span class="sig-badge sig-watch" data-i18n="sig_watch">WATCH</span>
+            <span class="sig-conf">74%</span>
+          </div>
+          <div class="signal-row">
+            <span class="signal-pair">SOL/USDT</span>
+            <span class="signal-price">$172.4</span>
+            <span class="sig-badge sig-buy" data-i18n="sig_long">LONG</span>
+            <span class="sig-conf">88%</span>
+          </div>
+          <div class="signal-row">
+            <span class="signal-pair">BNB/USDT</span>
+            <span class="signal-price">$589.2</span>
+            <span class="sig-badge sig-hold" data-i18n="sig_hold">HOLD</span>
+            <span class="sig-conf">61%</span>
+          </div>
+          <div class="signal-row">
+            <span class="signal-pair">AVAX/USDT</span>
+            <span class="signal-price">$38.70</span>
+            <span class="sig-badge sig-short" data-i18n="sig_short">SHORT</span>
+            <span class="sig-conf">80%</span>
+          </div>
+        </div>
+        <div style="margin-top:.9rem;display:flex;align-items:center;gap:.5rem;font-size:.75rem;color:var(--muted)">
+          <span class="live-dot"></span>
+          <span data-i18n="s2_live">Signals update in real time</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s2_footer">Adaptive systems outperform one-mode bots over long cycles.</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 3 — MARKET BEHAVIOR
+══════════════════════════════════════════ -->
+<section class="slide slide-3" data-slide="2">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter">03 / 06</span>
+    </div>
+  </div>
+
+  <div class="eyebrow" data-i18n="s3_eyebrow">Market Reality</div>
+  <h2><span class="grad-amber" data-i18n="s3_h2a">~70% of the time,</span> <span data-i18n="s3_h2b">price rotates in ranges.</span></h2>
+
+  <div class="body split-lg" style="align-items:start">
+    <div class="col">
+      <div class="kpi-grid" style="grid-template-columns:1fr 1fr">
+        <div class="kpi-card">
+          <div class="big-stat grad counter-el" data-target="70" data-suffix="%">0%</div>
+          <div class="kpi-label" data-i18n="s3_k1">Time in consolidation</div>
+        </div>
+        <div class="kpi-card">
+          <div class="big-stat" style="color:var(--rose);font-size:clamp(1.5rem,3vw,3rem)" data-i18n="s3_k2_val">60%+</div>
+          <div class="kpi-label" data-i18n="s3_k2">Breakouts that fail without volume</div>
+        </div>
+      </div>
+      <div class="panel" style="flex:1">
+        <div style="font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:.8rem" data-i18n="s3_walk_title">How the AI handles range markets:</div>
+        <div style="display:flex;flex-direction:column;gap:.6rem">
+          <div style="display:flex;gap:.75rem;align-items:flex-start;font-size:.84rem">
+            <div style="width:22px;height:22px;border-radius:50%;background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;color:var(--cyan);flex-shrink:0">1</div>
+            <span data-i18n="s3_step1">AI labels current structure as <strong style="color:var(--amber)">range</strong> based on ATR + price action</span>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start;font-size:.84rem">
+            <div style="width:22px;height:22px;border-radius:50%;background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;color:var(--cyan);flex-shrink:0">2</div>
+            <span data-i18n="s3_step2">Entry rules tighten near structural boundaries — false signals filtered out</span>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start;font-size:.84rem">
+            <div style="width:22px;height:22px;border-radius:50%;background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;color:var(--cyan);flex-shrink:0">3</div>
+            <span data-i18n="s3_step3">Exposure decreases if breakout quality is weak (low volume, no follow-through)</span>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start;font-size:.84rem">
+            <div style="width:22px;height:22px;border-radius:50%;background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;color:var(--cyan);flex-shrink:0">4</div>
+            <span data-i18n="s3_step4">Trend bias re-enabled only after structural confirmation — never ahead of it</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel" style="flex:1">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.9rem" data-i18n="s3_key_title">Key Principles</div>
+        <div style="display:flex;flex-direction:column;gap:.75rem">
+          <div class="kpi-card">
+            <div style="font-size:.95rem;font-weight:700;margin-bottom:.25rem;color:var(--amber)" data-i18n="s3_p1_t">Volatility clusters</div>
+            <div style="font-size:.8rem;color:var(--muted)" data-i18n="s3_p1_d">Quiet periods can rapidly expand — risk settings must adapt in real time, not after the move.</div>
+          </div>
+          <div class="kpi-card">
+            <div style="font-size:.95rem;font-weight:700;margin-bottom:.25rem;color:var(--rose)" data-i18n="s3_p2_t">Asymmetry matters</div>
+            <div style="font-size:.8rem;color:var(--muted)" data-i18n="s3_p2_d">One oversized loss can erase many small wins. Protecting downside is more valuable than chasing upside.</div>
+          </div>
+          <div class="kpi-card">
+            <div style="font-size:.95rem;font-weight:700;margin-bottom:.25rem;color:var(--emerald)" data-i18n="s3_p3_t">Survive to compound</div>
+            <div style="font-size:.8rem;color:var(--muted)" data-i18n="s3_p3_d">The goal isn't to win every trade — it's to stay in the game long enough for edge to compound.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s3_footer">"Not always trending" is normal — the AI knows the difference.</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 4 — WHY TRADERS FAIL
+══════════════════════════════════════════ -->
+<section class="slide slide-4" data-slide="3">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter">04 / 06</span>
+    </div>
+  </div>
+
+  <div class="eyebrow" data-i18n="s4_eyebrow">Common Pain Points</div>
+  <h2><span data-i18n="s4_h2a">Why traders lose — </span><span class="grad-amber" data-i18n="s4_h2b">and how AI fixes each one.</span></h2>
+
+  <div class="body" style="grid-template-rows:1fr;align-items:start;margin-top:.5rem">
+    <div class="compare-wrap">
+      <div>
+        <div class="compare-col-head bad-head" data-i18n="s4_bad_head">Manual / Emotional Trading</div>
+        <div class="panel" style="padding:.9rem">
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b1">Chasing green candles, panic-selling red ones — emotion drives every decision</span></div>
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b2">Over-leveraging on conviction, wiped out by a single wick</span></div>
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b3">No consistent process — random entries with no invalidation plan</span></div>
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b4">Attempting to time exact tops and bottoms</span></div>
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b5">Recent wins inflate confidence; recent losses trigger revenge trades</span></div>
+          <div class="compare-item"><span class="ci ci-bad">✗</span><span data-i18n="s4_b6">Manual reaction always slower than market repricing</span></div>
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+          <span class="tag tag-rose" data-i18n="s4_t1">FOMO entries</span>
+          <span class="tag tag-rose" data-i18n="s4_t2">Recency bias</span>
+          <span class="tag tag-rose" data-i18n="s4_t3">Over-leverage</span>
+          <span class="tag tag-rose" data-i18n="s4_t4">Panic exits</span>
+        </div>
+      </div>
+      <div>
+        <div class="compare-col-head good-head" data-i18n="s4_good_head">CryptoMentor AI</div>
+        <div class="panel" style="padding:.9rem">
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g1">Only enters on validated setups with a defined statistical edge</span></div>
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g2">Exposure capped by design — no FOMO, no emotional sizing</span></div>
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g3">Rule-based execution every single time, no exceptions</span></div>
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g4">Probability-first: manages expectancy across hundreds of trades</span></div>
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g5">Each trade is independent — no recency bias baked in</span></div>
+          <div class="compare-item"><span class="ci ci-good">✓</span><span data-i18n="s4_g6">Executes at signal generation — zero human latency</span></div>
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+          <span class="tag tag-emerald" data-i18n="s4_u1">Rule-based</span>
+          <span class="tag tag-emerald" data-i18n="s4_u2">Zero emotion</span>
+          <span class="tag tag-cyan" data-i18n="s4_u3">Instant execution</span>
+          <span class="tag tag-indigo" data-i18n="s4_u4">Defined edge</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s4_footer">Timing perfectly is rare. Surviving cycles with discipline is the real edge.</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 5 — RISK MANAGEMENT
+══════════════════════════════════════════ -->
+<section class="slide slide-5" data-slide="4">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter">05 / 06</span>
+    </div>
+  </div>
+
+  <div class="eyebrow" data-i18n="s5_eyebrow">Capital Protection</div>
+  <h2 data-i18n="s5_h2">Risk management <span class="grad">isn't optional — it's the edge.</span></h2>
+
+  <div class="body split-sm" style="align-items:start">
+    <div class="col">
+      <ul class="checklist">
+        <li data-i18n="s5_li1">Risk defined as a fixed % of equity per trade — never a raw dollar amount</li>
+        <li data-i18n="s5_li2">Stop loss is placed before position size is calculated</li>
+        <li data-i18n="s5_li3">Max concurrent exposure capped across all open positions</li>
+        <li data-i18n="s5_li4">Correlated pairs monitored to avoid stacked directional risk</li>
+        <li data-i18n="s5_li5">Leverage used as a tool, not a goal — effective exposure stays bounded</li>
+        <li data-i18n="s5_li6">Drawdown thresholds trigger automatic reduction in activity</li>
+      </ul>
+      <div class="panel" style="margin-top:.25rem">
+        <div style="font-size:.8rem;color:var(--muted);line-height:1.65" data-i18n="s5_note">
+          With controlled sizing and predefined invalidation, liquidation risk approaches zero under normal execution conditions. <em style="color:var(--dim)" data-i18n="s5_note_em">No strategy removes risk entirely.</em>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel" style="flex:1">
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1.1rem">
+          <span style="font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)" data-i18n="s5_panel_title">Live Risk Snapshot</span>
+          <span class="live-dot"></span>
+        </div>
+        <div class="meter">
+          <div class="meter-head"><span data-i18n="s5_m1">Risk per Trade</span><span class="meter-val">1.0%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="--w:10%" data-meter></div></div>
+        </div>
+        <div class="meter">
+          <div class="meter-head"><span data-i18n="s5_m2">Open Exposure</span><span class="meter-val">2.8%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="--w:28%" data-meter></div></div>
+        </div>
+        <div class="meter">
+          <div class="meter-head"><span data-i18n="s5_m3">Max Drawdown Limit</span><span class="meter-val" style="color:var(--amber)">8%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="--w:8%;background:linear-gradient(90deg,var(--amber),var(--rose))" data-meter></div></div>
+        </div>
+        <div class="meter" style="margin-bottom:0">
+          <div class="meter-head"><span data-i18n="s5_m4">Liquidation Buffer</span><span class="meter-val" style="color:var(--emerald)" data-i18n="s5_m4v">HIGH</span></div>
+          <div class="meter-track"><div class="meter-fill" style="--w:92%;background:linear-gradient(90deg,var(--emerald),var(--cyan))" data-meter></div></div>
+        </div>
+        <div style="margin-top:1rem;padding:.6rem .8rem;background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.18);border-radius:10px;font-size:.78rem;color:var(--muted)">
+          <span style="color:var(--emerald);font-weight:700">✓</span>&nbsp;<span data-i18n="s5_ok">All positions within defined risk parameters</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s5_footer">Surviving a drawdown is the prerequisite to compounding.</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════
+     SLIDE 6 — GROWTH FRAMEWORK
+══════════════════════════════════════════ -->
+<section class="slide slide-6" data-slide="5">
+  <div class="topbar">
+    <div class="logo"><div class="logo-dot"></div>CryptoMentor AI</div>
+    <div class="topbar-right">
+      <div class="lang-toggle">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="id">ID</button>
+      </div>
+      <span class="slide-counter">06 / 06</span>
+    </div>
+  </div>
+
+  <div class="eyebrow" data-i18n="s6_eyebrow">Growth Framework</div>
+  <h2><span data-i18n="s6_h2a">Three phases to </span><span class="grad" data-i18n="s6_h2b">compound growth.</span></h2>
+
+  <div class="body" style="grid-template-rows:auto 1fr;gap:1rem">
+    <div class="phase-row">
+      <div class="phase-card">
+        <div class="phase-num p1-num">1</div>
+        <div class="phase-title" data-i18n="s6_p1t">Protect</div>
+        <div class="phase-desc" data-i18n="s6_p1d">Capital preservation mode. Low risk per trade, focus on clean execution and building trust in the system. No scaling yet.</div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-num p2-num">2</div>
+        <div class="phase-title" data-i18n="s6_p2t">Stabilize</div>
+        <div class="phase-desc" data-i18n="s6_p2d">Consistent execution across multiple regimes. Variance decreases. Win quality and expectancy tracked — not just PnL.</div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-num p3-num">3</div>
+        <div class="phase-title" data-i18n="s6_p3t">Scale</div>
+        <div class="phase-desc" data-i18n="s6_p3d">Controlled compounding with strict risk ceilings. Scale only after proven consistency windows — within pre-approved bounds only.</div>
+      </div>
+    </div>
+
+    <div class="body split-2" style="gap:1rem">
+      <div class="panel" style="display:flex;flex-direction:column;gap:.6rem">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem" data-i18n="s6_compound_title">Compounding Projection</div>
+        <div class="compound-bar-wrap">
+          <div class="cbar-row">
+            <span class="cbar-label" data-i18n="s6_m0">Start</span>
+            <div class="cbar-track"><div class="cbar-fill" style="--w:10%;background:linear-gradient(90deg,#22d3ee,#34d399)" data-cbar data-w="10">$10k</div></div>
+          </div>
+          <div class="cbar-row">
+            <span class="cbar-label" data-i18n="s6_m3">3 months</span>
+            <div class="cbar-track"><div class="cbar-fill" style="--w:30%;background:linear-gradient(90deg,#22d3ee,#34d399)" data-cbar data-w="30">$13.4k</div></div>
+          </div>
+          <div class="cbar-row">
+            <span class="cbar-label" data-i18n="s6_m6">6 months</span>
+            <div class="cbar-track"><div class="cbar-fill" style="--w:55%;background:linear-gradient(90deg,#34d399,#818cf8)" data-cbar data-w="55">$18.0k</div></div>
+          </div>
+          <div class="cbar-row">
+            <span class="cbar-label" data-i18n="s6_m12">12 months</span>
+            <div class="cbar-track"><div class="cbar-fill" style="--w:90%;background:linear-gradient(90deg,#818cf8,#a78bfa)" data-cbar data-w="90">$24.5k+</div></div>
+          </div>
+        </div>
+        <div style="font-size:.7rem;color:var(--dim)" data-i18n="s6_proj_note">Illustrative projection. Past performance does not guarantee future results.</div>
+      </div>
+      <div class="col" style="gap:.75rem">
+        <ul class="checklist">
+          <li data-i18n="s6_li1"><strong>Start conservative:</strong> keep risk low while validating consistency</li>
+          <li data-i18n="s6_li2"><strong>Compound gradually:</strong> scale only after stable execution windows</li>
+          <li data-i18n="s6_li3"><strong>Review weekly:</strong> track drawdown, win quality, and expectancy</li>
+          <li data-i18n="s6_li4"><strong>Stay process-first:</strong> let the system enforce discipline through cycles</li>
+        </ul>
+        <div style="margin-top:auto;display:flex;gap:.6rem;flex-wrap:wrap">
+          <button class="nav-btn primary" onclick="window.location.href='https://cryptomentor.id'" data-i18n="s6_cta">Get Started Free</button>
+          <button class="nav-btn" onclick="window.location.href='/intro.html'" data-i18n="s6_back">← Back to Intro</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottombar">
+    <div class="progress-dots" id="dots"></div>
+    <span class="hint-text" data-i18n="s6_footer">Growth happens steadily — not recklessly.</span>
+  </div>
+</section>
+
+</div><!-- /deck -->
+
+<!-- ── NAV ── -->
+<div class="nav">
+  <button class="nav-btn back-btn" onclick="window.location.href='/intro.html'" data-i18n="nav_intro">← Intro</button>
+  <button class="nav-btn" id="prevBtn" disabled data-i18n="nav_prev">Prev</button>
+  <button class="nav-btn primary" id="nextBtn" data-i18n="nav_next">Next →</button>
+</div>
+
+<script>
+/* ══ I18N ══════════════════════════════════════════════════════════ */
+const T={
+en:{
+  s1_eyebrow:'Interactive Onboarding Deck',s1_h1a:'Trade with',s1_h1b:'AI-powered discipline.',
+  s1_sub:'CryptoMentor AI adapts to market conditions, protects your capital, and compounds your portfolio steadily — without emotion.',
+  s1_k1:'Market monitoring, never sleeps',s1_k2:'3-regime signal engine',s1_k3:'Risk defined before every trade',s1_k4:'Simultaneous opportunity scanning',
+  s1_hint:'Arrow keys, scroll, or swipe to navigate',
+  s1_sp_eyebrow:'Trusted by process-driven traders',s1_sp_title:'Proof of discipline, not hype.',
+  s1_sp_sub:'Users stay because execution remains calm, rules stay clear, and risk is controlled in every market regime.',
+  s1_sp_badge1:'Rule-based execution',s1_sp_badge2:'Risk-first framework',s1_sp_badge3:'Transparent decision flow',
+  s1_sp_q1:'I stopped forcing entries. Every trade now has a clear reason and a predefined invalidation point.',
+  s1_sp_q1_src:'Discipline-focused member',
+  s1_sp_q2:'The biggest change is emotional control. I review decisions with a process instead of reacting to every candle.',
+  s1_sp_q2_src:'Risk-managed user feedback',
+  s1_sp_c1_title:'Shared outcome:',s1_sp_c1:'less second-guessing during volatile sessions.',
+  s1_sp_stay_title:'Why users stay',
+  s1_sp_li1:'Clear setup criteria reduce impulsive entries.',
+  s1_sp_li2:'Position sizing stays aligned with risk tolerance.',
+  s1_sp_li3:'Post-trade reviews are easier because logic is explicit.',
+  s2_eyebrow:'Why Adaptive Matters',s2_h2:'Static bots break.',
+  s2_regime_title:'Live Regime Detector',s2_r1_name:'Trend Following',s2_r1_action:'Wide scans, momentum entries',
+  s2_r2_name:'Range Defense',s2_r2_action:'Boundary entries, tight stops',s2_r3_name:'Volatility Guard',s2_r3_action:'Reduced size, high-quality only',
+  s2_active:'ACTIVE',s2_t1:'Regime detection',s2_t2:'Dynamic sizing',s2_t3:'Signal filtering',s2_t4:'Auto-switch',
+  s2_li1:'Monitors trend, momentum, and volatility simultaneously',
+  s2_li2:'Reduces aggressiveness in ranging or choppy conditions',
+  s2_li3:'Expands scanning when momentum confirms new structure',
+  s2_li4:'Position sizing + stop logic update from risk profile, not emotion',
+  s2_sig_title:'Signal Feed',sig_long:'LONG',sig_watch:'WATCH',sig_hold:'HOLD',sig_short:'SHORT',
+  s2_live:'Signals update in real time',s2_footer:'Adaptive systems outperform one-mode bots over long cycles.',
+  s3_eyebrow:'Market Reality',s3_h2a:'~70% of the time,',s3_h2b:'price rotates in ranges.',
+  s3_k1:'Time in consolidation',s3_k2_val:'60%+',s3_k2:'Breakouts that fail without volume',
+  s3_walk_title:'How the AI handles range markets:',
+  s3_step1:'AI labels current structure as range based on ATR + price action',
+  s3_step2:'Entry rules tighten near structural boundaries — false signals filtered out',
+  s3_step3:'Exposure decreases if breakout quality is weak (low volume, no follow-through)',
+  s3_step4:'Trend bias re-enabled only after structural confirmation — never ahead of it',
+  s3_key_title:'Key Principles',
+  s3_p1_t:'Volatility clusters',s3_p1_d:'Quiet periods can rapidly expand — risk settings must adapt in real time, not after the move.',
+  s3_p2_t:'Asymmetry matters',s3_p2_d:'One oversized loss can erase many small wins. Protecting downside is more valuable than chasing upside.',
+  s3_p3_t:'Survive to compound',s3_p3_d:"The goal isn't to win every trade — it's to stay in the game long enough for edge to compound.",
+  s3_footer:'"Not always trending" is normal — the AI knows the difference.',
+  s4_eyebrow:'Common Pain Points',s4_h2a:'Why traders lose — ',s4_h2b:'and how AI fixes each one.',
+  s4_bad_head:'Manual / Emotional Trading',s4_good_head:'CryptoMentor AI',
+  s4_b1:'Chasing green candles, panic-selling red ones — emotion drives every decision',
+  s4_b2:'Over-leveraging on conviction, wiped out by a single wick',
+  s4_b3:'No consistent process — random entries with no invalidation plan',
+  s4_b4:'Attempting to time exact tops and bottoms',
+  s4_b5:'Recent wins inflate confidence; recent losses trigger revenge trades',
+  s4_b6:'Manual reaction always slower than market repricing',
+  s4_g1:'Only enters on validated setups with a defined statistical edge',
+  s4_g2:'Exposure capped by design — no FOMO, no emotional sizing',
+  s4_g3:'Rule-based execution every single time, no exceptions',
+  s4_g4:'Probability-first: manages expectancy across hundreds of trades',
+  s4_g5:'Each trade is independent — no recency bias baked in',
+  s4_g6:'Executes at signal generation — zero human latency',
+  s4_t1:'FOMO entries',s4_t2:'Recency bias',s4_t3:'Over-leverage',s4_t4:'Panic exits',
+  s4_u1:'Rule-based',s4_u2:'Zero emotion',s4_u3:'Instant execution',s4_u4:'Defined edge',
+  s4_footer:'Timing perfectly is rare. Surviving cycles with discipline is the real edge.',
+  s5_eyebrow:'Capital Protection',s5_h2:'Risk management ',
+  s5_li1:'Risk defined as a fixed % of equity per trade — never a raw dollar amount',
+  s5_li2:'Stop loss is placed before position size is calculated',
+  s5_li3:'Max concurrent exposure capped across all open positions',
+  s5_li4:'Correlated pairs monitored to avoid stacked directional risk',
+  s5_li5:'Leverage used as a tool, not a goal — effective exposure stays bounded',
+  s5_li6:'Drawdown thresholds trigger automatic reduction in activity',
+  s5_note:'With controlled sizing and predefined invalidation, liquidation risk approaches zero under normal execution conditions.',
+  s5_note_em:'No strategy removes risk entirely.',
+  s5_panel_title:'Live Risk Snapshot',s5_m1:'Risk per Trade',s5_m2:'Open Exposure',
+  s5_m3:'Max Drawdown Limit',s5_m4:'Liquidation Buffer',s5_m4v:'HIGH',
+  s5_ok:'All positions within defined risk parameters',s5_footer:'Surviving a drawdown is the prerequisite to compounding.',
+  s6_eyebrow:'Growth Framework',s6_h2a:'Three phases to ',s6_h2b:'compound growth.',
+  s6_p1t:'Protect',s6_p1d:'Capital preservation mode. Low risk per trade, focus on clean execution and building trust in the system. No scaling yet.',
+  s6_p2t:'Stabilize',s6_p2d:'Consistent execution across multiple regimes. Variance decreases. Win quality and expectancy tracked — not just PnL.',
+  s6_p3t:'Scale',s6_p3d:'Controlled compounding with strict risk ceilings. Scale only after proven consistency windows — within pre-approved bounds only.',
+  s6_compound_title:'Compounding Projection',
+  s6_m0:'Start',s6_m3:'3 months',s6_m6:'6 months',s6_m12:'12 months',
+  s6_proj_note:'Illustrative projection. Past performance does not guarantee future results.',
+  s6_li1:'Start conservative: keep risk low while validating consistency',
+  s6_li2:'Compound gradually: scale only after stable execution windows',
+  s6_li3:'Review weekly: track drawdown, win quality, and expectancy',
+  s6_li4:'Stay process-first: let the system enforce discipline through cycles',
+  s6_cta:'Get Started Free',s6_back:'← Back to Intro',s6_footer:'Growth happens steadily — not recklessly.',
+  nav_intro:'← Intro',nav_prev:'Prev',nav_next:'Next →',
+},
+id:{
+  s1_eyebrow:'Deck Onboarding Interaktif',s1_h1a:'Trading dengan',s1_h1b:'disiplin bertenaga AI.',
+  s1_sub:'CryptoMentor AI beradaptasi dengan kondisi pasar, melindungi modal Anda, dan menumbuhkan portofolio secara stabil — tanpa emosi.',
+  s1_k1:'Pemantauan pasar, tidak pernah tidur',s1_k2:'Mesin sinyal 3-rezim',s1_k3:'Risiko ditentukan sebelum setiap trade',s1_k4:'Pemindaian peluang simultan',
+  s1_hint:'Gunakan tombol panah, gulir, atau geser untuk navigasi',
+  s1_sp_eyebrow:'Dipercaya trader yang mengutamakan proses',s1_sp_title:'Bukti disiplin, bukan hype.',
+  s1_sp_sub:'Pengguna bertahan karena eksekusi tetap tenang, aturan tetap jelas, dan risiko tetap terkontrol di setiap rezim pasar.',
+  s1_sp_badge1:'Eksekusi berbasis aturan',s1_sp_badge2:'Kerangka risk-first',s1_sp_badge3:'Alur keputusan transparan',
+  s1_sp_q1:'Saya berhenti memaksa entry. Sekarang setiap trade punya alasan jelas dan titik invalidasi yang sudah ditentukan.',
+  s1_sp_q1_src:'Member berfokus disiplin',
+  s1_sp_q2:'Perubahan terbesar adalah kontrol emosi. Saya meninjau keputusan dengan proses, bukan bereaksi pada setiap candle.',
+  s1_sp_q2_src:'Masukan pengguna berisiko terkelola',
+  s1_sp_c1_title:'Hasil yang sering dirasakan:',
+  s1_sp_c1:'lebih sedikit ragu saat sesi volatil.',
+  s1_sp_stay_title:'Alasan pengguna bertahan',
+  s1_sp_li1:'Kriteria setup yang jelas mengurangi entry impulsif.',
+  s1_sp_li2:'Ukuran posisi tetap selaras dengan toleransi risiko.',
+  s1_sp_li3:'Evaluasi pasca-trade lebih mudah karena logika eksplisit.',
+  s2_eyebrow:'Mengapa Adaptif Penting',s2_h2:'Bot statis gagal.',
+  s2_regime_title:'Detektor Rezim Langsung',s2_r1_name:'Trend Following',s2_r1_action:'Pemindaian luas, entry momentum',
+  s2_r2_name:'Pertahanan Range',s2_r2_action:'Entry batas, stop ketat',s2_r3_name:'Penjaga Volatilitas',s2_r3_action:'Ukuran dikurangi, kualitas tinggi saja',
+  s2_active:'AKTIF',s2_t1:'Deteksi rezim',s2_t2:'Ukuran dinamis',s2_t3:'Filter sinyal',s2_t4:'Auto-switch',
+  s2_li1:'Memantau tren, momentum, dan volatilitas secara bersamaan',
+  s2_li2:'Mengurangi agresivitas dalam kondisi ranging atau choppy',
+  s2_li3:'Memperluas pemindaian saat momentum mengkonfirmasi struktur baru',
+  s2_li4:'Ukuran posisi + logika stop diperbarui dari profil risiko, bukan emosi',
+  s2_sig_title:'Feed Sinyal',sig_long:'LONG',sig_watch:'PANTAU',sig_hold:'TAHAN',sig_short:'SHORT',
+  s2_live:'Sinyal diperbarui secara real time',s2_footer:'Sistem adaptif mengungguli bot satu-mode dalam jangka panjang.',
+  s3_eyebrow:'Realita Pasar',s3_h2a:'~70% dari waktu,',s3_h2b:'harga berputar dalam range.',
+  s3_k1:'Waktu dalam konsolidasi',s3_k2_val:'60%+',s3_k2:'Breakout yang gagal tanpa volume',
+  s3_walk_title:'Cara AI menangani pasar ranging:',
+  s3_step1:'AI melabeli struktur saat ini sebagai range berdasarkan ATR + price action',
+  s3_step2:'Aturan entry diperketat di dekat batas struktural — sinyal palsu disaring',
+  s3_step3:'Eksposur berkurang jika kualitas breakout lemah (volume rendah, tidak ada follow-through)',
+  s3_step4:'Bias tren diaktifkan kembali hanya setelah konfirmasi struktural — tidak pernah sebelumnya',
+  s3_key_title:'Prinsip Utama',
+  s3_p1_t:'Kluster volatilitas',s3_p1_d:'Periode tenang bisa tiba-tiba meledak — pengaturan risiko harus beradaptasi secara real time.',
+  s3_p2_t:'Asimetri penting',s3_p2_d:'Satu kerugian besar dapat menghapus banyak kemenangan kecil. Melindungi downside lebih berharga.',
+  s3_p3_t:'Bertahan untuk compound',s3_p3_d:'Tujuannya bukan memenangkan setiap trade — tapi tetap bermain cukup lama agar edge bisa compound.',
+  s3_footer:'"Tidak selalu trending" adalah normal — AI tahu perbedaannya.',
+  s4_eyebrow:'Masalah Umum',s4_h2a:'Mengapa trader rugi — ',s4_h2b:'dan bagaimana AI memperbaiki setiap masalah.',
+  s4_bad_head:'Trading Manual / Emosional',s4_good_head:'CryptoMentor AI',
+  s4_b1:'Mengejar candle hijau, panik jual candle merah — emosi mengendalikan setiap keputusan',
+  s4_b2:'Over-leverage karena keyakinan berlebih, habis terkena satu wick',
+  s4_b3:'Tidak ada proses konsisten — entry acak tanpa rencana invalidasi',
+  s4_b4:'Mencoba menebak puncak dan dasar yang tepat',
+  s4_b5:'Kemenangan terakhir meningkatkan kepercayaan diri; kekalahan terakhir memicu revenge trade',
+  s4_b6:'Reaksi manual selalu lebih lambat dari repricing pasar',
+  s4_g1:'Hanya masuk pada setup yang divalidasi dengan edge statistik yang jelas',
+  s4_g2:'Eksposur dibatasi by design — tanpa FOMO, tanpa sizing emosional',
+  s4_g3:'Eksekusi berbasis aturan setiap saat, tanpa pengecualian',
+  s4_g4:'Prioritas probabilitas: mengelola ekspektansi di ratusan trade',
+  s4_g5:'Setiap trade berdiri sendiri — tanpa bias dari trade sebelumnya',
+  s4_g6:'Eksekusi saat sinyal terbentuk — zero latency manusia',
+  s4_t1:'Entry FOMO',s4_t2:'Bias terkini',s4_t3:'Over-leverage',s4_t4:'Panik keluar',
+  s4_u1:'Berbasis aturan',s4_u2:'Zero emosi',s4_u3:'Eksekusi instan',s4_u4:'Edge terdefinisi',
+  s4_footer:'Menebak timing sempurna itu langka. Bertahan dengan disiplin adalah keunggulan nyata.',
+  s5_eyebrow:'Perlindungan Modal',s5_h2:'Manajemen risiko ',
+  s5_li1:'Risiko didefinisikan sebagai % tetap dari ekuitas per trade — bukan jumlah dolar',
+  s5_li2:'Stop loss ditempatkan sebelum ukuran posisi dihitung',
+  s5_li3:'Eksposur bersamaan maksimum dibatasi di semua posisi terbuka',
+  s5_li4:'Pasangan berkorelasi dipantau untuk menghindari risiko searah yang menumpuk',
+  s5_li5:'Leverage digunakan sebagai alat, bukan tujuan — eksposur efektif tetap terbatas',
+  s5_li6:'Ambang drawdown memicu pengurangan aktivitas secara otomatis',
+  s5_note:'Dengan sizing terkontrol dan invalidasi yang telah ditentukan, risiko likuidasi mendekati nol dalam kondisi eksekusi normal.',
+  s5_note_em:'Tidak ada strategi yang menghilangkan risiko sepenuhnya.',
+  s5_panel_title:'Snapshot Risiko Langsung',s5_m1:'Risiko per Trade',s5_m2:'Eksposur Terbuka',
+  s5_m3:'Batas Drawdown Maks',s5_m4:'Buffer Likuidasi',s5_m4v:'TINGGI',
+  s5_ok:'Semua posisi dalam parameter risiko yang ditentukan',s5_footer:'Bertahan dari drawdown adalah prasyarat untuk compounding.',
+  s6_eyebrow:'Kerangka Pertumbuhan',s6_h2a:'Tiga fase menuju ',s6_h2b:'pertumbuhan compound.',
+  s6_p1t:'Lindungi',s6_p1d:'Mode pelestarian modal. Risiko rendah per trade, fokus pada eksekusi bersih dan membangun kepercayaan pada sistem.',
+  s6_p2t:'Stabilkan',s6_p2d:'Eksekusi konsisten di berbagai rezim. Variansi menurun. Kualitas kemenangan dan ekspektansi dilacak — bukan hanya PnL.',
+  s6_p3t:'Skalakan',s6_p3d:'Compounding terkontrol dengan batas risiko ketat. Scale hanya setelah jendela konsistensi terbukti.',
+  s6_compound_title:'Proyeksi Compounding',
+  s6_m0:'Mulai',s6_m3:'3 bulan',s6_m6:'6 bulan',s6_m12:'12 bulan',
+  s6_proj_note:'Proyeksi ilustratif. Kinerja masa lalu tidak menjamin hasil di masa depan.',
+  s6_li1:'Mulai konservatif: jaga risiko rendah saat memvalidasi konsistensi',
+  s6_li2:'Compound bertahap: scale hanya setelah jendela eksekusi yang stabil',
+  s6_li3:'Tinjau mingguan: lacak drawdown, kualitas kemenangan, dan ekspektansi',
+  s6_li4:'Utamakan proses: biarkan sistem menegakkan disiplin melalui siklus',
+  s6_cta:'Mulai Gratis',s6_back:'← Kembali ke Intro',s6_footer:'Pertumbuhan terjadi secara stabil — bukan gegabah.',
+  nav_intro:'← Intro',nav_prev:'Sebelum',nav_next:'Lanjut →',
+}};
+
+let lang='en';
+function applyLang(l){
+  lang=l;
+  const d=T[l];
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const k=el.dataset.i18n;
+    if(d[k]!==undefined) el.textContent=d[k];
+  });
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===l));
+  document.documentElement.lang=l;
+}
+document.querySelectorAll('.lang-btn').forEach(b=>b.addEventListener('click',()=>applyLang(b.dataset.lang)));
+
+/* ══ SLIDE ENGINE ═══════════════════════════════════════════════════ */
+const slides=Array.from(document.querySelectorAll('.slide'));
+const N=slides.length;
+let cur=0,locked=false;
+
+function buildDots(){
+  document.querySelectorAll('.progress-dots').forEach(wrap=>{
+    wrap.innerHTML='';
+    slides.forEach((_,i)=>{
+      const d=document.createElement('span');
+      d.className='pdot'+(i===cur?' active':'');
+      d.addEventListener('click',()=>goTo(i));
+      wrap.appendChild(d);
+    });
+  });
+}
+
+function onEnter(idx){
+  // animate meters
+  document.querySelectorAll('.slide[data-slide="'+idx+'"] [data-meter]').forEach(m=>{
+    const w=m.style.getPropertyValue('--w');
+    setTimeout(()=>{m.style.width=w},60);
+  });
+  // animate compound bars
+  document.querySelectorAll('.slide[data-slide="'+idx+'"] [data-cbar]').forEach(b=>{
+    const w=b.dataset.w+'%';
+    setTimeout(()=>{b.style.width=w},100);
+  });
+  // animate counters
+  document.querySelectorAll('.slide[data-slide="'+idx+'"] .counter-el').forEach(el=>{
+    const target=+el.dataset.target;
+    const suffix=el.dataset.suffix||'';
+    let start=0;
+    const dur=1400;
+    const step=ts=>{
+      if(!step.t0) step.t0=ts;
+      const pct=Math.min((ts-step.t0)/dur,1);
+      const ease=1-Math.pow(1-pct,3);
+      el.textContent=Math.round(ease*target)+suffix;
+      if(pct<1) requestAnimationFrame(step);
+    };
+    setTimeout(()=>requestAnimationFrame(step),200);
+  });
+  // slide-1 right panel is static content — no JS animation needed
+  // regime animation on slide 1
+  if(idx===1) startRegimeCycle();
+  else stopRegimeCycle();
+}
+
+function goTo(idx){
+  if(locked||idx===cur||idx<0||idx>=N) return;
+  locked=true;
+  slides[cur].classList.remove('active');
+  cur=idx;
+  slides[cur].classList.add('active');
+  buildDots();
+  document.getElementById('prevBtn').disabled=(cur===0);
+  document.getElementById('nextBtn').disabled=(cur===N-1);
+  document.getElementById('nextBtn').textContent=cur===N-1?(lang==='id'?'Selesai':'Done'):(lang==='id'?'Lanjut →':'Next →');
+  onEnter(cur);
+  applyLang(lang);
+  setTimeout(()=>{locked=false},500);
+}
+
+function go(dir){goTo(cur+dir)}
+
+document.getElementById('prevBtn').addEventListener('click',()=>go(-1));
+document.getElementById('nextBtn').addEventListener('click',()=>go(1));
+window.addEventListener('keydown',e=>{
+  if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();go(1)}
+  if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();go(-1)}
+});
+let lw=0;
+window.addEventListener('wheel',e=>{
+  const now=Date.now();if(now-lw<420||Math.abs(e.deltaY)<10)return;
+  lw=now;go(e.deltaY>0?1:-1);
+},{passive:true});
+let tx=null;
+window.addEventListener('touchstart',e=>{tx=e.touches[0].clientX},{passive:true});
+window.addEventListener('touchend',e=>{
+  if(tx===null)return;
+  const dx=e.changedTouches[0].clientX-tx;
+  if(Math.abs(dx)>50)go(dx<0?1:-1);
+  tx=null;
+},{passive:true});
+
+/* ══ REGIME CYCLE ═══════════════════════════════════════════════════ */
+let regimeTimer=null;
+const regimes=['r-trend','r-range','r-vol'];
+let regIdx=0;
+function startRegimeCycle(){
+  stopRegimeCycle();
+  regimeTimer=setInterval(()=>{
+    regIdx=(regIdx+1)%regimes.length;
+    regimes.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el)return;
+      el.classList.remove('active-regime');
+      el.querySelector('.regime-badge')?.remove();
+    });
+    const active=document.getElementById(regimes[regIdx]);
+    if(active){
+      active.classList.add('active-regime');
+      const badge=document.createElement('div');
+      badge.className='regime-badge';
+      badge.dataset.i18n='s2_active';
+      badge.textContent=lang==='id'?'AKTIF':'ACTIVE';
+      active.appendChild(badge);
+    }
+  },2200);
+}
+function stopRegimeCycle(){if(regimeTimer){clearInterval(regimeTimer);regimeTimer=null}}
+
+/* ══ BACKGROUND PARTICLE CANVAS ════════════════════════════════════ */
+(function(){
+  const canvas=document.getElementById('bg-canvas');
+  const ctx=canvas.getContext('2d');
+  let W,H,particles=[];
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;init()}
+  function init(){
+    particles=[];
+    for(let i=0;i<55;i++){
+      particles.push({
+        x:Math.random()*W,y:Math.random()*H,
+        r:Math.random()*1.5+.3,
+        vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,
+        alpha:Math.random()*.5+.1
+      });
+    }
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    particles.forEach(p=>{
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(34,211,238,${p.alpha})`;ctx.fill();
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0)p.x=W;if(p.x>W)p.x=0;
+      if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+    });
+    // connect nearby
+    for(let i=0;i<particles.length;i++){
+      for(let j=i+1;j<particles.length;j++){
+        const dx=particles[i].x-particles[j].x,dy=particles[i].y-particles[j].y;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<110){
+          ctx.beginPath();ctx.moveTo(particles[i].x,particles[i].y);ctx.lineTo(particles[j].x,particles[j].y);
+          ctx.strokeStyle=`rgba(34,211,238,${.07*(1-dist/110)})`;ctx.lineWidth=.6;ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener('resize',resize);
+  resize();draw();
+})();
+
+/* ══ INIT ═══════════════════════════════════════════════════════════ */
+buildDots();
+document.getElementById('prevBtn').disabled=true;
+onEnter(0);
+applyLang('en');
+</script>
+</body>
+</html>
