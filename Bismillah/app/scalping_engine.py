@@ -51,6 +51,7 @@ from app.win_playbook import (
     refresh_global_win_playbook_state,
     get_win_playbook_snapshot,
 )
+from app.volume_pair_selector import mark_runtime_untradable_symbol
 
 logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
@@ -1948,6 +1949,20 @@ class ScalpingEngine:
                             f"expected qty/TP/SL and could not be repaired. Position was "
                             f"closed to protect your capital.\n\n"
                             f"<code>{error_msg}</code>"
+                        )
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
+                        pending_marked = False
+                        return False
+                    if error_code == "unsupported_symbol_api":
+                        quarantine_expiry = mark_runtime_untradable_symbol(signal.symbol, ttl_sec=21600.0)
+                        quarantine_sec = max(1, int(round(quarantine_expiry - time.time())))
+                        quarantine_hours = max(1, int(round(quarantine_sec / 3600.0)))
+                        await self._notify_user(
+                            f"⚠️ <b>Trade skipped: {signal.symbol}</b>\n\n"
+                            f"{error_msg}\n\n"
+                            f"Bitunix OpenAPI does not support this pair right now.\n"
+                            f"Runtime quarantine applied: {quarantine_hours}h.\n"
+                            f"Engine will continue scanning other top-volume pairs."
                         )
                         await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False

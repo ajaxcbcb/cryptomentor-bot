@@ -87,6 +87,7 @@ from app.engine_runtime_shared import (
     should_stop_engine,
 )
 from app.leverage_policy import get_auto_max_safe_leverage
+from app.volume_pair_selector import mark_runtime_untradable_symbol
 
 _running_tasks: Dict[int, asyncio.Task] = {}
 _engine_lifecycle_locks: Dict[int, asyncio.Lock] = {}
@@ -396,13 +397,20 @@ def _sync_pending_signal_queue_row(user_id: int, signal: Dict[str, Any]):
         symbol = str(signal.get("symbol", "")).upper()
         if not symbol:
             return
+        tp1_val = signal.get("tp1")
+        tp2_val = signal.get("tp2")
+        if tp2_val in (None, ""):
+            tp2_val = tp1_val
+        tp3_val = signal.get("tp3")
+        if tp3_val in (None, ""):
+            tp3_val = tp2_val if tp2_val not in (None, "") else tp1_val
         payload = {
             "direction": signal.get("side"),
             "confidence": signal.get("confidence"),
             "entry_price": signal.get("entry_price"),
-            "tp1": signal.get("tp1"),
-            "tp2": signal.get("tp2"),
-            "tp3": signal.get("tp3"),
+            "tp1": tp1_val,
+            "tp2": tp2_val,
+            "tp3": tp3_val,
             "sl": signal.get("sl"),
             "generated_at": datetime.utcnow().isoformat(),
             "reason": signal.get("reason", ""),
@@ -487,6 +495,8 @@ def _signal_prices_pass_live_mark(
     entry_price: float,
     tp1_price: float,
     sl_price: float,
+    stale_cooldown_user_id: Optional[int] = None,
+    stale_cooldown_ttl_sec: float = _STALE_PRICE_COOLDOWN_SECONDS,
 ) -> bool:
     """
     Reject stale signal levels before queueing when live mark already violates
@@ -505,6 +515,15 @@ def _signal_prices_pass_live_mark(
     )
     if ok:
         return True
+    if stale_cooldown_user_id is not None:
+        try:
+            _mark_stale_price_cooldown(
+                int(stale_cooldown_user_id),
+                symbol_u,
+                ttl_sec=float(stale_cooldown_ttl_sec),
+            )
+        except Exception as _cd_err:
+            logger.debug(f"[Signal] {symbol_u} preflight cooldown mark failed: {_cd_err}")
     logger.info(
         f"[Signal] {symbol_u} preflight stale reject: {err} "
         f"(entry={float(entry_price):.6f} tp1={float(tp1_price):.6f} sl={float(sl_price):.6f})"
@@ -563,6 +582,7 @@ def _generate_swing_emergency_candidate(
     user_risk_pct: float,
     adaptive_overrides: Optional[Dict[str, Any]],
     cfg: Dict[str, Any],
+    stale_cooldown_user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Build an emergency fallback candidate for swing mode by relaxing adaptive
@@ -574,7 +594,13 @@ def _generate_swing_emergency_candidate(
         relaxed["conf_delta"] = int((relaxed.get("conf_delta", 0) or 0) - relax_conf)
         relaxed["volume_min_ratio_delta"] = float((relaxed.get("volume_min_ratio_delta", 0.0) or 0.0) - 0.2)
         relaxed["ob_fvg_requirement_mode"] = "soft"
-        sig = _compute_signal_pro(base_symbol, btc_bias, user_risk_pct, relaxed)
+        sig = _compute_signal_pro(
+            base_symbol,
+            btc_bias,
+            user_risk_pct,
+            relaxed,
+            stale_cooldown_user_id=stale_cooldown_user_id,
+        )
         if not sig:
             return None
         min_conf = max(0, min(100, int(cfg.get("swing_emergency_min_confidence", 50) or 50)))
@@ -1105,6 +1131,7 @@ def _compute_signal_pro(
     btc_bias: Optional[Dict] = None,
     user_risk_pct: float = 1.0,
     adaptive_overrides: Optional[Dict[str, Any]] = None,
+    stale_cooldown_user_id: Optional[int] = None,
 ) -> Optional[Dict]:
     """
     Hybrid signal generation:
@@ -1194,6 +1221,7 @@ def _compute_signal_pro(
                 entry_price=float(sig.get("entry_price", 0.0) or 0.0),
                 tp1_price=float(sig.get("tp1", 0.0) or 0.0),
                 sl_price=float(sig.get("sl", 0.0) or 0.0),
+                stale_cooldown_user_id=stale_cooldown_user_id,
             ):
                 return None
 
@@ -1464,6 +1492,7 @@ def _compute_signal_pro(
             entry_price=price,
             tp1_price=tp1,
             sl_price=sl,
+            stale_cooldown_user_id=stale_cooldown_user_id,
         ):
             return None
 
@@ -2851,7 +2880,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             for sym in available:
                 try:
                     sig = await asyncio.to_thread(
-                        _compute_signal_pro, sym, btc_bias, user_risk_pct, adaptive_state
+                        _compute_signal_pro,
+                        sym,
+                        btc_bias,
+                        user_risk_pct,
+                        adaptive_state,
+                        user_id,
                     )
                     if sig and sig.get('confidence', 0) >= min_conf_scan:
                         if not _passes_swing_confirmation_gate(user_id, sig, cfg):
@@ -2885,6 +2919,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 user_risk_pct,
                                 adaptive_state,
                                 cfg,
+                                user_id,
                             )
                             if not emer_sig:
                                 continue
@@ -3007,10 +3042,16 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             rr_ratio   = sig['rr_ratio']
             pending_marked = False
 
+            queued_at_ts = float(sig.get("_queued_at_ts", 0.0) or 0.0)
+            queue_age_sec = (max(0.0, time.time() - queued_at_ts) if queued_at_ts > 0 else -1.0)
+            queue_age_text = f"{queue_age_sec:.1f}s" if queue_age_sec >= 0 else "n/a"
+            stale_cd_active = _is_stale_price_cooldown_active(user_id, symbol)
             logger.info(
                 f"[Engine:{user_id}] Processing signal from queue: {symbol} {side} "
                 f"conf={confidence}% RR={rr_ratio:.1f} "
-                f"(Queue position: #{_signal_queues[user_id].index(sig) + 1}/{len(_signal_queues[user_id])})"
+                f"(Queue position: #{queued_idx + 1}/{len(_signal_queues[user_id])}, "
+                f"selected_idx={queued_idx}, queue_age={queue_age_text}, "
+                f"stale_cd_active={stale_cd_active})"
             )
 
             if not _signal_prices_pass_live_mark(
@@ -3290,6 +3331,24 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             f"⚠️ <b>Trade skipped</b>\n\n"
                             f"{err}\n\n"
                             f"Bot will look for next setup."
+                        ),
+                        parse_mode='HTML'
+                    )
+                    _cleanup_signal_queue(user_id, symbol, success=False)
+                    await asyncio.sleep(cfg["scan_interval"])
+                    continue
+                if err_code == "unsupported_symbol_api":
+                    quarantine_expiry = mark_runtime_untradable_symbol(symbol, ttl_sec=21600.0)
+                    quarantine_sec = max(1, int(round(quarantine_expiry - time.time())))
+                    quarantine_hours = max(1, int(round(quarantine_sec / 3600.0)))
+                    await bot.send_message(
+                        chat_id=notify_chat_id,
+                        text=(
+                            f"⚠️ <b>Trade skipped on {symbol}</b>\n\n"
+                            f"{err}\n\n"
+                            f"Bitunix OpenAPI does not support this symbol right now.\n"
+                            f"Runtime quarantine applied: {quarantine_hours}h.\n"
+                            f"Bot will continue scanning other top-volume pairs."
                         ),
                         parse_mode='HTML'
                     )

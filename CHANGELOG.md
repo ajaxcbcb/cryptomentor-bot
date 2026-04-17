@@ -1,5 +1,60 @@
 # Changelog
 
+## [2.2.45] — 2026-04-18 — Bitunix 710002 Unsupported-Pair Hardening (Swing + Scalping)
+
+### 🎯 OpenAPI Unsupported Pair Protection
+- Hardened `Bismillah/app/volume_pair_selector.py` to pre-filter top-volume symbols using Bitunix tradability metadata:
+  - Added `/api/v1/futures/market/trading_pairs` fetch.
+  - Dynamic universe now requires `USDT` quote + `symbolStatus=OPEN` + ticker presence.
+- Added runtime unsupported-symbol quarantine in selector:
+  - New helper: `mark_runtime_untradable_symbol(symbol, ttl_sec=21600)`.
+  - Quarantined symbols are excluded from returned top-volume pairs for 6 hours by default.
+
+### ⚙️ Execution Error Classification
+- Updated `Bismillah/app/trade_execution.py` error classifier:
+  - Bitunix `710002` and OpenAPI unsupported-pair message now map to `error_code="unsupported_symbol_api"`.
+  - Existing auth/balance/SL classification behavior remains unchanged.
+
+### 🤖 Engine Handling (Non-Retryable Path)
+- Updated `Bismillah/app/autotrade_engine.py`:
+  - Added explicit `unsupported_symbol_api` branch to clear pending, quarantine symbol, notify user, and continue scanning without auth-style retry.
+- Updated `Bismillah/app/scalping_engine.py`:
+  - Treats `unsupported_symbol_api` as non-retryable, clears pending, applies quarantine, notifies user, and continues normal scan flow.
+
+### 🧪 Regression Coverage
+- Extended `tests/test_volume_pair_selector.py`:
+  - verifies tradability filtering using `trading_pairs`,
+  - verifies runtime quarantine exclude + expiry behavior,
+  - preserves cache/bootstrap fallback behavior.
+- Extended `tests/test_swing_scalp_parity.py`:
+  - verifies `open_managed_position(...)` returns `error_code="unsupported_symbol_api"` for Bitunix `710002`.
+
+## [2.2.44] — 2026-04-18 — Stale-Signal Hardening (Preflight Cooldown + Freshness Gate)
+
+### 🎯 Runtime Hardening
+- Updated `Bismillah/app/autotrade_engine.py`:
+  - preflight stale rejects now mark per-user symbol stale cooldown immediately (120s),
+  - queue execution logging now includes `selected_idx`, `queue_age`, and stale-cooldown state for traceability,
+  - pending `signal_queue` sync now guarantees non-null `tp3` fallback (uses `tp2`, then `tp1`).
+- Updated `Bismillah/app/providers/alternative_klines_provider.py`:
+  - added candle freshness gating by interval age before accepting source data,
+  - stale source data is rejected and fallback chain continues.
+
+### 🧪 Regression Coverage
+- Added/extended tests in:
+  - `tests/test_swing_scalp_parity.py`
+  - `tests/test_engine_shared_core.py`
+- New checks cover:
+  - preflight stale reject cooldown marking path,
+  - queue processing log markers (`selected_idx`, `queue_age`),
+  - pending sync `tp3` fallback behavior,
+  - klines freshness accept/reject helper behavior.
+
+### ✅ Validation
+- `python -m py_compile Bismillah/app/autotrade_engine.py Bismillah/app/providers/alternative_klines_provider.py tests/test_engine_shared_core.py tests/test_swing_scalp_parity.py`
+- `pytest tests/test_engine_shared_core.py tests/test_swing_scalp_parity.py -q`
+  - Result: `32 passed`.
+
 ## [2.2.43] — 2026-04-18 — Swing Final Pre-Open Stale Gate (Post-StackMentor)
 
 ### 🎯 Final Execution-Race Guard

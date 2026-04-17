@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -57,6 +58,45 @@ async def test_open_managed_position_rejects_invalid_sl_without_order():
     assert result.error_code == "invalid_prices"
     assert client.order_calls == 0
     assert client.leverage_calls == 0
+
+
+class _UnsupportedSymbolClient:
+    def __init__(self):
+        self.order_calls = 0
+
+    def get_ticker(self, symbol: str):
+        return {"success": True, "mark_price": 100.0}
+
+    def set_leverage(self, symbol: str, leverage: int):
+        return {"success": True}
+
+    def place_order_with_tpsl(self, symbol, side, quantity, tp_price, sl_price):
+        self.order_calls += 1
+        return {
+            "success": False,
+            "error": "API error 710002: This trading pair does not currently support trading via OpenAPI.",
+        }
+
+
+@pytest.mark.asyncio
+async def test_open_managed_position_classifies_unsupported_symbol_api_error():
+    client = _UnsupportedSymbolClient()
+    result = await open_managed_position(
+        client=client,
+        user_id=102,
+        symbol="RAVEUSDT",
+        side="LONG",
+        entry_price=100.0,
+        sl_price=95.0,
+        tp_price=110.0,
+        quantity=0.01,
+        leverage=10,
+        register_in_stackmentor=False,
+        reconcile=False,
+    )
+    assert result.success is False
+    assert result.error_code == "unsupported_symbol_api"
+    assert client.order_calls == 1
 
 
 class _SizingClient:
@@ -199,15 +239,27 @@ def test_swing_loop_error_cleanup_clears_inflight_marker(monkeypatch):
 
 
 def test_swing_preflight_live_mark_rejects_stale_short_levels(monkeypatch):
+    cooldown_calls = []
+
     monkeypatch.setattr(autotrade_engine, "_resolve_signal_mark_price", lambda _symbol, now_ts=None: 2451.0)
+    monkeypatch.setattr(
+        autotrade_engine,
+        "_mark_stale_price_cooldown",
+        lambda user_id, symbol, ttl_sec=120.0: cooldown_calls.append((user_id, symbol, ttl_sec)) or 1120.0,
+    )
     ok = autotrade_engine._signal_prices_pass_live_mark(
         symbol="ETHUSDT",
         side="SHORT",
         entry_price=2513.9210,
         tp1_price=2479.448857,
         sl_price=2525.4117,
+        stale_cooldown_user_id=4242,
     )
     assert ok is False
+    assert len(cooldown_calls) == 1
+    assert cooldown_calls[0][0] == 4242
+    assert cooldown_calls[0][1] == "ETHUSDT"
+    assert cooldown_calls[0][2] == pytest.approx(120.0)
 
 
 def test_swing_preflight_live_mark_accepts_valid_short_levels(monkeypatch):
@@ -237,6 +289,8 @@ def test_swing_preflight_live_mark_allows_when_mark_unavailable(monkeypatch):
 def test_swing_queue_pre_exec_stale_guard_present():
     source = Path(_ROOT, "Bismillah", "app", "autotrade_engine.py").read_text(encoding="utf-8")
     assert "Queue pre-exec stale reject" in source
+    assert "selected_idx=" in source
+    assert "queue_age=" in source
 
 
 def test_swing_final_pre_open_stale_guard_present():
@@ -248,6 +302,68 @@ def test_swing_queue_status_mentions_volume_priority():
     source = Path(_ROOT, "Bismillah", "app", "autotrade_engine.py").read_text(encoding="utf-8")
     assert "Higher volume priority signals execute first (confidence breaks ties)" in source
     assert "Higher confidence signals execute first" not in source
+
+
+def test_swing_pending_signal_sync_falls_back_tp3_when_missing(monkeypatch):
+    import app.supabase_repo as supabase_repo  # type: ignore
+
+    captured = {}
+
+    class _FakeTable:
+        def __init__(self):
+            self._op = None
+            self._payload = None
+
+        def select(self, *_args, **_kwargs):
+            self._op = "select"
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+        def update(self, payload):
+            self._op = "update"
+            self._payload = payload
+            return self
+
+        def insert(self, payload):
+            self._op = "insert"
+            self._payload = payload
+            return self
+
+        def execute(self):
+            if self._op == "select":
+                return SimpleNamespace(data=[])
+            if self._op in {"insert", "update"}:
+                captured[self._op] = self._payload
+                return SimpleNamespace(data=[{"id": 1}])
+            return SimpleNamespace(data=[])
+
+    class _FakeClient:
+        def table(self, _name):
+            return _FakeTable()
+
+    monkeypatch.setattr(supabase_repo, "_client", lambda: _FakeClient())
+    autotrade_engine._sync_pending_signal_queue_row(
+        321,
+        {
+            "symbol": "ETHUSDT",
+            "side": "SHORT",
+            "confidence": 70,
+            "entry_price": 2500.0,
+            "tp1": 2470.0,
+            "tp2": 2450.0,
+            "tp3": None,
+            "sl": 2520.0,
+            "reason": "test",
+        },
+    )
+
+    assert "insert" in captured
+    assert captured["insert"]["tp3"] == pytest.approx(2450.0)
 
 
 def test_swing_timeout_alias_env_compat(monkeypatch):

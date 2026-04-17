@@ -440,14 +440,17 @@ async def open_managed_position(
 
     if not order_result.get("success"):
         err_msg = str(order_result.get("error", "Unknown error"))
+        err_msg_lc = err_msg.lower()
         # Classify error so callers can branch (auth, balance, SL price, etc.)
         if "TOKEN_INVALID" in err_msg or "SIGNATURE_ERROR" in err_msg:
             code = "auth"
         elif "HTTP 403" in err_msg or "IP_BLOCKED" in err_msg:
             code = "ip_blocked"
+        elif "710002" in err_msg or "does not currently support trading via openapi" in err_msg_lc:
+            code = "unsupported_symbol_api"
         elif "30029" in err_msg or "SL price must be" in err_msg:
             code = "invalid_sl_price"
-        elif "20003" in err_msg or "insufficient" in err_msg.lower():
+        elif "20003" in err_msg or "insufficient" in err_msg_lc:
             code = "insufficient_balance"
         else:
             code = "order_failed"
