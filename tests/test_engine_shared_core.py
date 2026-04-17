@@ -13,6 +13,7 @@ if _BISMILLAH not in sys.path:
 
 import app.engine_runtime_shared as runtime_shared  # type: ignore
 import app.autotrade_engine as autotrade_engine  # type: ignore
+import app.trade_history as trade_history  # type: ignore
 from app.autotrade_engine import _scalping_engines, get_engine, get_scalping_engine  # type: ignore
 from app.engine_execution_shared import build_cumulative_close_update_payload  # type: ignore
 from app.providers.alternative_klines_provider import AlternativeKlinesProvider  # type: ignore
@@ -277,3 +278,43 @@ def test_build_cumulative_close_update_payload_enforces_win_reasoning_for_closed
     assert payload.get("win_reasoning"), "closed_tp close paths must persist win_reasoning"
     assert payload.get("win_reason_tags"), "closed_tp close paths must persist non-empty win_reason_tags"
     assert "loss_reasoning" not in payload
+
+
+def test_save_trade_open_derives_rr_from_executed_levels(monkeypatch):
+    captured = {}
+
+    class _FakeInsert:
+        def __init__(self, row):
+            self._row = row
+
+        def execute(self):
+            captured["row"] = self._row
+            return SimpleNamespace(data=[{"id": 999}])
+
+    class _FakeTable:
+        def insert(self, row):
+            return _FakeInsert(row)
+
+    class _FakeDB:
+        def table(self, name):
+            assert name == "autotrade_trades"
+            return _FakeTable()
+
+    monkeypatch.setattr(trade_history, "_db", lambda: _FakeDB())
+
+    trade_id = trade_history.save_trade_open(
+        telegram_id=1,
+        symbol="ETHUSDT",
+        side="LONG",
+        entry_price=100.0,
+        qty=1.0,
+        leverage=10,
+        tp_price=120.0,
+        sl_price=90.0,
+        signal={"rr_ratio": 2.0, "confidence": 75, "reasons": []},
+        tp1_price=130.0,
+        strategy="stackmentor",
+    )
+
+    assert trade_id == 999
+    assert captured["row"]["rr_ratio"] == pytest.approx(3.0)

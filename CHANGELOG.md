@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.2.46] — 2026-04-18 — Open-Trade R:R Parity Persistence Fix (StackMentor)
+
+### 🎯 Trade Persistence Parity
+- Updated `Bismillah/app/trade_history.py` open-trade persistence:
+  - `rr_ratio` is now derived from executed levels (`entry`, `sl`, `tp1`) instead of trusting stale pre-execution signal values.
+  - Ensures DB `rr_ratio` matches actual open-trade TP/SL math in StackMentor runner paths.
+
+### 🧪 Regression Coverage
+- Extended `tests/test_engine_shared_core.py`:
+  - added `save_trade_open` coverage to assert executed-level `rr_ratio` persistence (including stackmentor TP1 override path).
+
+### ✅ Validation
+- `python -m py_compile Bismillah/app/trade_history.py tests/test_engine_shared_core.py`
+- `pytest tests/test_engine_shared_core.py tests/test_swing_scalp_parity.py tests/test_trade_history_win_reasoning.py -q`
+
 ## [2.2.45] — 2026-04-18 — Bitunix 710002 Unsupported-Pair Hardening (Swing + Scalping)
 
 ### 🎯 OpenAPI Unsupported Pair Protection

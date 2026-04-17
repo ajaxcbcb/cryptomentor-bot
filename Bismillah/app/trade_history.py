@@ -47,6 +47,24 @@ def _normalized_win_tags(raw_tags: Any, close_reason: str) -> List[str]:
     return ["win_close", reason]
 
 
+def _derive_executed_rr(entry_price: float, sl_price: float, tp_price: float, fallback_rr: float) -> float:
+    """
+    Derive R:R from the final executed levels.
+    Falls back to signal-provided rr_ratio when inputs are invalid.
+    """
+    try:
+        entry = float(entry_price)
+        sl = float(sl_price)
+        tp = float(tp_price)
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
+        if risk > 0 and reward > 0:
+            return round(reward / risk, 2)
+    except Exception:
+        pass
+    return float(fallback_rr)
+
+
 # ─────────────────────────────────────────────
 #  WRITE: Simpan trade baru saat order masuk
 # ─────────────────────────────────────────────
@@ -75,6 +93,15 @@ def save_trade_open(
 ) -> Optional[int]:
     """Simpan trade baru ke Supabase. Return trade_id."""
     try:
+        fallback_rr = float(signal.get("rr_ratio", 0))
+        executed_tp_for_rr = float(tp1_price if tp1_price is not None else tp_price)
+        rr_ratio = _derive_executed_rr(
+            entry_price=entry_price,
+            sl_price=sl_price,
+            tp_price=executed_tp_for_rr,
+            fallback_rr=fallback_rr,
+        )
+
         row = {
             "telegram_id":      int(telegram_id),
             "symbol":           symbol,
@@ -86,7 +113,7 @@ def save_trade_open(
             "sl_price":         float(sl_price),
             "status":           "open",
             "confidence":       int(signal.get("confidence", 0)),
-            "rr_ratio":         float(signal.get("rr_ratio", 0)),
+            "rr_ratio":         rr_ratio,
             "trend_1h":         signal.get("trend_1h", ""),
             "market_structure": signal.get("market_structure", ""),
             "rsi_15":           float(signal.get("rsi_15", 0)),
