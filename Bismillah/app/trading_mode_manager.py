@@ -108,11 +108,11 @@ class TradingModeManager:
             
             # Step 2: Stop engine (close sideways positions first if switching from scalping)
             try:
-                from app.autotrade_engine import stop_engine_async, get_engine
+                from app.autotrade_engine import stop_engine_async, get_scalping_engine
                 # Close open sideways positions before stopping if switching away from scalping
                 if current_mode == TradingMode.SCALPING and new_mode != TradingMode.SCALPING:
                     try:
-                        engine = get_engine(user_id)
+                        engine = get_scalping_engine(user_id)
                         if engine and hasattr(engine, 'positions'):
                             sideways_symbols = [
                                 sym for sym, pos in engine.positions.items()

@@ -1529,9 +1529,37 @@ async def callback_select_swing(update: Update, context: ContextTypes.DEFAULT_TY
     
     user_id = query.from_user.id
     from app.trading_mode_manager import TradingModeManager, TradingMode
+    from app.autotrade_engine import get_scalping_engine
     current_mode = TradingModeManager.get_mode(user_id)
     
     if current_mode == TradingMode.SWING:
+        # Runtime/DB mismatch guard:
+        # DB may already be swing while an older scalping engine is still running.
+        # In that case, force a clean restart so runtime matches persisted mode.
+        if get_scalping_engine(user_id) is not None:
+            try:
+                await TradingModeManager._restart_engine_with_mode(
+                    user_id, TradingMode.SWING, context.application.bot, context
+                )
+                await query.edit_message_text(
+                    "✅ <b>Swing Engine Re-Synced</b>\n\n"
+                    "Your mode was already set to Swing, but runtime was still on Scalping.\n"
+                    "Engine has been restarted in <b>Swing Mode</b>.",
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📊 View Dashboard", callback_data="at_dashboard")]
+                    ])
+                )
+            except Exception as e:
+                await query.edit_message_text(
+                    f"❌ Failed to re-sync Swing engine: {str(e)[:120]}",
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 Back", callback_data="trading_mode_menu")]
+                    ])
+                )
+            return
+
         await query.edit_message_text(
             "📊 You're already in Swing Mode!",
             parse_mode='HTML',

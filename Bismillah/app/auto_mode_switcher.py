@@ -154,11 +154,19 @@ class AutoModeSwitcher:
                 logger.debug(f"[AutoModeSwitcher:{user_id}] Already in {target_mode.value} mode")
                 return False
             
-            # Switch mode
-            success = TradingModeManager.set_mode(user_id, target_mode)
+            # Full switch path: stop current engine + persist mode + restart with new mode.
+            # set_mode() alone only changes DB/cache and does NOT change the currently running engine.
+            result = await TradingModeManager.switch_mode(
+                user_id=user_id,
+                new_mode=target_mode,
+                bot=self.bot,
+                context=None,
+            )
             
-            if not success:
-                logger.error(f"[AutoModeSwitcher:{user_id}] Failed to switch mode")
+            if not result.get("success"):
+                logger.error(
+                    f"[AutoModeSwitcher:{user_id}] Failed to switch mode: {result.get('message')}"
+                )
                 return False
             
             # Notify user

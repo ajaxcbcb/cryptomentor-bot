@@ -21,6 +21,22 @@ from app.symbol_coordinator import (
     StrategyOwner,
     PositionSide,
 )
+from app.engine_execution_shared import (
+    build_cumulative_close_update_payload,
+    coordinator_clear_pending,
+    coordinator_confirm_closed,
+    coordinator_confirm_open,
+    coordinator_set_pending,
+    evaluate_and_apply_playbook_risk,
+    format_and_emit_order_open_risk_audit,
+)
+from app.engine_runtime_shared import (
+    get_top_volume_pairs,
+    refresh_runtime_snapshot,
+    sanitize_startup_pending_locks,
+    should_notify_blocked_pending as _shared_should_notify_blocked_pending,
+    should_stop_engine,
+)
 from app.adaptive_confluence import refresh_global_adaptive_state, get_adaptive_overrides
 from app.sideways_governor import (
     refresh_sideways_governor_state,
@@ -28,15 +44,11 @@ from app.sideways_governor import (
     get_sideways_entry_overrides,
     resolve_dynamic_max_hold_seconds,
 )
-from app.volume_pair_selector import get_ranked_top_volume_pairs
 from app.leverage_policy import get_auto_max_safe_leverage
 from app.win_playbook import (
     refresh_global_win_playbook_state,
     get_win_playbook_snapshot,
-    evaluate_signal_risk,
-    compute_playbook_match_from_reasons,
 )
-from app.risk_audit import format_risk_audit_line, emit_order_open_risk_audit
 
 logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
@@ -159,13 +171,11 @@ class ScalpingEngine:
         logger.info(f"[Scalping:{user_id}] Engine initialized with config: {self.config}")
 
     def _should_notify_blocked_pending(self, symbol: str, ttl_sec: int = 600) -> bool:
-        now_ts = time.time()
-        key = str(symbol).upper()
-        last = self._blocked_pending_notify_ts.get(key, 0.0)
-        if now_ts - last < float(ttl_sec):
-            return False
-        self._blocked_pending_notify_ts[key] = now_ts
-        return True
+        return _shared_should_notify_blocked_pending(
+            self._blocked_pending_notify_ts,
+            key=str(symbol).upper(),
+            ttl_sec=float(ttl_sec),
+        )
 
     async def _open_managed_position_safe(self, open_managed_position_fn, **kwargs):
         """
@@ -291,16 +301,6 @@ class ScalpingEngine:
             logger.warning(f"[Scalping:{self.user_id}] Failed open trade fetch for {symbol}: {e}")
         return {}
 
-    @staticmethod
-    def _sum_partial_realized(open_row: Dict[str, Any]) -> float:
-        total = 0.0
-        for k in ("profit_tp1", "profit_tp2", "profit_tp3"):
-            try:
-                total += float(open_row.get(k) or 0.0)
-            except Exception:
-                continue
-        return float(total)
-
     async def _resolve_close_quantity(self, position: ScalpingPosition) -> float:
         """
         Determine safest close quantity for reduce-only close.
@@ -351,20 +351,12 @@ class ScalpingEngine:
 
         # 2. Load open positions from DB to resume monitoring
         await self._load_existing_positions()
-        # 2b. Startup sanitize: clear orphan pending locks with no position.
-        try:
-            cleared_any = await self.coordinator.clear_all_pending_without_position_for_user(
-                int(self.user_id), reason="startup_sanitize"
-            )
-            cleared_stale = await self.coordinator.clear_stale_pending_for_user(
-                int(self.user_id), now_ts=time.time()
-            )
-            if cleared_any or cleared_stale:
-                logger.warning(
-                    f"[Scalping:{self.user_id}] Startup pending cleanup: immediate={cleared_any}, stale={cleared_stale}"
-                )
-        except Exception as _co_err:
-            logger.warning(f"[Scalping:{self.user_id}] Startup pending cleanup failed: {_co_err}")
+        await sanitize_startup_pending_locks(
+            self.coordinator,
+            int(self.user_id),
+            logger,
+            label=f"[Scalping:{self.user_id}]",
+        )
         
         # Send startup notification
         try:
@@ -384,11 +376,12 @@ class ScalpingEngine:
                 self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
             except Exception as playbook_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial win-playbook load failed: {playbook_err}")
-            try:
-                self._active_scan_pairs = await asyncio.to_thread(get_ranked_top_volume_pairs, 10)
-            except Exception as vol_err:
-                logger.warning(f"[Scalping:{self.user_id}] Initial volume pair load failed: {vol_err}")
-                self._active_scan_pairs = list(self.config.pairs)
+            self._active_scan_pairs = await get_top_volume_pairs(
+                limit=10,
+                fallback_pairs=list(self.config.pairs),
+                logger=logger,
+                label=f"[Scalping:{self.user_id}]",
+            )
 
             await self.bot.send_message(
                 chat_id=self.notify_chat_id,
@@ -425,79 +418,84 @@ class ScalpingEngine:
                     # Only stop if status is explicitly "stopped" AND engine_active=False
                     # This prevents race conditions where status briefly shows "stopped"
                     # during user restart flow
-                    try:
-                        from app.supabase_repo import _client as _sc
-                        _sr = _sc().table("autotrade_sessions").select("status, engine_active").eq(
-                            "telegram_id", self.user_id
-                        ).limit(1).execute()
-                        if _sr.data:
-                            _row = _sr.data[0]
-                            _status = _row.get("status")
-                            _engine_active = _row.get("engine_active", True)
-                            # Only stop if BOTH status=stopped AND engine_active=False
-                            # If engine_active=True, user just restarted — keep running
-                            if _status == "stopped" and not _engine_active:
-                                logger.info(f"[Scalping:{self.user_id}] Stop signal from Supabase (status=stopped, engine_active=False)")
-                                self.running = False
-                                try:
-                                    await self.bot.send_message(
-                                        chat_id=self.notify_chat_id,
-                                        text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
-                                        parse_mode='HTML'
-                                    )
-                                except Exception:
-                                    pass
-                                break
-                    except Exception:
-                        pass
+                    if await should_stop_engine(
+                        self.user_id,
+                        logger=logger,
+                        label=f"[Scalping:{self.user_id}]",
+                    ):
+                        logger.info(f"[Scalping:{self.user_id}] Stop signal from Supabase (status=stopped, engine_active=False)")
+                        self.running = False
+                        try:
+                            await self.bot.send_message(
+                                chat_id=self.notify_chat_id,
+                                text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                                parse_mode='HTML'
+                            )
+                        except Exception:
+                            pass
+                        break
 
                     scan_count += 1
                     now_ts = time.time()
-                    if now_ts >= self._adaptive_next_refresh:
-                        try:
-                            await asyncio.to_thread(refresh_global_adaptive_state)
-                            self._adaptive_overlay = await asyncio.to_thread(get_adaptive_overrides)
-                            logger.info(
-                                f"[Scalping:{self.user_id}] Adaptive overlay refreshed — "
-                                f"conf_delta={self._adaptive_overlay.get('conf_delta')} "
-                                f"vol_delta={self._adaptive_overlay.get('volume_min_ratio_delta'):.2f} "
-                                f"mode={self._adaptive_overlay.get('ob_fvg_requirement_mode')} "
-                                f"loss_rate={self._adaptive_overlay.get('strategy_loss_rate'):.3f} "
-                                f"sample={self._adaptive_overlay.get('strategy_sample_size')}"
-                            )
-                        except Exception as adapt_err:
-                            logger.warning(f"[Scalping:{self.user_id}] Adaptive refresh failed: {adapt_err}")
-                        self._adaptive_next_refresh = now_ts + 600.0  # 10 minutes
-                    if now_ts >= self._sideways_governor_next_refresh:
-                        try:
-                            await asyncio.to_thread(refresh_sideways_governor_state)
-                            self._sideways_governor_snapshot = await asyncio.to_thread(get_sideways_governor_snapshot)
-                            policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
-                            logger.info(
-                                f"[Scalping:{self.user_id}] Sideways governor refreshed | "
-                                f"mode={policy.get('mode')} sample={policy.get('sample_size_24h')} "
-                                f"exp={float(policy.get('sideways_expectancy_24h', 0.0)):+.6f} "
-                                f"timeout_loss_rate={float(policy.get('sideways_timeout_loss_rate_24h', 0.0)):.3f} "
-                                f"reason={policy.get('decision_reason')}"
-                            )
-                        except Exception as governor_err:
-                            logger.warning(f"[Scalping:{self.user_id}] Sideways governor refresh failed: {governor_err}")
-                        self._sideways_governor_next_refresh = now_ts + 600.0  # 10 minutes
-                    if now_ts >= self._win_playbook_next_refresh:
-                        try:
-                            await asyncio.to_thread(refresh_global_win_playbook_state)
-                            self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
-                            logger.info(
-                                f"[Scalping:{self.user_id}] Win playbook refreshed — "
-                                f"sample={self._win_playbook_snapshot.get('sample_size')} "
-                                f"wr={float(self._win_playbook_snapshot.get('rolling_win_rate', 0.0)):.3f} "
-                                f"exp={float(self._win_playbook_snapshot.get('rolling_expectancy', 0.0)):+.4f} "
-                                f"overlay={float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):.2f}% "
-                                f"active_tags={len(self._win_playbook_snapshot.get('active_tags', []) or [])}"
-                            )
-                        except Exception as playbook_err:
-                            logger.warning(f"[Scalping:{self.user_id}] Win playbook refresh failed: {playbook_err}")
-                        self._win_playbook_next_refresh = now_ts + 600.0
+                    self._adaptive_next_refresh, self._adaptive_overlay, adaptive_refreshed, adaptive_err = await refresh_runtime_snapshot(
+                        now_ts=now_ts,
+                        next_refresh_ts=self._adaptive_next_refresh,
+                        refresh_fn=refresh_global_adaptive_state,
+                        snapshot_fn=get_adaptive_overrides,
+                        current_snapshot=self._adaptive_overlay,
+                        interval_sec=600.0,
+                    )
+                    if adaptive_refreshed:
+                        logger.info(
+                            f"[Scalping:{self.user_id}] Adaptive overlay refreshed — "
+                            f"conf_delta={self._adaptive_overlay.get('conf_delta')} "
+                            f"vol_delta={self._adaptive_overlay.get('volume_min_ratio_delta'):.2f} "
+                            f"mode={self._adaptive_overlay.get('ob_fvg_requirement_mode')} "
+                            f"loss_rate={self._adaptive_overlay.get('strategy_loss_rate'):.3f} "
+                            f"sample={self._adaptive_overlay.get('strategy_sample_size')}"
+                        )
+                    elif adaptive_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Adaptive refresh failed: {adaptive_err}")
+
+                    self._sideways_governor_next_refresh, self._sideways_governor_snapshot, governor_refreshed, governor_err = await refresh_runtime_snapshot(
+                        now_ts=now_ts,
+                        next_refresh_ts=self._sideways_governor_next_refresh,
+                        refresh_fn=refresh_sideways_governor_state,
+                        snapshot_fn=get_sideways_governor_snapshot,
+                        current_snapshot=self._sideways_governor_snapshot,
+                        interval_sec=600.0,
+                    )
+                    if governor_refreshed:
+                        policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
+                        logger.info(
+                            f"[Scalping:{self.user_id}] Sideways governor refreshed | "
+                            f"mode={policy.get('mode')} sample={policy.get('sample_size_24h')} "
+                            f"exp={float(policy.get('sideways_expectancy_24h', 0.0)):+.6f} "
+                            f"timeout_loss_rate={float(policy.get('sideways_timeout_loss_rate_24h', 0.0)):.3f} "
+                            f"reason={policy.get('decision_reason')}"
+                        )
+                    elif governor_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Sideways governor refresh failed: {governor_err}")
+
+                    self._win_playbook_next_refresh, self._win_playbook_snapshot, playbook_refreshed, playbook_err = await refresh_runtime_snapshot(
+                        now_ts=now_ts,
+                        next_refresh_ts=self._win_playbook_next_refresh,
+                        refresh_fn=refresh_global_win_playbook_state,
+                        snapshot_fn=get_win_playbook_snapshot,
+                        current_snapshot=self._win_playbook_snapshot,
+                        interval_sec=600.0,
+                    )
+                    if playbook_refreshed:
+                        logger.info(
+                            f"[Scalping:{self.user_id}] Win playbook refreshed — "
+                            f"sample={self._win_playbook_snapshot.get('sample_size')} "
+                            f"wr={float(self._win_playbook_snapshot.get('rolling_win_rate', 0.0)):.3f} "
+                            f"exp={float(self._win_playbook_snapshot.get('rolling_expectancy', 0.0)):+.4f} "
+                            f"overlay={float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):.2f}% "
+                            f"active_tags={len(self._win_playbook_snapshot.get('active_tags', []) or [])}"
+                        )
+                    elif playbook_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Win playbook refresh failed: {playbook_err}")
                     if now_ts >= self._sideways_hourly_kpi_next:
                         policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
                         logger.info(
@@ -516,7 +514,12 @@ class ScalpingEngine:
                     await self.monitor_positions()
                     
                     # Scan for new signals in PARALLEL (dynamic top-volume universe).
-                    ranked_pairs = await asyncio.to_thread(get_ranked_top_volume_pairs, 10)
+                    ranked_pairs = await get_top_volume_pairs(
+                        limit=10,
+                        fallback_pairs=list(self.config.pairs),
+                        logger=logger,
+                        label=f"[Scalping:{self.user_id}]",
+                    )
                     self._active_scan_pairs = ranked_pairs or list(self.config.pairs)
                     logger.info(
                         f"[Scalping:{self.user_id}] Scanning {len(self._active_scan_pairs)} top-volume pairs: "
@@ -1265,6 +1268,7 @@ class ScalpingEngine:
 
     def calculate_position_size_pro(
         self,
+        symbol: str,
         entry_price: float,
         sl_price: float,
         capital: float,
@@ -1299,13 +1303,19 @@ class ScalpingEngine:
                 risk_pct = max(0.25, min(float(effective_risk_pct_override), 10.0))
             
             # Get current balance from exchange
-            bal_result = self.client.get_balance()
-            if not bal_result.get('success'):
-                raise Exception(f"Balance fetch failed: {bal_result.get('error')}")
-            
-            balance = bal_result.get('balance', 0)
+            acc_result = self.client.get_account_info()
+            if not acc_result.get('success'):
+                raise Exception(f"Account info fetch failed: {acc_result.get('error')}")
+
+            available = float(acc_result.get('available', 0) or 0)
+            frozen = float(acc_result.get('frozen', 0) or 0)
+            unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
+            balance = available + frozen + unrealized
             if balance <= 0:
-                raise Exception(f"Invalid balance: {balance}")
+                raise Exception(
+                    f"Invalid equity: available={available:.2f} + frozen={frozen:.2f} + "
+                    f"unrealized={unrealized:.2f} = {balance:.2f}"
+                )
             
             # Calculate position size using risk-based formula
             from app.position_sizing import calculate_position_size
@@ -1315,7 +1325,7 @@ class ScalpingEngine:
                 entry_price=entry_price,
                 sl_price=sl_price,
                 leverage=leverage,
-                symbol=f"BTCUSDT"  # Default symbol for precision
+                symbol=symbol,
             )
             
             if not sizing['valid']:
@@ -1337,7 +1347,8 @@ class ScalpingEngine:
             
             logger.info(
                 f"[Scalping:{self.user_id}] RISK-BASED sizing: "
-                f"Balance=${balance:.2f}, BaseRisk={base_risk_pct}% EffectiveRisk={risk_pct}%, "
+                f"Equity=${balance:.2f} (Available=${available:.2f} + Frozen=${frozen:.2f} + Unrealized=${unrealized:.2f}), "
+                f"BaseRisk={base_risk_pct}% EffectiveRisk={risk_pct}%, "
                 f"Leverage={leverage}x (Auto Max-Safe), "
                 f"Entry=${entry_price:.2f}, SL=${sl_price:.2f}, "
                 f"SL_Dist={sizing['sl_distance_pct']:.2f}%, "
@@ -1670,34 +1681,18 @@ class ScalpingEngine:
                 )
                 from app.supabase_repo import get_risk_per_trade
                 base_risk_pct = float(get_risk_per_trade(self.user_id) or 1.0)
-                try:
-                    risk_eval = await asyncio.to_thread(
-                        evaluate_signal_risk,
-                        base_risk_pct=base_risk_pct,
-                        raw_reasons=getattr(signal, "reasons", []),
-                    )
-                except Exception as risk_eval_err:
-                    logger.warning(
-                        f"[Scalping:{self.user_id}] Win playbook eval failed for {signal.symbol}, "
-                        f"fallback to base risk: {risk_eval_err}"
-                    )
-                    risk_eval = {
-                        "effective_risk_pct": base_risk_pct,
-                        "risk_overlay_pct": 0.0,
-                        "playbook_match_score": 0.0,
-                        "playbook_match_tags": [],
-                        "guardrails_healthy": False,
-                        "overlay_action": "fallback_base_risk",
-                    }
+                risk_eval = await evaluate_and_apply_playbook_risk(
+                    signal=signal,
+                    base_risk_pct=base_risk_pct,
+                    raw_reasons=getattr(signal, "reasons", []),
+                    logger=logger,
+                    label=f"[Scalping:{self.user_id}] {signal.symbol}",
+                )
                 effective_risk_pct = float(risk_eval.get("effective_risk_pct", 1.0))
                 risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
                 playbook_match_score = float(risk_eval.get("playbook_match_score", 0.0))
                 playbook_match_tags = list(risk_eval.get("playbook_match_tags", []))
                 setattr(signal, "base_risk_pct", base_risk_pct)
-                setattr(signal, "playbook_match_score", playbook_match_score)
-                setattr(signal, "playbook_match_tags", playbook_match_tags)
-                setattr(signal, "effective_risk_pct", effective_risk_pct)
-                setattr(signal, "risk_overlay_pct", risk_overlay_pct)
                 logger.info(
                     f"[Scalping:{self.user_id}] Win playbook eval {signal.symbol} — "
                     f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
@@ -1708,6 +1703,7 @@ class ScalpingEngine:
                 
                 # CRITICAL: Calculate position size based on risk (Phase 2)
                 quantity, used_risk_sizing = self.calculate_position_size_pro(
+                    symbol=signal.symbol,
                     entry_price=signal.entry_price,
                     sl_price=signal.sl_price,
                     capital=capital,
@@ -1772,7 +1768,7 @@ class ScalpingEngine:
                     return False
 
                 # Mark pending
-                await self.coordinator.set_pending(self.user_id, signal.symbol, StrategyOwner.SCALP)
+                await coordinator_set_pending(self.coordinator, self.user_id, signal.symbol, StrategyOwner.SCALP)
                 pending_marked = True
 
                 # ═══════════════════════════════════════════════════════════
@@ -1845,14 +1841,15 @@ class ScalpingEngine:
 
                     # Confirm position with coordinator
                     position_side = PositionSide.LONG if signal.side == "LONG" else PositionSide.SHORT
-                    await self.coordinator.confirm_open(
+                    await coordinator_confirm_open(
+                        self.coordinator,
                         user_id=self.user_id,
                         symbol=signal.symbol,
                         strategy=StrategyOwner.SCALP,
                         side=position_side,
                         size=quantity_adjusted,
                         entry_price=signal.entry_price,
-                        exchange_position_id=getattr(exec_result, 'position_id', None)
+                        exchange_position_id=getattr(exec_result, 'position_id', None),
                     )
                     pending_marked = False
 
@@ -1874,7 +1871,7 @@ class ScalpingEngine:
                     # Non-retryable conditions — clear pending before returning
                     if error_code == "insufficient_balance":
                         await self._notify_user("❌ Order failed: Insufficient balance")
-                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False
                         return False
                     if error_code == "invalid_prices":
@@ -1882,7 +1879,7 @@ class ScalpingEngine:
                             f"⚠️ <b>Trade skipped: {signal.symbol}</b>\n\n"
                             f"Market moved before entry: {error_msg}"
                         )
-                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False
                         return False
                     if error_code in ("auth", "ip_blocked"):
@@ -1890,7 +1887,7 @@ class ScalpingEngine:
                             f"⚠️ Exchange auth/IP error: {error_msg}\n"
                             f"Engine continues; check API key & proxy."
                         )
-                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False
                         return False
                     if error_code == "reconcile_failed":
@@ -1901,12 +1898,12 @@ class ScalpingEngine:
                             f"closed to protect your capital.\n\n"
                             f"<code>{error_msg}</code>"
                         )
-                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False
                         return False
                     if 'invalid symbol' in error_msg.lower():
                         await self._notify_user(f"❌ Order failed: Invalid symbol {signal.symbol}")
-                        await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                        await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                         pending_marked = False
                         return False
 
@@ -1918,7 +1915,7 @@ class ScalpingEngine:
             except asyncio.TimeoutError:
                 logger.warning(f"[Scalping:{self.user_id}] Order timeout (attempt {attempt+1})")
                 if attempt == max_retries - 1 and pending_marked:
-                    await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                    await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                     pending_marked = False
                 if attempt < max_retries - 1:
                     await asyncio.sleep(base_delay * (2 ** attempt))
@@ -1926,14 +1923,14 @@ class ScalpingEngine:
             except Exception as e:
                 logger.error(f"[Scalping:{self.user_id}] Order exception (attempt {attempt+1}): {e}")
                 if attempt == max_retries - 1 and pending_marked:
-                    await self.coordinator.clear_pending(self.user_id, signal.symbol)
+                    await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
                     pending_marked = False
                 if attempt < max_retries - 1:
                     await asyncio.sleep(base_delay * (2 ** attempt))
         
         # All retries failed — set cooldown to prevent spam
         if pending_marked:
-            await self.coordinator.clear_pending(self.user_id, signal.symbol)
+            await coordinator_clear_pending(self.coordinator, self.user_id, signal.symbol)
             pending_marked = False
         self.mark_cooldown(signal.symbol)
         await self._notify_user(
@@ -2026,10 +2023,11 @@ class ScalpingEngine:
                 logger.error(f"[Scalping:{self.user_id}] Error in pre-scan max-hold close for {symbol}: {e}")
 
     def _max_hold_seconds_for_position(self, position: ScalpingPosition) -> int:
+        snapshot = getattr(self, "_sideways_governor_snapshot", {}) or {}
         return resolve_dynamic_max_hold_seconds(
             symbol=str(getattr(position, "symbol", "") or ""),
             is_sideways=bool(getattr(position, "is_sideways", False)),
-            snapshot=self._sideways_governor_snapshot,
+            snapshot=snapshot,
             default_non_sideways=int(self.config.max_hold_time),
         )
 
@@ -2278,7 +2276,12 @@ class ScalpingEngine:
                 )
 
                 # Confirm position closed with coordinator
-                await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+                await coordinator_confirm_closed(
+                    self.coordinator,
+                    user_id=self.user_id,
+                    symbol=position.symbol,
+                    now_ts=time.time(),
+                )
 
                 # Update StackMentor tracking
                 try:
@@ -2405,7 +2408,12 @@ class ScalpingEngine:
                         f"near_flat={int(near_flat)} pnl={pnl_net:+.6f}"
                     )
                     # Confirm position closed with coordinator
-                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+                    await coordinator_confirm_closed(
+                        self.coordinator,
+                        user_id=self.user_id,
+                        symbol=position.symbol,
+                        now_ts=time.time(),
+                    )
 
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
@@ -2478,7 +2486,12 @@ class ScalpingEngine:
                 closed_now = await self._update_position_closed(position, fill_price, pnl_usdt, "closed_tp")
                 if closed_now:
                     # Confirm position closed with coordinator
-                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+                    await coordinator_confirm_closed(
+                        self.coordinator,
+                        user_id=self.user_id,
+                        symbol=position.symbol,
+                        now_ts=time.time(),
+                    )
 
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
@@ -2555,7 +2568,12 @@ class ScalpingEngine:
                 closed_now = await self._update_position_closed(position, fill_price, pnl_usdt, "closed_sl")
                 if closed_now:
                     # Confirm position closed with coordinator
-                    await self.coordinator.confirm_closed(self.user_id, position.symbol, time.time())
+                    await coordinator_confirm_closed(
+                        self.coordinator,
+                        user_id=self.user_id,
+                        symbol=position.symbol,
+                        now_ts=time.time(),
+                    )
 
                     self.last_closed_meta[position.symbol] = {
                         "ts": time.time(),
@@ -2689,112 +2707,21 @@ class ScalpingEngine:
 
             open_row = dict(open_rows.data[0])
             trade_id = open_row["id"]
-            partial_realized = self._sum_partial_realized(open_row)
-            final_leg_pnl = float(pnl)
-            cumulative_pnl = float(final_leg_pnl + partial_realized)
-            try:
-                base_playbook_score = float(
-                    open_row.get("playbook_match_score", getattr(position, "playbook_match_score", 0.0)) or 0.0
-                )
-            except Exception:
-                base_playbook_score = 0.0
-            try:
-                base_effective_risk = float(
-                    open_row.get("effective_risk_pct", getattr(position, "effective_risk_pct", 0.0)) or 0.0
-                )
-            except Exception:
-                base_effective_risk = 0.0
-            try:
-                base_overlay = float(
-                    open_row.get("risk_overlay_pct", getattr(position, "risk_overlay_pct", 0.0)) or 0.0
-                )
-            except Exception:
-                base_overlay = 0.0
-            update_payload: Dict[str, Any] = {
-                "close_price": close_price,
-                "exit_price": close_price,
-                "pnl_usdt": cumulative_pnl,
-                "close_reason": close_reason,
-                "status": close_reason,
-                "qty": 0.0,
-                "quantity": 0.0,
-                "remaining_quantity": 0.0,
-                "closed_at": datetime.utcnow().isoformat(),
-                "playbook_match_score": base_playbook_score,
-                "effective_risk_pct": base_effective_risk,
-                "risk_overlay_pct": base_overlay,
-            }
-            if loss_reasoning:
-                update_payload["loss_reasoning"] = str(loss_reasoning)
-            elif float(cumulative_pnl) < 0:
-                update_payload["loss_reasoning"] = (
-                    f"auto_loss_reason: close_reason={close_reason}; pnl={float(cumulative_pnl):+.6f}"
-                )
-
-            if win_metadata:
-                if win_metadata.get("playbook_match_score") is not None:
-                    update_payload["playbook_match_score"] = float(win_metadata.get("playbook_match_score"))
-                if win_metadata.get("effective_risk_pct") is not None:
-                    update_payload["effective_risk_pct"] = float(win_metadata.get("effective_risk_pct"))
-                if win_metadata.get("risk_overlay_pct") is not None:
-                    update_payload["risk_overlay_pct"] = float(win_metadata.get("risk_overlay_pct"))
-                if win_metadata.get("win_reason_tags") is not None:
-                    update_payload["win_reason_tags"] = list(win_metadata.get("win_reason_tags") or [])
-                if win_metadata.get("win_reasoning"):
-                    update_payload["win_reasoning"] = str(win_metadata.get("win_reasoning"))
-
-            is_win_close = (
-                float(cumulative_pnl) > 0
-                and close_reason in {"closed_tp", "closed_tp3", "closed_flip"}
+            update_payload, cumulative_pnl, partial_realized = build_cumulative_close_update_payload(
+                open_row=open_row,
+                position=position,
+                close_price=close_price,
+                pnl=pnl,
+                close_reason=close_reason,
+                loss_reasoning=loss_reasoning,
+                win_metadata=win_metadata,
+                playbook_snapshot=self._win_playbook_snapshot,
             )
-            if is_win_close and not update_payload.get("win_reasoning"):
-                from app.trade_history import build_win_reasoning
-
-                entry_reasons = list(getattr(position, "entry_reasons", []) or [])
-                match_meta = compute_playbook_match_from_reasons(entry_reasons, self._win_playbook_snapshot)
-                trade_ctx = {
-                    "symbol": position.symbol,
-                    "side": "LONG" if position.side == "BUY" else "SHORT",
-                    "entry_price": position.entry_price,
-                    "exit_price": close_price,
-                    "pnl_usdt": cumulative_pnl,
-                    "close_reason": close_reason,
-                    "entry_reasons": entry_reasons,
-                    "confidence": 0,
-                    "rr_ratio": 0,
-                }
-                update_payload["win_reasoning"] = build_win_reasoning(
-                    trade_ctx,
-                    playbook_tags=match_meta.get("matched_tags", []),
-                    playbook_score=match_meta.get("playbook_match_score"),
-                )
-                update_payload["win_reason_tags"] = match_meta.get("matched_tags", [])
-                update_payload["playbook_match_score"] = float(
-                    match_meta.get("playbook_match_score", getattr(position, "playbook_match_score", 0.0) or 0.0)
-                )
-                update_payload["effective_risk_pct"] = float(getattr(position, "effective_risk_pct", 0.0) or 0.0)
-                update_payload["risk_overlay_pct"] = float(getattr(position, "risk_overlay_pct", 0.0) or 0.0)
-            elif float(cumulative_pnl) > 0 and not update_payload.get("win_reasoning"):
-                # Non-TP closes can still end positive after partial TP realization.
-                from app.trade_history import build_win_reasoning
-                entry_reasons = list(getattr(position, "entry_reasons", []) or [])
-                trade_ctx = {
-                    "symbol": position.symbol,
-                    "side": "LONG" if position.side == "BUY" else "SHORT",
-                    "entry_price": position.entry_price,
-                    "exit_price": close_price,
-                    "pnl_usdt": cumulative_pnl,
-                    "close_reason": close_reason,
-                    "entry_reasons": entry_reasons,
-                    "confidence": 0,
-                    "rr_ratio": 0,
-                }
-                update_payload["win_reasoning"] = build_win_reasoning(trade_ctx)
 
             if partial_realized > 0:
                 logger.info(
                     f"[Scalping:{self.user_id}] cumulative_pnl applied for {position.symbol}: "
-                    f"partial={partial_realized:+.6f} final_leg={final_leg_pnl:+.6f} total={cumulative_pnl:+.6f}"
+                    f"partial={partial_realized:+.6f} final_leg={float(pnl):+.6f} total={cumulative_pnl:+.6f}"
                 )
 
             res = s.table("autotrade_trades").update(update_payload).eq("id", trade_id).eq("status", "open").execute()
@@ -2897,7 +2824,12 @@ class ScalpingEngine:
             base_risk_pct = float(getattr(signal, "base_risk_pct", 1.0) or 1.0)
             overlay_pct = float(getattr(signal, "risk_overlay_pct", 0.0) or 0.0)
             effective_risk_pct = float(getattr(signal, "effective_risk_pct", base_risk_pct) or base_risk_pct)
-            risk_audit_line = format_risk_audit_line(
+            risk_audit_line = format_and_emit_order_open_risk_audit(
+                logger=logger,
+                user_id=self.user_id,
+                symbol=position.symbol,
+                side=position.side,
+                order_id=str(order_id or "-"),
                 base_risk_pct=base_risk_pct,
                 overlay_pct=overlay_pct,
                 effective_risk_pct=effective_risk_pct,
@@ -2917,17 +2849,6 @@ class ScalpingEngine:
             direction = "Long" if position.side.upper() in ("BUY", "LONG") else "Short"
             opened_at = datetime.utcnow().strftime("%d %b %Y %H:%M:%S UTC")
             order_id_text = escape(str(order_id or "-"))
-            emit_order_open_risk_audit(
-                logger,
-                user_id=self.user_id,
-                symbol=position.symbol,
-                side=position.side,
-                order_id=str(order_id or "-"),
-                base_risk_pct=base_risk_pct,
-                overlay_pct=overlay_pct,
-                effective_risk_pct=effective_risk_pct,
-                implied_risk_usdt=risk_amount,
-            )
             tp_block = (
                 (
                     f"<b>TP1 (Partial):</b> {_fmt_price(levels.tp1)}\n"

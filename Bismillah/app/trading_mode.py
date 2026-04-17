@@ -229,3 +229,27 @@ class MicroScalpSignal:
     # Markers
     is_sideways: bool = True
     max_hold_time: int = 120        # seconds
+
+
+@dataclass
+class SwingAdaptiveConfig:
+    """Configuration surface for swing adaptive parity controls."""
+
+    signal_confirmations_required: int = int(os.getenv("SWING_SIGNAL_CONFIRMATIONS_REQUIRED", "1"))
+    signal_confirmation_max_gap_seconds: int = int(os.getenv("SWING_SIGNAL_CONFIRMATION_MAX_GAP_SECONDS", "45"))
+    emergency_candidate_mode: bool = os.getenv("SWING_EMERGENCY_CANDIDATE_MODE", "true").lower() == "true"
+    emergency_conf_relax: int = int(os.getenv("SWING_EMERGENCY_CONF_RELAX", "8"))
+    emergency_min_confidence: int = int(os.getenv("SWING_EMERGENCY_MIN_CONFIDENCE", "50"))
+
+    adaptive_timeout_protection_enabled: bool = os.getenv(
+        "SWING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED",
+        os.getenv("SWING_TIMEOUT_PROTECTION_ENABLED", "false"),
+    ).lower() == "true"
+    timeout_be_trigger_pct: float = float(os.getenv("SWING_TIMEOUT_BE_TRIGGER_PCT", "0.20"))
+    timeout_trailing_trigger_pct: float = float(os.getenv("SWING_TIMEOUT_TRAILING_TRIGGER_PCT", "0.35"))
+    timeout_late_tighten_multiplier: float = float(os.getenv("SWING_TIMEOUT_LATE_TIGHTEN_MULTIPLIER", "1.4"))
+    timeout_protection_min_update_seconds: int = int(os.getenv("SWING_TIMEOUT_PROTECTION_MIN_UPDATE_SECONDS", "45"))
+    timeout_near_flat_usdt_threshold: float = float(os.getenv("SWING_TIMEOUT_NEAR_FLAT_USDT_THRESHOLD", "0.02"))
+
+    dynamic_max_hold_enabled: bool = os.getenv("SWING_DYNAMIC_MAX_HOLD_ENABLED", "false").lower() == "true"
+    max_hold_default_seconds: int = int(os.getenv("SWING_MAX_HOLD_DEFAULT_SECONDS", "1800"))

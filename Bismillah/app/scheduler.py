@@ -338,7 +338,7 @@ def start_scheduler(application):
             from app.supabase_repo import _client
             from app.handlers_autotrade import get_user_api_keys
             from app.autotrade_engine import start_engine_async, is_running
-            from app.engine_restore import migrate_to_risk_based, set_scalping_mode
+            from app.engine_restore import migrate_to_risk_based
             from app.skills_repo import has_skill
 
             # Query sessions that should be restored (exclude stopped, pending, rejected)
@@ -457,7 +457,9 @@ def start_scheduler(application):
                 # Get session settings
                 amount = float(session.get("initial_deposit") or 10)
                 leverage = int(session.get("leverage") or 10)
-                trading_mode = session.get("trading_mode", "swing")
+                trading_mode = str(session.get("trading_mode", "swing") or "").strip().lower()
+                if trading_mode not in ("swing", "scalping"):
+                    trading_mode = "swing"
                 exchange_id = keys.get("exchange", "bitunix")
 
                 logger.info(
@@ -469,13 +471,8 @@ def start_scheduler(application):
                     # Migrate to risk-based mode for safety (if not already)
                     migrate_to_risk_based(user_id)
                     
-                    # Preserve user's trading mode preference (don't force scalping)
-                    # Only set scalping if they don't have a mode set
-                    if not trading_mode or trading_mode == "swing":
-                        logger.info(f"[AutoRestore] User {user_id} - Setting to scalping mode (default)")
-                        set_scalping_mode(user_id)
-                    else:
-                        logger.info(f"[AutoRestore] User {user_id} - Keeping {trading_mode} mode")
+                    # Preserve user's trading mode preference. Never force scalping here.
+                    logger.info(f"[AutoRestore] User {user_id} - Keeping persisted mode: {trading_mode}")
                     
                     # Check premium status
                     is_premium = has_skill(user_id, "dual_tp_rr3")
@@ -499,10 +496,16 @@ def start_scheduler(application):
 
                     # Send detailed startup notification with full config (await directly)
                     try:
-                        # Get trading mode details
-                        from app.trading_mode_manager import TradingMode
-                        is_scalping = trading_mode == "scalping"
-                        min_confidence_display = _resolve_min_confidence_for_user(user_id, trading_mode)
+                        # Resolve actual runtime mode after engine start (source of truth).
+                        from app.trading_mode_manager import TradingModeManager
+                        actual_mode = TradingModeManager.get_mode(user_id).value
+                        is_scalping = actual_mode == "scalping"
+                        if actual_mode != trading_mode:
+                            logger.warning(
+                                f"[AutoRestore] User {user_id} - Mode mismatch after restart: "
+                                f"persisted={trading_mode}, actual={actual_mode}"
+                            )
+                        min_confidence_display = _resolve_min_confidence_for_user(user_id, actual_mode)
                         live_equity = await _fetch_live_equity(
                             exchange_id=exchange_id,
                             api_key=keys["api_key"],
@@ -722,7 +725,9 @@ async def _engine_health_check_task(application):
                         # Get settings
                         amount = float(session.get("initial_deposit") or 10)
                         leverage = int(session.get("leverage") or 10)
-                        trading_mode = session.get("trading_mode", "scalping")
+                        trading_mode = str(session.get("trading_mode", "swing") or "").strip().lower()
+                        if trading_mode not in ("swing", "scalping"):
+                            trading_mode = "swing"
                         exchange_id = keys.get("exchange", "bitunix")
                         is_premium = has_skill(user_id, "dual_tp_rr3")
                         
@@ -745,7 +750,9 @@ async def _engine_health_check_task(application):
                         # Reset fail counter on successful restart
                         _api_key_fail_count.pop(user_id, None)
                         
-                        # Notify user
+                        # Notify user with actual runtime mode (source of truth)
+                        from app.trading_mode_manager import TradingModeManager
+                        actual_mode = TradingModeManager.get_mode(user_id).value
                         live_equity = await _fetch_live_equity(
                             exchange_id=exchange_id,
                             api_key=keys["api_key"],
@@ -757,7 +764,7 @@ async def _engine_health_check_task(application):
                             text=(
                                 "🔄 <b>AutoTrade Engine Auto-Restarted</b>\n\n"
                                 "Your engine stopped unexpectedly and has been automatically restarted.\n\n"
-                                f"📊 Mode: <b>{trading_mode.title()}</b>\n"
+                                f"📊 Mode: <b>{actual_mode.title()}</b>\n"
                                 f"💰 Equity: <b>{live_equity:.2f} USDT</b>\n"
                                 "• Trading pairs: <b>Top 10 by volume</b>\n"
                                 f"⚡ Base leverage setting: <b>{leverage}x</b>\n"

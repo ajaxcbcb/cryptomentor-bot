@@ -61,16 +61,29 @@ from app.stackmentor import (
     STACKMENTOR_CONFIG,
     calculate_stackmentor_levels,
     calculate_qty_splits,
-    register_stackmentor_position,
     monitor_stackmentor_positions,
 )
-from app.trade_execution import MIN_QTY_MAP
+from app.trade_execution import MIN_QTY_MAP, open_managed_position
 from app.symbol_coordinator import (
     get_coordinator,
     StrategyOwner,
     PositionSide,
 )
-from app.volume_pair_selector import get_ranked_top_volume_pairs
+from app.engine_execution_shared import (
+    coordinator_clear_pending,
+    coordinator_confirm_closed,
+    coordinator_confirm_open,
+    coordinator_set_pending,
+    evaluate_and_apply_playbook_risk,
+    format_and_emit_order_open_risk_audit,
+)
+from app.engine_runtime_shared import (
+    get_top_volume_pairs,
+    refresh_runtime_snapshot,
+    sanitize_startup_pending_locks,
+    should_notify_blocked_pending as _shared_should_notify_blocked_pending,
+    should_stop_engine,
+)
 from app.leverage_policy import get_auto_max_safe_leverage
 
 _running_tasks: Dict[int, asyncio.Task] = {}
@@ -95,6 +108,13 @@ def get_engine(user_id: int):
     return _scalping_engines.get(int(user_id))
 
 
+def get_scalping_engine(user_id: int):
+    """
+    Backward-compatible alias for control-plane/runtime callers.
+    """
+    return get_engine(user_id)
+
+
 def _get_lifecycle_lock(user_id: int) -> asyncio.Lock:
     uid = int(user_id)
     if uid not in _engine_lifecycle_locks:
@@ -103,13 +123,12 @@ def _get_lifecycle_lock(user_id: int) -> asyncio.Lock:
 
 
 def _should_notify_blocked_pending(user_id: int, symbol: str) -> bool:
-    now_ts = time.time()
     key = (int(user_id), str(symbol).upper())
-    last = _blocked_pending_notify_ts.get(key, 0.0)
-    if now_ts - last < _BLOCKED_PENDING_NOTIFY_TTL_SECONDS:
-        return False
-    _blocked_pending_notify_ts[key] = now_ts
-    return True
+    return _shared_should_notify_blocked_pending(
+        _blocked_pending_notify_ts,
+        key=key,
+        ttl_sec=_BLOCKED_PENDING_NOTIFY_TTL_SECONDS,
+    )
 
 # Track posisi yang sudah hit TP1 (breakeven mode): user_id → set of symbols
 _tp1_hit_positions: Dict[int, set] = {}
@@ -122,6 +141,10 @@ _symbol_locks: Dict[int, Dict[str, asyncio.Lock]] = {}
 
 # Track signals being processed: user_id → set of symbols currently being executed
 _signals_being_processed: Dict[int, set] = {}
+# Track swing signal confirmation streaks: user_id -> {symbol -> {direction,count,ts}}
+_swing_signal_streaks: Dict[int, Dict[str, Dict[str, float]]] = {}
+# Track swing timeout protection runtime state per symbol.
+_swing_timeout_state: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
 # ─────────────────────────────────────────────
 #  Engine config (professional defaults)
@@ -145,6 +168,23 @@ ENGINE_CONFIG = {
     "rsi_short_min":      35,       # jangan SHORT jika RSI < 35 (oversold)
     "volume_spike_min":   1.1,      # volume harus > 1.1x rata-rata
     "wick_rejection_max": 0.60,     # skip entry jika wick > 60% dari candle range (manipulasi)
+    # Swing adaptive parity controls
+    "swing_signal_confirmations_required": int(os.getenv("SWING_SIGNAL_CONFIRMATIONS_REQUIRED", "1")),
+    "swing_signal_confirmation_max_gap_seconds": int(os.getenv("SWING_SIGNAL_CONFIRMATION_MAX_GAP_SECONDS", "45")),
+    "swing_emergency_candidate_mode": os.getenv("SWING_EMERGENCY_CANDIDATE_MODE", "true").lower() == "true",
+    "swing_emergency_conf_relax": int(os.getenv("SWING_EMERGENCY_CONF_RELAX", "8")),
+    "swing_emergency_min_confidence": int(os.getenv("SWING_EMERGENCY_MIN_CONFIDENCE", "50")),
+    "swing_adaptive_timeout_protection_enabled": os.getenv(
+        "SWING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED",
+        os.getenv("SWING_TIMEOUT_PROTECTION_ENABLED", "false"),
+    ).lower() == "true",
+    "swing_timeout_be_trigger_pct": float(os.getenv("SWING_TIMEOUT_BE_TRIGGER_PCT", "0.20")),
+    "swing_timeout_trailing_trigger_pct": float(os.getenv("SWING_TIMEOUT_TRAILING_TRIGGER_PCT", "0.35")),
+    "swing_timeout_late_tighten_multiplier": float(os.getenv("SWING_TIMEOUT_LATE_TIGHTEN_MULTIPLIER", "1.4")),
+    "swing_timeout_protection_min_update_seconds": int(os.getenv("SWING_TIMEOUT_PROTECTION_MIN_UPDATE_SECONDS", "45")),
+    "swing_timeout_near_flat_usdt_threshold": float(os.getenv("SWING_TIMEOUT_NEAR_FLAT_USDT_THRESHOLD", "0.02")),
+    "swing_dynamic_max_hold_enabled": os.getenv("SWING_DYNAMIC_MAX_HOLD_ENABLED", "false").lower() == "true",
+    "swing_max_hold_default_seconds": int(os.getenv("SWING_MAX_HOLD_DEFAULT_SECONDS", "1800")),
 }
 
 QTY_PRECISION = {
@@ -217,7 +257,8 @@ def _cleanup_signal_queue(user_id: int, symbol: str, success: bool = True):
         _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
 
     # Unmark from processing
-    _signals_being_processed[user_id].discard(symbol)
+    if user_id in _signals_being_processed:
+        _signals_being_processed[user_id].discard(symbol)
 
     # Sync to Supabase
     try:
@@ -233,6 +274,86 @@ def _cleanup_signal_queue(user_id: int, symbol: str, success: bool = True):
         logger.debug(f"[Engine:{user_id}] Synced {symbol} as {status} to Supabase")
     except Exception as _sync_err:
         logger.warning(f"[Engine:{user_id}] Failed to sync cleanup status: {_sync_err}")
+
+
+def _passes_swing_confirmation_gate(user_id: int, signal: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
+    """
+    Consecutive-direction confirmation gate for swing entries.
+    Helps reduce rapid direction flip churn on noisy intervals.
+    """
+    try:
+        symbol = str(signal.get("symbol") or "").upper()
+        direction = str(signal.get("side") or "").upper()
+        if not symbol or direction not in {"LONG", "SHORT"}:
+            return False
+        required = max(1, int(cfg.get("swing_signal_confirmations_required", 1) or 1))
+        max_gap = max(5, int(cfg.get("swing_signal_confirmation_max_gap_seconds", 45) or 45))
+        now_ts = time.time()
+
+        user_streaks = _swing_signal_streaks.setdefault(int(user_id), {})
+        streak = user_streaks.get(symbol)
+        if not streak:
+            user_streaks[symbol] = {"direction": direction, "count": 1, "ts": now_ts}
+            return required <= 1
+
+        last_dir = str(streak.get("direction") or "")
+        last_count = int(streak.get("count", 0) or 0)
+        last_ts = float(streak.get("ts", 0.0) or 0.0)
+
+        if direction == last_dir and (now_ts - last_ts) <= max_gap:
+            new_count = last_count + 1
+            user_streaks[symbol] = {"direction": direction, "count": new_count, "ts": now_ts}
+        else:
+            user_streaks[symbol] = {"direction": direction, "count": 1, "ts": now_ts}
+            new_count = 1
+
+        if new_count < required:
+            logger.info(
+                f"[Engine:{user_id}] {symbol} confirmation gate: {new_count}/{required}, waiting"
+            )
+            return False
+
+        # Consume streak for this execution cycle
+        user_streaks.pop(symbol, None)
+        return True
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] Swing confirmation gate error: {e}")
+        return False
+
+
+def _generate_swing_emergency_candidate(
+    base_symbol: str,
+    btc_bias: Optional[Dict[str, Any]],
+    user_risk_pct: float,
+    adaptive_overrides: Optional[Dict[str, Any]],
+    cfg: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """
+    Build an emergency fallback candidate for swing mode by relaxing adaptive
+    strictness only when normal candidate generation returns none.
+    """
+    try:
+        relaxed = dict(adaptive_overrides or {})
+        relax_conf = max(0, int(cfg.get("swing_emergency_conf_relax", 8) or 8))
+        relaxed["conf_delta"] = int((relaxed.get("conf_delta", 0) or 0) - relax_conf)
+        relaxed["volume_min_ratio_delta"] = float((relaxed.get("volume_min_ratio_delta", 0.0) or 0.0) - 0.2)
+        relaxed["ob_fvg_requirement_mode"] = "soft"
+        sig = _compute_signal_pro(base_symbol, btc_bias, user_risk_pct, relaxed)
+        if not sig:
+            return None
+        min_conf = max(0, min(100, int(cfg.get("swing_emergency_min_confidence", 50) or 50)))
+        if float(sig.get("confidence", 0) or 0) < min_conf:
+            return None
+        sig["is_emergency"] = True
+        sig["emergency_score"] = (
+            float(sig.get("confidence", 0) or 0)
+            + (float(sig.get("rr_ratio", 0) or 0) * 8.0)
+            + (float(sig.get("vol_ratio", 1.0) or 1.0) * 4.0)
+        )
+        return sig
+    except Exception as e:
+        logger.warning(f"[Signal] Emergency candidate error {base_symbol}: {e}")
+        return None
 
 
 def _is_reversal(open_side: str, new_signal: Dict, btc_is_sideways: bool = False) -> bool:
@@ -1333,8 +1454,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     from app.win_playbook import (
         refresh_global_win_playbook_state,
         get_win_playbook_snapshot,
-        evaluate_signal_risk,
         compute_playbook_match_from_reasons,
+    )
+    from app.sideways_governor import (
+        refresh_sideways_governor_state,
+        get_sideways_governor_snapshot,
+        resolve_dynamic_max_hold_seconds,
     )
 
     # Get exchange-specific client
@@ -1343,19 +1468,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     cfg    = ENGINE_CONFIG
 
     logger.info(f"[Engine:{user_id}] Using exchange: {ex_cfg['name']} ({exchange_id})")
-    # Startup sanitize: clear orphan pending locks from previous crashed/restarted loops.
-    try:
-        coordinator = _get_coordinator()
-        cleared_any = await coordinator.clear_all_pending_without_position_for_user(
-            int(user_id), reason="startup_sanitize"
-        )
-        cleared_stale = await coordinator.clear_stale_pending_for_user(int(user_id), now_ts=time.time())
-        if cleared_any or cleared_stale:
-            logger.warning(
-                f"[Engine:{user_id}] Startup pending cleanup: immediate={cleared_any}, stale={cleared_stale}"
-            )
-    except Exception as _co_init_err:
-        logger.warning(f"[Engine:{user_id}] Startup pending cleanup failed: {_co_init_err}")
+    await sanitize_startup_pending_locks(
+        _get_coordinator(),
+        int(user_id),
+        logger,
+        label=f"[Engine:{user_id}]",
+    )
 
     # Premium user: RR 1:3 dengan dual TP (75%/25%) + breakeven SL
     # Free user: RR 1:2 single TP (behaviour lama)
@@ -1526,6 +1644,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         "updated_at": None,
     }
     adaptive_next_refresh_ts = 0.0
+    sideways_governor_state: Dict[str, Any] = {
+        "mode": "normal",
+        "decision_reason": "bootstrap",
+        "dynamic_hold_non_sideways_seconds": int(cfg.get("swing_max_hold_default_seconds", 1800) or 1800),
+        "symbol_non_sideways_hold_seconds": {},
+    }
+    sideways_governor_next_refresh_ts = 0.0
     win_playbook_state: Dict[str, Any] = {
         "risk_overlay_pct": 0.0,
         "rolling_win_rate": 0.0,
@@ -1561,6 +1686,11 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     )
                     + f"📈 Mode: <b>Unlimited trades/day (no daily loss limit)</b>\n"
                     f"✅ Continuous trading enabled for opportunity maximization\n\n"
+                    f"🧠 Adaptive conf delta: <b>{int(adaptive_state.get('conf_delta', 0)):+d}</b>\n"
+                    f"🧠 Adaptive vol delta: <b>{float(adaptive_state.get('volume_min_ratio_delta', 0.0)):+.2f}</b>\n"
+                    f"🛡️ Sideways governor mode: <b>{str(sideways_governor_state.get('mode', 'normal')).upper()}</b>\n"
+                    f"🏆 Win playbook tags: <b>{len(win_playbook_state.get('active_tags', []) or [])}</b>\n"
+                    f"⚡ Runtime risk overlay: <b>{float(win_playbook_state.get('risk_overlay_pct', 0.0)):+.2f}%</b>\n\n"
                     "High-probability setups only. Risk per trade: fixed dollar amount."
                 ),
                 parse_mode='HTML',
@@ -1572,40 +1702,66 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     while True:
         try:
             now_ts = datetime.now(timezone.utc).timestamp()
-            if now_ts >= adaptive_next_refresh_ts:
-                try:
-                    # Refresh computes metrics/policy and persists a bounded state.
-                    await asyncio.to_thread(refresh_global_adaptive_state)
-                    adaptive_state = await asyncio.to_thread(get_adaptive_overrides)
-                    logger.info(
-                        f"[Engine:{user_id}] Adaptive overlay refreshed — "
-                        f"conf_delta={adaptive_state.get('conf_delta')} "
-                        f"vol_delta={adaptive_state.get('volume_min_ratio_delta'):.2f} "
-                        f"ob_mode={adaptive_state.get('ob_fvg_requirement_mode')} "
-                        f"loss_rate={adaptive_state.get('strategy_loss_rate'):.3f} "
-                        f"ops_rate={adaptive_state.get('ops_reconcile_rate'):.3f} "
-                        f"sample={adaptive_state.get('strategy_sample_size')} "
-                        f"decision={adaptive_state.get('decision_reason')}"
-                    )
-                except Exception as adapt_err:
-                    logger.warning(f"[Engine:{user_id}] Adaptive refresh failed, using last state: {adapt_err}")
-                adaptive_next_refresh_ts = now_ts + 600.0  # every 10 minutes
-            if now_ts >= win_playbook_next_refresh_ts:
-                try:
-                    await asyncio.to_thread(refresh_global_win_playbook_state)
-                    win_playbook_state = await asyncio.to_thread(get_win_playbook_snapshot)
-                    logger.info(
-                        f"[Engine:{user_id}] Win playbook refreshed — "
-                        f"sample={win_playbook_state.get('sample_size')} "
-                        f"wr={float(win_playbook_state.get('rolling_win_rate', 0.0)):.3f} "
-                        f"exp={float(win_playbook_state.get('rolling_expectancy', 0.0)):+.4f} "
-                        f"overlay={float(win_playbook_state.get('risk_overlay_pct', 0.0)):.2f}% "
-                        f"active_tags={len(win_playbook_state.get('active_tags', []) or [])} "
-                        f"guardrails={bool(win_playbook_state.get('guardrails_healthy', False))}"
-                    )
-                except Exception as playbook_err:
-                    logger.warning(f"[Engine:{user_id}] Win playbook refresh failed, using last snapshot: {playbook_err}")
-                win_playbook_next_refresh_ts = now_ts + 600.0  # every 10 minutes
+            adaptive_next_refresh_ts, adaptive_state, adaptive_refreshed, adaptive_err = await refresh_runtime_snapshot(
+                now_ts=now_ts,
+                next_refresh_ts=adaptive_next_refresh_ts,
+                refresh_fn=refresh_global_adaptive_state,
+                snapshot_fn=get_adaptive_overrides,
+                current_snapshot=adaptive_state,
+                interval_sec=600.0,
+            )
+            if adaptive_refreshed:
+                logger.info(
+                    f"[Engine:{user_id}] Adaptive overlay refreshed — "
+                    f"conf_delta={adaptive_state.get('conf_delta')} "
+                    f"vol_delta={adaptive_state.get('volume_min_ratio_delta'):.2f} "
+                    f"ob_mode={adaptive_state.get('ob_fvg_requirement_mode')} "
+                    f"loss_rate={adaptive_state.get('strategy_loss_rate'):.3f} "
+                    f"ops_rate={adaptive_state.get('ops_reconcile_rate'):.3f} "
+                    f"sample={adaptive_state.get('strategy_sample_size')} "
+                    f"decision={adaptive_state.get('decision_reason')}"
+                )
+            elif adaptive_err:
+                logger.warning(f"[Engine:{user_id}] Adaptive refresh failed, using last state: {adaptive_err}")
+
+            win_playbook_next_refresh_ts, win_playbook_state, playbook_refreshed, playbook_err = await refresh_runtime_snapshot(
+                now_ts=now_ts,
+                next_refresh_ts=win_playbook_next_refresh_ts,
+                refresh_fn=refresh_global_win_playbook_state,
+                snapshot_fn=get_win_playbook_snapshot,
+                current_snapshot=win_playbook_state,
+                interval_sec=600.0,
+            )
+            if playbook_refreshed:
+                logger.info(
+                    f"[Engine:{user_id}] Win playbook refreshed — "
+                    f"sample={win_playbook_state.get('sample_size')} "
+                    f"wr={float(win_playbook_state.get('rolling_win_rate', 0.0)):.3f} "
+                    f"exp={float(win_playbook_state.get('rolling_expectancy', 0.0)):+.4f} "
+                    f"overlay={float(win_playbook_state.get('risk_overlay_pct', 0.0)):.2f}% "
+                    f"active_tags={len(win_playbook_state.get('active_tags', []) or [])} "
+                    f"guardrails={bool(win_playbook_state.get('guardrails_healthy', False))}"
+                )
+            elif playbook_err:
+                logger.warning(f"[Engine:{user_id}] Win playbook refresh failed, using last snapshot: {playbook_err}")
+
+            sideways_governor_next_refresh_ts, sideways_governor_state, governor_refreshed, governor_err = await refresh_runtime_snapshot(
+                now_ts=now_ts,
+                next_refresh_ts=sideways_governor_next_refresh_ts,
+                refresh_fn=refresh_sideways_governor_state,
+                snapshot_fn=get_sideways_governor_snapshot,
+                current_snapshot=sideways_governor_state,
+                interval_sec=600.0,
+            )
+            if governor_refreshed:
+                logger.info(
+                    f"[Engine:{user_id}] Sideways governor refreshed (swing non-sideways hook) — "
+                    f"mode={sideways_governor_state.get('mode')} "
+                    f"non_sideways_hold={sideways_governor_state.get('dynamic_hold_non_sideways_seconds')} "
+                    f"reason={sideways_governor_state.get('decision_reason')}"
+                )
+            elif governor_err:
+                logger.warning(f"[Engine:{user_id}] Sideways governor refresh failed, using last snapshot: {governor_err}")
 
             # ── Initialize btc_bias for this iteration ────────────────
             btc_bias = {"bias": "NEUTRAL", "strength": 0, "reasons": []}
@@ -1618,29 +1774,18 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             except Exception:
                 pass  # Ignore check errors
 
-            # ── Check Supabase stop signal (from web dashboard or external) ──
-            try:
-                _db_session = _client().table("autotrade_sessions").select(
-                    "status,engine_active"
-                ).eq("telegram_id", user_id).limit(1).execute()
-                if _db_session.data:
-                    _db_status = _db_session.data[0].get("status", "active")
-                    _db_engine_active = _db_session.data[0].get("engine_active", True)
-                    # Only stop if BOTH status=stopped AND engine_active=False
-                    if _db_status == "stopped" and not _db_engine_active:
-                        logger.info(f"[Engine:{user_id}] Stop signal from Supabase, exiting loop")
-                        try:
-                            await bot.send_message(
-                                chat_id=notify_chat_id,
-                                text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
-                                parse_mode='HTML',
-                                reply_markup=_dashboard_keyboard()
-                            )
-                        except Exception:
-                            pass
-                        return
-            except Exception as _stop_check_err:
-                logger.debug(f"[Engine:{user_id}] Stop signal check failed (non-fatal): {_stop_check_err}")
+            if await should_stop_engine(user_id, logger=logger, label=f"[Engine:{user_id}]"):
+                logger.info(f"[Engine:{user_id}] Stop signal from Supabase, exiting loop")
+                try:
+                    await bot.send_message(
+                        chat_id=notify_chat_id,
+                        text="🛑 <b>AutoTrade stopped.</b>\n\nUse /autotrade to restart.",
+                        parse_mode='HTML',
+                        reply_markup=_dashboard_keyboard()
+                    )
+                except Exception:
+                    pass
+                return
             
             # ── Reset harian ──────────────────────────────────────────
             today = date.today()
@@ -1693,12 +1838,212 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             pos_result     = await asyncio.to_thread(client.get_positions)
             open_positions = pos_result.get('positions', []) if pos_result.get('success') else []
             occupied_syms  = {p['symbol'] for p in open_positions}
+            # ── Swing adaptive timeout protection + dynamic max-hold hooks ───────
+            if open_positions and (
+                bool(cfg.get("swing_dynamic_max_hold_enabled", False))
+                or bool(cfg.get("swing_adaptive_timeout_protection_enabled", False))
+            ):
+                try:
+                    from app.trade_history import (
+                        get_open_trades,
+                        close_open_trades_by_symbol,
+                        build_loss_reasoning,
+                        build_win_reasoning,
+                    )
+                    open_rows = await asyncio.to_thread(get_open_trades, user_id)
+                    open_row_by_symbol = {
+                        str(r.get("symbol") or "").upper(): r
+                        for r in (open_rows or [])
+                        if str(r.get("symbol") or "").upper()
+                    }
+                    timeout_state_user = _swing_timeout_state.setdefault(int(user_id), {})
+                    for pos in open_positions:
+                        symbol_open = str(pos.get("symbol") or "").upper()
+                        if not symbol_open:
+                            continue
+                        db_row = open_row_by_symbol.get(symbol_open)
+                        if not db_row:
+                            continue
+                        side_open = str(db_row.get("side") or pos.get("side") or "LONG").upper()
+                        entry_open = float(db_row.get("entry_price") or 0)
+                        if entry_open <= 0:
+                            continue
+                        qty_open = float(pos.get("qty") or pos.get("size") or db_row.get("qty") or 0)
+                        if qty_open <= 0:
+                            continue
+                        mark_open = float(pos.get("mark_price") or pos.get("markPrice") or 0)
+                        if mark_open <= 0:
+                            ticker_res = await asyncio.to_thread(client.get_ticker, symbol_open)
+                            if ticker_res.get("success"):
+                                mark_open = float(
+                                    ticker_res.get("mark_price")
+                                    or ticker_res.get("last_price")
+                                    or ticker_res.get("price")
+                                    or 0
+                                )
+                        if mark_open <= 0:
+                            continue
+                        sl_open = float(db_row.get("sl_price") or 0)
+                        if sl_open <= 0:
+                            continue
+                        opened_at_raw = str(db_row.get("opened_at") or "")
+                        opened_at_ts = 0.0
+                        try:
+                            opened_txt = opened_at_raw.replace("Z", "+00:00")
+                            opened_at_ts = datetime.fromisoformat(opened_txt).timestamp()
+                        except Exception:
+                            opened_at_ts = 0.0
+                        if opened_at_ts <= 0:
+                            continue
+                        elapsed_open = max(0.0, time.time() - opened_at_ts)
+                        hold_limit = int(cfg.get("swing_max_hold_default_seconds", 1800) or 1800)
+                        if bool(cfg.get("swing_dynamic_max_hold_enabled", False)):
+                            hold_limit = int(
+                                resolve_dynamic_max_hold_seconds(
+                                    symbol=symbol_open,
+                                    is_sideways=False,
+                                    snapshot=sideways_governor_state,
+                                    default_non_sideways=int(cfg.get("swing_max_hold_default_seconds", 1800) or 1800),
+                                )
+                            )
+                        if (
+                            bool(cfg.get("swing_dynamic_max_hold_enabled", False))
+                            and hold_limit > 0
+                            and elapsed_open >= float(hold_limit)
+                        ):
+                            close_res = await asyncio.to_thread(client.close_position, symbol_open)
+                            if close_res.get("success"):
+                                raw_pnl = (mark_open - entry_open) if side_open == "LONG" else (entry_open - mark_open)
+                                pnl_est = raw_pnl * qty_open
+                                loss_reason = ""
+                                win_metadata = None
+                                if pnl_est < 0:
+                                    near_flat_thr = float(cfg.get("swing_timeout_near_flat_usdt_threshold", 0.02) or 0.02)
+                                    near_flat = abs(float(pnl_est)) <= near_flat_thr
+                                    if near_flat:
+                                        pnl_est = 0.0
+                                    loss_reason = (
+                                        "timeout_exit; timeout_protection=max_hold; "
+                                        f"phase=late; near_flat={1 if near_flat else 0}; "
+                                        f"pnl={float(pnl_est):+.6f}; symbol={symbol_open}; side={side_open}"
+                                    )
+                                else:
+                                    match_meta = await asyncio.to_thread(
+                                        compute_playbook_match_from_reasons,
+                                        db_row.get("entry_reasons", []),
+                                        win_playbook_state,
+                                    )
+                                    win_metadata = {
+                                        "playbook_match_score": match_meta.get("playbook_match_score"),
+                                        "win_reason_tags": match_meta.get("matched_tags", []),
+                                        "effective_risk_pct": db_row.get("effective_risk_pct"),
+                                        "risk_overlay_pct": db_row.get("risk_overlay_pct"),
+                                        "win_reasoning": build_win_reasoning(
+                                            db_row,
+                                            current_signal=None,
+                                            playbook_tags=match_meta.get("matched_tags", []),
+                                            playbook_score=match_meta.get("playbook_match_score"),
+                                        ),
+                                    }
+                                await asyncio.to_thread(
+                                    close_open_trades_by_symbol,
+                                    user_id,
+                                    symbol_open,
+                                    mark_open,
+                                    pnl_est,
+                                    "max_hold_time_exceeded",
+                                    loss_reason,
+                                    win_metadata,
+                                )
+                                try:
+                                    await _get_coordinator().confirm_closed(
+                                        user_id=user_id, symbol=symbol_open, now_ts=time.time()
+                                    )
+                                except Exception:
+                                    pass
+                                timeout_state_user.pop(symbol_open, None)
+                                logger.info(
+                                    f"[Engine:{user_id}] Swing dynamic max-hold close: {symbol_open} "
+                                    f"elapsed={elapsed_open:.1f}s limit={hold_limit}s pnl={pnl_est:+.4f}"
+                                )
+                                continue
+
+                        if not bool(cfg.get("swing_adaptive_timeout_protection_enabled", False)):
+                            continue
+
+                        state = timeout_state_user.setdefault(
+                            symbol_open,
+                            {
+                                "initial_sl": sl_open,
+                                "last_sl_update_ts": 0.0,
+                                "phase": "early",
+                                "applied": False,
+                            },
+                        )
+                        initial_sl = float(state.get("initial_sl", sl_open) or sl_open)
+                        last_sl_update_ts = float(state.get("last_sl_update_ts", 0.0) or 0.0)
+                        min_update_gap = float(cfg.get("swing_timeout_protection_min_update_seconds", 45) or 45)
+                        if (time.time() - last_sl_update_ts) < min_update_gap:
+                            continue
+                        denom = float(hold_limit if hold_limit > 0 else max(1, int(cfg.get("swing_max_hold_default_seconds", 1800) or 1800)))
+                        ratio = max(0.0, min(1.0, float(elapsed_open) / denom))
+                        phase = "early" if ratio < 0.50 else ("mid" if ratio < 0.80 else "late")
+                        state["phase"] = phase
+                        if phase == "early":
+                            continue
+                        favorable_pct = (
+                            ((mark_open - entry_open) / entry_open) * 100.0
+                            if side_open == "LONG"
+                            else ((entry_open - mark_open) / entry_open) * 100.0
+                        )
+                        be_trigger = float(cfg.get("swing_timeout_be_trigger_pct", 0.20) or 0.20)
+                        trailing_trigger = float(cfg.get("swing_timeout_trailing_trigger_pct", 0.35) or 0.35)
+                        tighten = float(cfg.get("swing_timeout_late_tighten_multiplier", 1.4) or 1.4)
+                        if phase == "late":
+                            tighten *= 1.2
+                        new_sl = sl_open
+                        if favorable_pct >= be_trigger:
+                            new_sl = entry_open
+                        if favorable_pct >= trailing_trigger:
+                            risk_gap = abs(entry_open - initial_sl)
+                            if risk_gap > 0:
+                                trail_gap = risk_gap / max(1.0, tighten)
+                                if side_open == "LONG":
+                                    new_sl = max(new_sl, max(entry_open, mark_open - trail_gap))
+                                else:
+                                    new_sl = min(new_sl, min(entry_open, mark_open + trail_gap))
+                        eps = max(1e-8, abs(entry_open) * 1e-6)
+                        improved = (new_sl > sl_open + eps) if side_open == "LONG" else (new_sl < sl_open - eps)
+                        if not improved:
+                            continue
+                        if side_open == "LONG" and new_sl >= mark_open:
+                            continue
+                        if side_open == "SHORT" and new_sl <= mark_open:
+                            continue
+                        sl_update_res = await asyncio.to_thread(client.set_position_sl, symbol_open, float(new_sl))
+                        if not sl_update_res.get("success"):
+                            continue
+                        try:
+                            _client().table("autotrade_trades").update({
+                                "sl_price": float(new_sl)
+                            }).eq("id", db_row.get("id")).eq("status", "open").execute()
+                        except Exception as sl_db_err:
+                            logger.warning(f"[Engine:{user_id}] Failed to persist swing timeout SL update: {sl_db_err}")
+                        state["last_sl_update_ts"] = time.time()
+                        state["applied"] = True
+                        logger.info(
+                            f"[Engine:{user_id}] Swing timeout protection applied: "
+                            f"{symbol_open} phase={phase} old_sl={sl_open:.6f} new_sl={new_sl:.6f}"
+                        )
+                except Exception as swing_timeout_err:
+                    logger.warning(f"[Engine:{user_id}] Swing timeout/max-hold hook failed: {swing_timeout_err}")
 
             # Deteksi posisi baru tutup (TP/SL hit) — estimasi PnL
             if had_open_position and not open_positions:
                 had_open_position = False
                 # Bersihkan TP1 tracker karena semua posisi sudah tutup
                 _tp1_hit_positions[user_id] = set()
+                _swing_timeout_state.pop(int(user_id), None)
                 if is_tracking(user_id):
                     stop_pnl_tracker(user_id)
 
@@ -1809,6 +2154,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 symbol=db_trade.get("symbol", ""),
                                 now_ts=time.time()
                             )
+                            _swing_timeout_state.get(int(user_id), {}).pop(str(db_trade.get("symbol", "")).upper(), None)
                         except Exception as _cc_err:
                             logger.warning(f"[Engine:{user_id}] confirm_closed failed: {_cc_err}")
 
@@ -2017,20 +2363,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         f"baseline_leverage={leverage} effective_leverage={flip_effective_leverage}"
                     )
 
-                    try:
-                        flip_risk_eval = await asyncio.to_thread(
-                            evaluate_signal_risk,
-                            user_risk_pct,
-                            rev_sig.get("reasons", []),
-                        )
-                    except Exception as flip_eval_err:
-                        logger.warning(f"[Engine:{user_id}] Flip win playbook eval failed, fallback to base risk: {flip_eval_err}")
-                        flip_risk_eval = {
-                            "effective_risk_pct": user_risk_pct,
-                            "risk_overlay_pct": 0.0,
-                            "playbook_match_score": 0.0,
-                            "playbook_match_tags": [],
-                        }
+                    flip_risk_eval = await evaluate_and_apply_playbook_risk(
+                        signal=rev_sig,
+                        base_risk_pct=user_risk_pct,
+                        raw_reasons=rev_sig.get("reasons", []),
+                        logger=logger,
+                        label=f"[Engine:{user_id}] Flip",
+                    )
                     flip_effective_risk_pct = float(flip_risk_eval.get("effective_risk_pct", user_risk_pct))
                     flip_risk_overlay_pct = float(flip_risk_eval.get("risk_overlay_pct", 0.0))
                     flip_playbook_score = float(flip_risk_eval.get("playbook_match_score", 0.0))
@@ -2042,82 +2381,112 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         flip_effective_leverage,
                         effective_risk_pct_override=flip_effective_risk_pct,
                     )
-                    rev_sig["playbook_match_score"] = flip_playbook_score
-                    rev_sig["playbook_match_tags"] = flip_playbook_tags
-                    rev_sig["effective_risk_pct"] = flip_effective_risk_pct
-                    rev_sig["risk_overlay_pct"] = flip_risk_overlay_pct
                     if flip_qty <= 0:
                         logger.warning(f"[Engine:{user_id}] Flip qty=0 for {pos_symbol}, skip open")
                         continue
 
-                    await asyncio.to_thread(client.set_leverage, pos_symbol, flip_effective_leverage)
-                    open_result = await asyncio.to_thread(
-                        client.place_order_with_tpsl, pos_symbol,
-                        "BUY" if new_side == "LONG" else "SELL",
-                        flip_qty, new_tp, new_sl
+                    # Position is now closed on exchange. Clear coordinator ownership
+                    # before opening the new flipped side.
+                    try:
+                        coordinator = _get_coordinator()
+                        await coordinator_confirm_closed(
+                            coordinator,
+                            user_id=user_id,
+                            symbol=pos_symbol,
+                            now_ts=time.time(),
+                        )
+                        _swing_timeout_state.get(int(user_id), {}).pop(str(pos_symbol).upper(), None)
+                    except Exception as _cc_err:
+                        logger.warning(f"[Engine:{user_id}] confirm_closed (flip pre-open) failed: {_cc_err}")
+
+                    # Persist old position close before opening flipped side.
+                    try:
+                        from app.trade_history import (
+                            save_trade_close,
+                            build_loss_reasoning,
+                            build_win_reasoning,
+                            get_open_trades,
+                        )
+                        old_trades = get_open_trades(user_id)
+                        for ot in old_trades:
+                            if ot["symbol"] != pos_symbol:
+                                continue
+                            old_entry = float(ot.get("entry_price", new_entry))
+                            old_side = ot.get("side", "LONG")
+                            raw_pnl = (new_entry - old_entry) if old_side == "LONG" else (old_entry - new_entry)
+                            pnl_est = raw_pnl * float(ot.get("qty", 0))
+                            loss_r = build_loss_reasoning(ot, rev_sig) if pnl_est < 0 else ""
+                            win_meta = None
+                            if pnl_est >= 0:
+                                old_match = await asyncio.to_thread(
+                                    compute_playbook_match_from_reasons,
+                                    ot.get("entry_reasons", []),
+                                    win_playbook_state,
+                                )
+                                win_meta = {
+                                    "playbook_match_score": old_match.get("playbook_match_score"),
+                                    "win_reason_tags": old_match.get("matched_tags", []),
+                                    "effective_risk_pct": ot.get("effective_risk_pct"),
+                                    "risk_overlay_pct": ot.get("risk_overlay_pct"),
+                                    "win_reasoning": build_win_reasoning(
+                                        ot,
+                                        current_signal=rev_sig,
+                                        playbook_tags=old_match.get("matched_tags", []),
+                                        playbook_score=old_match.get("playbook_match_score"),
+                                    ),
+                                }
+                            save_trade_close(
+                                trade_id=ot["id"],
+                                exit_price=new_entry,
+                                pnl_usdt=pnl_est,
+                                close_reason="closed_flip",
+                                loss_reasoning=loss_r,
+                                win_metadata=win_meta,
+                            )
+                    except Exception as _close_old_err:
+                        logger.warning(f"[Engine:{user_id}] flip old-trade close persistence failed: {_close_old_err}")
+
+                    open_result = await open_managed_position(
+                        client=client,
+                        user_id=user_id,
+                        symbol=pos_symbol,
+                        side=new_side,
+                        entry_price=new_entry,
+                        sl_price=new_sl,
+                        tp_price=new_tp,
+                        quantity=flip_qty,
+                        leverage=flip_effective_leverage,
+                        reconcile=True,
                     )
 
-                    if open_result.get("success"):
+                    if open_result.success:
+                        if open_result.levels:
+                            new_tp = float(open_result.levels.tp1)
+                            new_sl = float(open_result.levels.sl)
                         _flip_cooldown[pos_symbol] = time.time()
                         trades_today += 1
                         sl_pct = abs(new_entry - new_sl) / new_entry * 100
                         tp_pct = abs(new_tp - new_entry) / new_entry * 100
 
+                        # Register new flipped position ownership for coordinator.
+                        try:
+                            coordinator = _get_coordinator()
+                            await coordinator_confirm_open(
+                                coordinator,
+                                user_id=user_id,
+                                symbol=pos_symbol,
+                                strategy=StrategyOwner.SWING,
+                                side=PositionSide.LONG if new_side == "LONG" else PositionSide.SHORT,
+                                size=flip_qty,
+                                entry_price=new_entry,
+                                exchange_position_id=open_result.order_id,
+                            )
+                        except Exception as _co_open_err:
+                            logger.warning(f"[Engine:{user_id}] confirm_open (flip) failed: {_co_open_err}")
+
                         # ── Update history: close trade lama, buka trade baru ──
                         try:
-                            from app.trade_history import (
-                                close_open_trades_by_symbol, save_trade_open, build_loss_reasoning,
-                                build_win_reasoning,
-                                get_open_trades
-                            )
-                            # Estimasi PnL trade lama
-                            old_trades = get_open_trades(user_id)
-                            for ot in old_trades:
-                                if ot["symbol"] == pos_symbol:
-                                    old_entry = float(ot.get("entry_price", new_entry))
-                                    old_side  = ot.get("side", "LONG")
-                                    raw_pnl   = (new_entry - old_entry) if old_side == "LONG" else (old_entry - new_entry)
-                                    pnl_est   = raw_pnl * float(ot.get("qty", 0))
-                                    loss_r    = build_loss_reasoning(ot, rev_sig) if pnl_est < 0 else ""
-                                    win_meta = None
-                                    if pnl_est >= 0:
-                                        old_match = await asyncio.to_thread(
-                                            compute_playbook_match_from_reasons,
-                                            ot.get("entry_reasons", []),
-                                            win_playbook_state,
-                                        )
-                                        win_meta = {
-                                            "playbook_match_score": old_match.get("playbook_match_score"),
-                                            "win_reason_tags": old_match.get("matched_tags", []),
-                                            "effective_risk_pct": ot.get("effective_risk_pct"),
-                                            "risk_overlay_pct": ot.get("risk_overlay_pct"),
-                                            "win_reasoning": build_win_reasoning(
-                                                ot,
-                                                current_signal=rev_sig,
-                                                playbook_tags=old_match.get("matched_tags", []),
-                                                playbook_score=old_match.get("playbook_match_score"),
-                                            ),
-                                        }
-                                    from app.trade_history import save_trade_close
-                                    save_trade_close(
-                                        trade_id=ot["id"],
-                                        exit_price=new_entry,
-                                        pnl_usdt=pnl_est,
-                                        close_reason="closed_flip",
-                                        loss_reasoning=loss_r,
-                                        win_metadata=win_meta,
-                                    )
-
-                                    # Confirm old position closed with coordinator
-                                    try:
-                                        coordinator = _get_coordinator()
-                                        await coordinator.confirm_closed(
-                                            user_id=user_id,
-                                            symbol=pos_symbol,
-                                            now_ts=time.time()
-                                        )
-                                    except Exception as _cc_err:
-                                        logger.warning(f"[Engine:{user_id}] confirm_closed (flip) failed: {_cc_err}")
+                            from app.trade_history import save_trade_open
 
                             # Simpan trade baru hasil flip
                             save_trade_open(
@@ -2130,8 +2499,15 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 tp_price=new_tp,
                                 sl_price=new_sl,
                                 signal=rev_sig,
-                                order_id=open_result.get("order_id", ""),
+                                order_id=open_result.order_id or "",
                                 is_flip=True,
+                                tp1_price=float(open_result.levels.tp1) if open_result.levels else new_tp,
+                                tp2_price=float(open_result.levels.tp2) if open_result.levels else new_tp,
+                                tp3_price=float(open_result.levels.tp3) if open_result.levels else new_tp,
+                                qty_tp1=float(open_result.levels.qty_tp1) if open_result.levels else flip_qty,
+                                qty_tp2=float(open_result.levels.qty_tp2) if open_result.levels else 0.0,
+                                qty_tp3=float(open_result.levels.qty_tp3) if open_result.levels else 0.0,
+                                strategy="stackmentor",
                                 execution_meta={
                                     "playbook_match_score": flip_playbook_score,
                                     "effective_risk_pct": flip_effective_risk_pct,
@@ -2156,8 +2532,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         )
                         logger.info(f"[Engine:{user_id}] Flip SUCCESS {pos_symbol} → {new_side}")
                     else:
-                        flip_err = open_result.get("error", "Unknown")
-                        logger.error(f"[Engine:{user_id}] Flip open FAILED: {flip_err}")
+                        flip_err = str(open_result.error or "Unknown")
+                        flip_code = str(open_result.error_code or "order_failed")
+                        logger.error(f"[Engine:{user_id}] Flip open FAILED [{flip_code}]: {flip_err}")
                         await bot.send_message(
                             chat_id=notify_chat_id,
                             text=(
@@ -2174,7 +2551,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 continue
 
             # ── Scan symbols (dynamic top-10 by volume, highest first) ─────
-            ranked_pairs = await asyncio.to_thread(get_ranked_top_volume_pairs, 10)
+            ranked_pairs = await get_top_volume_pairs(
+                limit=10,
+                fallback_pairs=list(cfg.get("symbols", [])),
+                logger=logger,
+                label=f"[Engine:{user_id}]",
+            )
             ranked_bases = []
             for pair in ranked_pairs:
                 base = str(pair).upper().replace("USDT", "")
@@ -2215,6 +2597,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         _compute_signal_pro, sym, btc_bias, user_risk_pct, adaptive_state
                     )
                     if sig and sig.get('confidence', 0) >= min_conf_scan:
+                        if not _passes_swing_confirmation_gate(user_id, sig, cfg):
+                            continue
                         match_meta = await asyncio.to_thread(
                             compute_playbook_match_from_reasons,
                             sig.get("reasons", []),
@@ -2222,6 +2606,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         )
                         sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
                         sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
+                        sig["is_emergency"] = False
                         sig["_volume_rank"] = volume_rank.get(sym, 9999)
                         candidates.append(sig)
                         logger.info(f"[Engine:{user_id}] Candidate: {sym} {sig['side']} "
@@ -2232,9 +2617,42 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     logger.warning(f"[Engine:{user_id}] Scan error {sym}: {e}")
 
             if not candidates:
-                logger.info(f"[Engine:{user_id}] No quality setups found, waiting...")
-                await asyncio.sleep(cfg["scan_interval"])
-                continue
+                if bool(cfg.get("swing_emergency_candidate_mode", True)):
+                    emergency_candidates: List[Dict] = []
+                    for sym in available:
+                        try:
+                            emer_sig = await asyncio.to_thread(
+                                _generate_swing_emergency_candidate,
+                                sym,
+                                btc_bias,
+                                user_risk_pct,
+                                adaptive_state,
+                                cfg,
+                            )
+                            if not emer_sig:
+                                continue
+                            if not _passes_swing_confirmation_gate(user_id, emer_sig, cfg):
+                                continue
+                            match_meta = await asyncio.to_thread(
+                                compute_playbook_match_from_reasons,
+                                emer_sig.get("reasons", []),
+                                win_playbook_state,
+                            )
+                            emer_sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
+                            emer_sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
+                            emer_sig["_volume_rank"] = volume_rank.get(sym, 9999)
+                            emergency_candidates.append(emer_sig)
+                        except Exception as emergency_err:
+                            logger.warning(f"[Engine:{user_id}] Emergency scan error {sym}: {emergency_err}")
+                    if emergency_candidates:
+                        candidates = emergency_candidates
+                        logger.info(
+                            f"[Engine:{user_id}] Emergency candidate mode activated: {len(candidates)} fallback setups"
+                        )
+                if not candidates:
+                    logger.info(f"[Engine:{user_id}] No quality setups found, waiting...")
+                    await asyncio.sleep(cfg["scan_interval"])
+                    continue
 
             # ── Signal Queue System: Sort by volume-rank first, then quality ────────
             # Highest-volume pair is top priority, confidence and RR resolve ties.
@@ -2396,30 +2814,17 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 f"[Engine:{user_id}] leverage_mode=auto_max_safe symbol={symbol} "
                 f"baseline_leverage={leverage} effective_leverage={effective_leverage}"
             )
-            try:
-                risk_eval = await asyncio.to_thread(
-                    evaluate_signal_risk,
-                    user_risk_pct,
-                    sig.get("reasons", []),
-                )
-            except Exception as risk_eval_err:
-                logger.warning(f"[Engine:{user_id}] Win playbook eval failed for {symbol}, fallback to base risk: {risk_eval_err}")
-                risk_eval = {
-                    "effective_risk_pct": user_risk_pct,
-                    "risk_overlay_pct": 0.0,
-                    "playbook_match_score": float(sig.get("playbook_match_score", 0.0)),
-                    "playbook_match_tags": list(sig.get("playbook_match_tags", [])),
-                    "guardrails_healthy": False,
-                    "overlay_action": "fallback_base_risk",
-                }
+            risk_eval = await evaluate_and_apply_playbook_risk(
+                signal=sig,
+                base_risk_pct=user_risk_pct,
+                raw_reasons=sig.get("reasons", []),
+                logger=logger,
+                label=f"[Engine:{user_id}] {symbol}",
+            )
             effective_risk_pct = float(risk_eval.get("effective_risk_pct", user_risk_pct))
             risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
             playbook_match_score = float(risk_eval.get("playbook_match_score", sig.get("playbook_match_score", 0.0)))
             playbook_match_tags = list(risk_eval.get("playbook_match_tags", sig.get("playbook_match_tags", [])))
-            sig["playbook_match_score"] = playbook_match_score
-            sig["playbook_match_tags"] = playbook_match_tags
-            sig["effective_risk_pct"] = effective_risk_pct
-            sig["risk_overlay_pct"] = risk_overlay_pct
             logger.info(
                 f"[Engine:{user_id}] Win playbook eval {symbol} — "
                 f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
@@ -2557,86 +2962,38 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 continue
 
             # Mark pending (order about to be submitted)
-            await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+            await coordinator_set_pending(coordinator, user_id, symbol, StrategyOwner.SWING)
             pending_marked = True
 
-            # ── Set leverage ──────────────────────────────────────────
-            await asyncio.to_thread(client.set_leverage, symbol, effective_leverage)
-
-            # ── Validate SL price before placing order ────────────────
-            # Get current mark price to ensure SL is valid
-            try:
-                ticker_result = await asyncio.to_thread(client.get_ticker, symbol)
-                if ticker_result.get('success'):
-                    current_mark_price = float(ticker_result.get('mark_price', entry))
-                    
-                    # Validate SL based on side
-                    if side == "LONG":
-                        # For LONG: SL must be BELOW mark price
-                        if sl >= current_mark_price:
-                            logger.warning(f"[Engine:{user_id}] Invalid SL for LONG: {sl:.4f} >= {current_mark_price:.4f}, adjusting...")
-                            sl = current_mark_price * 0.98  # Set SL 2% below current price
-                    else:  # SHORT
-                        # For SHORT: SL must be ABOVE mark price
-                        if sl <= current_mark_price:
-                            logger.warning(f"[Engine:{user_id}] Invalid SL for SHORT: {sl:.4f} <= {current_mark_price:.4f}, adjusting...")
-                            sl = current_mark_price * 1.02  # Set SL 2% above current price
-                    
-                    # Also validate TP
-                    if side == "LONG":
-                        if tp1 <= current_mark_price:
-                            logger.warning(f"[Engine:{user_id}] Invalid TP for LONG: {tp1:.4f} <= {current_mark_price:.4f}, skipping trade")
-                            await coordinator.clear_pending(user_id, symbol)
-                            pending_marked = False
-                            # Clean up: remove from queue and unmark as processing
-                            if user_id in _signal_queues:
-                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                            _signals_being_processed[user_id].discard(symbol)
-                            await asyncio.sleep(cfg["scan_interval"])
-                            continue
-                    else:  # SHORT
-                        if tp1 >= current_mark_price:
-                            logger.warning(f"[Engine:{user_id}] Invalid TP for SHORT: {tp1:.4f} >= {current_mark_price:.4f}, skipping trade")
-                            await coordinator.clear_pending(user_id, symbol)
-                            pending_marked = False
-                            # Clean up: remove from queue and unmark as processing
-                            if user_id in _signal_queues:
-                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                            _signals_being_processed[user_id].discard(symbol)
-                            await asyncio.sleep(cfg["scan_interval"])
-                            continue
-            except Exception as _val_err:
-                logger.warning(f"[Engine:{user_id}] SL validation failed: {_val_err}, proceeding with original SL")
-
-            # ── Place order dengan TP1 sebagai TP utama ───────────────
-            # Premium: TP2 dimonitor manual oleh engine (setelah TP1 hit, SL geser ke entry)
-            # Free: single TP di RR 1:2
-            _tp_for_order = tp1 if _dual_tp_enabled else tp1
-            order_result = await asyncio.to_thread(
-                client.place_order_with_tpsl, symbol,
-                "BUY" if side == "LONG" else "SELL",
-                qty, _tp_for_order, sl
+            # ── Unified managed entry path (shared with scalping) ────────────
+            exec_result = await open_managed_position(
+                client=client,
+                user_id=user_id,
+                symbol=symbol,
+                side=side,
+                entry_price=entry,
+                sl_price=sl,
+                tp_price=tp1,
+                quantity=qty,
+                leverage=effective_leverage,
+                reconcile=True,
             )
 
-            if not order_result.get('success'):
-                err = order_result.get('error', 'Unknown')
-                logger.error(f"[Engine:{user_id}] Order FAILED: {err}")
+            if not exec_result.success:
+                err = str(exec_result.error or "Unknown")
+                err_code = str(exec_result.error_code or "order_failed")
+                logger.error(f"[Engine:{user_id}] Order FAILED [{err_code}]: {err}")
 
-                # Clear pending with coordinator
-                coordinator = _get_coordinator()
-                await coordinator.clear_pending(user_id, symbol)
+                await coordinator_clear_pending(coordinator, user_id, symbol)
                 pending_marked = False
 
-                # Handle SL price validation error (30029)
-                if '30029' in str(err) or 'SL price must be' in str(err):
-                    logger.warning(f"[Engine:{user_id}] SL price validation error, skipping this trade")
+                if err_code in {"invalid_prices", "invalid_sl_price"}:
                     await bot.send_message(
                         chat_id=notify_chat_id,
                         text=(
                             f"⚠️ <b>Trade skipped</b>\n\n"
-                            f"Market moved too fast - SL price became invalid.\n"
-                            f"Bot will look for next setup.\n\n"
-                            f"This is normal in volatile markets."
+                            f"{err}\n\n"
+                            f"Bot will look for next setup."
                         ),
                         parse_mode='HTML'
                     )
@@ -2644,26 +3001,27 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
-                # Cek apakah ini benar-benar API key invalid (bukan transient error)
-                is_auth_error = 'TOKEN_INVALID' in str(err) or 'SIGNATURE_ERROR' in str(err)
-                is_ip_blocked = 'HTTP 403' in str(err) or 'IP_BLOCKED' in str(err) or ('403' in str(err) and 'IP' in str(err))
-
-                if is_auth_error or is_ip_blocked:
-                    # Retry sekali dulu sebelum menyerah — bisa jadi timestamp drift atau proxy glitch
+                if err_code in {"auth", "ip_blocked"}:
                     logger.warning(f"[Engine:{user_id}] Auth/IP error, retrying once in 15s: {err}")
                     await asyncio.sleep(15)
-                    retry_result = await asyncio.to_thread(
-                        client.place_order_with_tpsl, symbol,
-                        "BUY" if side == "LONG" else "SELL",
-                        qty, tp1, sl
+                    retry_result = await open_managed_position(
+                        client=client,
+                        user_id=user_id,
+                        symbol=symbol,
+                        side=side,
+                        entry_price=entry,
+                        sl_price=sl,
+                        tp_price=tp1,
+                        quantity=qty,
+                        leverage=effective_leverage,
+                        reconcile=True,
                     )
-                    if retry_result.get('success'):
-                        order_result = retry_result
-                        # Lanjut ke bawah dengan order sukses
+                    if retry_result.success:
+                        exec_result = retry_result
                     else:
-                        retry_err = retry_result.get('error', '')
-                        # Hanya stop jika TOKEN_INVALID — IP_BLOCKED jangan stop, bisa recover
-                        if 'TOKEN_INVALID' in str(retry_err):
+                        retry_err = str(retry_result.error or "")
+                        retry_code = str(retry_result.error_code or "order_failed")
+                        if retry_code == "auth":
                             _cleanup_signal_queue(user_id, symbol, success=False)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
@@ -2691,12 +3049,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                 parse_mode='HTML'
                             )
                             return
-                        elif 'IP_BLOCKED' in str(retry_err):
-                            # IP still blocked — wait longer, don't stop engine
-                            # Clean up: remove from queue and unmark as processing
-                            if user_id in _signal_queues:
-                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                            _signals_being_processed[user_id].discard(symbol)
+                        if retry_code == "ip_blocked":
+                            _cleanup_signal_queue(user_id, symbol, success=False)
                             await bot.send_message(
                                 chat_id=notify_chat_id,
                                 text=(
@@ -2708,24 +3062,21 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             )
                             await asyncio.sleep(300)
                             continue
-                        else:
-                            # Clean up: remove from queue and unmark as processing
-                            if user_id in _signal_queues:
-                                _signal_queues[user_id] = [s for s in _signal_queues[user_id] if s['symbol'] != symbol]
-                            _signals_being_processed[user_id].discard(symbol)
-                            await bot.send_message(
-                                chat_id=notify_chat_id,
-                                text=f"⚠️ <b>Order failed (2x):</b> {retry_err}\n\nBot is still running.",
-                                parse_mode='HTML'
-                            )
-                            await asyncio.sleep(cfg["scan_interval"])
-                            continue
+                        _cleanup_signal_queue(user_id, symbol, success=False)
+                        await bot.send_message(
+                            chat_id=notify_chat_id,
+                            text=f"⚠️ <b>Order failed (2x):</b> {retry_err}\n\nBot is still running.",
+                            parse_mode='HTML'
+                        )
+                        await asyncio.sleep(cfg["scan_interval"])
+                        continue
                 else:
                     _cleanup_signal_queue(user_id, symbol, success=False)
-                    # Pesan error spesifik berdasarkan kode
-                    if '20003' in str(err) or 'Insufficient balance' in str(err):
-                        bal_result = await asyncio.to_thread(client.get_balance)
-                        bal_usdt = bal_result.get('balance', 0) if bal_result.get('success') else 0
+                    if err_code == "insufficient_balance":
+                        bal_result = await asyncio.to_thread(client.get_account_info)
+                        bal_usdt = 0.0
+                        if bal_result.get('success'):
+                            bal_usdt = float(bal_result.get('available', 0) or 0) + float(bal_result.get('frozen', 0) or 0)
                         margin_needed = round(amount, 2)
                         await bot.send_message(
                             chat_id=notify_chat_id,
@@ -2740,6 +3091,16 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             ),
                             parse_mode='HTML'
                         )
+                    elif err_code == "reconcile_failed":
+                        await bot.send_message(
+                            chat_id=notify_chat_id,
+                            text=(
+                                f"🚨 <b>Position auto-closed: {symbol}</b>\n\n"
+                                f"Self-healing check found the live position mismatch.\n\n"
+                                f"<code>{escape(err)}</code>"
+                            ),
+                            parse_mode='HTML'
+                        )
                     else:
                         await bot.send_message(
                             chat_id=notify_chat_id,
@@ -2749,11 +3110,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
-                # Jika retry sukses, pastikan order_result sudah diupdate di atas
-                if not order_result.get('success'):
+                if not exec_result.success:
                     _cleanup_signal_queue(user_id, symbol, success=False)
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
+
+            # Sync levels from unified execution so risk math/persistence matches
+            if exec_result.levels:
+                tp1 = float(exec_result.levels.tp1)
+                tp2 = float(exec_result.levels.tp2)
+                tp3 = float(exec_result.levels.tp3)
+                sl = float(exec_result.levels.sl)
+                qty_tp1 = float(exec_result.levels.qty_tp1)
+                qty_tp2 = float(exec_result.levels.qty_tp2)
+                qty_tp3 = float(exec_result.levels.qty_tp3)
 
             # ── Order SUCCESS: Clean up from queue and mark execution complete ──
             _cleanup_signal_queue(user_id, symbol, success=True)
@@ -2761,18 +3131,19 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             # Confirm with coordinator that position is now open
             coordinator = _get_coordinator()
             import time
-            await coordinator.confirm_open(
+            await coordinator_confirm_open(
+                coordinator,
                 user_id=user_id,
                 symbol=symbol,
                 strategy=StrategyOwner.SWING,
                 side=PositionSide.LONG if side == "LONG" else PositionSide.SHORT,
                 size=qty,
                 entry_price=entry,
-                exchange_position_id=order_result.get('order_id')
+                exchange_position_id=exec_result.order_id,
             )
             pending_marked = False
 
-            order_id = order_result.get('order_id', '-')
+            order_id = exec_result.order_id or '-'
             trades_today += 1
             had_open_position = True
 
@@ -2781,23 +3152,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 _tp1_hit_positions[user_id] = set()
             _tp1_hit_positions[user_id].discard(symbol)
 
-            # ── Register with StackMentor for monitoring ──────────────
-            if stackmentor_enabled:
-                register_stackmentor_position(
-                    user_id=user_id,
-                    symbol=symbol,
-                    entry_price=entry,
-                    sl_price=sl,
-                    tp1=tp1,
-                    tp2=tp2,
-                    tp3=tp3,
-                    total_qty=qty,
-                    qty_tp1=qty_tp1,
-                    qty_tp2=qty_tp2,
-                    qty_tp3=qty_tp3,
-                    side=side,
-                    leverage=effective_leverage
-                )
+            # StackMentor registration now happens inside open_managed_position().
 
             # ── Simpan ke trade history ───────────────────────────────
             trade_id = None
@@ -2844,6 +3199,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 current_equity = 0
 
             risk_amount = qty * abs(entry - sl)
+            base_risk_pct = float(user_risk_pct)
+            overlay_pct = float(sig.get("risk_overlay_pct", 0.0) or 0.0)
+            effective_risk_pct = float(sig.get("effective_risk_pct", base_risk_pct) or base_risk_pct)
+            risk_audit_line = format_and_emit_order_open_risk_audit(
+                logger=logger,
+                user_id=user_id,
+                symbol=symbol,
+                side=side,
+                order_id=str(order_id or "-"),
+                base_risk_pct=base_risk_pct,
+                overlay_pct=overlay_pct,
+                effective_risk_pct=effective_risk_pct,
+                implied_risk_usdt=risk_amount,
+            )
             risk_pct_equity = (risk_amount / current_equity * 100) if current_equity > 0 else None
             direction = "Long" if side.upper() in ("LONG", "BUY") else "Short"
             opened_at = datetime.utcnow().strftime("%d %b %Y %H:%M:%S UTC")
@@ -2870,6 +3239,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         if risk_pct_equity is not None else
                         "<b>Risk % on equity:</b> N/A\n"
                     )
+                    + f"<b>{risk_audit_line}</b>\n"
                     + f"<b>Order ID:</b> <code>{order_id_text}</code>\n"
                     + f"<b>Date and time:</b> {opened_at}"
                 ),

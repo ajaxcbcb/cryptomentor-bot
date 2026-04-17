@@ -30,6 +30,9 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 - SL/TP validation must never mutate SL/TP in a way that changes pre-sized risk.
 - Executed TP/SL must match the strategy signal used for entry validation.
 - Startup messages consistent with live runtime values.
+- Restore/startup must preserve persisted trading mode; no shared-path coercion (for example forced swing→scalp).
+- Startup/restart notifications must use post-start runtime mode source-of-truth, never stale pre-mutation session variables.
+- Auto-switch transitions must use full lifecycle mode switch (`switch_mode`) so runtime engine class and DB mode change together; no active DB-only mode flips.
 - Global win playbook refresh cadence: every 10 minutes (aligned with adaptive overlay refresh).
 - Runtime risk overlay is memory/runtime only; never mutate persisted base user risk (`autotrade_sessions.risk_per_trade`).
 - Effective risk formula is fixed: `effective_risk_pct = min(10.0, base_risk_pct + risk_overlay_pct)`.
@@ -45,16 +48,32 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 - Trade close persistence must use cumulative PnL for partial-flow exits (`profit_tp1/2/3 + final_leg_pnl`) so positive net outcomes are never misclassified as losses.
 - Timeout protection policy is feature-flagged (`adaptive_timeout_protection_enabled` default false) and must emit structured timeout loss reasoning when timeout exits occur.
 - Timeout protection env compatibility is mandatory: support both `SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` and legacy `SCALPING_TIMEOUT_PROTECTION_ENABLED` (alias) in runtime parsing.
+- Swing timeout protection must follow the same compatibility rule: support both `SWING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` and legacy `SWING_TIMEOUT_PROTECTION_ENABLED` (alias), default OFF.
 - Runtime pair universe for swing + scalp must use Bitunix dynamic top-volume routing (top 10 by `quoteVol`, highest-first priority).
 - Volume selector fallback policy is fixed: last-good cache first, bootstrap list only if cache unavailable.
 - Queue/scan priority must preserve volume rank before secondary quality sort (confidence/R:R).
 - Blocked pending skip alerts must be deduped per symbol (10-minute TTL) while keeping full logs.
+- Swing/scalp execution must share managed open contract (`trade_execution.open_managed_position`) for normal/flip/emergency entries.
+- Swing flip lifecycle must persist old-trade close immediately after successful close (before reopen attempt), and pair coordinator paths must confirm close then confirm reopened ownership.
+- Position size must always be computed from final validated SL (no SL mutation after sizing in either engine).
+- Scalping sizing precision must always use the actual signal symbol (never hardcoded BTC precision path).
+- Risk basis standard for both engines is `equity = available + frozen + unrealized` for sizing and risk-audit reporting.
+- Adaptive parity from scalp to swing is required:
+- confirmation streak gate
+- emergency candidate fallback
+- adaptive/governor/playbook refresh cadence every 10 minutes
+- swing consumption of sideways governor must apply non-sideways controls only
+- timeout-protection and dynamic max-hold exits remain feature-flagged OFF by default
+- Win strategy parity must cover all swing entry types (normal/flip/emergency) with persisted playbook match metadata and overlay/effective risk fields.
+- Winning close persistence parity target remains >=95% non-empty `win_reasoning` with non-empty `win_reason_tags`.
 - Required checks:
 - Compile/syntax pass for touched files.
 - Negative-path verification (timeouts, order failure, validation skip).
 - R:R parity check: verify `abs(TP-entry)/abs(entry-SL)` from executed levels matches strategy expectation.
 - Playbook safety fallback check: if playbook service fails, engines degrade to base-risk behavior with no crash.
 - Win-reason coverage check for new winners: target >=95% non-empty `win_reasoning`.
+- Mode lifecycle matrix check: persisted `swing`/`scalping` sessions must restart in same mode with matching startup message.
+- Auto-switch correctness check: trending/sideways transitions must switch runtime engine and DB mode in sync.
 
 ## 3) Risk & Pairing Agent
 - Owner: risk defaults and symbol universe.
@@ -71,6 +90,9 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 - Base-risk clamp policy remains `0.25%–5.0%`; only runtime overlay may extend effective sizing risk up to `10.0%` cap.
 - Timeout-protection config keys in `ScalpingConfig` must remain feature-flagged and backward-safe.
 - Timeout flag backward-compatibility rule: legacy env key (`SCALPING_TIMEOUT_PROTECTION_ENABLED`) must still activate runtime flag behavior.
+- Swing adaptive config surface must mirror scalp controls with `SWING_*` env keys and safe defaults.
+- Swing timeout flag backward-compatibility rule: legacy env key (`SWING_TIMEOUT_PROTECTION_ENABLED`) must still activate runtime timeout flag behavior.
+- Equity canonical basis for risk calculations/audits is `available + frozen + unrealized`; this must stay aligned across swing/scalp and user-facing outputs.
 - Runtime verification command (VPS/local):
 - `python3 - <<'PY'`
 - `from app.volume_pair_selector import get_ranked_top_volume_pairs, get_selector_health`
@@ -113,6 +135,9 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 10. For timeout-protection patches, verify feature flag default/active state and timeout KPI log/report path.
 11. For timeout-flag patches, verify both env-key paths (`SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` and `SCALPING_TIMEOUT_PROTECTION_ENABLED`) resolve to expected runtime boolean.
 12. For StackMentor runner patches, verify default flag is OFF, TP1/TP3 levels resolve to `3R/5R` when enabled, and cumulative PnL persistence remains correct after partial TP.
+13. For swing timeout-flag patches, verify both env-key paths (`SWING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` and `SWING_TIMEOUT_PROTECTION_ENABLED`) resolve to expected runtime boolean.
+14. For mode lifecycle patches, verify restore/startup preserves persisted mode and startup message matches actual running engine.
+15. For adaptive-parity patches, verify swing startup/admin report includes adaptive + win-playbook snapshot visibility.
 
 ## Release Checklist
 1. Code patch complete.
@@ -129,6 +154,8 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Bro
 12. For timeout policy patches: timeout-loss metrics appear in admin report and logs.
 13. For timeout flag alias patches: runtime must read enabled state correctly from `.env` without code-side override.
 14. For StackMentor runner patches: verify canary open message and close logs show expected split (`80/20` default), breakeven transition after TP1, and final runner close reason (`closed_tp3`) with cumulative PnL.
+15. For mode lifecycle patches: restore/startup matrix confirms persisted `swing` and `scalping` restart into same mode with matching notification.
+16. For adaptive parity patches: swing must expose adaptive + win playbook summary and keep high-impact timeout/max-hold controls OFF unless explicitly enabled.
 
 ## Guardrails
 - No destructive git actions without explicit instruction.

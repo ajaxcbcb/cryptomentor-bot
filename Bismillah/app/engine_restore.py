@@ -55,25 +55,6 @@ def migrate_to_risk_based(user_id: int) -> bool:
         return False
 
 
-def set_scalping_mode(user_id: int) -> bool:
-    """
-    Set user trading mode to Scalping for max 4 concurrent positions.
-    Returns True if successful.
-    """
-    try:
-        from app.trading_mode_manager import TradingModeManager, TradingMode
-        
-        # Set to scalping mode
-        TradingModeManager.set_mode(user_id, TradingMode.SCALPING)
-        
-        logger.info(f"[Restore] Set user {user_id} to Scalping mode")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to set scalping mode for user {user_id}: {e}")
-        return False
-
-
 async def reconcile_coordinator_state(user_id: int, client) -> None:
     """
     Reconcile multi-user symbol coordinator state from live exchange positions.
@@ -145,9 +126,6 @@ async def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
             logger.warning(f"[Restore] Failed to migrate user {user_id}, skipping")
             return False
 
-        # Set to scalping mode for max 4 concurrent positions
-        set_scalping_mode(user_id)
-
         # Check if engine already running
         from app.autotrade_engine import is_running, start_engine_async
         if is_running(user_id):
@@ -182,7 +160,7 @@ async def restore_user_engine(bot, session: Dict, keys: Dict) -> bool:
 
         logger.info(
             f"[Restore] ✅ Engine restored for user {user_id} "
-            f"(risk-based, scalping, {amount} USDT, {leverage}x)"
+            f"(risk-based, persisted-mode, {amount} USDT, {leverage}x)"
         )
         return True
 
@@ -240,10 +218,10 @@ async def restore_all_engines(bot):
                             "✅ Your AutoTrade engine has been automatically restarted\n\n"
                             "📊 <b>New Settings:</b>\n"
                             "• Mode: <b>Risk-Based (Safer)</b>\n"
-                            "• Trading: <b>Scalping (5M)</b>\n"
-                            "• Max Positions: <b>4 concurrent</b>\n"
+                            "• Trading mode: <b>Preserved from your last session</b>\n"
+                            "• Max Positions: <b>4 concurrent (engine policy)</b>\n"
                             "• Risk per trade: <b>2%</b>\n\n"
-                            "💡 These settings provide better risk management and more trading opportunities.\n\n"
+                            "💡 Settings are restored with your previous mode preference.\n\n"
                             "Use /autotrade to check status or adjust settings."
                         ),
                         parse_mode='HTML'

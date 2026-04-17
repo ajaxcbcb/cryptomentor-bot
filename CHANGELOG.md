@@ -1,5 +1,50 @@
 # Changelog
 
+## [2.2.33] — 2026-04-17 — Swing/Scalp Adaptive Parity + Win Strategy Sync Hardening
+
+### 🎯 Mode Lifecycle + Auto-Switch Consistency
+- Preserved persisted trading mode during restore/restart flows (no forced swing→scalp coercion in shared restore helper path).
+- Kept runtime mode transitions on full switch path (`TradingModeManager.switch_mode`) so DB mode and running engine stay in sync.
+- Startup/restart notifications now continue to resolve mode from runtime source-of-truth (`TradingModeManager.get_mode(...)` after engine start).
+
+### ⚙️ Execution/Risk Contract Unification
+- Completed swing flip path migration to unified managed execution:
+  - replaced direct `client.place_order_with_tpsl(...)` call with `open_managed_position(...)`,
+  - aligned flip execution with shared validation/reconcile behavior used by scalp + normal swing entries.
+- Hardened flip coordinator lifecycle:
+  - explicit `confirm_closed(...)` before flipped reopen,
+  - explicit `confirm_open(...)` after successful flipped reopen,
+  - prevents symbol-ownership drift/clash between swing/scalp after flip events.
+- Hardened flip close persistence ordering:
+  - old swing trade rows are now closed/persisted immediately after flip-close succeeds (even if flipped reopen later fails), preventing stale DB-open rows.
+- Removed stale restore helper that forced scalping mode (`set_scalping_mode`) from `engine_restore.py`.
+
+### 🏆 Win Strategy + Persistence Parity
+- Extended flip open persistence to store StackMentor execution fields (`tp1/2/3`, `qty_tp1/2/3`, `strategy`) in addition to playbook/risk overlay metadata.
+- Preserved winning-close metadata contract (`win_reasoning`, `win_reason_tags`, playbook + effective risk fields) across swing close paths and flip closures.
+
+### 🧪 Regression Coverage Added
+- New `tests/test_swing_scalp_parity.py` coverage for:
+  - invalid SL/TP rejection without order placement in managed execution,
+  - scalping sizing symbol propagation (no hardcoded BTC precision path),
+  - swing timeout env alias compatibility (`SWING_TIMEOUT_PROTECTION_ENABLED`),
+  - auto-mode switcher using full `switch_mode(...)` path (not direct DB-only mode set),
+  - guard that swing engine no longer uses direct `place_order_with_tpsl` calls.
+- Minor resilience hardening in scalping timeout helper:
+  - `_max_hold_seconds_for_position(...)` now safely handles missing `_sideways_governor_snapshot` attribute fallback.
+- Added bot-package compatibility shim `Bismillah/app/routes/signals.py` for mixed test namespace imports so one-click token/sizing/replay security tests resolve consistently without depending on website package load order.
+
+### ✅ Validation
+- Syntax/compile pass:
+  - `python -m py_compile Bismillah/app/autotrade_engine.py Bismillah/app/engine_restore.py Bismillah/app/scalping_engine.py Bismillah/app/scheduler.py Bismillah/app/trading_mode.py tests/test_swing_scalp_parity.py`
+- Targeted parity/risk/win tests:
+  - `pytest -q tests/test_swing_scalp_parity.py tests/test_timeout_protection_policy.py tests/test_win_playbook.py tests/test_trade_history_win_reasoning.py tests/test_coordinator.py tests/test_risk_audit.py`
+  - `pytest -q tests/test_stackmentor_runner.py tests/test_volume_pair_selector.py tests/test_sideways_governor.py`
+  - Result: `49 passed`.
+- Full suite confirmation:
+  - `pytest -q tests`
+  - Result: `77 passed, 6 skipped`.
+
 ## [2.2.32] — 2026-04-17 — Bitunix Key Save/Test Import Crash Hotfix
 
 ### 🛠️ Website API Route Hardening

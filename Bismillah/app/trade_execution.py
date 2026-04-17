@@ -28,11 +28,12 @@ Both engines call `open_managed_position(...)` so behavior cannot drift.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
-from app.stackmentor import (
+from .stackmentor import (
     calculate_stackmentor_levels,
     calculate_qty_splits,
     get_exchange_tp_price,
@@ -171,6 +172,22 @@ def _within_pct(actual: float, expected: float, pct: float) -> bool:
     return abs(actual - expected) / abs(expected) <= pct
 
 
+async def _call_sync_or_async(fn, *args, expect_dict: bool = False):
+    """
+    Execute client call safely for both sync clients (production) and AsyncMock
+    test doubles that may return coroutine objects.
+    """
+    result = await asyncio.to_thread(fn, *args)
+    while inspect.isawaitable(result):
+        result = await result
+    if expect_dict and not isinstance(result, dict):
+        return {
+            "success": False,
+            "error": f"Invalid response type from {getattr(fn, '__name__', 'call')}: {type(result).__name__}",
+        }
+    return result
+
+
 async def reconcile_position(
     *,
     client,
@@ -198,7 +215,7 @@ async def reconcile_position(
     """
     notes: list = []
     try:
-        pos_resp = await asyncio.to_thread(client.get_positions)
+        pos_resp = await _call_sync_or_async(client.get_positions, expect_dict=True)
     except Exception as e:
         notes.append(f"get_positions raised: {e}")
         return False, notes, 0.0
@@ -247,7 +264,7 @@ async def reconcile_position(
     set_tpsl = getattr(client, "set_position_tpsl", None)
     if callable(set_tpsl):
         try:
-            r = await asyncio.to_thread(set_tpsl, symbol, expected_tp, expected_sl)
+            r = await _call_sync_or_async(set_tpsl, symbol, expected_tp, expected_sl, expect_dict=True)
             repair_ok = bool(r.get("success"))
             if not repair_ok:
                 notes.append(f"set_position_tpsl failed: {r.get('error')}")
@@ -258,7 +275,7 @@ async def reconcile_position(
         # Fall back: at minimum re-set SL — losing TP is recoverable via the
         # in-memory StackMentor monitor, losing SL is not.
         try:
-            r = await asyncio.to_thread(client.set_position_sl, symbol, expected_sl)
+            r = await _call_sync_or_async(client.set_position_sl, symbol, expected_sl, expect_dict=True)
             repair_ok = bool(r.get("success"))
             if not repair_ok:
                 notes.append(f"set_position_sl failed: {r.get('error')}")
@@ -273,7 +290,7 @@ async def reconcile_position(
     notes.append("repair_failed_emergency_close")
     try:
         close_side = "SELL" if side.upper() == "LONG" else "BUY"
-        await asyncio.to_thread(
+        await _call_sync_or_async(
             client.place_order,
             symbol,
             close_side,
@@ -355,7 +372,7 @@ async def open_managed_position(
 
     # 2. Validate against mark price ────────────────────────────────────────────
     try:
-        ticker = await asyncio.to_thread(client.get_ticker, symbol)
+        ticker = await _call_sync_or_async(client.get_ticker, symbol, expect_dict=True)
         if ticker.get("success"):
             mark_price = float(ticker.get("mark_price", entry_price))
             ok, adj_sl, err = validate_entry_prices(
@@ -392,7 +409,7 @@ async def open_managed_position(
     # 3. Set leverage ───────────────────────────────────────────────────────────
     if set_leverage:
         try:
-            await asyncio.to_thread(client.set_leverage, symbol, leverage)
+            await _call_sync_or_async(client.set_leverage, symbol, leverage)
         except Exception as e:
             logger.warning(
                 "[trade_execution:%s] set_leverage failed for %s: %s",
@@ -403,13 +420,14 @@ async def open_managed_position(
     order_side = "BUY" if side == "LONG" else "SELL"
     exchange_tp = float(get_exchange_tp_price(levels.tp1, levels.tp3))
     try:
-        order_result = await asyncio.to_thread(
+        order_result = await _call_sync_or_async(
             client.place_order_with_tpsl,
             symbol,
             order_side,
             quantity,
             exchange_tp,
             levels.sl,
+            expect_dict=True,
         )
     except Exception as e:
         logger.exception("[trade_execution:%s] place_order_with_tpsl raised", user_id)
