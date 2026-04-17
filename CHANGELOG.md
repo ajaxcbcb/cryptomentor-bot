@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.2.32] — 2026-04-17 — Bitunix Key Save/Test Import Crash Hotfix
+
+### 🛠️ Website API Route Hardening
+- Fixed `/bitunix/keys` and `/bitunix/keys/test` crash path by removing invalid direct import of `app.bitunix_autotrade_client`.
+- Added shared connection test helper in `website-backend/app/services/bitunix.py`:
+  - `fetch_connection_with_keys(api_key, api_secret)`
+- Updated key save/test routes to use service-layer client wiring (same runtime path used by existing Bitunix account/positions endpoints).
+- Added explicit exception mapping in routes so failures always return JSON `detail` (no unhandled plaintext 500).
+
+### 🎨 Frontend Error UX Guard (Onboarding + API Bridges)
+- Improved API error extraction in `website-frontend/src/App.jsx`:
+  - prefer JSON `detail/message/error`,
+  - fallback to raw response text when JSON parsing fails.
+- Applied to:
+  - Settings tab (`Test Connection`, `Save Connectivity`)
+  - Onboarding step 1 (`Test Connection`, `Save & Continue`)
+- Result: users now see actionable backend error text instead of generic `Failed to save keys`.
+
+### ✅ Validation
+- Syntax/compile pass:
+  - `python -m py_compile website-backend/app/routes/bitunix.py website-backend/app/services/bitunix.py`
+- Frontend build pass:
+  - `npm run build` (in `website-frontend`)
+
 ## [2.2.31] — 2026-04-17 — API Key DB Population + Hardcode Removal
 
 ### 🔐 Bitunix Key Source Normalization

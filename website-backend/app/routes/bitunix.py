@@ -70,6 +70,14 @@ def _norm_side(side: str | None) -> str:
     return ""
 
 
+def _conn_error(conn: dict) -> str:
+    if isinstance(conn, dict):
+        err = conn.get("error") or conn.get("message")
+        if err:
+            return str(err)
+    return "Invalid API Keys"
+
+
 def _is_same_position(live_pos: dict, db_trade: dict) -> bool:
     if _norm_symbol(live_pos.get("symbol")) != _norm_symbol(db_trade.get("symbol")):
         return False
@@ -427,24 +435,26 @@ async def bitunix_save_keys(
     """
     Test and save Bitunix API Keys for the user.
     """
-    from app.bitunix_autotrade_client import BitunixAutoTradeClient
-    
-    # 1. Test connection first
-    client = BitunixAutoTradeClient(api_key=keys.api_key, api_secret=keys.api_secret)
-    conn = client.check_connection()
+    try:
+        conn = await bsvc.fetch_connection_with_keys(keys.api_key, keys.api_secret)
+    except PermissionError as e:
+        raise HTTPException(status_code=500, detail=f"Bitunix client unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Connection check failed: {e}")
+
     if not conn.get("online"):
         raise HTTPException(
-            status_code=400, 
-            detail=f"Connection failed: {conn.get('error', 'Invalid API Keys')}"
+            status_code=400,
+            detail=f"Connection failed: {_conn_error(conn)}"
         )
-        
-    # 2. Connection passed, encrypt and save
+
     try:
         bsvc.save_user_api_keys(tg_id, keys.api_key, keys.api_secret)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save keys securely: {e}")
-        
+
     return {"success": True, "message": "API Keys securely linked."}
+
 
 @router.post("/keys/test")
 async def bitunix_test_keys(
@@ -454,16 +464,16 @@ async def bitunix_test_keys(
     """
     Dry-run test for Bitunix API Keys without saving them.
     """
-    from app.bitunix_autotrade_client import BitunixAutoTradeClient
-    
-    client = BitunixAutoTradeClient(api_key=keys.api_key, api_secret=keys.api_secret)
-    conn = client.check_connection()
-    
+    try:
+        conn = await bsvc.fetch_connection_with_keys(keys.api_key, keys.api_secret)
+    except PermissionError as e:
+        raise HTTPException(status_code=500, detail=f"Bitunix client unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Connection check failed: {e}")
+
     if not conn.get("online"):
-        return {
-            "success": False, 
-            "message": f"Connection failed: {conn.get('error', 'Invalid API Keys')}"
-        }
+        raise HTTPException(status_code=400, detail=f"Connection failed: {_conn_error(conn)}")
+
     return {"success": True, "message": "Connection successful! Keys are valid."}
 
 @router.delete("/keys")

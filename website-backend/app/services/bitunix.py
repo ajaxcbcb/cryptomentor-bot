@@ -181,6 +181,14 @@ async def fetch_connection(telegram_id: int) -> Dict[str, Any]:
     return await asyncio.to_thread(client.check_connection)
 
 
+async def fetch_connection_with_keys(api_key: str, api_secret: str) -> Dict[str, Any]:
+    """Test Bitunix connectivity using raw credentials without saving them."""
+    if not _BITUNIX_AVAILABLE or BitunixAutoTradeClient is None:
+        raise PermissionError("Bitunix client not available on this server")
+    client = BitunixAutoTradeClient(api_key=api_key, api_secret=api_secret)
+    return await asyncio.to_thread(client.check_connection)
+
+
 async def set_position_tpsl(telegram_id: int, symbol: str, tp_price: float, sl_price: float) -> Dict[str, Any]:
     client = _client_for(telegram_id)
     res = await asyncio.to_thread(client.set_position_tpsl, symbol, tp_price, sl_price)

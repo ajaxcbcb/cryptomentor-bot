@@ -94,6 +94,20 @@ const apiFetch = async (path, opts = {}) => {
   }
 };
 
+const readApiErrorMessage = async (resp, fallback = 'Request failed') => {
+  if (!resp) return fallback;
+  try {
+    const data = await resp.clone().json();
+    const msg = data?.detail || data?.message || data?.error;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+  } catch {}
+  try {
+    const text = (await resp.text()).trim();
+    if (text) return text;
+  } catch {}
+  return fallback;
+};
+
 const INITIAL_POSITIONS = [
   { id: 1, pair: "BTC/USDT", side: "LONG", entry: "$64,230.50", current: "$65,100.00", margin: "$1,000", leverage: "10x", pnl: "+$124.50", pnlPercent: "+12.45%", isProfitable: true, tp: { tp1: { price: "$64,800", hit: true }, tp2: { price: "$65,500", hit: false }, tp3: { price: "$66,000", hit: false } } },
   { id: 2, pair: "SOL/USDT", side: "SHORT", entry: "$145.20", current: "$142.10", margin: "$500", leverage: "5x", pnl: "+$31.00", pnlPercent: "+6.20%", isProfitable: true, tp: { tp1: { price: "$143.00", hit: true }, tp2: { price: "$141.50", hit: false }, tp3: { price: "$138.00", hit: false } } },
@@ -2025,8 +2039,12 @@ function SettingsTab({ onBotConnected }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || 'Failed to connect. Make sure your keys only have Trade permission.');
+      if (!resp.ok) {
+        const message = await readApiErrorMessage(resp, 'Failed to connect. Make sure your keys only have Trade permission.');
+        throw new Error(message);
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (data?.success === false) throw new Error(data.message || data.detail || 'Failed to connect.');
       
       setStatus('synced');
       setIsConfiguring(false);
@@ -2049,8 +2067,12 @@ function SettingsTab({ onBotConnected }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) throw new Error(data.message || data.detail || 'Test failed.');
+      if (!resp.ok) {
+        const message = await readApiErrorMessage(resp, 'Test failed.');
+        throw new Error(message);
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (data?.success === false) throw new Error(data.message || data.detail || 'Test failed.');
       
       alert('✅ Connection successful! Keys are valid.');
     } catch (e) {
@@ -3414,27 +3436,54 @@ function OnboardingWizard({ onComplete, onLogout }) {
 
   const handleTestConnection = async () => {
     setTestResult(null);
+    setTestError('');
     try {
       const resp = await apiFetch('/bitunix/keys/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
       });
-      if (resp.ok) { setTestResult('success'); }
-      else { const data = await resp.json().catch(() => ({})); setTestResult('error'); setTestError(data.detail || 'Connection failed'); }
-    } catch { setTestResult('error'); setTestError('Network error'); }
+      if (!resp.ok) {
+        const message = await readApiErrorMessage(resp, 'Connection failed');
+        setTestResult('error');
+        setTestError(message);
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (data?.success === false) {
+        setTestResult('error');
+        setTestError(data.message || data.detail || 'Connection failed');
+        return;
+      }
+      setTestResult('success');
+    } catch {
+      setTestResult('error');
+      setTestError('Network error');
+    }
   };
 
   const handleSaveKeys = async () => {
     setSaving(true);
+    setTestError('');
     try {
       const resp = await apiFetch('/bitunix/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
       });
-      if (resp.ok) setStep(2);
-      else { const data = await resp.json().catch(() => ({})); setTestResult('error'); setTestError(data.detail || 'Failed to save keys'); }
+      if (!resp.ok) {
+        const message = await readApiErrorMessage(resp, 'Failed to save keys');
+        setTestResult('error');
+        setTestError(message);
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (data?.success === false) {
+        setTestResult('error');
+        setTestError(data.message || data.detail || 'Failed to save keys');
+        return;
+      }
+      setStep(2);
     } catch (e) { setTestResult('error'); setTestError(e.message); }
     finally { setSaving(false); }
   };
