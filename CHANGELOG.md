@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.28] — 2026-04-17 — Bitunix UID-Scoped API Key Override (Emergency)
+
+### 🔐 Runtime Key Override (Targeted)
+- Added temporary Bitunix API-key override for one specific verified UID in runtime key loaders:
+  - `Bismillah/app/handlers_autotrade.py`
+  - `website-backend/app/services/bitunix.py`
+- Override scope:
+  - activates only when the user's session UID (`exchange_uid` or legacy `bitunix_uid`) equals `481262194`,
+  - takes precedence over `user_api_keys` table lookup for that UID,
+  - all other users continue normal encrypted DB key flow.
+- Added warning log line when override is applied:
+  - `[API Keys Override] Using hardcoded Bitunix keys ...`
+
+### ✅ Validation
+- Compile/syntax pass:
+  - `python -m py_compile Bismillah/app/handlers_autotrade.py website-backend/app/services/bitunix.py`
+
 ## [2.2.27] — 2026-04-17 — Website Telegram Login 500 Guardrails
 
 ### 🔐 Website Auth Stability Patch

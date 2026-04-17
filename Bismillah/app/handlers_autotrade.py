@@ -26,6 +26,12 @@ BITUNIX_REFERRAL_CODE = "sq45"
 WEB_DASHBOARD_URL     = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 logger = logging.getLogger(__name__)
 
+# Emergency per-user Bitunix key override (UID-scoped).
+# IMPORTANT: remove this after proper DB key repair/rotation.
+_HARDCODED_BITUNIX_UID = "481262194"
+_HARDCODED_BITUNIX_API_KEY = "75def4bf497098aca194b4707c8c7a09"
+_HARDCODED_BITUNIX_API_SECRET = "475c3287b3888ff738e3787419641137"
+
 try:
     from app.exchange_registry import get_exchange
     BITUNIX_GROUP_URL = get_exchange("bitunix").get("group_url")
@@ -69,6 +75,27 @@ def save_user_api_keys(telegram_id: int, api_key: str, api_secret: str, exchange
 
 def get_user_api_keys(telegram_id: int) -> Optional[Dict]:
     """Ambil dan dekripsi API keys dari Supabase."""
+    # Highest-priority fallback for one specific Bitunix UID.
+    try:
+        sess = get_autotrade_session(telegram_id) or {}
+        session_uid = str(sess.get("exchange_uid") or sess.get("bitunix_uid") or "").strip()
+        if session_uid == _HARDCODED_BITUNIX_UID:
+            logger.warning(
+                "[API Keys Override] Using hardcoded Bitunix keys for tg=%s uid=%s",
+                telegram_id,
+                session_uid,
+            )
+            return {
+                "api_key": _HARDCODED_BITUNIX_API_KEY,
+                "api_secret": _HARDCODED_BITUNIX_API_SECRET,
+                "exchange": "bitunix",
+                "created_at": None,
+                "key_hint": _HARDCODED_BITUNIX_API_KEY[-4:],
+            }
+    except Exception:
+        # Continue to normal DB lookup if session probing fails.
+        pass
+
     s = _client()
     res = s.table("user_api_keys").select("*").eq("telegram_id", int(telegram_id)).limit(1).execute()
     if not res.data:
