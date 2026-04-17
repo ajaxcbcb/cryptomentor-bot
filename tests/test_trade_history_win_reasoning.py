@@ -9,9 +9,17 @@ if _BISMILLAH not in sys.path:
     sys.path.insert(0, _BISMILLAH)
 
 try:
-    from Bismillah.app.trade_history import build_win_reasoning, _should_enforce_win_reasoning
+    from Bismillah.app.trade_history import (
+        build_win_reasoning,
+        _should_enforce_win_reasoning,
+        _normalized_win_tags,
+    )
 except ImportError:
-    from app.trade_history import build_win_reasoning, _should_enforce_win_reasoning  # type: ignore
+    from app.trade_history import (  # type: ignore
+        build_win_reasoning,
+        _should_enforce_win_reasoning,
+        _normalized_win_tags,
+    )
 
 
 def test_build_win_reasoning_includes_playbook_and_alignment():
@@ -45,3 +53,9 @@ def test_should_enforce_win_reasoning_status_policy():
     assert _should_enforce_win_reasoning("closed_sl", 0.50) is True
     assert _should_enforce_win_reasoning("closed_flip", 0.01) is True
     assert _should_enforce_win_reasoning("closed_flip", -0.01) is False
+
+
+def test_normalized_win_tags_fallback_non_empty():
+    assert _normalized_win_tags([], "closed_tp") == ["win_close", "closed_tp"]
+    assert _normalized_win_tags(None, "closed_tp3") == ["win_close", "closed_tp3"]
+    assert _normalized_win_tags(["tag_a"], "closed_tp") == ["tag_a"]

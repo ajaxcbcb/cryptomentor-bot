@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.2.38] — 2026-04-17 — Win Tag Fallback Enforcement + Historical Winner Backfill
+
+### 🏷️ Win Tag Contract Enforcement
+- Hardened winning close metadata contract to guarantee non-empty `win_reason_tags` on enforced winner paths:
+  - `Bismillah/app/engine_execution_shared.py`
+  - `Bismillah/app/trade_history.py`
+- Added fallback tag policy when playbook match returns no tags:
+  - `["win_close", "<close_reason>"]`
+- Applied on:
+  - `closed_tp` / `closed_tp3` (always),
+  - profitable `closed_flip`,
+  - positive cumulative closes (including partial-flow net winners).
+
+### 🧪 Regression Coverage
+- `tests/test_engine_shared_core.py`:
+  - verifies `closed_tp` path persists non-empty `win_reasoning` and non-empty `win_reason_tags` even on slight net-negative close.
+- `tests/test_trade_history_win_reasoning.py`:
+  - verifies fallback non-empty tag normalization behavior.
+
+### 🗄️ Data Backfill (Production)
+- Ran controlled historical backfill for winner rows missing win metadata:
+  - candidates scanned: `378`
+  - rows updated: `378`
+  - failures: `0`
+- Post-backfill coverage snapshot:
+  - all-time winner `win_reasoning` coverage: `100%`
+  - 24h winner `win_reasoning` coverage: `100%`
+  - fallback tag policy active for future closes.
+
+### ✅ Validation
+- Targeted tests:
+  - `pytest -q tests/test_engine_shared_core.py tests/test_trade_history_win_reasoning.py tests/test_swing_scalp_parity.py tests/test_risk_audit.py`
+  - Result: `24 passed`.
+- Full suite:
+  - `pytest -q tests`
+  - Result: `99 passed, 6 skipped`.
+
 ## [2.2.37] — 2026-04-17 — Stale-Price Skip Stabilization (Swing + Scalping)
 
 ### 🎯 Entry Validation Handling

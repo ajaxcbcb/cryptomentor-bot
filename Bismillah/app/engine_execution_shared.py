@@ -56,6 +56,18 @@ def _should_enforce_win_reasoning(close_reason: str, cumulative_pnl: float) -> b
     return False
 
 
+def _normalized_win_tags(raw_tags: Any, close_reason: str) -> list[str]:
+    tags: list[str] = []
+    if isinstance(raw_tags, list):
+        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+    elif raw_tags is not None and str(raw_tags).strip():
+        tags = [str(raw_tags).strip()]
+    if tags:
+        return tags
+    reason = str(close_reason or "").strip().lower() or "closed_unknown"
+    return ["win_close", reason]
+
+
 async def evaluate_and_apply_playbook_risk(
     *,
     signal: Any,
@@ -268,7 +280,9 @@ def build_cumulative_close_update_payload(
         if win_metadata.get("risk_overlay_pct") is not None:
             payload["risk_overlay_pct"] = _as_float(win_metadata.get("risk_overlay_pct"), payload["risk_overlay_pct"])
         if win_metadata.get("win_reason_tags") is not None:
-            payload["win_reason_tags"] = list(win_metadata.get("win_reason_tags") or [])
+            payload["win_reason_tags"] = _normalized_win_tags(
+                win_metadata.get("win_reason_tags"), str(close_reason)
+            )
         if win_metadata.get("win_reasoning"):
             payload["win_reasoning"] = str(win_metadata.get("win_reasoning"))
 
@@ -292,12 +306,13 @@ def build_cumulative_close_update_payload(
 
         if playbook_snapshot is not None:
             match_meta = compute_playbook_match_from_reasons(entry_reasons, playbook_snapshot)
+            matched_tags = _normalized_win_tags(match_meta.get("matched_tags", []), str(close_reason))
             payload["win_reasoning"] = build_win_reasoning(
                 trade_ctx,
-                playbook_tags=match_meta.get("matched_tags", []),
+                playbook_tags=matched_tags,
                 playbook_score=match_meta.get("playbook_match_score"),
             )
-            payload["win_reason_tags"] = list(match_meta.get("matched_tags", []))
+            payload["win_reason_tags"] = matched_tags
             payload["playbook_match_score"] = _as_float(
                 match_meta.get("playbook_match_score", payload["playbook_match_score"]),
                 payload["playbook_match_score"],
@@ -312,5 +327,6 @@ def build_cumulative_close_update_payload(
             )
         else:
             payload["win_reasoning"] = build_win_reasoning(trade_ctx)
+            payload["win_reason_tags"] = _normalized_win_tags([], str(close_reason))
 
     return payload, cumulative_pnl, partial_realized

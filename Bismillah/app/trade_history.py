@@ -35,6 +35,18 @@ def _should_enforce_win_reasoning(close_reason: str, cumulative_pnl: float) -> b
     return False
 
 
+def _normalized_win_tags(raw_tags: Any, close_reason: str) -> List[str]:
+    tags: List[str] = []
+    if isinstance(raw_tags, list):
+        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+    elif raw_tags is not None and str(raw_tags).strip():
+        tags = [str(raw_tags).strip()]
+    if tags:
+        return tags
+    reason = str(close_reason or "").strip().lower() or "closed_unknown"
+    return ["win_close", reason]
+
+
 # ─────────────────────────────────────────────
 #  WRITE: Simpan trade baru saat order masuk
 # ─────────────────────────────────────────────
@@ -185,7 +197,7 @@ def save_trade_close(
                 update["risk_overlay_pct"] = float(win_metadata.get("risk_overlay_pct"))
             tags = win_metadata.get("win_reason_tags")
             if tags is not None:
-                update["win_reason_tags"] = tags
+                update["win_reason_tags"] = _normalized_win_tags(tags, close_reason)
             if win_metadata.get("win_reasoning"):
                 update["win_reasoning"] = str(win_metadata.get("win_reasoning"))
 
@@ -199,13 +211,13 @@ def save_trade_close(
             matched_tags = []
             if win_metadata and isinstance(win_metadata.get("win_reason_tags"), list):
                 matched_tags = list(win_metadata.get("win_reason_tags"))
+            matched_tags = _normalized_win_tags(matched_tags, close_reason)
             update["win_reasoning"] = build_win_reasoning(
                 merged_trade,
                 playbook_tags=matched_tags,
                 playbook_score=(win_metadata or {}).get("playbook_match_score"),
             )
-            if matched_tags:
-                update["win_reason_tags"] = matched_tags
+            update["win_reason_tags"] = matched_tags
 
         if partial_realized > 0 and not pnl_is_total:
             logger.info(

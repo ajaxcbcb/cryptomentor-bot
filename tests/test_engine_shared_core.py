@@ -230,4 +230,5 @@ def test_build_cumulative_close_update_payload_enforces_win_reasoning_for_closed
     assert cumulative_pnl == pytest.approx(-0.05)
     assert payload["close_reason"] == "closed_tp"
     assert payload.get("win_reasoning"), "closed_tp close paths must persist win_reasoning"
+    assert payload.get("win_reason_tags"), "closed_tp close paths must persist non-empty win_reason_tags"
     assert "loss_reasoning" not in payload
