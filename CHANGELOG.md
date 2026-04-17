@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.2.35] — 2026-04-17 — Auto Mode Switcher Hardening (Hysteresis + Cooldown + Manual Override)
+
+### 🎯 Orchestration Policy
+- Kept `TradingModeManager.switch_mode(...)` + `autotrade_engine` restart lifecycle as the single switch orchestration backbone.
+- Preserved manual mode switch UX and auto mode toggle UX (hybrid model remains).
+
+### 🛡️ Auto Switcher Safety Hardening
+- Hardened `Bismillah/app/auto_mode_switcher.py` with low-trust detector guardrails:
+  - configurable confidence floor (`AUTO_MODE_SWITCH_MIN_CONFIDENCE`, default `65`),
+  - recommendation hysteresis cycles (`AUTO_MODE_SWITCH_CONFIRMATION_CYCLES`, default `2`),
+  - per-user auto-switch cooldown (`AUTO_MODE_SWITCH_COOLDOWN_SECONDS`, default `1800`).
+- Repurposed `switched_users` tracker to store per-user last successful auto-switch timestamps.
+- Added per-user recommendation streak tracking so first recommendation no longer flips mode immediately by default.
+- Added manual-override precedence gate: auto-switch skips users while manual override window is active.
+- Updated switcher status timestamp to timezone-aware UTC (`datetime.now(timezone.utc)`).
+
+### ⚙️ Trading Mode Manager Updates
+- Extended `TradingModeManager.switch_mode(...)` with `switch_source` (`manual` / `auto`) for policy-aware switching.
+- Added in-memory manual override controls in `Bismillah/app/trading_mode_manager.py`:
+  - `mark_manual_override(...)`
+  - `clear_manual_override(...)`
+  - `is_manual_override_active(...)`
+- Manual source switches now activate override window (`AUTO_MODE_MANUAL_OVERRIDE_SECONDS`, default `1800`).
+- Auto source switches continue to use full stop→persist→restart path without creating manual override.
+
+### 🧩 Handler Wiring
+- Updated manual callbacks in `Bismillah/app/handlers_autotrade.py` to call:
+  - `switch_mode(..., switch_source="manual")`
+- Auto mode switcher now calls:
+  - `switch_mode(..., switch_source="auto")`
+
+### 🧪 Validation
+- New tests:
+  - `tests/test_auto_mode_switcher_policy.py`
+  - `tests/test_trading_mode_manager_switch_source.py`
+- Updated parity test for new hysteresis default:
+  - `tests/test_swing_scalp_parity.py`
+
 ## [2.2.34] — 2026-04-17 — Dual Engine Shared-Core Refactor (Swing + Scalp)
 
 ### 🧩 Architecture Decision Applied

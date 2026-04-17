@@ -1488,7 +1488,11 @@ async def callback_select_scalping(update: Update, context: ContextTypes.DEFAULT
     
     # Switch mode
     result = await TradingModeManager.switch_mode(
-        user_id, TradingMode.SCALPING, context.application.bot, context
+        user_id,
+        TradingMode.SCALPING,
+        context.application.bot,
+        context,
+        switch_source="manual",
     )
     
     if result["success"]:
@@ -1571,7 +1575,11 @@ async def callback_select_swing(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Switch mode
     result = await TradingModeManager.switch_mode(
-        user_id, TradingMode.SWING, context.application.bot, context
+        user_id,
+        TradingMode.SWING,
+        context.application.bot,
+        context,
+        switch_source="manual",
     )
     
     if result["success"]:

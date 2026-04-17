@@ -124,8 +124,11 @@ def test_swing_timeout_alias_env_compat(monkeypatch):
 @pytest.mark.asyncio
 async def test_auto_mode_switcher_uses_full_switch_mode(monkeypatch):
     switcher = AutoModeSwitcher(bot=Mock())
+    switcher.required_confirmations = 1
+    switcher.switch_cooldown_seconds = 0
 
     monkeypatch.setattr(TradingModeManager, "get_mode", lambda _uid: TradingMode.SWING)
+    monkeypatch.setattr(TradingModeManager, "is_manual_override_active", lambda _uid: False)
     monkeypatch.setattr(
         TradingModeManager,
         "set_mode",

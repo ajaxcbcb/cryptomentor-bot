@@ -6,8 +6,10 @@ Runs as background task, checks every 15 minutes
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Dict, Set
+import os
+import time
+from datetime import datetime, timezone
+from typing import Dict
 
 from app.market_sentiment_detector import detect_market_condition
 from app.trading_mode_manager import TradingModeManager, TradingMode
@@ -30,9 +32,27 @@ class AutoModeSwitcher:
     def __init__(self, bot):
         self.bot = bot
         self.running = False
-        self.check_interval = 900  # 15 minutes
-        self.min_confidence = 50  # Lowered to 50% for more aggressive switching
-        self.switched_users: Set[int] = set()  # Track recent switches
+        self.check_interval = max(
+            60,
+            int(os.getenv("AUTO_MODE_SWITCH_CHECK_INTERVAL_SECONDS", "900") or "900"),
+        )
+        # Low-trust detector defaults: stricter confidence + confirmation cycles.
+        self.min_confidence = max(
+            0,
+            min(100, int(os.getenv("AUTO_MODE_SWITCH_MIN_CONFIDENCE", "65") or "65")),
+        )
+        self.required_confirmations = max(
+            1,
+            int(os.getenv("AUTO_MODE_SWITCH_CONFIRMATION_CYCLES", "2") or "2"),
+        )
+        self.switch_cooldown_seconds = max(
+            0,
+            int(os.getenv("AUTO_MODE_SWITCH_COOLDOWN_SECONDS", "1800") or "1800"),
+        )
+        # Repurposed tracker: user_id -> last successful auto-switch timestamp.
+        self.switched_users: Dict[int, float] = {}
+        # Per-user hysteresis state: user_id -> {"mode": str, "count": int}.
+        self._recommendation_state: Dict[int, Dict[str, int | str]] = {}
         self.last_condition = None
         self.last_check = None
     
@@ -43,7 +63,11 @@ class AutoModeSwitcher:
             return
         
         self.running = True
-        logger.info("[AutoModeSwitcher] Started - checking every 15 minutes")
+        logger.info(
+            "[AutoModeSwitcher] Started "
+            f"(interval={self.check_interval}s, min_conf={self.min_confidence}%, "
+            f"confirm_cycles={self.required_confirmations}, cooldown={self.switch_cooldown_seconds}s)"
+        )
         
         while self.running:
             try:
@@ -69,7 +93,7 @@ class AutoModeSwitcher:
             recommended_mode = result['recommended_mode']
             
             self.last_condition = result
-            self.last_check = datetime.utcnow()
+            self.last_check = datetime.now(timezone.utc)
             
             logger.info(
                 f"[AutoModeSwitcher] Market: {condition} ({confidence}%) "
@@ -136,6 +160,28 @@ class AutoModeSwitcher:
         except Exception as e:
             logger.error(f"[AutoModeSwitcher] Error getting auto-mode users: {e}")
             return []
+
+    def _record_recommendation(self, user_id: int, recommended_mode: str) -> int:
+        """
+        Track repeated recommendation streak per user for hysteresis.
+        """
+        uid = int(user_id)
+        state = self._recommendation_state.get(uid) or {"mode": "", "count": 0}
+        prev_mode = str(state.get("mode", ""))
+        prev_count = int(state.get("count", 0) or 0)
+        if prev_mode == recommended_mode:
+            count = prev_count + 1
+        else:
+            count = 1
+        self._recommendation_state[uid] = {"mode": recommended_mode, "count": count}
+        return count
+
+    def _in_switch_cooldown(self, user_id: int) -> bool:
+        uid = int(user_id)
+        last_switch_ts = float(self.switched_users.get(uid, 0.0) or 0.0)
+        if last_switch_ts <= 0:
+            return False
+        return (time.time() - last_switch_ts) < float(self.switch_cooldown_seconds)
     
     async def _switch_user_mode(self, user_id: int, recommended_mode: str, 
                                market_result: Dict) -> bool:
@@ -145,6 +191,32 @@ class AutoModeSwitcher:
         Returns True if switched, False if already in correct mode
         """
         try:
+            recommended_mode = str(recommended_mode or "").strip().lower()
+            if recommended_mode not in ("scalping", "swing"):
+                logger.warning(f"[AutoModeSwitcher:{user_id}] Invalid recommended mode: {recommended_mode}")
+                return False
+
+            if TradingModeManager.is_manual_override_active(user_id):
+                logger.info(
+                    f"[AutoModeSwitcher:{user_id}] Manual override active - skipping auto switch"
+                )
+                return False
+
+            if self._in_switch_cooldown(user_id):
+                logger.info(
+                    f"[AutoModeSwitcher:{user_id}] Auto-switch cooldown active "
+                    f"({self.switch_cooldown_seconds}s)"
+                )
+                return False
+
+            streak = self._record_recommendation(user_id, recommended_mode)
+            if streak < self.required_confirmations:
+                logger.info(
+                    f"[AutoModeSwitcher:{user_id}] Hysteresis gate: {streak}/{self.required_confirmations} "
+                    f"for {recommended_mode.upper()}"
+                )
+                return False
+
             # Get current mode
             current_mode = TradingModeManager.get_mode(user_id)
             target_mode = TradingMode.SCALPING if recommended_mode == "scalping" else TradingMode.SWING
@@ -161,6 +233,7 @@ class AutoModeSwitcher:
                 new_mode=target_mode,
                 bot=self.bot,
                 context=None,
+                switch_source="auto",
             )
             
             if not result.get("success"):
@@ -171,6 +244,7 @@ class AutoModeSwitcher:
             
             # Notify user
             await self._notify_user(user_id, current_mode, target_mode, market_result)
+            self.switched_users[int(user_id)] = time.time()
             
             logger.info(
                 f"[AutoModeSwitcher:{user_id}] Switched: {current_mode.value} → {target_mode.value}"
@@ -219,7 +293,9 @@ class AutoModeSwitcher:
             'last_check': self.last_check.isoformat() if self.last_check else None,
             'last_condition': self.last_condition,
             'check_interval_minutes': self.check_interval / 60,
-            'min_confidence': self.min_confidence
+            'min_confidence': self.min_confidence,
+            'required_confirmations': self.required_confirmations,
+            'switch_cooldown_seconds': self.switch_cooldown_seconds,
         }
 
 
