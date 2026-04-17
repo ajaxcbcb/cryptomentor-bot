@@ -1,5 +1,54 @@
 # Changelog
 
+## [2.2.18] — 2026-04-17 — 1-Click UX Hardening (Tokenized Deterministic Execute + Preview + Idempotency)
+
+### 🔐 Deterministic 1-Click Signal Execution
+- Updated `website-backend/app/routes/signals.py`:
+  - added server-signed `signal_token` on `GET /dashboard/signals` with payload fields:
+    `signal_id`, `symbol`, `pair`, `direction`, `stop_loss`, `targets`, `generated_at`, `expires_at`, `model_source`, and signature.
+  - replaced execute trust model from `symbol + generated_at` to token validation (signature + expiry).
+  - execution now uses token snapshot for direction/SL/TP source and live mark price only for final sizing.
+  - removed stale/dead cache path comments; route behavior remains fresh, no-cache generation.
+
+### 🧮 New 1-Click Preview + Safer Execute Contract
+- Added `POST /dashboard/signals/preview`:
+  - input: `signal_token`, optional `risk_override_pct`, `all_in`, `client_request_id`.
+  - output: `can_execute`, account snapshot, sizing preview, cap info, warning list.
+- Updated `POST /dashboard/signals/execute` contract:
+  - input now requires `signal_token` + `client_request_id` (+ optional risk override/all-in).
+  - response includes canonical sizing summary and `idempotency_status` (`fresh` or `replayed`).
+
+### 🧾 First-Class 1-Click Lifecycle Persistence
+- Added `website-backend/app/db/migrations/one_click_trades.sql`:
+  - new `one_click_trades` table with lifecycle statuses:
+    `pending_submit`, `open`, `rejected`, `closed_tp`, `closed_sl`, `closed_manual`, `closed_unknown`.
+  - unique idempotency index: `(telegram_id, client_request_id)`.
+- Added `website-backend/app/services/one_click_trades.py` for attempt/open/reject/close updates and recent/open lookup helpers.
+
+### 🛡️ Reliability + Attribution Improvements
+- Updated `website-backend/app/routes/bitunix.py`:
+  - source attribution now prioritizes `one_click_trades` open rows before autotrade fallback.
+  - manual close flow now syncs `one_click_trades` (`closed_manual`) and coordinator close with timestamp:
+    `confirm_closed(..., now_ts=time.time())`.
+- Updated signal status/user-state enrichment to include one-click lifecycle outcomes in addition to autotrade snapshots.
+
+### 🖥️ Frontend UX Hardening
+- Updated `website-frontend/src/App.jsx`:
+  - added pre-trade confirmation modal (entry/TP/SL, qty, margin, estimated max loss, leverage, cap warning).
+  - added high-risk friction:
+    - risk `>=50%`: explicit risk-ack checkbox required.
+    - risk `100%`: hold-to-confirm for 1.2 seconds.
+  - integrated `/dashboard/signals/preview` before execute and token-based execute payload.
+  - added reason-code mapping to actionable error messages.
+  - normalized 1-click risk controls to consistent snapped values (`1`, then `5`-step increments up to `100`).
+
+### ✅ Tests
+- Added `tests/test_one_click_signal_security.py`:
+  - token roundtrip validation,
+  - expired token rejection,
+  - tampered token signature rejection,
+  - sizing cap correctness with effective risk verification after cap.
+
 ## [2.2.17] — 2026-04-17 — StackMentor 3R Runner Rollout (Flagged 80/20 + BE + 5R)
 
 ### 🎯 StackMentor Runner Mode (Default OFF)

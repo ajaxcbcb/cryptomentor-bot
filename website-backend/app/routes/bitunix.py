@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import logging
+import time
 
 from app.auth.jwt import decode_token
 from app.db.supabase import _client
 from app.services import bitunix as bsvc
+from app.services import one_click_trades as one_click_repo
 try:
     from Bismillah.app.symbol_coordinator import get_coordinator
 except Exception:  # pragma: no cover
@@ -103,11 +105,14 @@ def _is_same_position(live_pos: dict, db_trade: dict) -> bool:
 def _annotate_position_sources(tg_id: int, positions: list[dict]) -> list[dict]:
     """
     Mark each live exchange position as:
+    - source=1_click: matched with an open row in one_click_trades
     - source=autotrade: matched with an open row in autotrade_trades
-    - source=1_click: unmatched live position (opened manually/1-click)
+    - source=1_click (fallback): unmatched live position (manual/legacy)
     """
     try:
         s = _client()
+        one_click_open = one_click_repo.get_open_trades(tg_id)
+        remaining_one_click = list(one_click_open)
         db_res = s.table("autotrade_trades").select(
             "id, symbol, side, qty, quantity, entry_price, status"
         ).eq("telegram_id", int(tg_id)).eq("status", "open").execute()
@@ -131,12 +136,34 @@ def _annotate_position_sources(tg_id: int, positions: list[dict]) -> list[dict]:
         enriched = dict(pos)
         source = "1_click"
         matched_trade_id = None
-        for idx, db_trade in enumerate(remaining_db):
-            if _is_same_position(enriched, db_trade):
-                source = "autotrade"
-                matched_trade_id = db_trade.get("id")
-                remaining_db.pop(idx)
+
+        # First-class 1-click attribution (preferred)
+        for idx, oc_trade in enumerate(remaining_one_click):
+            if _is_same_position(
+                enriched,
+                {
+                    "symbol": oc_trade.get("symbol"),
+                    "side": oc_trade.get("side"),
+                    "qty": oc_trade.get("qty"),
+                    "entry_price": oc_trade.get("entry_price"),
+                },
+            ):
+                source = "1_click"
+                matched_trade_id = oc_trade.get("id")
+                remaining_one_click.pop(idx)
                 break
+
+        # Fallback to managed autotrade attribution
+        if source != "1_click" or matched_trade_id is None:
+            source = "1_click"
+            matched_trade_id = None
+            for idx, db_trade in enumerate(remaining_db):
+                if _is_same_position(enriched, db_trade):
+                    source = "autotrade"
+                    matched_trade_id = db_trade.get("id")
+                    remaining_db.pop(idx)
+                    break
+
         enriched["source"] = source
         enriched["source_label"] = "AutoTrade" if source == "autotrade" else "1-Click"
         enriched["autotrade_trade_id"] = matched_trade_id
@@ -283,9 +310,18 @@ async def bitunix_close_position(
     if get_coordinator:
         try:
             coordinator = get_coordinator()
-            await coordinator.confirm_closed(tg_id, symbol)
+            await coordinator.confirm_closed(tg_id, symbol, time.time())
         except Exception as e:
             logger.warning(f"[1ClickClose:{tg_id}] Coordinator sync failed for {symbol}: {e}")
+
+    try:
+        one_click_repo.mark_closed_manual(
+            tg_id=tg_id,
+            symbol=symbol,
+            side=position_side,
+        )
+    except Exception as e:
+        logger.warning(f"[1ClickClose:{tg_id}] one_click_trades close sync failed for {symbol}: {e}")
 
     return {
         "success": True,

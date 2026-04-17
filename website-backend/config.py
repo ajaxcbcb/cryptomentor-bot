@@ -14,3 +14,5 @@ JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+ONE_CLICK_SIGNAL_SIGNING_KEY = os.getenv("ONE_CLICK_SIGNAL_SIGNING_KEY", "")

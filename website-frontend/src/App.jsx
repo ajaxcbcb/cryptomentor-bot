@@ -173,6 +173,46 @@ const normalizeOneClickRisk = (raw) => {
   return Math.max(5, Math.min(95, snapped));
 };
 
+const oneClickSliderValueFromRisk = (risk) => {
+  const normalized = normalizeOneClickRisk(risk);
+  if (normalized <= 1) return 0;
+  return Math.round(normalized / 5);
+};
+
+const oneClickRiskFromSliderValue = (sliderValue) => {
+  const v = Number(sliderValue);
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  if (v >= 20) return 100;
+  return normalizeOneClickRisk(v * 5);
+};
+
+const makeClientRequestId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch {}
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const mapOneClickReasonMessage = (detail) => {
+  const fallback = typeof detail === 'string' ? detail : 'Order failed';
+  if (!detail || typeof detail !== 'object') return fallback;
+  const code = String(detail.reason_code || '').toLowerCase();
+  const reason = String(detail.reason || detail.message || fallback);
+  const map = {
+    blocked_pending_order: 'Order blocked: there is already a pending order for this symbol.',
+    pending_order: 'Order blocked: pending request still in progress.',
+    existing_position: 'Order blocked: you already have an open managed position on this symbol.',
+    existing_position_opposite_side: 'Order blocked: opposite-side position is already open.',
+    exchange_position_exists: 'Order blocked: exchange shows an open position on this symbol.',
+    exchange_position_opposite_side: 'Order blocked: exchange has opposite-side position open.',
+    blocked_cooldown: 'Order blocked: symbol is in cooldown window after recent close.',
+    client_request_id_reused_expired_window: 'Request ID already used. Retry from preview to generate a new request.',
+    idempotent_replay_non_open: 'This request was already processed and did not open a position.',
+    validation_error: reason || 'Sizing validation failed for this setup.',
+  };
+  return map[code] || reason || fallback;
+};
+
 const getRiskButtonTone = (risk) => {
   const r = Number(risk) || 0;
   if (r > 5.0) return 'bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 border border-amber-400/40';
@@ -1231,7 +1271,7 @@ export default function App() {
             </div>
           </div>
           <h1 className="text-3xl md:text-4xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 tracking-tight">CryptoMentor AI</h1>
-          <p className="text-cyan-400 font-bold tracking-[0.2em] uppercase text-[10px] md:text-xs mb-8 drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]">V2.0 AutoTrade Engine</p>
+          <p className="text-cyan-400 font-bold tracking-[0.2em] uppercase text-[10px] md:text-xs mb-8 drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]">V4.0 AutoTrade Engine</p>
           <div className="bg-[#050505]/80 p-5 md:p-6 rounded-2xl md:rounded-3xl border border-white/5 mb-8 text-xs md:text-sm text-left space-y-4 shadow-inner">
             <div className="flex items-start gap-3"><div className="p-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 mt-0.5 shrink-0"><Layers size={14} className="text-cyan-400" /></div><p className="text-slate-300 font-medium leading-relaxed">Integrated <strong className="text-white">StackMentor</strong> 3-tier Take Profit tracking.</p></div>
             <div className="flex items-start gap-3"><div className="p-1.5 rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/20 mt-0.5 shrink-0"><RefreshCw size={14} className="text-fuchsia-400" /></div><p className="text-slate-300 font-medium leading-relaxed">Auto Mode Switching <span className="text-slate-500 text-[10px] font-bold">(Scalping ⇌ Swing)</span> based on sentiment.</p></div>
@@ -2696,11 +2736,20 @@ function BridgeCard({ name, status, logo, logoSrc, colors, onConnect, onDisconne
 
 function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUpdateOneClickRisk }) {
   const [isPlaced, setIsPlaced] = useState(false);
-  const [placing, setPlacing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [placeError, setPlaceError] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmError, setConfirmError] = useState(null);
+  const [riskAckChecked, setRiskAckChecked] = useState(false);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const [activeRequestId, setActiveRequestId] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const [riskDraft, setRiskDraft] = useState(null);
   const [sliderRisk, setSliderRisk] = useState(null);
+  const holdStartedAtRef = useRef(null);
+  const holdIntervalRef = useRef(null);
   const isLong = signal.direction === 'LONG';
   const isLocked = signal.premium && !userIsPremium;
   const isExpired = !!signal.expired;
@@ -2717,43 +2766,139 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
   const windowExpired = remainingMs <= 0;
   const oneClickRisk = normalizeOneClickRisk(oneClickRiskPct || 1.0);
   const controlRiskPct = sliderRisk !== null ? sliderRisk : oneClickRisk;
+  const sliderValue = oneClickSliderValueFromRisk(controlRiskPct);
+  const requiresRiskAck = controlRiskPct >= 50;
+  const requiresHold = controlRiskPct >= 100;
+  const userState = String(signal.user_state || 'ready');
+  const isUserStateBlocked = ['pending', 'blocked', 'open_1click'].includes(userState);
   const remainingLabel = windowExpired
     ? 'Entry window closed'
     : `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0')} left`;
 
-  const handleExecute = async () => {
-    if (placing || isPlaced || windowExpired) return;
-    setPlacing(true);
+  const clearHold = () => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+    holdStartedAtRef.current = null;
+    setHoldProgress(0);
+  };
+
+  useEffect(() => {
+    return () => clearHold();
+  }, []);
+
+  const closeConfirmModal = () => {
+    clearHold();
+    setShowConfirm(false);
+    setConfirmError(null);
+    setRiskAckChecked(false);
+  };
+
+  const openPreviewModal = async () => {
+    if (previewing || confirming || isPlaced || windowExpired || isUserStateBlocked) return;
+    if (!signal.signal_token) {
+      setPlaceError('Signal token missing. Please refresh signals.');
+      return;
+    }
+    setPreviewing(true);
     setPlaceError(null);
+    setConfirmError(null);
+    try {
+      const requestId = makeClientRequestId();
+      setActiveRequestId(requestId);
+      const r = await apiFetch('/dashboard/signals/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signal_token: signal.signal_token,
+          client_request_id: requestId,
+          risk_override_pct: controlRiskPct,
+          all_in: controlRiskPct >= 100,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(mapOneClickReasonMessage(data?.detail || data?.message || `HTTP ${r.status}`));
+      }
+      setPreviewData(data);
+      if (data?.can_execute?.allowed === false) {
+        setConfirmError(mapOneClickReasonMessage(data?.can_execute));
+      }
+      setShowConfirm(true);
+    } catch (e) {
+      setPlaceError(e.message || 'Failed to preview order');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const submitExecute = async () => {
+    if (confirming || previewing || !previewData) return;
+    if (previewData?.can_execute?.allowed === false) {
+      setConfirmError(mapOneClickReasonMessage(previewData?.can_execute));
+      return;
+    }
+    if (requiresRiskAck && !riskAckChecked) {
+      setConfirmError('Please confirm high-risk acknowledgment before executing.');
+      return;
+    }
+    setConfirming(true);
+    setConfirmError(null);
     try {
       const r = await apiFetch('/dashboard/signals/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            symbol: signal.pair.replace('/', ''),
-            generated_at: signal.generated_at,
-            risk_override_pct: controlRiskPct,
-            all_in: controlRiskPct >= 100,
-          }),
+        body: JSON.stringify({
+          signal_token: signal.signal_token,
+          client_request_id: activeRequestId || makeClientRequestId(),
+          risk_override_pct: controlRiskPct,
+          all_in: controlRiskPct >= 100,
+        }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const detail = data?.detail;
-        const detailMessage = (detail && typeof detail === 'object')
-          ? (detail.message || detail.reason || detail.reason_code || JSON.stringify(detail))
-          : detail;
-        throw new Error(detailMessage || `HTTP ${r.status}`);
+        throw new Error(mapOneClickReasonMessage(data?.detail || data?.message || `HTTP ${r.status}`));
       }
       const acceptedRisk = Number(data?.sizing?.risk_pct);
       if (Number.isFinite(acceptedRisk) && acceptedRisk > 0) {
         onUpdateOneClickRisk(acceptedRisk);
       }
       setIsPlaced(true);
+      closeConfirmModal();
     } catch (e) {
-      setPlaceError(e.message || 'Failed to place order');
+      setConfirmError(e.message || 'Failed to place order');
     } finally {
-      setPlacing(false);
+      setConfirming(false);
     }
+  };
+
+  const beginHoldToConfirm = () => {
+    if (!requiresHold || confirming || previewing) return;
+    if (previewData?.can_execute?.allowed === false) {
+      setConfirmError(mapOneClickReasonMessage(previewData?.can_execute));
+      return;
+    }
+    if (requiresRiskAck && !riskAckChecked) {
+      setConfirmError('Please confirm high-risk acknowledgment before executing.');
+      return;
+    }
+    clearHold();
+    const startedAt = Date.now();
+    holdStartedAtRef.current = startedAt;
+    holdIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const pct = Math.max(0, Math.min(100, (elapsed / 1200) * 100));
+      setHoldProgress(pct);
+      if (pct >= 100) {
+        clearHold();
+        submitExecute();
+      }
+    }, 30);
+  };
+
+  const cancelHoldToConfirm = () => {
+    if (requiresHold) clearHold();
   };
 
   const commitRisk = (value) => {
@@ -2795,7 +2940,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
               <div className="flex-1 flex flex-col items-center justify-center py-6 bg-cyan-500/5 rounded-xl border border-cyan-500/20 mt-2">
                 <Zap className="text-cyan-400 w-8 h-8 mb-2" />
                 <p className="text-sm font-bold text-white mb-1">In Position</p>
-                <p className="text-xs text-slate-400">Autotrade is holding this trade.</p>
+                <p className="text-xs text-slate-400">This symbol already has an active position.</p>
                 {pnlStr && <p className={`text-xs font-black mt-2 ${pnl >= 0 ? 'text-lime-400' : 'text-rose-400'}`}>PnL {pnlStr}</p>}
               </div>
             );
@@ -2809,6 +2954,15 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
                 <p className="text-sm font-bold text-white mb-1">Take Profit Hit ({which})</p>
                 <p className="text-xs text-slate-400">Trade closed in profit.</p>
                 {pnlStr && <p className="text-xs font-black mt-2 text-lime-400">PnL {pnlStr}</p>}
+              </div>
+            );
+          }
+          if (ts === 'manual_close') {
+            return (
+              <div className="flex-1 flex flex-col items-center justify-center py-6 bg-amber-500/5 rounded-xl border border-amber-500/20 mt-2">
+                <AlertCircle className="text-amber-400 w-8 h-8 mb-2" />
+                <p className="text-sm font-bold text-white mb-1">Closed Manually</p>
+                <p className="text-xs text-slate-400">The previous 1-click position was closed manually.</p>
               </div>
             );
           }
@@ -2831,6 +2985,11 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
             <div className="flex-1 bg-white/[0.02] p-3 rounded-xl border border-white/5"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stack Targets</p><div className="flex flex-wrap gap-1">{signal.targets.map((t, i) => <span key={i} className="text-xs font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">TP{i+1}: {t}</span>)}</div></div>
             <div className="bg-white/[0.02] p-3 rounded-xl border border-white/5 min-w-[80px]"><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Stop Loss</p><p className="text-rose-400 font-bold text-sm">{signal.stopLoss}</p></div>
           </div>
+          {signal.user_state && signal.user_state !== 'ready' && (
+            <div className="rounded-lg p-2 border border-white/10 bg-white/5 text-[10px] text-slate-300">
+              User State: <span className="font-bold uppercase tracking-wider">{String(signal.user_state).replace(/_/g, ' ')}</span>
+            </div>
+          )}
           {!isPlaced && !windowExpired && riskSettings?.equity > 0 && signal.stopLoss && (
             <div className={`rounded-lg p-2.5 text-[10px] ${getOneClickRiskPanelTone(controlRiskPct)}`}>
               <div className="flex items-center justify-between">
@@ -2851,21 +3010,21 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
               <div className="flex items-center gap-2">
                 <input
                   type="range"
-                  min="1"
-                  max="100"
-                  step="5"
-                  value={controlRiskPct}
+                  min="0"
+                  max="20"
+                  step="1"
+                  value={sliderValue}
                   disabled={riskSettings?.loading}
-                  onChange={e => setSliderRisk(parseFloat(e.target.value))}
-                  onMouseUp={e => commitRisk(e.currentTarget.value)}
-                  onTouchEnd={e => commitRisk(e.currentTarget.value)}
+                  onChange={e => setSliderRisk(oneClickRiskFromSliderValue(e.target.value))}
+                  onMouseUp={e => commitRisk(oneClickRiskFromSliderValue(e.currentTarget.value))}
+                  onTouchEnd={e => commitRisk(oneClickRiskFromSliderValue(e.currentTarget.value))}
                   className="flex-1 accent-amber-500 disabled:opacity-40"
                 />
                 <input
                   type="number"
                   min="1"
                   max="100"
-                  step="5"
+                  step="1"
                   value={riskDraft !== null ? riskDraft : controlRiskPct}
                   disabled={riskSettings?.loading}
                   onChange={e => setRiskDraft(e.target.value)}
@@ -2899,10 +3058,114 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
             <span className="text-slate-500">Entry Window</span>
             <span className={windowExpired ? 'text-rose-400' : remainingMs < 60000 ? 'text-amber-400' : 'text-cyan-400'}>{remainingLabel}</span>
           </div>
-          <button onClick={handleExecute} disabled={isPlaced || placing || windowExpired} className={`mt-1 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : windowExpired ? 'bg-white/5 text-slate-500 border border-white/10' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}>
-            {isPlaced ? <><CheckCircle2 size={16} /> Position Opened</> : placing ? <><Zap size={16} /> Placing…</> : windowExpired ? <>Entry Window Closed</> : <><Zap size={16} /> 1-Click Open {signal.direction}</>}
+          <button
+            onClick={openPreviewModal}
+            disabled={isPlaced || previewing || confirming || windowExpired || isUserStateBlocked || !signal.signal_token}
+            className={`mt-1 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : windowExpired ? 'bg-white/5 text-slate-500 border border-white/10' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}
+          >
+            {isPlaced ? (
+              <><CheckCircle2 size={16} /> Position Opened</>
+            ) : previewing ? (
+              <><Zap size={16} /> Previewing…</>
+            ) : windowExpired ? (
+              <>Entry Window Closed</>
+            ) : isUserStateBlocked ? (
+              <>Blocked ({userState.replace(/_/g, ' ')})</>
+            ) : (
+              <><Zap size={16} /> Review & 1-Click Open {signal.direction}</>
+            )}
           </button>
           {placeError && <p className="text-[10px] font-bold text-rose-400 mt-1">{placeError}</p>}
+        </div>
+      )}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 bg-[#020202]/80 backdrop-blur-sm p-4 md:p-5 flex items-center justify-center">
+          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-[#090909] p-4 md:p-5">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 font-bold">Pre-Trade Confirmation</p>
+                <h5 className="text-white font-black text-lg">{signal.pair} {signal.direction}</h5>
+              </div>
+              <button type="button" onClick={closeConfirmModal} className="text-slate-400 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">Entry</p><p className="text-white font-bold">{previewData?.sizing?.entry_price || '-'}</p></div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">Leverage</p><p className="text-white font-bold">{previewData?.sizing?.leverage || '-'}x</p></div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">TP</p><p className="text-cyan-300 font-bold">{previewData?.sizing?.tp_price || '-'}</p></div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">SL</p><p className="text-rose-300 font-bold">{previewData?.sizing?.sl_price || '-'}</p></div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">Qty</p><p className="text-white font-bold">{previewData?.sizing?.qty || '-'}</p></div>
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2"><p className="text-slate-500 uppercase text-[9px] tracking-wider">Margin</p><p className="text-white font-bold">${Number(previewData?.sizing?.margin_required || 0).toFixed(2)}</p></div>
+            </div>
+
+            <div className={`rounded-lg p-2 text-[11px] mb-3 ${getOneClickRiskPanelTone(controlRiskPct)}`}>
+              <p className={`font-bold ${getOneClickRiskValueTone(controlRiskPct)}`}>
+                Estimated max loss: ${Number(previewData?.sizing?.risk_amount || 0).toFixed(2)}
+              </p>
+              <p className="text-slate-300">
+                Risk {previewData?.sizing?.risk_pct ?? controlRiskPct}% ({previewData?.sizing?.risk_band_label || 'N/A'})
+              </p>
+              {previewData?.sizing?.cap_applied && (
+                <p className="text-amber-300 mt-1">Size capped by balance buffer policy.</p>
+              )}
+            </div>
+
+            {!!previewData?.warnings?.length && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-200 mb-3">
+                {previewData.warnings.map((w, idx) => <p key={idx}>{w}</p>)}
+              </div>
+            )}
+
+            {requiresRiskAck && (
+              <label className="flex items-start gap-2 text-[11px] text-slate-300 mb-3">
+                <input
+                  type="checkbox"
+                  checked={riskAckChecked}
+                  onChange={(e) => setRiskAckChecked(e.target.checked)}
+                  className="mt-0.5 accent-amber-500"
+                />
+                <span>I understand this is high risk and can cause significant drawdown.</span>
+              </label>
+            )}
+
+            {confirmError && <p className="text-[11px] font-bold text-rose-400 mb-3">{confirmError}</p>}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeConfirmModal}
+                disabled={confirming}
+                className="flex-1 py-2.5 rounded-lg border border-white/15 text-slate-300 hover:text-white hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              {!requiresHold ? (
+                <button
+                  type="button"
+                  onClick={submitExecute}
+                  disabled={confirming || previewData?.can_execute?.allowed === false}
+                  className="flex-1 py-2.5 rounded-lg border border-lime-500/30 bg-lime-500/15 text-lime-300 hover:bg-lime-500/25 disabled:opacity-40 font-bold"
+                >
+                  {confirming ? 'Placing…' : 'Confirm & Execute'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onMouseDown={beginHoldToConfirm}
+                  onMouseUp={cancelHoldToConfirm}
+                  onMouseLeave={cancelHoldToConfirm}
+                  onTouchStart={beginHoldToConfirm}
+                  onTouchEnd={cancelHoldToConfirm}
+                  disabled={confirming || previewData?.can_execute?.allowed === false}
+                  className="flex-1 py-2.5 rounded-lg border border-rose-500/30 bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 disabled:opacity-40 font-bold"
+                >
+                  {confirming ? 'Placing…' : holdProgress > 0 ? `Hold… ${Math.round(holdProgress)}%` : 'Hold 1.2s to Confirm'}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
