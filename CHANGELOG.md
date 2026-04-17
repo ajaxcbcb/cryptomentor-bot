@@ -1,5 +1,44 @@
 # Changelog
 
+## [2.2.34] — 2026-04-17 — Dual Engine Shared-Core Refactor (Swing + Scalp)
+
+### 🧩 Architecture Decision Applied
+- Kept **two strategy engines** (swing + scalping) and extracted shared orchestration/execution plumbing.
+- Preserved public runtime API (`start_engine_async(...)`) and mode-switch behavior.
+
+### ⚙️ Shared Runtime Layer
+- Added `Bismillah/app/engine_runtime_shared.py` with shared helpers for:
+  - startup pending-lock sanitize,
+  - stop-signal polling (`autotrade_sessions.status/engine_active`),
+  - 10-minute refresh cadence orchestration,
+  - top-volume pair refresh with fallback,
+  - blocked-pending notification dedupe TTL.
+- Wired both engines to this shared runtime layer (no strategy merge).
+
+### 🧠 Shared Execution + Close Persistence Layer
+- Added `Bismillah/app/engine_execution_shared.py` with shared helpers for:
+  - playbook risk evaluation + signal field attachment,
+  - risk-audit formatting + structured emission,
+  - coordinator pending/open/close wrappers,
+  - cumulative close payload builder (`profit_tp1/2/3 + final_leg_pnl`) with win/loss reasoning persistence.
+- Updated scalping close persistence path to use shared cumulative payload helper.
+
+### 🔒 Compatibility + Control Plane
+- Added backward-compatible `get_scalping_engine(user_id)` alias in `Bismillah/app/autotrade_engine.py` delegating to `get_engine(...)`.
+- Updated mode-switch cleanup path to use alias (`Bismillah/app/trading_mode_manager.py`) so runtime accessor naming stays consistent.
+
+### 🧪 Validation
+- Compile/syntax pass:
+  - `python -m compileall Bismillah/app/engine_runtime_shared.py Bismillah/app/engine_execution_shared.py Bismillah/app/autotrade_engine.py Bismillah/app/scalping_engine.py Bismillah/app/trading_mode_manager.py`
+- New unit coverage:
+  - `tests/test_engine_shared_core.py`:
+    - alias runtime path (`get_scalping_engine`),
+    - shared runtime cadence/stop behavior,
+    - shared cumulative close payload (PnL + win/loss reasoning metadata).
+- Targeted regressions:
+  - `pytest -q tests/test_engine_shared_core.py tests/test_timeout_protection_policy.py tests/test_swing_scalp_parity.py`
+  - Result: `16 passed`.
+
 ## [2.2.33] — 2026-04-17 — Swing/Scalp Adaptive Parity + Win Strategy Sync Hardening
 
 ### 🎯 Mode Lifecycle + Auto-Switch Consistency
