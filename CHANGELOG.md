@@ -1,5 +1,71 @@
 # Changelog
 
+## [2.2.54] — 2026-04-19 — Daily Report Live Equity Refresh + Balance Drift Backfill
+
+### 💰 Live Equity in Admin Report
+- Updated `Bismillah/app/admin_daily_report.py` to resolve per-user live equity using exchange account info:
+  - `equity = available + frozen + unrealized`.
+- Daily report active/stopped sections now display `Equity` instead of stale `Bal`.
+
+### 🔄 DB Balance Drift Backfill
+- During daily report generation, when live equity differs from `autotrade_sessions.current_balance`, the report flow now backfills:
+  - `autotrade_sessions.current_balance = live_equity`
+  - `updated_at = now()`
+- This keeps control-plane snapshots closer to runtime reality, especially for stopped users with changed exchange equity.
+
+### ⚙️ Safety + Performance
+- Added bounded concurrency (`Semaphore(8)`) for report-time live equity hydration.
+- Added graceful fallback to DB balance when API keys are missing or exchange calls fail.
+
+### ✅ Validation
+- `python -m py_compile Bismillah/app/admin_daily_report.py`
+
+## [2.2.53] — 2026-04-19 — Web Engine Controls Rework (Auto/Mode/StackMentor)
+
+### 🎛️ Engine Control API Wiring
+- Added new dashboard control endpoints in `website-backend/app/routes/dashboard.py`:
+  - `PUT /dashboard/engine/auto-mode`
+  - `PUT /dashboard/engine/mode`
+  - `PUT /dashboard/engine/stackmentor`
+- Added shared engine-control helpers for:
+  - normalized control-state payload shaping,
+  - runtime-running detection with safe fallback,
+  - live mode switch orchestration via `TradingModeManager.switch_mode(..., switch_source="manual")` when runtime is active.
+- Mixed-mode lock behavior enforced:
+  - mixed mode forces `auto_mode_enabled=false`,
+  - response now includes lock metadata (`auto_mode_locked`, `auto_mode_lock_reason`).
+- Stopped-engine mode changes are persist-only (`runtime_action="persisted_only"`), no implicit engine start.
+
+### 🗄️ Session Schema + Payload Alignment
+- Added migration: `db/add_stackmentor_enabled_and_mixed_mode.sql`
+  - `autotrade_sessions.stackmentor_enabled BOOLEAN DEFAULT TRUE`
+  - `chk_trading_mode` constraint now allows `mixed`.
+- Updated `/dashboard/portfolio` engine payload:
+  - added `stackmentor_enabled`,
+  - added auto-mode lock metadata fields,
+  - fixed `stackmentor_active` mapping to use stackmentor preference instead of `engine_active`.
+
+### 🌐 Frontend Engine Controls (Immediate Apply)
+- Updated `website-frontend/src/App.jsx` Engine Controls:
+  - Auto Mode toggle now calls `PUT /dashboard/engine/auto-mode`.
+  - Trading mode buttons now call `PUT /dashboard/engine/mode`.
+  - StackMentor toggle now calls `PUT /dashboard/engine/stackmentor` (preference-only).
+  - Added per-control loading states and inline error surface.
+  - Mixed-mode UI explicitly shows auto-switch lock reason and disables auto toggle.
+  - Mode buttons remain available only when Auto Mode is OFF.
+
+### 🧭 Route Ambiguity Cleanup
+- Removed duplicate `/dashboard/engine/*` registration path by removing `engine_router` inclusion from `website-backend/main.py`.
+- Canonical web engine control path is now dashboard router implementation.
+
+### 🧪 Tests
+- Added targeted backend tests: `tests/test_dashboard_engine_controls.py`
+  - mixed auto-mode forced OFF + lock,
+  - stopped mode switch persist-only behavior,
+  - running mode switch uses live switch path,
+  - switching to mixed forces auto OFF,
+  - StackMentor preference persistence.
+
 ## [2.2.52] — 2026-04-19 — Manual Admin Daily Report Trigger Command
 
 ### 📣 Admin Command

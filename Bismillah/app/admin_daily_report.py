@@ -34,6 +34,13 @@ def _fmt(val, prefix="$", decimals=2) -> str:
         return "N/A"
 
 
+def _to_float(val, default: float = 0.0) -> float:
+    try:
+        return float(val or 0)
+    except Exception:
+        return float(default)
+
+
 def _escape_html(value) -> str:
     return html.escape(str(value if value is not None else ""))
 
@@ -115,6 +122,7 @@ async def send_daily_report(bot):
         from app.supabase_repo import _client
         from app.autotrade_engine import is_running
         from app.handlers_autotrade import get_user_api_keys
+        from app.exchange_registry import get_client
         from app.adaptive_confluence import classify_outcome_class, get_adaptive_overrides
         from app.win_playbook import refresh_global_win_playbook_state, get_win_playbook_snapshot
 
@@ -147,6 +155,76 @@ async def send_daily_report(bot):
                 active_engines.append(sess)
             else:
                 stopped_engines.append(sess)
+
+        key_cache: dict[int, dict | None] = {}
+
+        def _cached_user_keys(uid: int):
+            try:
+                uid_i = int(uid)
+            except Exception:
+                return None
+            if uid_i not in key_cache:
+                try:
+                    key_cache[uid_i] = get_user_api_keys(uid_i)
+                except Exception:
+                    key_cache[uid_i] = None
+            return key_cache[uid_i]
+
+        async def _resolve_live_equity(sess: dict) -> tuple[float, str]:
+            uid = int(sess.get("telegram_id") or 0)
+            fallback = _to_float(sess.get("current_balance"), 0.0)
+            keys = _cached_user_keys(uid)
+            if not keys:
+                return fallback, "db_no_keys"
+
+            exchange_id = str(keys.get("exchange") or sess.get("exchange") or "bitunix")
+            try:
+                ex_client = get_client(exchange_id, keys["api_key"], keys["api_secret"])
+                acc = await asyncio.wait_for(
+                    asyncio.to_thread(ex_client.get_account_info),
+                    timeout=4.0,
+                )
+                if bool(acc.get("success")):
+                    available = _to_float(acc.get("available"), 0.0)
+                    frozen = _to_float(acc.get("frozen"), 0.0)
+                    unrealized = _to_float(acc.get("total_unrealized_pnl"), 0.0)
+                    equity = available + frozen + unrealized
+
+                    # Keep DB snapshot fresh so admin reports and other consumers
+                    # do not keep showing stale bootstrap balances.
+                    if abs(equity - fallback) > 0.01:
+                        try:
+                            s.table("autotrade_sessions").update({
+                                "current_balance": equity,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }).eq("telegram_id", uid).execute()
+                        except Exception as e:
+                            logger.warning(
+                                f"[DailyReport] Failed to persist equity snapshot for {uid}: {e}"
+                            )
+                    return equity, "live"
+            except Exception as e:
+                logger.warning(f"[DailyReport] Live equity fetch failed for {uid}: {e}")
+
+            return fallback, "db_fallback"
+
+        # Hydrate live equity for all users shown in active/stopped sections.
+        report_sessions = []
+        report_sessions.extend(active_engines)
+        report_sessions.extend(stopped_engines)
+        if report_sessions:
+            sem = asyncio.Semaphore(8)
+
+            async def _hydrate_one(sess: dict):
+                uid = int(sess.get("telegram_id") or 0)
+                if uid <= 0:
+                    return
+                async with sem:
+                    equity, source = await _resolve_live_equity(sess)
+                sess["_equity_value"] = equity
+                sess["_equity_source"] = source
+
+            await asyncio.gather(*[_hydrate_one(sess) for sess in report_sessions])
 
         # ── 2. Today's trades ─────────────────────────────────────────
         trades_res = s.table("autotrade_trades").select(
@@ -318,12 +396,14 @@ async def send_daily_report(bot):
             for sess in stopped_engines:
                 uid = sess.get("telegram_id")
                 username = _escape_html(sess.get("username") or f"#{uid}")
-                has_keys = get_user_api_keys(uid) is not None
+                has_keys = _cached_user_keys(uid) is not None
                 reason = _engine_stop_reason(sess, has_keys)
                 last_update = sess.get("updated_at", "")[:10] if sess.get("updated_at") else "N/A"
+                equity = _to_float(sess.get("_equity_value", sess.get("current_balance")), 0.0)
                 msg += (
                     f"  • <code>{uid}</code> @{username} — "
-                    f"{_escape_html(reason)} (last: {_escape_html(last_update)})\n"
+                    f"{_escape_html(reason)} | Equity: ${equity:,.2f} "
+                    f"(last: {_escape_html(last_update)})\n"
                 )
             msg += "\n"
 
@@ -333,9 +413,12 @@ async def send_daily_report(bot):
             for sess in active_engines:
                 uid = sess.get("telegram_id")
                 mode = _escape_html(sess.get("trading_mode", "scalping").title())
-                risk = sess.get("risk_per_trade", 1.0)
-                balance = sess.get("current_balance", 0)
-                msg += f"  • <code>{uid}</code> — {mode} | Risk: {risk}% | Bal: ${float(balance or 0):,.0f}\n"
+                risk = _to_float(sess.get("risk_per_trade"), 1.0)
+                equity = _to_float(sess.get("_equity_value", sess.get("current_balance")), 0.0)
+                msg += (
+                    f"  • <code>{uid}</code> — {mode} | "
+                    f"Risk: {risk:.2f}% | Equity: ${equity:,.2f}\n"
+                )
             msg += "\n"
 
         # ── 8. New users list ─────────────────────────────────────────
