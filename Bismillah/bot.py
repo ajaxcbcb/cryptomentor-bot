@@ -57,7 +57,7 @@ class TelegramBot:
 
     def _load_admin_ids(self):
         admin_ids = set()
-        for key in ['ADMIN_IDS', 'ADMIN1', 'ADMIN2', 'ADMIN_USER_ID', 'ADMIN2_USER_ID']:
+        for key in ['ADMIN_IDS', 'ADMIN1', 'ADMIN2', 'ADMIN3', 'ADMIN_USER_ID', 'ADMIN2_USER_ID']:
             value = os.getenv(key)
             if value:
                 try:
@@ -87,6 +87,8 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("id", self.id_command))
         self.application.add_handler(CommandHandler("admin", self.admin_command))
+        self.application.add_handler(CommandHandler("daily_report_now", self.daily_report_now_command))
+        self.application.add_handler(CommandHandler("dailyreport_now", self.daily_report_now_command))
 
         # Retired commands — redirect to web dashboard
         self.application.add_handler(CommandHandler("analyze", self.redirect_to_web))
@@ -210,7 +212,7 @@ class TelegramBot:
             "• Signals & market analysis\n"
             "• Risk & leverage settings\n"
             "• Performance metrics\n\n"
-            "👑 <b>Admin:</b> /admin, /set_premium, /signal_on, /signal_off",
+            "👑 <b>Admin:</b> /admin, /set_premium, /signal_on, /signal_off, /daily_report_now",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🌐 Open Dashboard", url=os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id"))]
@@ -246,6 +248,26 @@ class TelegramBot:
             )
         except Exception as e:
             await msg.edit_text(f"❌ Gagal ambil IP: {e}")
+
+    async def daily_report_now_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Admin command: trigger manual resend daily admin report."""
+        user_id = update.effective_user.id
+        if user_id not in self.admin_ids:
+            await update.message.reply_text("❌ Admin only.")
+            return
+
+        status_msg = await update.message.reply_text(
+            "⏳ Sending daily report to all admins..."
+        )
+        try:
+            from app.admin_daily_report import send_daily_report
+            await send_daily_report(context.bot)
+            await status_msg.edit_text(
+                "✅ Daily report sent to admin targets."
+            )
+        except Exception as e:
+            logger.error("Manual daily report send failed: %s", e)
+            await status_msg.edit_text(f"❌ Failed to send daily report: {e}")
 
     async def price_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         symbol = context.args[0].upper() if context.args else 'BTC'

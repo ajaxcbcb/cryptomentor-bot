@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.2.52] — 2026-04-19 — Manual Admin Daily Report Trigger Command
+
+### 📣 Admin Command
+- Updated `Bismillah/bot.py` to add admin-only manual resend command:
+  - `/daily_report_now`
+  - alias `/dailyreport_now`
+- New command calls existing `app.admin_daily_report.send_daily_report(...)` and returns in-chat success/failure status.
+
+### 🛡️ Admin ID Consistency
+- Expanded bot admin env key loader to include `ADMIN3` in `Bismillah/bot.py` for command-gate parity with report/admin flows.
+
+### 📚 Help Text
+- Updated `/help` admin command list to include `/daily_report_now`.
+
+### ✅ Validation
+- `python -m py_compile Bismillah/bot.py Bismillah/app/admin_daily_report.py`
+
+## [2.2.51] — 2026-04-19 — Admin Daily Report Full Delivery (No Truncation)
+
+### 📣 Telegram Admin Report Completeness
+- Updated `Bismillah/app/admin_daily_report.py` so daily admin report is no longer intentionally truncated:
+  - removed hard caps that previously limited sections (`stopped` to 10, `active` to 8, `new users` to 5).
+  - report now includes full row listings for those sections.
+
+### 🧩 Long Message Delivery Hardening
+- Added line-safe chunking helper to avoid Telegram 4096-char failures:
+  - new `_split_message_lines(...)` splits oversized reports into multiple messages while preserving readability.
+  - continuation messages include `CryptoMentor Daily Report (Cont. x/y)` header.
+
+### 🛡️ HTML Safety
+- Added HTML escaping for dynamic user/symbol/mode fields in report lines to prevent malformed entity issues during `parse_mode='HTML'`.
+
+### ✅ Validation
+- `python -m py_compile Bismillah/app/admin_daily_report.py`
+
 ## [2.2.50] — 2026-04-18 — Mixed Runtime Callback Hardening + SOP Alignment
 
 ### 🎯 Telegram Callback Hardening

@@ -5,6 +5,7 @@ Covers: active engines, trades, PnL, stopped engines with reasoning.
 """
 
 import asyncio
+import html
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,51 @@ def _fmt(val, prefix="$", decimals=2) -> str:
         return f"{sign}{prefix}{v:,.{decimals}f}"
     except Exception:
         return "N/A"
+
+
+def _escape_html(value) -> str:
+    return html.escape(str(value if value is not None else ""))
+
+
+def _split_message_lines(text: str, max_len: int = 3800) -> list[str]:
+    """
+    Split long Telegram messages safely by line boundaries.
+    Keeps HTML entities/tags intact per line and avoids 4096-char limit.
+    """
+    if len(text) <= max_len:
+        return [text]
+
+    chunks: list[str] = []
+    current_lines: list[str] = []
+    current_len = 0
+
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line
+
+        # Fallback: a single very long line still must be split.
+        while len(line) > max_len:
+            head = line[:max_len]
+            tail = line[max_len:]
+            if current_lines:
+                chunks.append("".join(current_lines).rstrip())
+                current_lines = []
+                current_len = 0
+            chunks.append(head.rstrip())
+            line = tail
+
+        line_len = len(line)
+        if current_lines and (current_len + line_len) > max_len:
+            chunks.append("".join(current_lines).rstrip())
+            current_lines = [line]
+            current_len = line_len
+        else:
+            current_lines.append(line)
+            current_len += line_len
+
+    if current_lines:
+        chunks.append("".join(current_lines).rstrip())
+
+    return chunks
 
 
 def _is_real_user_id(raw_id) -> bool:
@@ -269,39 +315,36 @@ async def send_daily_report(bot):
         # ── 6. Stopped engines with reasoning ────────────────────────
         if stopped_engines:
             msg += f"🔴 <b>STOPPED ENGINES ({len(stopped_engines)})</b>\n"
-            for sess in stopped_engines[:10]:  # max 10 to avoid message too long
+            for sess in stopped_engines:
                 uid = sess.get("telegram_id")
-                username = sess.get("username") or f"#{uid}"
+                username = _escape_html(sess.get("username") or f"#{uid}")
                 has_keys = get_user_api_keys(uid) is not None
                 reason = _engine_stop_reason(sess, has_keys)
                 last_update = sess.get("updated_at", "")[:10] if sess.get("updated_at") else "N/A"
-                msg += f"  • <code>{uid}</code> @{username} — {reason} (last: {last_update})\n"
-            if len(stopped_engines) > 10:
-                msg += f"  ... and {len(stopped_engines) - 10} more\n"
+                msg += (
+                    f"  • <code>{uid}</code> @{username} — "
+                    f"{_escape_html(reason)} (last: {_escape_html(last_update)})\n"
+                )
             msg += "\n"
 
         # ── 7. Active engines summary ─────────────────────────────────
         if active_engines:
             msg += f"🟢 <b>ACTIVE ENGINES ({len(active_engines)})</b>\n"
-            for sess in active_engines[:8]:
+            for sess in active_engines:
                 uid = sess.get("telegram_id")
-                mode = sess.get("trading_mode", "scalping").title()
+                mode = _escape_html(sess.get("trading_mode", "scalping").title())
                 risk = sess.get("risk_per_trade", 1.0)
                 balance = sess.get("current_balance", 0)
                 msg += f"  • <code>{uid}</code> — {mode} | Risk: {risk}% | Bal: ${float(balance or 0):,.0f}\n"
-            if len(active_engines) > 8:
-                msg += f"  ... and {len(active_engines) - 8} more\n"
             msg += "\n"
 
         # ── 8. New users list ─────────────────────────────────────────
         if new_users:
             msg += f"🆕 <b>NEW USERS TODAY</b>\n"
-            for u in new_users[:5]:
-                name = u.get("first_name", "Unknown")
+            for u in new_users:
+                name = _escape_html(u.get("first_name", "Unknown"))
                 uid = u.get("telegram_id", "?")
                 msg += f"  • {name} (<code>{uid}</code>)\n"
-            if len(new_users) > 5:
-                msg += f"  ... and {len(new_users) - 5} more\n"
             msg += "\n"
 
         # ── 9. Top trades today ───────────────────────────────────────
@@ -311,7 +354,9 @@ async def send_daily_report(bot):
             for t in top_trades:
                 pnl = float(t.get("pnl_usdt") or 0)
                 emoji = "✅" if pnl > 0 else "❌"
-                msg += f"  {emoji} {t.get('symbol', '?')} {t.get('side', '?')} — {_fmt(pnl)}\n"
+                symbol = _escape_html(t.get("symbol", "?"))
+                side = _escape_html(t.get("side", "?"))
+                msg += f"  {emoji} {symbol} {side} — {_fmt(pnl)}\n"
             msg += "\n"
 
         msg += f"{'─' * 35}\n"
@@ -321,11 +366,20 @@ async def send_daily_report(bot):
         admin_ids = _get_admin_ids()
         for admin_id in admin_ids:
             try:
-                await bot.send_message(
-                    chat_id=admin_id,
-                    text=msg,
-                    parse_mode='HTML'
-                )
+                chunks = _split_message_lines(msg)
+                total = len(chunks)
+                for idx, chunk in enumerate(chunks, start=1):
+                    chunk_text = chunk
+                    if total > 1 and idx > 1:
+                        chunk_text = (
+                            f"📊 <b>CryptoMentor Daily Report (Cont. {idx}/{total})</b>\n\n"
+                            f"{chunk}"
+                        )
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=chunk_text,
+                        parse_mode='HTML'
+                    )
                 logger.info(f"[DailyReport] ✅ Sent to admin {admin_id}")
             except Exception as e:
                 logger.error(f"[DailyReport] ❌ Failed to send to admin {admin_id}: {e}")
