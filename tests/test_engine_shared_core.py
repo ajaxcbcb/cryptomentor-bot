@@ -27,6 +27,32 @@ def test_get_scalping_engine_alias_delegates_runtime_instance(monkeypatch):
     assert get_scalping_engine(uid) is sentinel
 
 
+def test_is_running_mixed_requires_both_component_tasks(monkeypatch):
+    uid = 91002
+
+    class _FakeTask:
+        def __init__(self, done_state: bool):
+            self._done_state = bool(done_state)
+
+        def done(self):
+            return self._done_state
+
+    monkeypatch.setitem(autotrade_engine._running_tasks, uid, _FakeTask(False))
+    monkeypatch.setitem(
+        autotrade_engine._mixed_component_tasks,
+        uid,
+        {"swing": _FakeTask(False), "scalp": _FakeTask(True)},
+    )
+    assert autotrade_engine.is_running(uid) is False
+
+    monkeypatch.setitem(
+        autotrade_engine._mixed_component_tasks,
+        uid,
+        {"swing": _FakeTask(False), "scalp": _FakeTask(False)},
+    )
+    assert autotrade_engine.is_running(uid) is True
+
+
 def test_should_notify_blocked_pending_honors_ttl():
     cache = {}
     assert runtime_shared.should_notify_blocked_pending(cache, key="BTCUSDT", ttl_sec=600, now_ts=1000.0) is True

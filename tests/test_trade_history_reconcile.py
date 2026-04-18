@@ -26,7 +26,11 @@ def test_reconcile_uses_exchange_roundtrip_when_available(monkeypatch):
             "tp3_hit": False,
         }
     ]
-    monkeypatch.setattr(trade_history, "get_open_trades", lambda _tg: open_rows)
+    monkeypatch.setattr(
+        trade_history,
+        "get_open_trades",
+        lambda _tg, trade_type=None: open_rows,
+    )
 
     captured = []
 
@@ -71,7 +75,11 @@ def test_reconcile_fallback_forces_stale_reconcile_zero_pnl_without_roundtrip(mo
             "tp3_hit": False,
         }
     ]
-    monkeypatch.setattr(trade_history, "get_open_trades", lambda _tg: open_rows)
+    monkeypatch.setattr(
+        trade_history,
+        "get_open_trades",
+        lambda _tg, trade_type=None: open_rows,
+    )
 
     captured = []
 
@@ -95,3 +103,21 @@ def test_reconcile_fallback_forces_stale_reconcile_zero_pnl_without_roundtrip(mo
     assert captured[0]["pnl_usdt"] == 0.0
     assert captured[0]["exit_price"] == 2500.0
     assert "source=fallback_zero_pnl" in captured[0]["loss_reasoning"]
+
+
+def test_reconcile_passes_trade_type_filter(monkeypatch):
+    seen = {"trade_type": None}
+
+    def _fake_get_open_trades(_tg, trade_type=None):
+        seen["trade_type"] = trade_type
+        return []
+
+    monkeypatch.setattr(trade_history, "get_open_trades", _fake_get_open_trades)
+
+    class _Client:
+        def get_positions(self):
+            return {"success": True, "positions": []}
+
+    healed = trade_history.reconcile_open_trades_with_exchange(55, _Client(), trade_type="scalping")
+    assert healed == 0
+    assert seen["trade_type"] == "scalping"

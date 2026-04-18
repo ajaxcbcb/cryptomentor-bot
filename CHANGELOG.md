@@ -1,5 +1,90 @@
 # Changelog
 
+## [2.2.50] — 2026-04-18 — Mixed Runtime Callback Hardening + SOP Alignment
+
+### 🎯 Telegram Callback Hardening
+- Updated `Bismillah/app/handlers_autotrade.py` registration coverage so active callback buttons are routable in bot runtime:
+  - mode menu + mixed selectors: `trading_mode_menu`, `mode_select_scalping`, `mode_select_swing`, `mode_select_mixed`
+  - settings/risk controls: `at_settings`, `at_set_amount`, `at_set_leverage`, `at_set_margin`, `at_toggle_auto_mode`, `at_risk_settings`, `at_set_risk_*`, `at_risk_edu`, `at_risk_sim`
+- Added missing callback handlers to remove dead paths:
+  - `at_switch_risk_mode` now toggles persisted risk mode (`risk_based` ↔ `manual`)
+  - `at_dashboard` now routes back to canonical gatekeeper dashboard flow (`/autotrade` equivalent callback path)
+- Added legacy callback aliases still emitted by older flows:
+  - `at_choose_risk_mode` (redirected to settings)
+  - `at_lev_*` (mapped to leverage selection handler)
+
+### 🛡️ Runtime Safety Follow-up
+- Added missing imports in `Bismillah/app/handlers_autotrade.py` used by settings paths:
+  - `get_risk_mode`, `get_risk_per_trade`, `set_risk_mode`
+  - UI helpers `section_header`, `settings_group`
+- Added explicit callback state constants for amount/leverage input flow safety:
+  - `WAITING_NEW_AMOUNT`, `WAITING_NEW_LEVERAGE`, `WAITING_MANUAL_MARGIN`, `WAITING_LEVERAGE`
+- Conversation states expanded for new amount/leverage text input handling (`WAITING_NEW_AMOUNT`, `WAITING_NEW_LEVERAGE`).
+
+### ⚖️ Mixed Runtime + Risk/Leverage Messaging Alignment
+- Confirmed mixed startup messaging in `Bismillah/app/autotrade_engine.py` includes:
+  - top-10 routing cadence (10 minutes sticky)
+  - concurrent cap (`Swing 4 + Scalping 4`)
+  - base leverage and applied leverage policy (`Auto max-safe per pair`)
+- Reinforced strategy-isolated reconcile path:
+  - `Bismillah/app/scalping_engine.py` startup reconcile uses `trade_type="scalping"`
+  - `Bismillah/app/trade_history.py` reconcile helper accepts `trade_type` filter
+
+### 📚 Documentation Alignment
+- Updated `AGENTS.md` with a full SOP rewrite to align mixed-mode governance, callback quality gates, and deploy verification expectations.
+
+### ✅ Validation
+- `python -m py_compile Bismillah/app/handlers_autotrade.py Bismillah/app/autotrade_engine.py Bismillah/app/scalping_engine.py Bismillah/app/trade_history.py`
+- `pytest -q tests/test_pair_strategy_router.py tests/test_engine_shared_core.py tests/test_auto_mode_switcher_policy.py tests/test_trade_history_reconcile.py`
+
+## [2.2.49] — 2026-04-18 — Mixed Top-10 Pair Routing (Parallel Swing+Scalp)
+
+### ⚖️ Mixed Mode Runtime + Routing
+- Added first-class `mixed` trading mode support:
+  - `Bismillah/app/trading_mode.py`
+  - `Bismillah/app/trading_mode_manager.py`
+- Added shared per-user router service: `Bismillah/app/pair_strategy_router.py`
+  - Universe: dynamic Top 10 by volume
+  - Classifier: per-symbol market sentiment (`recommended_mode`)
+  - Sticky reassignment window: 10 minutes
+  - Output: disjoint `swing` + `scalp` symbol partitions
+- Refactored engine lifecycle in `Bismillah/app/autotrade_engine.py` for mixed mode:
+  - starts swing + scalping components in parallel
+  - supervisor tears down sibling when one component dies
+  - mixed `is_running` requires both components healthy
+
+### 🧠 Strategy Isolation + Trade Management Safety
+- Strategy-isolated open-trade reads/writes:
+  - `Bismillah/app/trade_history.py`:
+    - added optional `trade_type` filters for open-trade helpers
+    - swing open rows now persist `trade_type="swing"` and `timeframe="15m"`
+    - `reconcile_open_trades_with_exchange(...)` now supports `trade_type` filtering
+  - `Bismillah/app/scalping_engine.py`:
+    - startup reconcile now runs with `trade_type="scalping"`
+    - load/lookup/close paths filter to scalping rows with legacy fallback detection
+- Preserved trade-management and risk-management core behavior:
+  - shared managed execution paths remain in use
+  - per-engine concurrency cap remains `4 + 4` in mixed mode
+  - leverage policy remains auto max-safe per pair (no forced leverage escalation)
+
+### 📣 Telegram + Web Surface Sync
+- Telegram mode/menu and mixed messaging updates:
+  - `Bismillah/app/handlers_autotrade.py`
+  - `Bismillah/app/scheduler.py`
+  - `Bismillah/app/auto_mode_switcher.py` (legacy auto-switch disabled for mixed users)
+  - `Bismillah/app/autotrade_engine.py` mixed startup notice includes leverage policy
+- Web surface updates:
+  - `website-frontend/src/App.jsx` mixed mode UI/control updates
+  - `website-backend/app/routes/engine.py` / `dashboard.py` mixed-compatible mode reads
+  - dashboard settings mode fallback normalized to `swing` (no legacy `auto` fallback)
+
+### 🧪 Validation
+- Added/updated tests:
+  - `tests/test_pair_strategy_router.py`
+  - `tests/test_auto_mode_switcher_policy.py`
+  - `tests/test_engine_shared_core.py`
+  - `tests/test_trade_history_reconcile.py`
+
 ## [2.2.48] — 2026-04-18 — Swing/Scalping R:R Integrity Stabilization
 
 ### 🎯 Close Persistence + Reconcile Accuracy

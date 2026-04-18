@@ -158,11 +158,14 @@ class TradingModeManager:
                     "message": f"Already in {new_mode.value} mode"
                 }
             
-            # Step 2: Stop engine (close sideways positions first if switching from scalping)
+            # Step 2: Stop engine (close sideways positions first when leaving any scalping-capable runtime)
             try:
                 from app.autotrade_engine import stop_engine_async, get_scalping_engine
-                # Close open sideways positions before stopping if switching away from scalping
-                if current_mode == TradingMode.SCALPING and new_mode != TradingMode.SCALPING:
+                # Close open sideways positions before stopping when target runtime has no scalping component.
+                if (
+                    current_mode in (TradingMode.SCALPING, TradingMode.MIXED)
+                    and new_mode == TradingMode.SWING
+                ):
                     try:
                         engine = get_scalping_engine(user_id)
                         if engine and hasattr(engine, 'positions'):

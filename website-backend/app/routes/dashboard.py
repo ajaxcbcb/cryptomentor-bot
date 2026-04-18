@@ -408,7 +408,7 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
     - risk_per_trade: Current risk percentage (0.25% to 10.0%)
     - leverage: Baseline leverage value (legacy compatibility only)
     - leverage_mode: AutoTrade leverage policy mode
-    - trading_mode: Current mode (auto, scalping, swing)
+    - trading_mode: Current mode (scalping, swing, mixed)
     - risk_mode: Risk profile (conservative, moderate, aggressive)
     - equity: LIVE equity from Bitunix (balance + unrealized PnL) — used for risk calcs
     - balance: Free available balance
@@ -461,7 +461,7 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
         },
         "leverage_note": "AutoTrade executes with max leverage allowed for each pair.",
         "margin_mode": row.get("margin_mode") or "cross",
-        "trading_mode": row.get("trading_mode") or "auto",
+        "trading_mode": row.get("trading_mode") or "swing",
         "risk_mode": row.get("risk_mode") or "moderate",
         "equity": round(equity, 2),           # available + frozen + unrealized (for risk sizing)
         "balance": round(available, 2),        # free/available balance only
@@ -881,7 +881,7 @@ async def get_portfolio(tg_id: int = Depends(get_current_user)):
             "error": bitunix_error,
         },
         "engine": {
-            "trading_mode": session.get("trading_mode", "scalping"),
+            "trading_mode": session.get("trading_mode", "swing"),
             "stackmentor_active": bool(session.get("engine_active", False)),
             "auto_mode_enabled": bool(session.get("auto_mode_enabled", False)),
             "risk_mode": session.get("risk_mode", "moderate"),

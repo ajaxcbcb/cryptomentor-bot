@@ -89,6 +89,22 @@ def _classify_trade_mode(trade: Dict[str, Any]) -> str:
     return "unknown"
 
 
+def _normalize_trade_type_filter(trade_type: Optional[str]) -> str:
+    mode = str(trade_type or "").strip().lower()
+    if mode in {"scalp", "scalping"}:
+        return "scalping"
+    if mode == "swing":
+        return "swing"
+    return ""
+
+
+def _matches_trade_type_filter(trade: Dict[str, Any], trade_type: Optional[str]) -> bool:
+    wanted = _normalize_trade_type_filter(trade_type)
+    if not wanted:
+        return True
+    return _classify_trade_mode(trade) == wanted
+
+
 def _configured_rr(trade: Dict[str, Any]) -> Optional[float]:
     rr = _to_float(trade.get("rr_ratio"), None)
     if rr is not None and rr > 0:
@@ -191,6 +207,8 @@ def save_trade_open(
             "playbook_match_score": 0.0,
             "effective_risk_pct": 0.0,
             "risk_overlay_pct": 0.0,
+            "trade_type": "swing",
+            "timeframe": "15m",
             # StackMentor fields
             "strategy":         strategy,
         }
@@ -332,17 +350,20 @@ def close_open_trades_by_symbol(
     close_reason: str,
     loss_reasoning: str = "",
     win_metadata: Optional[Dict[str, Any]] = None,
+    trade_type: Optional[str] = None,
 ):
     """Close semua open trade untuk symbol tertentu (dipakai saat flip/SL hit)."""
     try:
         res = _db().table("autotrade_trades") \
-            .select("id") \
+            .select("*") \
             .eq("telegram_id", int(telegram_id)) \
             .eq("symbol", symbol) \
             .eq("status", "open") \
             .execute()
 
         for row in (res.data or []):
+            if not _matches_trade_type_filter(row, trade_type):
+                continue
             save_trade_close(
                 trade_id=row["id"],
                 exit_price=exit_price,
@@ -359,7 +380,7 @@ def close_open_trades_by_symbol(
 #  READ: Ambil open trades dari DB
 # ─────────────────────────────────────────────
 
-def get_open_trades(telegram_id: int) -> List[Dict]:
+def get_open_trades(telegram_id: int, trade_type: Optional[str] = None) -> List[Dict]:
     """Ambil semua trade yang masih open untuk user."""
     try:
         res = _db().table("autotrade_trades") \
@@ -367,20 +388,26 @@ def get_open_trades(telegram_id: int) -> List[Dict]:
             .eq("telegram_id", int(telegram_id)) \
             .eq("status", "open") \
             .execute()
-        return res.data or []
+        rows = list(res.data or [])
+        if trade_type:
+            rows = [r for r in rows if _matches_trade_type_filter(r, trade_type)]
+        return rows
     except Exception as e:
         logger.error(f"[TradeHistory] Failed to get open trades: {e}")
         return []
 
 
-def get_all_open_trades() -> List[Dict]:
+def get_all_open_trades(trade_type: Optional[str] = None) -> List[Dict]:
     """Ambil semua open trades dari semua user (untuk startup check)."""
     try:
         res = _db().table("autotrade_trades") \
             .select("*") \
             .eq("status", "open") \
             .execute()
-        return res.data or []
+        rows = list(res.data or [])
+        if trade_type:
+            rows = [r for r in rows if _matches_trade_type_filter(r, trade_type)]
+        return rows
     except Exception as e:
         logger.error(f"[TradeHistory] Failed to get all open trades: {e}")
         return []
@@ -389,6 +416,7 @@ def get_all_open_trades() -> List[Dict]:
 def reconcile_open_trades_with_exchange(
     telegram_id: int,
     client,
+    trade_type: Optional[str] = None,
 ) -> int:
     """
     Self-healing reconciliation for stale "open" trades.
@@ -414,11 +442,15 @@ def reconcile_open_trades_with_exchange(
       * engine startup / restore
       * a periodic background task
 
+    Optional:
+      * trade_type filter ("swing" / "scalping") to keep reconciliation
+        strategy-isolated.
+
     Returns: number of trades that were healed (closed) by this call.
     """
     healed = 0
     try:
-        open_trades = get_open_trades(telegram_id)
+        open_trades = get_open_trades(telegram_id, trade_type=trade_type)
         if not open_trades:
             return 0
 

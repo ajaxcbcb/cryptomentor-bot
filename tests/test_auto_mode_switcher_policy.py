@@ -116,6 +116,27 @@ async def test_manual_override_blocks_auto_switch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mixed_mode_blocks_legacy_auto_switch(monkeypatch):
+    switcher = AutoModeSwitcher(bot=Mock())
+    switcher.required_confirmations = 1
+    switcher.switch_cooldown_seconds = 0
+
+    monkeypatch.setattr(TradingModeManager, "is_manual_override_active", lambda _uid: False)
+    monkeypatch.setattr(TradingModeManager, "get_mode", lambda _uid: TradingMode.MIXED)
+    switch_mode_mock = AsyncMock(return_value={"success": True, "message": "ok"})
+    monkeypatch.setattr(TradingModeManager, "switch_mode", switch_mode_mock)
+
+    switched = await switcher._switch_user_mode(
+        user_id=4501,
+        recommended_mode="swing",
+        market_result={"condition": "TRENDING", "confidence": 91, "reason": "trend"},
+    )
+
+    assert switched is False
+    switch_mode_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_background_check_no_users_no_switch(monkeypatch):
     switcher = AutoModeSwitcher(bot=Mock())
 

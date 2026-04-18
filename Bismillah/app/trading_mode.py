@@ -14,6 +14,7 @@ class TradingMode(Enum):
     """Trading mode enumeration"""
     SCALPING = "scalping"
     SWING = "swing"
+    MIXED = "mixed"
     
     @classmethod
     def from_string(cls, mode_str: str):
@@ -31,6 +32,8 @@ class TradingMode(Enum):
             return cls.SCALPING
         elif mode_str == "swing":
             return cls.SWING
+        elif mode_str == "mixed":
+            return cls.MIXED
         else:
             return cls.SWING  # Default to swing
     

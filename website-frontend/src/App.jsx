@@ -332,7 +332,7 @@ export default function App() {
   const [equity, setEquity] = useState(null);
   const [connectorStatus, setConnectorStatus] = useState({ linked: null, online: null, error: null });
   const [portfolioLoaded, setPortfolioLoaded] = useState(false);
-  const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate' });
+  const [engineState, setEngineState] = useState({ autoModeEnabled: true, tradingMode: 'swing', stackMentorActive: true, riskMode: 'moderate' });
   const [botRunning, setBotRunning] = useState(false);
   const [botBusy, setBotBusy] = useState(false);
   const [botError, setBotError] = useState(null);
@@ -569,7 +569,7 @@ export default function App() {
         }
         // Only set logged in if we have a token
         if (data.access_token) {
-          setEngineState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate', isActive: true, current_balance: 0, total_profit: 0 });
+          setEngineState({ autoModeEnabled: true, tradingMode: 'swing', stackMentorActive: true, riskMode: 'moderate', isActive: true, current_balance: 0, total_profit: 0 });
           setRealPositions([]);
           setRealPnl(0);
           setIsLoggedIn(true);
@@ -606,7 +606,7 @@ export default function App() {
               setUser(nextUser);
               try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
             }
-            setEngineState({ autoModeEnabled: true, tradingMode: 'scalping', stackMentorActive: true, riskMode: 'moderate', isActive: true, current_balance: 0, total_profit: 0 });
+            setEngineState({ autoModeEnabled: true, tradingMode: 'swing', stackMentorActive: true, riskMode: 'moderate', isActive: true, current_balance: 0, total_profit: 0 });
             setRealPositions([]);
             setRealPnl(0);
             setIsLoggedIn(true);
@@ -1676,7 +1676,13 @@ function PortfolioTab({
           <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2.5 rounded-xl backdrop-blur-md">
             <div className="flex flex-col items-end border-r border-white/10 pr-3">
               <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest mb-0.5">Mode</span>
-              <span className={`text-xs font-black uppercase tracking-wider ${engineState.tradingMode === 'scalping' ? 'text-fuchsia-400' : 'text-cyan-400'}`}>{engineState.tradingMode || 'scalping'}</span>
+              <span className={`text-xs font-black uppercase tracking-wider ${
+                engineState.tradingMode === 'scalping'
+                  ? 'text-fuchsia-400'
+                  : engineState.tradingMode === 'mixed'
+                    ? 'text-amber-300'
+                    : 'text-cyan-400'
+              }`}>{engineState.tradingMode || 'swing'}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -1839,13 +1845,14 @@ function EngineTab({
             <button onClick={() => setEngineState({...engineState, autoModeEnabled: !engineState.autoModeEnabled})} className="p-1 -m-1 transition-transform active:scale-90">{engineState.autoModeEnabled ? <ToggleRight className="text-fuchsia-500 w-9 h-9" /> : <ToggleLeft className="text-slate-600 w-9 h-9" />}</button>
           </div>
           <h3 className="text-xl md:text-2xl font-black text-white mb-2 relative z-10">Auto Mode Switcher</h3>
-          <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed relative z-10 mb-6">Automatically switches between Scalping and Swing trading modes based on real-time AI market sentiment detection.</p>
+          <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed relative z-10 mb-6">Legacy auto-switch flips between Scalping and Swing. Mixed mode uses per-symbol auto routing and bypasses legacy global flips.</p>
           {!engineState.autoModeEnabled && (
             <div className="bg-white/5 p-4 rounded-xl border border-white/10 relative z-10">
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Manual Override</p>
               <div className="flex gap-2">
                 <button onClick={() => setEngineState({...engineState, tradingMode: 'scalping'})} className={`flex-1 py-3 rounded-lg font-bold text-xs transition-all ${engineState.tradingMode === 'scalping' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-[#050505] text-slate-400 border border-white/5'}`}>SCALPING</button>
-                <button onClick={() => setEngineState({...engineState, tradingMode: 'swing'})} className={`flex-1 py-3 rounded-lg font-bold text-xs transition-all ${engineState.tradingMode === 'swing' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-[#050505] text-slate-400 border border-white/5'}`}>SWING</button>
+                <button onClick={() => setEngineState({...engineState, tradingMode: 'swing'})} className={`flex-1 py-3 rounded-lg font-bold text-xs transition-all ${engineState.tradingMode === 'swing' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#050505] text-slate-400 border border-white/5'}`}>SWING</button>
+                <button onClick={() => setEngineState({...engineState, tradingMode: 'mixed'})} className={`flex-1 py-3 rounded-lg font-bold text-xs transition-all ${engineState.tradingMode === 'mixed' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-[#050505] text-slate-400 border border-white/5'}`}>MIXED</button>
               </div>
             </div>
           )}

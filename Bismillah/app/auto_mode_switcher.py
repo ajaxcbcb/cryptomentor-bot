@@ -219,6 +219,11 @@ class AutoModeSwitcher:
 
             # Get current mode
             current_mode = TradingModeManager.get_mode(user_id)
+            if current_mode == TradingMode.MIXED:
+                logger.info(
+                    f"[AutoModeSwitcher:{user_id}] Mixed mode active - skipping legacy global auto-switch"
+                )
+                return False
             target_mode = TradingMode.SCALPING if recommended_mode == "scalping" else TradingMode.SWING
             
             # Check if already in correct mode

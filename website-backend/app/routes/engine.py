@@ -117,7 +117,7 @@ async def engine_state(tg_id: int = Depends(get_current_user)):
         "running": running,
         "status": session.get("status", "unknown"),
         "engine_active": session.get("engine_active", False),
-        "trading_mode": session.get("trading_mode", "scalping"),
+        "trading_mode": session.get("trading_mode", "swing"),
     }
 
 

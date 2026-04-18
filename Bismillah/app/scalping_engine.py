@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List
 from datetime import datetime
 from html import escape
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -47,6 +47,7 @@ from app.sideways_governor import (
     resolve_dynamic_max_hold_seconds,
 )
 from app.leverage_policy import get_auto_max_safe_leverage
+from app.pair_strategy_router import get_mixed_pair_assignments
 from app.win_playbook import (
     refresh_global_win_playbook_state,
     get_win_playbook_snapshot,
@@ -114,7 +115,16 @@ class ScalpingEngine:
     - 72% minimum confidence
     """
     
-    def __init__(self, user_id: int, client, bot, notify_chat_id: int, config: Optional[ScalpingConfig] = None):
+    def __init__(
+        self,
+        user_id: int,
+        client,
+        bot,
+        notify_chat_id: int,
+        config: Optional[ScalpingConfig] = None,
+        mixed_mode: bool = False,
+        startup_notification: bool = True,
+    ):
         """
         Initialize scalping engine
         
@@ -130,6 +140,8 @@ class ScalpingEngine:
         self.bot = bot
         self.notify_chat_id = notify_chat_id
         self.config = config or ScalpingConfig()
+        self._mixed_mode = bool(mixed_mode)
+        self._startup_notification = bool(startup_notification)
         
         # Position tracking
         self.positions: Dict[str, ScalpingPosition] = {}
@@ -191,6 +203,17 @@ class ScalpingEngine:
         self.coordinator = get_coordinator()
 
         logger.info(f"[Scalping:{user_id}] Engine initialized with config: {self.config}")
+
+    @staticmethod
+    def _is_scalping_trade_row(row: Dict[str, Any]) -> bool:
+        trade_type = str(row.get("trade_type") or "").strip().lower()
+        if trade_type:
+            return trade_type == "scalping"
+        timeframe = str(row.get("timeframe") or "").strip().lower()
+        if timeframe == "5m":
+            return True
+        strategy = str(row.get("strategy") or "").strip().lower()
+        return strategy in {"scalping", "micro_scalp", "sideways_scalp"}
 
     def _should_notify_blocked_pending(self, symbol: str, ttl_sec: int = 600) -> bool:
         return _shared_should_notify_blocked_pending(
@@ -358,11 +381,13 @@ class ScalpingEngine:
                 .eq("symbol", symbol)
                 .eq("status", "open")
                 .order("opened_at", desc=True)
-                .limit(1)
+                .limit(10)
                 .execute()
             )
-            if res.data:
-                return dict(res.data[0])
+            for row in (res.data or []):
+                row_dict = dict(row)
+                if self._is_scalping_trade_row(row_dict):
+                    return row_dict
         except Exception as e:
             logger.warning(f"[Scalping:{self.user_id}] Failed open trade fetch for {symbol}: {e}")
         return {}
@@ -408,7 +433,10 @@ class ScalpingEngine:
         try:
             from app.trade_history import reconcile_open_trades_with_exchange
             reconciled = await asyncio.to_thread(
-                reconcile_open_trades_with_exchange, self.user_id, self.client
+                reconcile_open_trades_with_exchange,
+                self.user_id,
+                self.client,
+                "scalping",
             )
             if reconciled > 0:
                 logger.info(f"[Scalping:{self.user_id}] Reconciled {reconciled} stale positions on startup")
@@ -442,36 +470,47 @@ class ScalpingEngine:
                 self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
             except Exception as playbook_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial win-playbook load failed: {playbook_err}")
-            self._active_scan_pairs = await get_top_volume_pairs(
-                limit=10,
-                fallback_pairs=list(self.config.pairs),
-                logger=logger,
-                label=f"[Scalping:{self.user_id}]",
-            )
+            if self._mixed_mode:
+                assignments = await get_mixed_pair_assignments(
+                    user_id=int(self.user_id),
+                    limit=10,
+                    fallback_pairs=list(self.config.pairs),
+                    logger_override=logger,
+                    label=f"[Scalping:{self.user_id}]",
+                )
+                self._active_scan_pairs = list(assignments.get("scalp") or [])
+            else:
+                self._active_scan_pairs = await get_top_volume_pairs(
+                    limit=10,
+                    fallback_pairs=list(self.config.pairs),
+                    logger=logger,
+                    label=f"[Scalping:{self.user_id}]",
+                )
 
-            await self.bot.send_message(
-                chat_id=self.notify_chat_id,
-                text=(
-                    "🤖 <b>Scalping Engine Active!</b>\n\n"
-                    "⚡ <b>Mode: Scalping (5M)</b>\n\n"
-                    "📊 Configuration:\n"
-                    f"• Timeframe: {self.config.timeframe}\n"
-                    f"• Scan interval: {self.config.scan_interval}s\n"
-                    f"• Min confidence: {self.config.min_confidence * 100:.0f}%\n"
-                    f"• Min R:R: 1:{self.config.min_rr}\n"
-                    f"• Max hold time: {self.config.max_hold_time // 60} minutes\n"
-                    f"• Max concurrent: {self.config.max_concurrent_positions} positions\n"
-                    f"• Trading pairs: Top {len(self._active_scan_pairs)} by volume\n\n"
-                    f"• Adaptive conf delta: {int(self._adaptive_overlay.get('conf_delta', 0)):+d}\n"
-                    f"• Adaptive vol delta: {float(self._adaptive_overlay.get('volume_min_ratio_delta', 0.0)):+.2f}\n"
-                    f"• Sideways governor: {str(self._sideways_governor_snapshot.get('mode', 'normal')).upper()}\n"
-                    f"• Win playbook tags: {len(self._win_playbook_snapshot.get('active_tags', []) or [])}\n"
-                    f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n\n"
-                    f"Bot will scan for high-probability setups every {self.config.scan_interval} seconds.\n"
-                    "Patience = profit. 🎯"
-                ),
-                parse_mode='HTML'
-            )
+            if self._startup_notification:
+                await self.bot.send_message(
+                    chat_id=self.notify_chat_id,
+                    text=(
+                        ("🤖 <b>Scalping Engine Active!</b>\n\n" if not self._mixed_mode else "🤖 <b>Mixed Component Active (Scalping)</b>\n\n")
+                        + ("⚡ <b>Mode: Scalping (5M)</b>\n\n" if not self._mixed_mode else "⚖️ <b>Mode: Mixed (Scalp Partition)</b>\n\n")
+                        + "📊 Configuration:\n"
+                        + f"• Timeframe: {self.config.timeframe}\n"
+                        + f"• Scan interval: {self.config.scan_interval}s\n"
+                        + f"• Min confidence: {self.config.min_confidence * 100:.0f}%\n"
+                        + f"• Min R:R: 1:{self.config.min_rr}\n"
+                        + f"• Max hold time: {self.config.max_hold_time // 60} minutes\n"
+                        + f"• Max concurrent: {self.config.max_concurrent_positions} positions\n"
+                        + f"• Assigned pairs: {len(self._active_scan_pairs)}\n\n"
+                        + f"• Adaptive conf delta: {int(self._adaptive_overlay.get('conf_delta', 0)):+d}\n"
+                        + f"• Adaptive vol delta: {float(self._adaptive_overlay.get('volume_min_ratio_delta', 0.0)):+.2f}\n"
+                        + f"• Sideways governor: {str(self._sideways_governor_snapshot.get('mode', 'normal')).upper()}\n"
+                        + f"• Win playbook tags: {len(self._win_playbook_snapshot.get('active_tags', []) or [])}\n"
+                        + f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n\n"
+                        + f"Bot will scan for high-probability setups every {self.config.scan_interval} seconds.\n"
+                        + "Patience = profit. 🎯"
+                    ),
+                    parse_mode='HTML'
+                )
         except Exception as e:
             logger.warning(f"[Scalping:{self.user_id}] Startup notification failed: {e}")
         
@@ -580,15 +619,27 @@ class ScalpingEngine:
                     await self.monitor_positions()
                     
                     # Scan for new signals in PARALLEL (dynamic top-volume universe).
-                    ranked_pairs = await get_top_volume_pairs(
-                        limit=10,
-                        fallback_pairs=list(self.config.pairs),
-                        logger=logger,
-                        label=f"[Scalping:{self.user_id}]",
-                    )
-                    self._active_scan_pairs = ranked_pairs or list(self.config.pairs)
+                    if self._mixed_mode:
+                        assignments = await get_mixed_pair_assignments(
+                            user_id=int(self.user_id),
+                            limit=10,
+                            fallback_pairs=list(self.config.pairs),
+                            logger_override=logger,
+                            label=f"[Scalping:{self.user_id}]",
+                        )
+                        ranked_pairs = list(assignments.get("scalp") or [])
+                    else:
+                        ranked_pairs = await get_top_volume_pairs(
+                            limit=10,
+                            fallback_pairs=list(self.config.pairs),
+                            logger=logger,
+                            label=f"[Scalping:{self.user_id}]",
+                        )
+                    self._active_scan_pairs = ranked_pairs if self._mixed_mode else (ranked_pairs or list(self.config.pairs))
                     logger.info(
-                        f"[Scalping:{self.user_id}] Scanning {len(self._active_scan_pairs)} top-volume pairs: "
+                        f"[Scalping:{self.user_id}] Scanning {len(self._active_scan_pairs)} "
+                        + ("mixed scalp-routed" if self._mixed_mode else "top-volume")
+                        + " pairs: "
                         + ", ".join(self._active_scan_pairs)
                     )
                     signals_found = 0
@@ -741,7 +792,7 @@ class ScalpingEngine:
             mode = TradingModeManager.get_mode(self.user_id)
             sideways_policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
 
-            if mode == TradingMode.SCALPING:
+            if mode in (TradingMode.SCALPING, TradingMode.MIXED):
                 if bool(sideways_policy.get("allow_sideways_entries", True)):
                     # Try sideways detection first
                     sideways_signal = await self._try_sideways_signal(symbol)
@@ -1605,7 +1656,10 @@ class ScalpingEngine:
             return False
         
         # Check symbol in allowed list
-        allowed_symbols = set(self._active_scan_pairs or self.config.pairs)
+        allowed_symbols = set(self._active_scan_pairs or ([] if self._mixed_mode else self.config.pairs))
+        if self._mixed_mode and not allowed_symbols:
+            logger.info(f"[Scalping:{self.user_id}] Mixed mode has no assigned scalp symbols, skipping signal.")
+            return False
         if signal.symbol not in allowed_symbols:
             logger.debug(f"[Scalping:{self.user_id}] Signal rejected: Symbol {signal.symbol} not allowed")
             return False
@@ -2801,12 +2855,17 @@ class ScalpingEngine:
             s = _client()
             open_rows = s.table("autotrade_trades").select("*").eq(
                 "telegram_id", self.user_id
-            ).eq("symbol", position.symbol).eq("status", "open").order("opened_at", desc=True).limit(1).execute()
-            if not open_rows.data:
+            ).eq("symbol", position.symbol).eq("status", "open").order("opened_at", desc=True).limit(10).execute()
+            open_row = None
+            for row in (open_rows.data or []):
+                row_dict = dict(row)
+                if self._is_scalping_trade_row(row_dict):
+                    open_row = row_dict
+                    break
+            if open_row is None:
                 logger.info(f"[Scalping:{self.user_id}] No open DB row to close for {position.symbol} (already closed)")
                 return False
 
-            open_row = dict(open_rows.data[0])
             trade_id = open_row["id"]
             update_payload, cumulative_pnl, partial_realized = build_cumulative_close_update_payload(
                 open_row=open_row,
@@ -3020,8 +3079,9 @@ class ScalpingEngine:
             ).eq("status", "open").execute()
             
             if res.data:
-                logger.info(f"[Scalping:{self.user_id}] Found {len(res.data)} open trades in DB. Resuming tracking...")
-                for row in res.data:
+                scalping_rows = [dict(row) for row in (res.data or []) if self._is_scalping_trade_row(dict(row))]
+                logger.info(f"[Scalping:{self.user_id}] Found {len(scalping_rows)} open scalping trades in DB. Resuming tracking...")
+                for row in scalping_rows:
                     symbol = row.get("symbol")
                     if not symbol or symbol in self.positions:
                         continue

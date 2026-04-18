@@ -458,7 +458,7 @@ def start_scheduler(application):
                 amount = float(session.get("initial_deposit") or 10)
                 leverage = int(session.get("leverage") or 10)
                 trading_mode = str(session.get("trading_mode", "swing") or "").strip().lower()
-                if trading_mode not in ("swing", "scalping"):
+                if trading_mode not in ("swing", "scalping", "mixed"):
                     trading_mode = "swing"
                 exchange_id = keys.get("exchange", "bitunix")
 
@@ -512,8 +512,25 @@ def start_scheduler(application):
                             api_secret=keys["api_secret"],
                             fallback=amount,
                         )
-                        
-                        if is_scalping:
+                         
+                        if actual_mode == "mixed":
+                            await application.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    "⚖️ <b>Mixed Engine Active!</b>\n\n"
+                                    "Mode: <b>Mixed (Top 10 Auto-Routed)</b>\n"
+                                    "• Routing cadence: <b>10 minutes (sticky)</b>\n"
+                                    "• Concurrent cap: <b>Swing 4 + Scalping 4</b>\n"
+                                    "• Trading pairs: <b>Top 10 by volume</b>\n\n"
+                                    f"💰 Equity: <b>{live_equity:.2f} USDT</b>\n"
+                                    f"⚡ Base leverage setting: <b>{leverage}x</b>\n"
+                                    "⚙️ Applied leverage is auto-adjusted per pair (max-safe).\n\n"
+                                    "Bot will run swing and scalping components in parallel."
+                                ),
+                                parse_mode='HTML'
+                            )
+                            logger.info(f"[AutoRestore] User {user_id} - ✅ Mixed notification sent")
+                        elif is_scalping:
                             # Scalping mode notification
                             await application.bot.send_message(
                                 chat_id=user_id,
@@ -726,7 +743,7 @@ async def _engine_health_check_task(application):
                         amount = float(session.get("initial_deposit") or 10)
                         leverage = int(session.get("leverage") or 10)
                         trading_mode = str(session.get("trading_mode", "swing") or "").strip().lower()
-                        if trading_mode not in ("swing", "scalping"):
+                        if trading_mode not in ("swing", "scalping", "mixed"):
                             trading_mode = "swing"
                         exchange_id = keys.get("exchange", "bitunix")
                         is_premium = has_skill(user_id, "dual_tp_rr3")
@@ -753,6 +770,12 @@ async def _engine_health_check_task(application):
                         # Notify user with actual runtime mode (source of truth)
                         from app.trading_mode_manager import TradingModeManager
                         actual_mode = TradingModeManager.get_mode(user_id).value
+                        mixed_runtime_note = (
+                            "• Runtime: <b>Swing + Scalping components in parallel</b>\n"
+                            "• Routing cadence: <b>10 minutes (sticky)</b>\n"
+                            if actual_mode == "mixed"
+                            else ""
+                        )
                         live_equity = await _fetch_live_equity(
                             exchange_id=exchange_id,
                             api_key=keys["api_key"],
@@ -767,6 +790,7 @@ async def _engine_health_check_task(application):
                                 f"📊 Mode: <b>{actual_mode.title()}</b>\n"
                                 f"💰 Equity: <b>{live_equity:.2f} USDT</b>\n"
                                 "• Trading pairs: <b>Top 10 by volume</b>\n"
+                                f"{mixed_runtime_note}"
                                 f"⚡ Base leverage setting: <b>{leverage}x</b>\n"
                                 "⚙️ Applied leverage is auto-adjusted per pair (max-safe).\n\n"
                                 "If this happens frequently, please contact support.\n\n"

@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from html import escape
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Set
 from datetime import datetime, date, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -87,9 +87,12 @@ from app.engine_runtime_shared import (
     should_stop_engine,
 )
 from app.leverage_policy import get_auto_max_safe_leverage
+from app.pair_strategy_router import get_mixed_pair_assignments
 from app.volume_pair_selector import mark_runtime_untradable_symbol
 
 _running_tasks: Dict[int, asyncio.Task] = {}
+_mixed_component_tasks: Dict[int, Dict[str, asyncio.Task]] = {}
+_runtime_modes: Dict[int, str] = {}
 _engine_lifecycle_locks: Dict[int, asyncio.Lock] = {}
 _scalping_engines: Dict[int, Any] = {}
 _blocked_pending_notify_ts: Dict[tuple, float] = {}
@@ -1531,8 +1534,21 @@ def _compute_signal_pro(
 #  Engine lifecycle
 # ─────────────────────────────────────────────
 def is_running(user_id: int) -> bool:
-    t = _running_tasks.get(user_id)
-    return t is not None and not t.done()
+    uid = int(user_id)
+    t = _running_tasks.get(uid)
+    if t is None or t.done():
+        return False
+    components = _mixed_component_tasks.get(uid)
+    if components:
+        swing_task = components.get("swing")
+        scalp_task = components.get("scalp")
+        return bool(
+            swing_task
+            and not swing_task.done()
+            and scalp_task
+            and not scalp_task.done()
+        )
+    return True
 
 
 async def _set_engine_active_flag(user_id: int, active: bool) -> None:
@@ -1549,39 +1565,128 @@ async def _set_engine_active_flag(user_id: int, active: bool) -> None:
         logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
 
 
-async def _stop_engine_locked(user_id: int, mark_inactive: bool) -> None:
-    t = _running_tasks.get(user_id)
-    if t and not t.done():
-        current = asyncio.current_task()
-        if t is current:
-            # Self-stop path: do not cancel current task immediately; let caller return gracefully.
-            logger.info(f"[Engine:{user_id}] stop requested from current task, using graceful self-stop")
-        else:
-            t.cancel()
+def _clear_runtime_state(user_id: int) -> None:
+    uid = int(user_id)
+    _running_tasks.pop(uid, None)
+    _mixed_component_tasks.pop(uid, None)
+    _runtime_modes.pop(uid, None)
+    _scalping_engines.pop(uid, None)
+
+
+def _mark_engine_inactive_if_stopped_sync(user_id: int) -> None:
+    try:
+        from app.supabase_repo import _client
+        s = _client()
+        sess = s.table("autotrade_sessions").select("status").eq(
+            "telegram_id", int(user_id)
+        ).limit(1).execute()
+        current_status = (sess.data or [{}])[0].get("status", "")
+        if current_status == "stopped":
+            s.table("autotrade_sessions").upsert({
+                "telegram_id": int(user_id),
+                "engine_active": False
+            }, on_conflict="telegram_id").execute()
+    except Exception as e:
+        logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
+
+
+def _log_task_result(user_id: int, task: asyncio.Task, label: str) -> None:
+    if task.cancelled():
+        logger.info(f"[AutoTrade:{user_id}] {label} cancelled")
+        return
+    exc = task.exception()
+    if exc:
+        logger.error(f"[AutoTrade:{user_id}] {label} crashed: {exc}", exc_info=exc)
+
+
+async def _run_mixed_supervisor(
+    user_id: int,
+    swing_task: asyncio.Task,
+    scalp_task: asyncio.Task,
+) -> None:
+    """
+    Mixed runtime supervisor.
+    Ends (and tears down sibling task) when either component ends.
+    """
+    tasks: Set[asyncio.Task] = {swing_task, scalp_task}
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for pending_task in pending:
+            pending_task.cancel()
+        for pending_task in pending:
             try:
-                await asyncio.wait_for(asyncio.shield(t), timeout=12.0)
-            except asyncio.TimeoutError:
-                logger.warning(f"[Engine:{user_id}] stop timeout waiting cancelled task")
+                await pending_task
             except asyncio.CancelledError:
                 pass
-            except Exception as e:
-                logger.warning(f"[Engine:{user_id}] stop wait raised: {e}")
-        logger.info(f"AutoTrade stopped for user {user_id}")
+            except Exception:
+                pass
+        first_done = next(iter(done)) if done else None
+        if first_done is not None:
+            await first_done
+    finally:
+        for child in tasks:
+            if not child.done():
+                child.cancel()
 
-    _running_tasks.pop(int(user_id), None)
-    _scalping_engines.pop(int(user_id), None)
+
+async def _stop_engine_locked(user_id: int, mark_inactive: bool) -> None:
+    uid = int(user_id)
+    current = asyncio.current_task()
+    primary_task = _running_tasks.get(uid)
+    component_tasks = _mixed_component_tasks.get(uid, {})
+    current_is_component = any(task is current for task in component_tasks.values())
+
+    tasks_to_cancel: List[asyncio.Task] = []
+    seen: Set[int] = set()
+    for task in [primary_task, *component_tasks.values()]:
+        if task is None:
+            continue
+        if task.done():
+            continue
+        tid = id(task)
+        if tid in seen:
+            continue
+        seen.add(tid)
+        tasks_to_cancel.append(task)
+
+    for task in tasks_to_cancel:
+        if task is current:
+            logger.info(f"[Engine:{uid}] stop requested from current task, using graceful self-stop")
+            continue
+        task.cancel()
+
+    for task in tasks_to_cancel:
+        if task is current:
+            continue
+        # Avoid awaiting the mixed supervisor from inside one of its child tasks,
+        # otherwise cancellation can self-interrupt this stop path.
+        if current_is_component and task is primary_task:
+            continue
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=12.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[Engine:{uid}] stop timeout waiting cancelled task")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[Engine:{uid}] stop wait raised: {e}")
+
+    if tasks_to_cancel:
+        logger.info(f"AutoTrade stopped for user {uid}")
+
+    _clear_runtime_state(uid)
 
     try:
         cleared = await _get_coordinator().clear_all_pending_without_position_for_user(
-            int(user_id), reason="engine_stop_cleanup"
+            int(uid), reason="engine_stop_cleanup"
         )
         if cleared:
-            logger.warning(f"[Engine:{user_id}] Cleared {cleared} pending lock(s) during stop cleanup")
+            logger.warning(f"[Engine:{uid}] Cleared {cleared} pending lock(s) during stop cleanup")
     except Exception as e:
-        logger.warning(f"[Engine:{user_id}] stop cleanup pending clear failed: {e}")
+        logger.warning(f"[Engine:{uid}] stop cleanup pending clear failed: {e}")
 
     if mark_inactive:
-        await _set_engine_active_flag(user_id, False)
+        await _set_engine_active_flag(uid, False)
 
 
 async def stop_engine_async(user_id: int, mark_inactive: bool = True) -> None:
@@ -1618,35 +1723,17 @@ async def start_engine_async(bot, user_id: int, api_key: str, api_secret: str,
     from app.exchange_registry import get_client
     client = get_client(exchange_id, api_key, api_secret)
 
-    def _done_cb(task: asyncio.Task):
-        # Only set engine_active=False if user explicitly stopped (status=stopped)
-        # If engine crashed/restarted, keep engine_active=True so health check can restore it
-        try:
-            from app.supabase_repo import _client
-            s = _client()
-            # Check current status before overwriting engine_active
-            sess = s.table("autotrade_sessions").select("status").eq(
-                "telegram_id", int(user_id)
-            ).limit(1).execute()
-            current_status = (sess.data or [{}])[0].get("status", "")
-            # Only mark inactive if explicitly stopped by user
-            if current_status == "stopped":
-                s.table("autotrade_sessions").upsert({
-                    "telegram_id": int(user_id),
-                    "engine_active": False
-                }, on_conflict="telegram_id").execute()
-            # If status is active/uid_verified, leave engine_active as-is
-            # Health check will restart the engine automatically
-        except Exception as e:
-            logger.warning(f"[Engine:{user_id}] Failed to update engine_active flag: {e}")
-        
-        if task.cancelled():
-            logger.info(f"AutoTrade cancelled for user {user_id}")
-        elif task.exception():
-            exc = task.exception()
-            logger.error(f"AutoTrade CRASHED for user {user_id}: {exc}", exc_info=exc)
-        _running_tasks.pop(int(user_id), None)
-        _scalping_engines.pop(int(user_id), None)
+    uid = int(user_id)
+
+    def _component_done_cb(label: str):
+        def _cb(task: asyncio.Task):
+            _log_task_result(uid, task, label)
+        return _cb
+
+    def _primary_done_cb(task: asyncio.Task):
+        _mark_engine_inactive_if_stopped_sync(uid)
+        _log_task_result(uid, task, "runtime")
+        _clear_runtime_state(uid)
 
     # Start appropriate engine based on mode
     if trading_mode == TradingMode.SCALPING:
@@ -1655,24 +1742,108 @@ async def start_engine_async(bot, user_id: int, api_key: str, api_secret: str,
             user_id=user_id,
             client=client,
             bot=bot,
-            notify_chat_id=notify_chat_id
+            notify_chat_id=notify_chat_id,
         )
         task = asyncio.create_task(engine.run())
-        _scalping_engines[int(user_id)] = engine
+        _runtime_modes[uid] = TradingMode.SCALPING.value
+        _mixed_component_tasks.pop(uid, None)
+        _scalping_engines[uid] = engine
         logger.info(f"[AutoTrade:{user_id}] Started SCALPING engine (exchange={exchange_id})")
+    elif trading_mode == TradingMode.MIXED:
+        from app.scalping_engine import ScalpingEngine
+
+        engine = ScalpingEngine(
+            user_id=user_id,
+            client=client,
+            bot=bot,
+            notify_chat_id=notify_chat_id,
+            mixed_mode=True,
+            startup_notification=False,
+        )
+        swing_task = asyncio.create_task(
+            _trade_loop(
+                bot,
+                user_id,
+                api_key,
+                api_secret,
+                amount,
+                leverage,
+                notify_chat_id,
+                is_premium,
+                True,  # suppress component startup notification
+                exchange_id,
+                mixed_mode=True,
+                symbol_owner="swing",
+            )
+        )
+        scalp_task = asyncio.create_task(engine.run())
+        swing_task.add_done_callback(_component_done_cb("mixed_swing_component"))
+        scalp_task.add_done_callback(_component_done_cb("mixed_scalp_component"))
+
+        task = asyncio.create_task(_run_mixed_supervisor(uid, swing_task=swing_task, scalp_task=scalp_task))
+        _mixed_component_tasks[uid] = {"swing": swing_task, "scalp": scalp_task}
+        _runtime_modes[uid] = TradingMode.MIXED.value
+        _scalping_engines[uid] = engine
+        logger.info(f"[AutoTrade:{user_id}] Started MIXED engine (parallel swing+scalp) (exchange={exchange_id})")
     else:
         # Existing swing trading logic
         task = asyncio.create_task(
-            _trade_loop(bot, user_id, api_key, api_secret, amount, leverage, notify_chat_id, is_premium, silent, exchange_id)
+            _trade_loop(
+                bot,
+                user_id,
+                api_key,
+                api_secret,
+                amount,
+                leverage,
+                notify_chat_id,
+                is_premium,
+                silent,
+                exchange_id,
+                mixed_mode=False,
+                symbol_owner="swing",
+            )
         )
-        _scalping_engines.pop(int(user_id), None)
+        _runtime_modes[uid] = TradingMode.SWING.value
+        _mixed_component_tasks.pop(uid, None)
+        _scalping_engines.pop(uid, None)
         logger.info(f"[AutoTrade:{user_id}] Started SWING engine (exchange={exchange_id}, amount={amount}, leverage={leverage}x, premium={is_premium})")
-    
-    task.add_done_callback(_done_cb)
-    _running_tasks[user_id] = task
+
+    task.add_done_callback(_primary_done_cb)
+    _running_tasks[uid] = task
     
     # Update engine_active flag in database
     await _set_engine_active_flag(user_id, True)
+
+    if trading_mode == TradingMode.MIXED and not silent:
+        try:
+            assignments = await get_mixed_pair_assignments(
+                user_id=uid,
+                limit=10,
+                fallback_pairs=list(ENGINE_CONFIG.get("symbols", [])),
+                logger_override=logger,
+                label=f"[Engine:{uid}]",
+            )
+            swing_pairs = list(assignments.get("swing") or [])
+            scalp_pairs = list(assignments.get("scalp") or [])
+            swing_preview = ", ".join(swing_pairs[:5]) if swing_pairs else "-"
+            scalp_preview = ", ".join(scalp_pairs[:5]) if scalp_pairs else "-"
+            await bot.send_message(
+                chat_id=notify_chat_id,
+                text=(
+                    "🤖 <b>Mixed Engine Active!</b>\n\n"
+                    "⚖️ <b>Mode: Mixed (Top 10 Auto-Routed)</b>\n"
+                    "• Routing cadence: <b>10 minutes (sticky)</b>\n"
+                    "• Concurrent cap: <b>Swing 4 + Scalping 4</b>\n"
+                    f"• Base leverage setting: <b>{int(leverage)}x</b>\n"
+                    "• Applied leverage: <b>Auto max-safe per pair</b>\n\n"
+                    f"📊 Swing pairs ({len(swing_pairs)}): <code>{escape(swing_preview)}</code>\n"
+                    f"⚡ Scalping pairs ({len(scalp_pairs)}): <code>{escape(scalp_preview)}</code>\n\n"
+                    "Bot will keep re-evaluating top-volume assignments on cadence."
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as mixed_notify_err:
+            logger.warning(f"[AutoTrade:{uid}] Mixed startup notification failed: {mixed_notify_err}")
     return task
 
 
@@ -1721,7 +1892,8 @@ def start_engine(bot, user_id: int, api_key: str, api_secret: str,
 # ─────────────────────────────────────────────
 async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                       amount: float, leverage: int, notify_chat_id: int,
-                      is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix"):
+                      is_premium: bool = False, silent: bool = False, exchange_id: str = "bitunix",
+                      mixed_mode: bool = False, symbol_owner: str = "swing"):
     import sys, os
     bismillah_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if bismillah_root not in sys.path:
@@ -1946,6 +2118,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
     logger.info(
         f"[Engine:{user_id}] PRO ENGINE STARTED — symbols_mode=dynamic_top10_volume "
+        f"{'(mixed_owner=swing) ' if mixed_mode else ''}"
         f"(bootstrap={cfg['symbols']}), min_conf={cfg['min_confidence']} (risk-profile dynamic), "
         f"min_rr={cfg['min_rr_ratio']}, user_risk={user_risk_pct}%, daily_loss_limit_DISABLED"
     )
@@ -2133,7 +2306,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         build_loss_reasoning,
                         build_win_reasoning,
                     )
-                    open_rows = await asyncio.to_thread(get_open_trades, user_id)
+                    open_rows = await asyncio.to_thread(get_open_trades, user_id, "swing")
                     open_row_by_symbol = {
                         str(r.get("symbol") or "").upper(): r
                         for r in (open_rows or [])
@@ -2237,6 +2410,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                     "max_hold_time_exceeded",
                                     loss_reason,
                                     win_metadata,
+                                    "swing",
                                 )
                                 try:
                                     await _get_coordinator().confirm_closed(
@@ -2339,7 +2513,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         build_win_reasoning,
                     )
                     from app.providers.alternative_klines_provider import alternative_klines_provider
-                    open_db_trades = get_open_trades(user_id)
+                    open_db_trades = get_open_trades(user_id, "swing")
                     for db_trade in open_db_trades:
                         sym_base = db_trade["symbol"].replace("USDT", "")
                         # Prefer exchange-realized roundtrip financials (close realized + fees).
@@ -2501,7 +2675,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     # Cari data trade yang sesuai untuk tahu TP1 dan entry
                     try:
                         from app.trade_history import get_open_trades
-                        db_trades = get_open_trades(user_id)
+                        db_trades = get_open_trades(user_id, "swing")
                         for db_t in db_trades:
                             if db_t["symbol"] != pos_symbol:
                                 continue
@@ -2689,7 +2863,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             build_win_reasoning,
                             get_open_trades,
                         )
-                        old_trades = get_open_trades(user_id)
+                        old_trades = get_open_trades(user_id, "swing")
                         for ot in old_trades:
                             if ot["symbol"] != pos_symbol:
                                 continue
@@ -2833,12 +3007,22 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 continue
 
             # ── Scan symbols (dynamic top-10 by volume, highest first) ─────
-            ranked_pairs = await get_top_volume_pairs(
-                limit=10,
-                fallback_pairs=list(cfg.get("symbols", [])),
-                logger=logger,
-                label=f"[Engine:{user_id}]",
-            )
+            if mixed_mode:
+                assignments = await get_mixed_pair_assignments(
+                    user_id=int(user_id),
+                    limit=10,
+                    fallback_pairs=list(cfg.get("symbols", [])),
+                    logger_override=logger,
+                    label=f"[Engine:{user_id}]",
+                )
+                ranked_pairs = list(assignments.get("swing") or [])
+            else:
+                ranked_pairs = await get_top_volume_pairs(
+                    limit=10,
+                    fallback_pairs=list(cfg.get("symbols", [])),
+                    logger=logger,
+                    label=f"[Engine:{user_id}]",
+                )
             ranked_bases = []
             for pair in ranked_pairs:
                 base = str(pair).upper().replace("USDT", "")

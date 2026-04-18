@@ -13,12 +13,17 @@ from telegram.ext import (
 )
 from typing import Optional, Dict
 
-from app.supabase_repo import _client
+from app.supabase_repo import _client, get_risk_mode, get_risk_per_trade, set_risk_mode
 from app.lib.auth import generate_dashboard_url
 from app.lib.crypto import encrypt, decrypt
+from app.ui_components import section_header, settings_group
 
 # Conversation states
 WAITING_BITUNIX_UID = 6
+WAITING_NEW_AMOUNT = 7
+WAITING_NEW_LEVERAGE = 8
+WAITING_MANUAL_MARGIN = 9
+WAITING_LEVERAGE = 10
 
 # Legacy constants (tetap untuk backward compat)
 BITUNIX_REFERRAL_URL  = "https://www.bitunix.com/register?vipCode=sq45"
@@ -431,6 +436,47 @@ async def callback_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Operation cancelled.")
+    return ConversationHandler.END
+
+
+async def callback_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Route inline "Back/Dashboard" callbacks back to the canonical /autotrade
+    gatekeeper screen so users always get a consistent source-of-truth view.
+    """
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    class _ProxyMessage:
+        async def reply_text(self, *args, **kwargs):
+            if query.message is not None:
+                return await query.message.reply_text(*args, **kwargs)
+            return await context.bot.send_message(chat_id=user.id, *args, **kwargs)
+
+    class _ProxyUpdate:
+        effective_user = user
+        effective_chat = query.message.chat if query.message else None
+        message = _ProxyMessage()
+
+    try:
+        await cmd_autotrade(_ProxyUpdate(), context)
+    except Exception as e:
+        logger.error(f"[Dashboard:{user.id}] Failed to render dashboard callback: {e}")
+        dash_url = generate_dashboard_url(user.id, user.username, user.first_name)
+        if query.message is not None:
+            await query.message.reply_text(
+                "⚠️ Could not render dashboard view directly. Open dashboard below:",
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]),
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="⚠️ Could not render dashboard view directly. Open dashboard below:",
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Dashboard", url=dash_url)]]),
+            )
     return ConversationHandler.END
 
 
@@ -1069,6 +1115,56 @@ async def callback_margin_select(update: Update, context: ContextTypes.DEFAULT_T
 #  Auto Mode Switcher Toggle                                          #
 # ------------------------------------------------------------------ #
 
+async def callback_switch_risk_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle risk management mode between risk_based and manual."""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    try:
+        current_mode = get_risk_mode(user_id)
+        if current_mode not in ("risk_based", "manual"):
+            current_mode = "risk_based"
+        new_mode = "manual" if current_mode == "risk_based" else "risk_based"
+
+        result = set_risk_mode(user_id, new_mode)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or "unknown_error")
+
+        mode_title = "Manual (Fixed Margin)" if new_mode == "manual" else "Rekomendasi (Risk Per Trade)"
+        mode_summary = (
+            "• You can set fixed margin and leverage manually.\n"
+            "• Position sizing follows your configured fixed values."
+            if new_mode == "manual"
+            else
+            "• Position sizing is derived from risk % and SL distance.\n"
+            "• Leverage/margin are managed with safer adaptive behavior."
+        )
+
+        await query.edit_message_text(
+            "✅ <b>Risk Mode Updated</b>\n\n"
+            f"Current mode: <b>{mode_title}</b>\n\n"
+            f"{mode_summary}\n\n"
+            "Open Settings to review available controls for this mode.",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⚙️ Settings", callback_data="at_settings")],
+                [InlineKeyboardButton("🏠 Dashboard", callback_data="at_dashboard")],
+            ]),
+        )
+        logger.info(f"[RiskMode:{user_id}] Switched {current_mode} -> {new_mode}")
+    except Exception as e:
+        logger.error(f"[RiskMode:{user_id}] Switch failed: {e}")
+        await query.edit_message_text(
+            "❌ Failed to switch risk mode. Please try again.",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="at_settings")]
+            ]),
+        )
+    return ConversationHandler.END
+
+
 async def callback_toggle_auto_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Toggle auto mode switching on/off"""
     query = update.callback_query
@@ -1080,16 +1176,21 @@ async def callback_toggle_auto_mode(update: Update, context: ContextTypes.DEFAUL
         s = _client()
         
         # Get current status
-        result = s.table("autotrade_sessions").select("auto_mode_enabled").eq(
+        result = s.table("autotrade_sessions").select("auto_mode_enabled,trading_mode").eq(
             "telegram_id", int(user_id)
         ).limit(1).execute()
         
         current_status = True  # Default ON
+        current_mode = "swing"
         if result.data:
             current_status = result.data[0].get("auto_mode_enabled", True)
+            current_mode = str(result.data[0].get("trading_mode", "swing") or "swing").strip().lower()
         
         # Toggle status
         new_status = not current_status
+        if current_mode == "mixed":
+            # Mixed mode uses symbol-level routing and bypasses legacy global auto-switching.
+            new_status = False
         
         # Update database
         s.table("autotrade_sessions").upsert({
@@ -1122,9 +1223,16 @@ async def callback_toggle_auto_mode(update: Update, context: ContextTypes.DEFAUL
         else:
             message += (
                 "⚠️ <b>Auto Mode is now OFF</b>\n\n"
-                "You will stay in your current trading mode until you manually change it.\n\n"
-                "💡 Enable auto mode to let the system automatically "
-                "switch between scalping and swing based on market conditions."
+                + (
+                    "Legacy global auto-switch is disabled while <b>MIXED</b> mode is active.\n\n"
+                    "Mixed mode already routes symbols automatically every 10 minutes."
+                    if current_mode == "mixed"
+                    else (
+                        "You will stay in your current trading mode until you manually change it.\n\n"
+                        "💡 Enable auto mode to let the system automatically "
+                        "switch between scalping and swing based on market conditions."
+                    )
+                )
             )
         
         await query.edit_message_text(
@@ -1434,6 +1542,7 @@ async def callback_trading_mode_menu(update: Update, context: ContextTypes.DEFAU
     
     scalping_check = "✅ " if current_mode == TradingMode.SCALPING else ""
     swing_check = "✅ " if current_mode == TradingMode.SWING else ""
+    mixed_check = "✅ " if current_mode == TradingMode.MIXED else ""
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
@@ -1443,6 +1552,10 @@ async def callback_trading_mode_menu(update: Update, context: ContextTypes.DEFAU
         [InlineKeyboardButton(
             f"{swing_check}📊 Swing Mode (15M)",
             callback_data="mode_select_swing"
+        )],
+        [InlineKeyboardButton(
+            f"{mixed_check}⚖️ Mixed Mode (Auto Pair Routing)",
+            callback_data="mode_select_mixed"
         )],
         [InlineKeyboardButton("🔙 Back to Dashboard", callback_data="at_dashboard")],
     ])
@@ -1454,13 +1567,18 @@ async def callback_trading_mode_menu(update: Update, context: ContextTypes.DEFAU
         "• 10-20 trades per day\n"
         "• Single TP at 1.5R\n"
         "• 30-minute max hold time\n"
-        "• Pairs: BTC, ETH\n\n"
+        "• Pairs: Top 10 by volume (all scalping)\n\n"
         "📊 <b>Swing Mode (15M):</b>\n"
         "• Swing trades on 15-minute chart\n"
         "• 2-3 trades per day\n"
         "• 3-tier TP (StackMentor)\n"
         "• No max hold time\n"
-        "• Pairs: BTC, ETH, SOL, BNB\n\n"
+        "• Pairs: Top 10 by volume (all swing)\n\n"
+        "⚖️ <b>Mixed Mode (Top-10 Auto Routing):</b>\n"
+        "• Runs Swing + Scalping in parallel\n"
+        "• Each top-volume symbol auto-assigned to strategy\n"
+        "• Reassignment cadence: 10 minutes (sticky)\n"
+        "• Concurrent cap: Swing 4 + Scalping 4\n\n"
         f"Current mode: <b>{current_mode.value.upper()}</b>",
         parse_mode='HTML',
         reply_markup=keyboard
@@ -1614,6 +1732,61 @@ async def callback_select_swing(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def callback_select_mixed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle mixed mode selection"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    from app.trading_mode_manager import TradingModeManager, TradingMode
+    current_mode = TradingModeManager.get_mode(user_id)
+
+    if current_mode == TradingMode.MIXED:
+        await query.edit_message_text(
+            "⚖️ You're already in Mixed Mode!",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="trading_mode_menu")]
+            ])
+        )
+        return
+
+    result = await TradingModeManager.switch_mode(
+        user_id,
+        TradingMode.MIXED,
+        context.application.bot,
+        context,
+        switch_source="manual",
+    )
+
+    if result["success"]:
+        await query.edit_message_text(
+            "✅ <b>Trading Mode Changed</b>\n\n"
+            "⚖️ <b>Mixed Mode Activated</b>\n\n"
+            "📊 Configuration:\n"
+            "• Runtime: Swing + Scalping engines in parallel\n"
+            "• Trading pairs: Top 10 by volume (auto-ranked)\n"
+            "• Pair routing: Auto-classifier (per symbol)\n"
+            "• Reassignment cadence: 10 minutes (sticky)\n"
+            "• Max concurrent: Swing 4 + Scalping 4\n"
+            "• Leverage policy: Auto max-safe per pair\n\n"
+            "🚀 Engine restarted with mixed parameters.\n"
+            "You will receive one combined startup notification.",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📊 View Dashboard", callback_data="at_dashboard")]
+            ])
+        )
+    else:
+        await query.edit_message_text(
+            f"❌ Failed to switch mode: {result['message']}",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Back", callback_data="trading_mode_menu")]
+            ])
+        )
+
+
 # ------------------------------------------------------------------ #
 #  Register handlers                                                  #
 # ------------------------------------------------------------------ #
@@ -1630,6 +1803,14 @@ def register_autotrade_handlers(application):
             WAITING_BITUNIX_UID: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_uid_input_bot),
             ],
+            WAITING_NEW_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_amount),
+                CallbackQueryHandler(callback_new_amount_select, pattern="^at_newamt_\\d+$"),
+            ],
+            WAITING_NEW_LEVERAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_leverage_text),
+                CallbackQueryHandler(callback_new_leverage_select, pattern="^at_newlev_\\d+$"),
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cmd_cancel),
@@ -1640,7 +1821,30 @@ def register_autotrade_handlers(application):
     application.add_handler(conv)
     application.add_handler(CallbackQueryHandler(callback_start_onboarding, pattern="^at_start_onboarding$"))
     application.add_handler(CallbackQueryHandler(callback_learn_more, pattern="^at_learn_more$"))
-    
+
+    # Dashboard/settings callbacks (must be registered before generic menu redirect handlers).
+    application.add_handler(CallbackQueryHandler(callback_dashboard, pattern="^at_dashboard$"))
+    application.add_handler(CallbackQueryHandler(callback_settings, pattern="^at_settings$"))
+    application.add_handler(CallbackQueryHandler(callback_set_amount, pattern="^at_set_amount$"))
+    application.add_handler(CallbackQueryHandler(callback_new_amount_select, pattern="^at_newamt_\\d+$"))
+    application.add_handler(CallbackQueryHandler(callback_set_leverage, pattern="^at_set_leverage$"))
+    application.add_handler(CallbackQueryHandler(callback_new_leverage_select, pattern="^at_newlev_\\d+$"))
+    application.add_handler(CallbackQueryHandler(callback_set_margin, pattern="^at_set_margin$"))
+    application.add_handler(CallbackQueryHandler(callback_margin_select, pattern="^at_margin_(cross|isolated)$"))
+    application.add_handler(CallbackQueryHandler(callback_toggle_auto_mode, pattern="^at_toggle_auto_mode$"))
+    application.add_handler(CallbackQueryHandler(callback_switch_risk_mode, pattern="^at_switch_risk_mode$"))
+    application.add_handler(CallbackQueryHandler(callback_risk_settings, pattern="^at_risk_settings$"))
+    application.add_handler(CallbackQueryHandler(callback_set_risk, pattern="^at_set_risk_(1|2|3|5)$"))
+    application.add_handler(CallbackQueryHandler(callback_risk_education, pattern="^at_risk_edu$"))
+    application.add_handler(CallbackQueryHandler(callback_risk_simulator, pattern="^at_risk_sim$"))
+    application.add_handler(CallbackQueryHandler(callback_trading_mode_menu, pattern="^trading_mode_menu$"))
+    application.add_handler(CallbackQueryHandler(callback_select_scalping, pattern="^mode_select_scalping$"))
+    application.add_handler(CallbackQueryHandler(callback_select_swing, pattern="^mode_select_swing$"))
+    application.add_handler(CallbackQueryHandler(callback_select_mixed, pattern="^mode_select_mixed$"))
+
+    # Backward-compat aliases for legacy callback values still present in some flows.
+    application.add_handler(CallbackQueryHandler(callback_settings, pattern="^at_choose_risk_mode$"))
+    application.add_handler(CallbackQueryHandler(callback_new_leverage_select, pattern="^at_lev_\\d+$"))
 
     # Ad-hoc UID approval callbacks for admins
     from app.handlers_autotrade_admin import callback_uid_acc, callback_uid_reject
