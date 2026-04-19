@@ -1,5 +1,93 @@
 # Changelog
 
+## [2.2.60] — 2026-04-19 — Bitunix Reset Approval Completion + Documentation Sync
+
+### ✅ Approval Completion Follow-Up (Target User)
+- Completed post-reset approval for:
+  - `telegram_id=6273965862`
+  - `bitunix_uid=471766124`
+- Final state after approval:
+  - `user_verifications.status=approved`
+  - `autotrade_sessions.status=uid_verified`
+  - `engine_active=false` preserved
+- User confirmation notification sent with dashboard CTA.
+
+### 📚 Documentation / SOP Alignment
+- Updated `AGENTS.md` with registration reset + re-verify -> approve lifecycle guidance:
+  - one-time reset flow and preflight rules,
+  - `submitted_via` compatibility requirement (`web|telegram`),
+  - required evidence and metrics recording for reset/approval operations.
+- Updated dirty docs under `docs/` to align runbooks/snapshots with:
+  - hourly admin engine summary operations,
+  - registration reset and approval recovery flow.
+
+## [2.2.59] — 2026-04-19 — One-Time Bitunix Registration Reset (UID Re-Verify)
+
+### 🛠️ New Operational Script
+- Added `scripts/reset_bitunix_registration.py`.
+- Purpose: one-time reset of a user's Bitunix registration to force re-verification.
+- CLI:
+  - `--telegram-id` (required)
+  - `--new-bitunix-uid` (required)
+  - `--mode dry-run|apply` (default `dry-run`)
+  - `--notify-user` (default `true`)
+  - `--notify-admin` (default `true`)
+  - `--actor-admin-id` (optional; fallback to previous reviewer or `0`)
+
+### ✅ Behavior Implemented
+- Loads env from `Bismillah/.env`, repo `.env`, and `website-backend/.env` (plus systemd env best-effort).
+- Validates target user exists and new UID is numeric (`>=5` digits).
+- Preflight guard:
+  - aborts reset if user has open trades.
+- Apply mode writes:
+  - `user_verifications`: sets `bitunix_uid`, `status=pending`, clears review fields, updates timestamps.
+  - `autotrade_sessions`: sets `bitunix_uid`, `status=pending_verification`, `engine_active=false`, updates timestamp.
+  - deletes Bitunix API key rows for target user (`exchange in ('bitunix','')`).
+- Sends Telegram notifications to target user + configured admins.
+- Persists run log artifact JSON under `logs/`.
+
+### 🧾 One-Time Execution (Target User)
+- Target: `telegram_id=6273965862`
+- Old UID: `447138181`
+- New UID: `471766124`
+- Result:
+  - `user_verifications.bitunix_uid=471766124`, `status=pending`
+  - `autotrade_sessions.bitunix_uid=471766124`, `status=pending_verification`, `engine_active=false`
+  - `user_api_keys` for target: none
+- Notification metrics:
+  - `USER_SENT=1`, `USER_FAILED=0`
+  - `ADMIN_SENT=2`, `ADMIN_FAILED=0`
+
+### ⚠️ Constraint Compatibility Note
+- DB constraint `user_verifications_submitted_via_check` currently allows only `web|telegram`.
+- For reset runs, script preserves existing allowed `submitted_via` (fallback `web`) to remain constraint-safe.
+
+## [2.2.58] — 2026-04-19 — Hourly Admin Engine Trade/No-Trade Summary (VPS Cron)
+
+### 📡 New Hourly Admin Report Script
+- Added `scripts/hourly_admin_engine_report.py`.
+- Report scope (last 1 hour):
+  - engine/service snapshot,
+  - session + mode counts,
+  - opened/closed/open-now trade metrics,
+  - outcome taxonomy (`strategy_win/loss`, `timeout_exit`, `ops_reconcile`),
+  - adaptation snapshot (`sideways_governor`, playbook overlay, confidence adaptation),
+  - explicit no-trade reason section when `opened_1h = 0` based on live logs.
+- Supports modes:
+  - `--mode send-now`
+  - `--mode dry-run`
+
+### 🚀 VPS Rollout (No service restart required)
+- Deployed script to:
+  - `/root/cryptomentor-bot/scripts/hourly_admin_engine_report.py`
+- Verified compile on VPS:
+  - `/root/cryptomentor-bot/venv/bin/python -m py_compile ...`
+- Sent immediate report to admins:
+  - `admin_target=2`, `sent=2`, `failed=0`
+- Enabled hourly automation via root crontab:
+  - `5 * * * * cd /root/cryptomentor-bot && /root/cryptomentor-bot/venv/bin/python /root/cryptomentor-bot/scripts/hourly_admin_engine_report.py --mode send-now >> /root/cryptomentor-bot/logs/hourly_admin_report_cron.log 2>&1`
+- Hash parity verified for deployed script (`local == VPS`).
+
 ## [2.2.57] — 2026-04-19 — Confidence Correlation Adaptive Handling (Swing + Scalping)
 
 ### 🎚️ Mode-Aware Confidence Adaptation

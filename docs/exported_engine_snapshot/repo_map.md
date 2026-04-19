@@ -1,70 +1,84 @@
 # Engine-Relevant Repo Map (Snapshot)
 
-Scope: files confirmed to participate in signal generation, trade execution, risk, engine lifecycle, web control-plane, or exchange integration.
+**As Of:** 2026-04-17
+
+Scope: files that directly participate in signal generation, trade execution, risk/adaptive behavior, engine lifecycle, web control-plane, and exchange integration.
 
 ## Telegram/Bot Runtime Core (`Bismillah/`)
 
 ```text
 Bismillah/
-  main.py                                 # Bot process entrypoint; loads env, starts Telegram bot
-  bot.py                                  # TelegramBot.run_bot(); starts scheduler + auto mode switcher
+  main.py                                 # Process entrypoint
+  bot.py                                  # Telegram runtime bootstrap
   app/
-    autotrade_engine.py                   # Swing/autotrade loop, signal scan, queueing, risk sizing, order placement
-    scalping_engine.py                    # Scalping loop, sideways + trend signal path, anti-flip, order placement path
-    trade_execution.py                    # Unified managed-entry helper (used by scalping path)
-    stackmentor.py                        # In-memory TP/SL monitor + staged close handlers
-    bitunix_autotrade_client.py           # Bitunix REST adapter (account, positions, orders, TP/SL mutation)
-    bitunix_ws_pnl.py                     # Bitunix private WS unrealized-PnL tracker
-    trade_history.py                      # DB persistence/reconciliation of open/closed trades
-    trading_mode.py                       # TradingMode/ScalpingConfig/ScalpingPosition/MicroScalpSignal dataclasses
-    trading_mode_manager.py               # Trading mode persistence + switch orchestration
-    scheduler.py                          # Startup restore + periodic health check + startup reconciliation
-    engine_restore.py                     # Alternate restore helpers (risk migration + engine restore)
+    autotrade_engine.py                   # Swing loop, candidate queue, execution orchestration
+    scalping_engine.py                    # Scalping loop, signal path, timeout/pending safeguards
+    trade_execution.py                    # Unified managed entry flow for swing+scalp
+    stackmentor.py                        # Runtime TP/SL target model and monitor
+    adaptive_confluence.py                # Global adaptive confluence state
+    win_playbook.py                       # Runtime risk overlay + guardrails
+    volume_pair_selector.py               # Top-10 by Bitunix quoteVol selector + fallback chain
+    symbol_coordinator.py                 # Single-owner-per-user-per-symbol + pending TTL self-heal
+    trading_mode.py                       # Config dataclasses + timeout feature flags/alias
+    trading_mode_manager.py               # Trading mode persistence/switching
+    trade_history.py                      # Open/close persistence + reconcile helpers
+    scheduler.py                          # Startup stale checks + health routines
+    engine_restore.py                     # Engine restore helpers
     exchange_registry.py                  # Exchange config + client factory
-    supabase_repo.py                      # Supabase read/write helpers, risk settings, API key storage
-    auto_mode_switcher.py                 # Regime-driven mode switching task
-    market_sentiment_detector.py          # SIDEWAYS/TRENDING classification for auto mode switcher
-    autosignal_async.py                   # Async/cached scalping signal generation (trend path)
-    candle_cache.py                       # Candle cache + API concurrency semaphore
-    providers/
-      alternative_klines_provider.py      # Multi-source OHLCV ingestion (Bitunix -> Binance -> CryptoCompare -> CoinGecko)
-    sideways_detector.py                  # Sideways vote model (ATR/EMA spread/range width)
-    range_analyzer.py                     # Range S/R extraction for sideways logic
-    bounce_detector.py                    # Wick-based bounce confirmation
-    micro_momentum_detector.py            # 1m/3m momentum detector for sideways micro-scalps
-    rsi_divergence_detector.py            # RSI divergence detector used in confluence/sideways
-    position_sizing.py                    # Risk-based sizing helper (used by scalping)
+    supabase_repo.py                      # Supabase read/write operations
+    auto_mode_switcher.py                 # Sentiment-driven mode switch task
+    market_sentiment_detector.py          # SIDEWAYS/TRENDING classifier
+    bitunix_autotrade_client.py           # Primary exchange adapter
+    bitunix_ws_pnl.py                     # Private websocket unrealized PnL tracker
+    autosignal_async.py                   # Async signal computation path
+    autosignal_fast.py                    # Fast signal utilities
+    candle_cache.py                       # Candle cache + throttling
+    sideways_detector.py                  # Sideways detection
+    range_analyzer.py                     # Range extraction
+    bounce_detector.py                    # Bounce confirmation
+    rsi_divergence_detector.py            # RSI divergence signal helper
+    position_sizing.py                    # Risk-based sizing helper
 ```
 
 ## Website Backend Runtime (`website-backend/`)
 
 ```text
 website-backend/
-  main.py                                 # FastAPI app entrypoint, middleware + routers
-  config.py                               # Environment-driven config constants
+  main.py                                 # FastAPI entrypoint
+  config.py                               # Env-driven config
   app/
-    db/supabase.py                        # Supabase client for web backend
-    auth/jwt.py                           # JWT create/decode
-    auth/telegram.py                      # Telegram Login Widget signature validation
-    middleware/verification_guard.py      # Route guard for UID verification status
-    services/bitunix.py                   # Web wrapper around BitunixAutoTradeClient + key encryption/decryption
-    services/signal_queue.py              # Queue manager abstraction (DB-backed), mostly sidecar currently
+    db/supabase.py                        # Supabase client
+    services/bitunix.py                   # Web wrapper for exchange actions
+    services/signal_queue.py              # Queue helper abstraction
     routes/
-      auth.py                             # Telegram login to JWT
-      user.py                             # UID submission + verification status endpoints
-      dashboard.py                        # Engine toggle, settings, performance, portfolio aggregate
-      engine.py                           # Direct engine start/stop/state via dynamic Bismillah module loading
-      bitunix.py                          # Live account/positions/history/tpsl + close 1-click position endpoint
-      signals.py                          # Signal generation endpoint + 1-click trade execution endpoint
-    db/migrations/signal_queue_table.sql  # Signal queue persistence schema
+      auth.py                             # Telegram auth/JWT
+      user.py                             # UID/verification status routes
+      dashboard.py                        # Settings, portfolio, engine toggles
+      engine.py                           # Direct engine start/stop/state bridge
+      signals.py                          # Signal list + execute endpoints
+      bitunix.py                          # Account/positions/history/tpsl routes
 ```
 
-## Infra/Dependency Manifests
+## Infra / Runtime Standards Anchors
 
 ```text
-Bismillah/requirements.txt                # Bot/runtime Python deps
-website-backend/requirements.txt          # Web API Python deps
-Bismillah/.env.example                    # Bot env variable inventory (template)
-website-backend/.env.example              # Web env variable inventory (contains sensitive sample literals; redact in docs)
+Bismillah/app/volume_pair_selector.py     # Dynamic Top-10 pair standard + fallback order
+Bismillah/app/win_playbook.py             # Base/overlay/effective risk caps and guardrails
+Bismillah/app/adaptive_confluence.py      # conf_delta/vol_delta/ob_mode adaptive controls
+Bismillah/app/symbol_coordinator.py       # pending_ttl_seconds=90 and startup/reconcile safety
+Bismillah/app/trading_mode.py             # timeout feature flag + legacy alias compatibility
 ```
 
+## Notes
+
+- Runtime pair-count messaging should reflect dynamic Top-10 routing, not fixed pair counts.
+- Risk wording standard: **Equity** (risk basis) vs **Available balance** (free margin context only).
+
+## Operational Scripts (2026-04-19)
+
+- `scripts/hourly_admin_engine_report.py`
+  - Hourly Telegram admin summary for engine/trade/no-trade status.
+- `scripts/reset_bitunix_registration.py`
+  - One-time Bitunix UID reset + re-verification recovery workflow.
+- `scripts/broadcast_api_issue_verified.py`
+  - Verified-audience API issue campaign (missing/invalid API key remediation).

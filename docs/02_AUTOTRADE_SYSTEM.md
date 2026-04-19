@@ -89,6 +89,28 @@ Guardrails and actions:
 
 ---
 
+## Open Trade Risk Audit Transparency
+
+On every successful trade open (swing + scalping), runtime emits:
+- Telegram one-line audit:  
+  `Risk Audit: base X.XX% | overlay ±Y.YY% | effective Z.ZZ% | implied $N.NNNN`
+- Backend structured log event:  
+  `order_open_risk_audit user_id=... symbol=... side=... order_id=... base_risk=... overlay=... effective_risk=... implied_risk_usdt=...`
+
+Ops verification commands (VPS):
+
+```bash
+# Latest open-trade risk audit events
+journalctl -u cryptomentor -n 3000 --no-pager | grep "order_open_risk_audit"
+
+# Filter by specific order ID
+journalctl -u cryptomentor --since "2026-04-17 00:00:00" --no-pager \
+  | grep "order_open_risk_audit" \
+  | grep "order_id=1435085367318471237"
+```
+
+---
+
 ## Timeout Protection Policy (Scalping)
 
 Timeout protection is feature-flagged and backward-safe:
@@ -135,3 +157,29 @@ When runner mode is enabled:
 
 - Use **Equity** for account-value/risk basis.
 - Use **Available balance** only for free margin context.
+
+---
+
+## Operational Recovery Addendum (2026-04-19)
+
+### Bitunix UID Reset -> Re-Verify -> Approve
+
+Default one-time recovery flow for wrong/changed UID:
+1. Preflight checks:
+   - user exists,
+   - no open trades,
+   - fetch `user_verifications`, `autotrade_sessions`, `user_api_keys`.
+2. Reset phase:
+   - `user_verifications.status = pending`
+   - `autotrade_sessions.status = pending_verification`
+   - `autotrade_sessions.engine_active = false`
+   - optional Bitunix key cleanup for forced relink.
+3. Approval phase:
+   - `user_verifications.status = approved` with reviewer metadata.
+   - mirror legacy state `autotrade_sessions.status = uid_verified`.
+4. Notify:
+   - user and admins via Telegram,
+   - preserve evidence in `logs/*.json`.
+
+Constraint note:
+- `user_verifications.submitted_via` must remain DB-compatible (`web` or `telegram`).

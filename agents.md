@@ -125,6 +125,29 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - Never assume status mappings; normalize first (`approved/uid_verified/active/verified`).
 - For `non-verified`, include users with missing verification rows unless told otherwise.
 
+## 5) Registration Reset & Verification Recovery
+- Owner: controlled UID-registration recovery for individual users.
+- Purpose:
+- Handle one-time Bitunix UID reset, force re-verification, and optionally complete re-approval.
+- Required flow (default):
+1. Preflight (must pass before write):
+- Confirm target user exists in `users`.
+- Read `user_verifications`, `autotrade_sessions`, `user_api_keys`.
+- Abort if open trades exist.
+2. Reset to pending re-verification:
+- `user_verifications`: set `bitunix_uid` to new UID, `status=pending`, clear review fields.
+- `autotrade_sessions`: set `bitunix_uid` to new UID, `status=pending_verification`, `engine_active=false`.
+- Delete Bitunix API key rows for the user (`exchange in ('bitunix','')`) when reset policy requires relink.
+3. Approval completion (when explicitly requested):
+- `user_verifications.status=approved`, set `reviewed_at`, `reviewed_by_admin_id`.
+- Mirror legacy status in `autotrade_sessions.status=uid_verified`.
+4. Notifications + evidence:
+- Notify target user and admins via Telegram.
+- Persist run artifact log (`logs/*.json`) including before/after snapshots and send metrics.
+- Compatibility rule:
+- `user_verifications.submitted_via` is constrained; use only supported values (`web`, `telegram`).
+- Do not write unsupported sources (for example `admin_reset`) unless DB constraint is expanded first.
+
 ## 5) Deploy/Sync Agent
 - Owner: local <-> ajax <-> VPS alignment.
 - Required sequence (no skipping):
@@ -168,6 +191,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - `mode_select_mixed` activates mixed mode successfully.
 - `at_switch_risk_mode` toggles persisted risk mode.
 - `at_dashboard` returns to gatekeeper dashboard flow.
+18. For registration reset operations: verify target post-state (`pending` or `approved` as intended), no blocked open-trade condition, and Telegram send metrics recorded.
 
 ## Guardrails
 - No destructive git actions without explicit instruction.
@@ -177,3 +201,4 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - Do not auto-adjust SL/TP post-sizing unless position size is recomputed and revalidated.
 - Do not bypass runtime guardrails to force risk ramp; if guardrails fail, overlay must brake down.
 - Do not ship timeout-protection default-on without explicit approval.
+- Do not write unsupported `submitted_via` values to `user_verifications`; keep compatibility with DB check constraints.

@@ -1,148 +1,92 @@
-# Signal Engine Spec (Current Code)
+# Signal Engine Spec (Current Code Snapshot)
+
+**As Of:** 2026-04-17
 
 ## Scope
 
-- Swing/autotrade signal path: `Bismillah/app/autotrade_engine.py` (`_compute_signal_pro`, `_generate_confluence_signal`, `_get_btc_bias`).
-- Scalping signal path: `Bismillah/app/scalping_engine.py` (`generate_scalping_signal`, `_try_sideways_signal`) + `Bismillah/app/autosignal_async.py`.
-- Web signal path: `website-backend/app/routes/signals.py` (`generate_confluence_signals`, `_build_signal` fallback).
+- Swing/autotrade signal path: `Bismillah/app/autotrade_engine.py`.
+- Scalping signal path: `Bismillah/app/scalping_engine.py` + `Bismillah/app/autosignal_async.py`.
+- Web signal path: `website-backend/app/routes/signals.py`.
+- Adaptive/risk overlay path: `Bismillah/app/adaptive_confluence.py` + `Bismillah/app/win_playbook.py`.
 
 ---
 
 ## A) Confirmed From Code
 
-## A.1 Swing/Autotrade Signal (`_compute_signal_pro`)
+### A.1 Swing / Autotrade Signal Flow
 
-- Symbol universe from `ENGINE_CONFIG["symbols"]` in `autotrade_engine.py`:
-  - `BTC, ETH, SOL, BNB, XRP, DOGE, ADA, AVAX, DOT, MATIC, LINK, UNI, ATOM, XAU, CL, QQQ`.
-- Timeframes:
-  - 1h candles (primary trend/volatility),
-  - 15m candles (entry trigger / structure).
-- Data source:
-  - `alternative_klines_provider.get_klines(base_symbol, interval=...)`.
+- Candidate symbol universe is runtime dynamic via `get_ranked_top_volume_pairs(10)`.
+- Signals are generated then filtered with confidence/cooldown/concurrency/ownership gates.
+- Adaptive confluence overrides are applied via:
+  - `conf_delta`
+  - `volume_min_ratio_delta`
+  - `ob_fvg_requirement_mode`
+- Engine refresh cadence for adaptive/playbook snapshots is **10 minutes**.
+- Execution path validates SL/TP against mark before opening position.
+- R:R validation is enforced against strategy expectations before order placement.
 
-### BTC bias gating (`_get_btc_bias`)
+### A.2 Scalping Signal Flow
 
-- Inputs: BTC 4h/1h/15m.
-- Bias scoring uses:
-  - EMA structure (4h and 1h),
-  - 15m momentum (EMA9 vs EMA21),
-  - market structure (HH/HL or LH/LL),
-  - volume ratio,
-  - RSI penalties at extremes.
-- Altcoin hard skip when BTC strength `< 40`.
-- Additional alignment filter: altcoin trend cannot contradict BTC bullish/bearish bias.
+- Mode-aware pipeline in `ScalpingEngine.generate_scalping_signal(...)`.
+- Sideways-first path (`_try_sideways_signal`) with range/bounce/divergence context.
+- Fallback path uses async scalping signal computation.
+- Anti-flip + cooldown filters enforce churn control.
+- Ownership gate blocks conflicting strategy entries on same `(user, symbol)`.
+- Timeout exits include structured reasoning and optional timeout protection actions when feature-flag enabled.
 
-### Primary confluence system (`_generate_confluence_signal`)
+### A.3 Risk Overlay / Effective Risk
 
-- Factor scoring:
-  - near S/R: +30,
-  - RSI extreme: +25,
-  - volume spike (>1.5x): +20,
-  - trending regime (ATR% > 0.3): +15,
-  - price above MA50: +10.
-- Adaptive risk profile inputs:
-  - `_risk_profile(user_risk_pct)` -> `min_confidence`, `atr_multiplier` for TP width.
-- Direction:
-  - LONG if RSI<30,
-  - SHORT if RSI>70,
-  - otherwise LONG default.
-- Price levels:
-  - LONG: `entry=support`, `tp1=entry+0.75*ATR*atr_multiplier`, `tp2=entry+1.25*ATR*atr_multiplier`, `sl=support-0.5*ATR`.
-  - SHORT mirrored around resistance.
+From `win_playbook.py`:
+- Base risk clamp: `0.25%-5.0%`
+- Overlay max: `+5.0%`
+- Effective cap: `10.0%`
+- Effective risk formula: `effective_risk_pct = min(10.0, base_risk_pct + risk_overlay_pct)`
+- Guardrail conditions require sample threshold + healthy win-rate/expectancy to ramp.
+- Overlay actions are gradual (`ramp_up`/`brake_down`) with a minimum action interval.
 
-### Secondary fallback (SMC/hybrid block inside `_compute_signal_pro`)
+### A.4 Timeout Flag Compatibility
 
-- Triggered when confluence missing/weak.
-- Components:
-  - 1h EMA trend (`EMA21/EMA50`),
-  - 15m EMA crossover/EMA alignment,
-  - RSI filters (`rsi_long_max`, `rsi_short_min`),
-  - volume ratio bonus/penalty,
-  - structure bonuses (BOS via swing highs/lows),
-  - order block and FVG heuristics,
-  - wick-rejection/manipulation filter (`wick_rejection_max`),
-  - ATR volatility bounds (`min_atr_pct`, `max_atr_pct`).
-- SL/TP construction:
-  - `sl_dist = atr_1h * atr_sl_multiplier`,
-  - `tp1_dist = atr_1h * atr_tp1_multiplier`,
-  - `tp2_dist = atr_1h * atr_tp2_multiplier`.
-- R:R gate:
-  - `rr = tp1_dist / sl_dist`; requires `>= ENGINE_CONFIG["min_rr_ratio"]`.
+From `trading_mode.py`:
+- Primary key: `SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED`
+- Legacy alias: `SCALPING_TIMEOUT_PROTECTION_ENABLED`
+- Runtime default stays disabled when both keys are absent (`false`).
 
-### Reversal/flip logic (`_is_reversal`)
+### A.5 Pending Lock / Coordination Safety
 
-- Requires opposite direction + confidence threshold.
-- Trending mode branch:
-  - stricter CHoCH-style checks (`trend_1h`, `market_structure`) + 30m cooldown.
-- Sideways mode branch:
-  - relaxed checks + RSI/trend permissive conditions + 15m cooldown.
+From `symbol_coordinator.py` and engine startup paths:
+- Pending locks are explicitly set before order placement.
+- Clear/confirm paths exist for fail/success/cancel flows.
+- Stale pending-without-position auto-expire at `90s`.
+- Startup sanitize + reconcile routines clear orphan pending states.
 
-## A.2 Scalping Signal
+### A.6 StackMentor Runtime Exit Model
 
-### Pipeline (`ScalpingEngine.generate_scalping_signal`)
-
-- Mode check via `TradingModeManager.get_mode(user_id)`.
-- If `SCALPING`, attempt sideways signal first:
-  - `_try_sideways_signal(symbol)`.
-- If no sideways signal, fallback:
-  - `autosignal_async.compute_signal_scalping_async(...)`.
-
-### Sideways signal (`_try_sideways_signal`)
-
-- Inputs:
-  - candles 5m/15m via cache (`candle_cache.get_candles_cached`).
-- Steps:
-  - `SidewaysDetector.detect(...)` (2-of-3 vote: ATR relative, EMA spread, range width),
-  - `RangeAnalyzer.analyze(...)` for support/resistance,
-  - `BounceDetector.detect(...)` for wick bounce,
-  - optional `MicroMomentumDetector.detect(...)` from 1m/3m if bounce absent,
-  - optional RSI divergence bonus via `RSIDivergenceDetector.detect(...)`.
-- Confidence floor for sideways branch:
-  - requires `>= 70`.
-- TP/SL:
-  - TP around 70% toward opposite range edge,
-  - SL padded by `0.75 * ATR` (fallback 0.35%),
-  - requires R:R `>= 1.0`.
-
-### Trending scalping fallback (`autosignal_async.compute_signal_scalping_async`)
-
-- Trend basis from 15m EMA structure.
-- Entry trigger from 5m RSI + volume ratio.
-- Supports strong-trend and weak/ranging conditions.
-- TP/SL:
-  - `sl_distance = atr_5m * 1.5`,
-  - `tp_distance = sl_distance * 1.5`.
-
-### Scalping anti-churn gates
-
-- `_passes_anti_flip_filters(...)`:
-  - consecutive signal confirmation (`signal_confirmations_required`, max gap),
-  - opposite-direction reentry cooldown (`anti_flip_opposite_seconds`, widened for sideways closes).
-- Symbol cooldown tracking in `cooldown_tracker`.
-
-## A.3 Web Signals (`website-backend/app/routes/signals.py`)
-
-- `/dashboard/signals`:
-  - tries `generate_confluence_signals(sym, user_risk_pct)` per watchlist symbol,
-  - fallback to `_build_signal(...)` momentum-style from Binance 24h ticker.
-- Confluence scoring in web route mirrors swing-style point model (S/R, RSI, volume, ATR trend proxy, MA).
-- `/dashboard/signals/execute`:
-  - enforces entry age window,
-  - recomputes a **live** signal via `_live_signal(...)` (ticker-based fallback builder),
-  - then computes risk-based quantity from live SL distance.
+Current runtime strategy is unified single-target:
+- `target_rr = 3.0`
+- full close at TP (`qty_tp1=100%, qty_tp2=0, qty_tp3=0`)
+- `tp1/tp2/tp3` fields retained for compatibility
 
 ---
 
-## B) Likely Inferred From Naming/Comments (Not Strictly Enforced Everywhere)
+## B) Notes for Readers (Snapshot Intent)
 
-- “Confluence minimum can adapt by risk” is documented in comments, but enforcement has additional static gates in swing flow.
-- “StackMentor 3-tier exits (60/30/10)” language appears in logs/comments in some places, while current StackMentor config declares unified full close.
+- This file is a code snapshot summary, not a product promise document.
+- Legacy wording in some log/comment strings may reference older staged TP phrasing.
+- Runtime behavior should be interpreted from managed execution + StackMentor config paths first.
 
 ---
 
-## C) Unclear From Code
+## C) Web Signal Path (Current)
 
-- Exact intended precedence between confluence adaptive thresholds vs static `ENGINE_CONFIG["min_confidence"]` gate in swing path is unclear from code.
-- Intended production path for web signal execution (confluence-derived vs momentum `_build_signal`) is unclear from code because execute path currently re-derives via ticker builder.
-- Presence of `app.analysis.range_analyzer` import in swing confluence S/R branch is unclear from code (path does not exist in this repo snapshot).
+- `/dashboard/signals` produces signal cards from confluence/fallback builders.
+- `/dashboard/signals/execute` recomputes a live execution-ready signal and applies sizing checks before placement.
+- Execution metadata should preserve risk and close-reason traceability.
 
+---
+
+## D) Verification Gate Context (Operational)
+
+- Signal/entry runtime is operationally coupled with verification/session status:
+  - recovery reset phase uses pending states (`pending`, `pending_verification`) to block normal trading readiness.
+  - approval phase restores ready state (`approved`, `uid_verified`) before normal entry lifecycle.
+- Reset/recovery operations must keep DB-compatible `submitted_via` values (`web|telegram`) to avoid verification-write failures.

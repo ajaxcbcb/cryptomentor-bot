@@ -1,0 +1,8 @@
+[
+  {"timestamp":"2026-01-01T00:00:00Z","open":100,"high":100.1,"low":99.9,"close":100.0,"volume":10},
+  {"timestamp":"2026-01-01T00:05:00Z","open":100.0,"high":100.1,"low":99.9,"close":100.0,"volume":10},
+  {"timestamp":"2026-01-01T00:10:00Z","open":100.0,"high":100.1,"low":99.9,"close":100.0,"volume":10},
+  {"timestamp":"2026-01-01T00:15:00Z","open":100.0,"high":100.1,"low":99.9,"close":99.99,"volume":10},
+  {"timestamp":"2026-01-01T00:20:00Z","open":99.99,"high":100.05,"low":99.9,"close":99.98,"volume":10},
+  {"timestamp":"2026-01-01T00:25:00Z","open":99.98,"high":100.02,"low":99.9,"close":99.97,"volume":10}
+]

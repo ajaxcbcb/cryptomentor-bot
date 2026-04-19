@@ -15,6 +15,7 @@ EMAIL="${EMAIL:-admin@cryptomentor.id}"
 ISSUE_SSL="${ISSUE_SSL:-0}"
 # Backward-compatible: ROOT_DIR still works as override, but default is nginx-safe.
 SITE_ROOT="${SITE_ROOT:-${ROOT_DIR:-/var/www/intro-cryptomentor}}"
+CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -34,6 +35,11 @@ if [[ ! -f "$REPO_ROOT/website-frontend/dist/cryptomentor-onboarding-deck.html" 
   exit 1
 fi
 
+if [[ ! -f "$REPO_ROOT/website-frontend/dist/intro.html" ]]; then
+  echo "ERROR: dist/intro.html not found after build."
+  exit 1
+fi
+
 cd "$REPO_ROOT"
 echo "[2/9] Creating VPS site root + uploading dist files to ${VPS_USER}@${VPS_HOST}:${SITE_ROOT} ..."
 tar -C "$REPO_ROOT/website-frontend/dist" -cf - . | ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" \
@@ -49,7 +55,7 @@ server {
     index index.html;
 
     location = / {
-        return 302 /cryptomentor-onboarding-deck.html;
+        return 302 /intro.html;
     }
 
     location / {
@@ -74,30 +80,45 @@ done"
 echo "[5/9] Enabling site + nginx reload ..."
 ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "ln -sfn '${TARGET_CONF}' '${TARGET_ENABLED}' && nginx -t && systemctl reload nginx"
 
-echo "[6/9] Verifying file exists on VPS ..."
-ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "ls -la '${SITE_ROOT}/cryptomentor-onboarding-deck.html'"
+echo "[6/9] Verifying files exist on VPS ..."
+ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "ls -la '${SITE_ROOT}/intro.html' '${SITE_ROOT}/cryptomentor-onboarding-deck.html'"
 
 echo "[7/9] Verifying nginx routing locally on VPS ..."
 ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "set -euo pipefail
 status_root=\$(curl -sS -o /dev/null -I -H 'Host: ${DOMAIN}' -w '%{http_code}' http://127.0.0.1/)
-status_file=\$(curl -sS -o /dev/null -I -H 'Host: ${DOMAIN}' -w '%{http_code}' http://127.0.0.1/cryptomentor-onboarding-deck.html)
+status_intro=\$(curl -sS -o /dev/null -I -H 'Host: ${DOMAIN}' -w '%{http_code}' http://127.0.0.1/intro.html)
+status_deck=\$(curl -sS -o /dev/null -I -H 'Host: ${DOMAIN}' -w '%{http_code}' http://127.0.0.1/cryptomentor-onboarding-deck.html)
 echo \"HTTP / status=\${status_root}\"
-echo \"HTTP /cryptomentor-onboarding-deck.html status=\${status_file}\"
+echo \"HTTP /intro.html status=\${status_intro}\"
+echo \"HTTP /cryptomentor-onboarding-deck.html status=\${status_deck}\"
 if [[ \"\${status_root}\" != \"302\" ]]; then
   echo \"ERROR: expected 302 on / but got \${status_root}\"
   exit 1
 fi
-if [[ \"\${status_file}\" != \"200\" ]]; then
-  echo \"ERROR: expected 200 on onboarding file but got \${status_file}\"
+if [[ \"\${status_intro}\" != \"200\" ]]; then
+  echo \"ERROR: expected 200 on intro.html but got \${status_intro}\"
+  exit 1
+fi
+if [[ \"\${status_deck}\" != \"200\" ]]; then
+  echo \"ERROR: expected 200 on onboarding deck but got \${status_deck}\"
   exit 1
 fi"
 
+has_existing_cert="$(ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "if [[ -f '${CERT_DIR}/fullchain.pem' && -f '${CERT_DIR}/privkey.pem' ]]; then echo 1; else echo 0; fi")"
+
 if [[ "$ISSUE_SSL" == "1" ]]; then
-  echo "[8/9] Requesting Let's Encrypt certificate for ${DOMAIN} ..."
+  echo "[8/10] Requesting Let's Encrypt certificate for ${DOMAIN} ..."
   ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" \
     "certbot certonly --webroot -w '${SITE_ROOT}' -d '${DOMAIN}' --non-interactive --agree-tos -m '${EMAIL}'"
+  has_existing_cert="1"
+fi
 
-  echo "[9/9] Rewriting config to force HTTPS + reloading nginx ..."
+if [[ "$has_existing_cert" == "1" ]]; then
+  if [[ "$ISSUE_SSL" == "1" ]]; then
+    echo "[9/10] Rewriting config to force HTTPS + reloading nginx ..."
+  else
+    echo "[8/10] Existing certificate found. Enabling HTTPS + reloading nginx ..."
+  fi
   ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "cat >'${TARGET_CONF}' <<'NGINX'
 server {
     listen 80;
@@ -113,7 +134,7 @@ server {
     index index.html;
 
     location = / {
-        return 302 /cryptomentor-onboarding-deck.html;
+        return 302 /intro.html;
     }
 
     location / {
@@ -125,17 +146,59 @@ server {
 }
 NGINX
 nginx -t && systemctl reload nginx"
+
+  if [[ "$ISSUE_SSL" == "1" ]]; then
+    echo "[10/10] Verifying HTTPS routing + SNI mapping ..."
+  else
+    echo "[9/10] Verifying HTTPS routing + SNI mapping ..."
+  fi
+  ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "set -euo pipefail
+status_https_root=\$(curl -ksS -o /dev/null -I --resolve '${DOMAIN}:443:127.0.0.1' -w '%{http_code}' https://${DOMAIN}/)
+status_https_intro=\$(curl -ksS -o /dev/null -I --resolve '${DOMAIN}:443:127.0.0.1' -w '%{http_code}' https://${DOMAIN}/intro.html)
+status_https_deck=\$(curl -ksS -o /dev/null -I --resolve '${DOMAIN}:443:127.0.0.1' -w '%{http_code}' https://${DOMAIN}/cryptomentor-onboarding-deck.html)
+deck_body=\$(curl -ksS --resolve '${DOMAIN}:443:127.0.0.1' https://${DOMAIN}/cryptomentor-onboarding-deck.html || true)
+echo \"HTTPS / status=\${status_https_root}\"
+echo \"HTTPS /intro.html status=\${status_https_intro}\"
+echo \"HTTPS /cryptomentor-onboarding-deck.html status=\${status_https_deck}\"
+if [[ \"\${status_https_root}\" != \"302\" ]]; then
+  echo \"ERROR: expected 302 on HTTPS / but got \${status_https_root}\"
+  exit 1
+fi
+if [[ \"\${status_https_intro}\" != \"200\" ]]; then
+  echo \"ERROR: expected 200 on HTTPS intro.html but got \${status_https_intro}\"
+  exit 1
+fi
+if [[ \"\${status_https_deck}\" != \"200\" ]]; then
+  echo \"ERROR: expected 200 on HTTPS onboarding deck but got \${status_https_deck}\"
+  exit 1
+fi
+if grep -Fq 'Invalid or missing token' <<< \"\${deck_body}\"; then
+  echo \"ERROR: HTTPS intro domain is still routed to token-protected backend (invalid token response detected).\"
+  exit 1
+fi"
 else
-  echo "[8/9] SSL skipped (ISSUE_SSL=${ISSUE_SSL})."
-  echo "[9/9] Keep using HTTP for now: http://${DOMAIN}/"
+  echo "[8/9] SSL skipped (ISSUE_SSL=${ISSUE_SSL}) and no existing cert found."
+  echo "[9/9] Verifying HTTPS is not misrouted to token-protected backend ..."
+  ssh -p "$VPS_PORT" "${VPS_USER}@${VPS_HOST}" "set -euo pipefail
+status_https_root=\$(curl -ksS -o /dev/null -I --resolve '${DOMAIN}:443:127.0.0.1' -w '%{http_code}' https://${DOMAIN}/ || true)
+https_body=\$(curl -ksS --resolve '${DOMAIN}:443:127.0.0.1' https://${DOMAIN}/ || true)
+echo \"HTTPS / status=\${status_https_root}\"
+if grep -Fq 'Invalid or missing token' <<< \"\${https_body}\"; then
+  echo \"ERROR: HTTPS currently resolves to token-protected backend for ${DOMAIN}.\"
+  echo \"Fix: rerun with ISSUE_SSL=1 (after DNS is live) or install a dedicated ${DOMAIN} TLS vhost.\"
+  exit 1
+fi"
+  echo "      Keep using HTTP for now: http://${DOMAIN}/"
   echo "      When DNS is stable, rerun with ISSUE_SSL=1 to enable HTTPS redirect."
 fi
 
 echo
 echo "Done. Verify:"
-echo "  http://${DOMAIN}/"
+echo "  http://${DOMAIN}/              → redirects to /intro.html"
+echo "  http://${DOMAIN}/intro.html"
 echo "  http://${DOMAIN}/cryptomentor-onboarding-deck.html"
-if [[ "$ISSUE_SSL" == "1" ]]; then
-  echo "  https://${DOMAIN}/"
+if [[ "$ISSUE_SSL" == "1" || "$has_existing_cert" == "1" ]]; then
+  echo "  https://${DOMAIN}/             → redirects to /intro.html"
+  echo "  https://${DOMAIN}/intro.html"
   echo "  https://${DOMAIN}/cryptomentor-onboarding-deck.html"
 fi

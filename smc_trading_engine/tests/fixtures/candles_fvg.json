@@ -1,0 +1,5 @@
+[
+  {"timestamp":"2026-01-01T00:00:00Z","open":100,"high":100.8,"low":99.7,"close":100.3,"volume":10},
+  {"timestamp":"2026-01-01T00:05:00Z","open":100.3,"high":101.0,"low":100.0,"close":100.8,"volume":11},
+  {"timestamp":"2026-01-01T00:10:00Z","open":101.5,"high":102.1,"low":101.4,"close":101.9,"volume":15}
+]

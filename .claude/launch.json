@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cryptomentor-frontend",
+      "runtimeExecutable": "npm",
+      "cwd": "D:\\cryptomentorAI\\website-frontend",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

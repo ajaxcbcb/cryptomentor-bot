@@ -1,977 +1,1485 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=20260417-1" />
-<link rel="icon" type="image/x-icon" href="/favicon.ico?v=20260417-1" />
-<link rel="shortcut icon" href="/favicon.ico?v=20260417-1" />
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260417-1" />
-<title>CryptoMentor AI - Cinematic Deck</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CryptoMentor AI — Onboarding</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
+/* ── RESET & BASE ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#04060f;
-  --bg2:#0b142b;
-  --panel:rgba(8,14,28,.82);
-  --panel-2:rgba(8,14,28,.92);
-  --text:#e2e8f0;
-  --muted:#94a3b8;
-  --dim:#6f819b;
-  --cyan:#22d3ee;
-  --emerald:#34d399;
-  --accent:var(--cyan);
-  --accent-2:var(--emerald);
-  --amber:#fbbf24;
-  --rose:#fb7185;
-  --indigo:#818cf8;
-  --border:rgba(34,211,238,.22);
-  --shadow:0 20px 56px rgba(2,8,18,.58);
-  --glow:0 0 0 1px rgba(34,211,238,.2),0 14px 40px rgba(34,211,238,.1);
-  --ease:cubic-bezier(.22,.78,.23,.99);
-  --safe-top:env(safe-area-inset-top,0px);
-  --safe-bottom:env(safe-area-inset-bottom,0px);
-  --safe-left:env(safe-area-inset-left,0px);
-  --safe-right:env(safe-area-inset-right,0px);
-  --vh:1vh;
-  --topbar-h:74px;
+  --bar:58px;
+  --bg:#050508;
+  --violet:#8b5cf6;
+  --violet-l:#a78bfa;
+  --amber:#f59e0b;
+  --cyan:#06b6d4;
+  --emerald:#10b981;
+  --rose:#f43f5e;
+  --text:#f0f0ff;
+  --muted:#8585a0;
+  --dim:#444460;
+  --ease:cubic-bezier(.22,.68,0,1.2);
 }
-
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;width:100%}
-html{
-  scroll-behavior:smooth;
-  scroll-padding-top:calc(var(--topbar-h) + var(--safe-top) + .9rem);
-}
+html{scroll-behavior:smooth}
 body{
-  font-family:Manrope,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:#050508;
   color:var(--text);
-  background:
-    radial-gradient(900px 560px at 10% -8%,rgba(34,211,238,.14),transparent 58%),
-    radial-gradient(900px 560px at 94% 112%,rgba(52,211,153,.12),transparent 62%),
-    linear-gradient(165deg,var(--bg),var(--bg2));
+  font-family:'Inter',sans-serif;
+  font-size:14px;
+  line-height:1.5;
   overflow-x:hidden;
-  overflow-y:auto;
+  height:100svh;
+  overflow-y:scroll;
   scroll-snap-type:y mandatory;
-  min-height:100dvh;
-  overscroll-behavior-y:contain;
-  -webkit-overflow-scrolling:touch;
+  position:relative;
 }
-
 body::before{
-  content:"";
-  position:fixed;
-  inset:0;
-  z-index:0;
-  pointer-events:none;
-  opacity:.28;
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
   background-image:
-    linear-gradient(rgba(61,217,255,.05) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(61,217,255,.05) 1px,transparent 1px);
-  background-size:64px 64px;
-  animation:gridDrift 24s linear infinite;
+    linear-gradient(rgba(139,92,246,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(139,92,246,.035) 1px,transparent 1px);
+  background-size:80px 80px;
+  animation:gridPan 36s linear infinite;
 }
+@keyframes gridPan{to{background-position:0 80px}}
+canvas#particles{position:fixed;inset:0;z-index:0;pointer-events:none}
+#prog{position:fixed;top:0;left:0;height:3px;width:0%;background:linear-gradient(90deg,#8b5cf6,#06b6d4,#10b981);z-index:200;transition:width .1s linear}
 
-body::after{
-  content:"";
-  position:fixed;
-  inset:0;
-  z-index:0;
-  pointer-events:none;
-  opacity:.12;
-  background:
-    repeating-linear-gradient(180deg,rgba(255,255,255,.04) 0,rgba(255,255,255,.04) 1px,transparent 1px,transparent 3px);
-}
-@keyframes gridDrift{
-  from{transform:translateY(0)}
-  to{transform:translateY(64px)}
-}
-
-.bg-orb{
-  position:fixed;
-  width:560px;
-  height:560px;
-  border-radius:50%;
-  filter:blur(60px);
-  z-index:0;
-  pointer-events:none;
-  opacity:.25;
-}
-.bg-orb.a{background:rgba(34,211,238,.42);left:-180px;top:-200px;animation:floatA 13s ease-in-out infinite}
-.bg-orb.b{background:rgba(52,211,153,.34);right:-160px;top:40%;animation:floatB 16s ease-in-out infinite}
-@keyframes floatA{0%,100%{transform:translate(0,0)}50%{transform:translate(80px,40px)}}
-@keyframes floatB{0%,100%{transform:translate(0,0)}50%{transform:translate(-70px,-50px)}}
-
-.shell{
-  position:relative;
-  z-index:1;
-  min-height:100dvh;
-  display:block;
-  padding:
-    calc(.72rem + var(--safe-top))
-    calc(.9rem + var(--safe-right))
-    calc(.76rem + var(--safe-bottom))
-    calc(.9rem + var(--safe-left));
-}
-
-.topbar,
-.footerbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:.65rem;
-  padding:.58rem .84rem;
+/* ── TOPBAR ── */
+#topbar{
+  position:fixed;top:.55rem;left:50%;transform:translateX(-50%);
+  z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  width:min(96%,860px);
+  height:var(--bar);
+  padding:0 1rem;
+  background:rgba(5,5,8,.88);
+  border:1px solid rgba(139,92,246,.28);
   border-radius:999px;
-  background:rgba(4,6,15,.82);
-  border:1px solid var(--border);
-  backdrop-filter:blur(18px);
-  box-shadow:var(--glow);
+  backdrop-filter:blur(24px);
+  box-shadow:0 0 0 1px rgba(139,92,246,.1),0 8px 40px rgba(0,0,0,.6);
 }
-.topbar{
-  position:sticky;
-  top:calc(.35rem + var(--safe-top));
-  z-index:50;
-  margin-bottom:.84rem;
+.tb-left{display:flex;align-items:center;gap:.5rem}
+.tb-dot{
+  width:9px;height:9px;border-radius:50%;
+  background:linear-gradient(135deg,#8b5cf6,#06b6d4);
+  box-shadow:0 0 10px rgba(139,92,246,.8);
+  animation:pulse 2s ease-in-out infinite;
 }
+@keyframes pulse{0%,100%{box-shadow:0 0 10px rgba(139,92,246,.8)}50%{box-shadow:0 0 20px rgba(139,92,246,1),0 0 30px rgba(6,182,212,.5)}}
+.tb-brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:.82rem;letter-spacing:.04em;color:var(--text)}
+.tb-right{display:flex;align-items:center;gap:.65rem}
+.tb-cnt{font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--muted);letter-spacing:.08em}
+.lang-tog{display:flex;gap:2px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);border-radius:999px;padding:2px}
+.lang-btn{font-size:.58rem;font-weight:800;letter-spacing:.1em;padding:.18rem .48rem;border-radius:999px;border:none;cursor:pointer;background:transparent;color:var(--muted);transition:all .2s}
+.lang-btn.on{background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff}
 
-.brand{
-  display:flex;
-  align-items:center;
-  gap:.5rem;
-  font-weight:800;
-  font-size:.95rem;
-  letter-spacing:.01em;
-}
+/* ── SCROLL DOTS ── */
+.ndots{position:fixed;right:.65rem;top:50%;transform:translateY(-50%);z-index:99;display:flex;flex-direction:column;gap:.34rem}
+.ndot{width:9px;height:9px;border-radius:999px;border:1px solid rgba(139,92,246,.35);background:rgba(14,13,28,.8);cursor:pointer;transition:all .22s var(--ease)}
+.ndot.on{background:linear-gradient(135deg,#8b5cf6,#06b6d4);box-shadow:0 0 14px rgba(139,92,246,.55);transform:scale(1.25)}
 
-.brand-dot{
-  width:9px;
-  height:9px;
-  border-radius:50%;
-  background:linear-gradient(135deg,var(--accent),var(--accent-2));
-  animation:beat 2.2s ease-in-out infinite;
-}
-
-@keyframes beat{
-  0%,100%{box-shadow:0 0 0 0 rgba(34,211,238,.48)}
-  50%{box-shadow:0 0 0 6px rgba(34,211,238,0)}
-}
-
-.top-right{display:flex;align-items:center;gap:.5rem}
-
-.lang{
-  display:flex;
-  padding:4px;
-  border-radius:999px;
-  background:rgba(5,8,12,.85);
-  border:1px solid var(--border);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);
-}
-
-.lang button{
-  border:none;
-  background:transparent;
-  color:var(--muted);
-  font-size:.72rem;
-  font-weight:800;
-  padding:.38rem .72rem;
-  border-radius:999px;
-  cursor:pointer;
-  transition:all .22s var(--ease);
-}
-
-.lang button.active{
-  color:#04060f;
-  background:linear-gradient(135deg,var(--accent),var(--accent-2));
-  box-shadow:0 0 20px rgba(34,211,238,.38);
-}
-
-#counter{font-size:.78rem;color:var(--muted);font-weight:700;letter-spacing:.06em;min-width:74px;text-align:right}
-
-.deck{
-  position:relative;
-  display:flex;
-  flex-direction:column;
-  gap:.86rem;
-  overflow:visible;
-}
-
-.slide{
-  position:relative;
-  display:flex;
-  flex-direction:column;
-  gap:.85rem;
-  padding:1.1rem 1.18rem;
-  opacity:1;
-  transform:none;
-  pointer-events:auto;
-  overflow:visible;
-  min-height:calc(100svh - var(--topbar-h) - 1.5rem - var(--safe-bottom));
-  min-height:calc((var(--vh, 1vh) * 100) - var(--topbar-h) - 1.5rem - var(--safe-bottom));
+/* ── SECTIONS ── */
+section{
+  min-height:100svh;
   scroll-snap-align:start;
-  border:1px solid var(--border);
-  border-radius:24px;
-  box-shadow:var(--shadow);
+  padding:calc(var(--bar) + 1.1rem) 1.1rem 1.1rem;
+  display:flex;flex-direction:column;
+  position:relative;z-index:1;
 }
+/* slide backgrounds */
+section[data-sl="0"]{background:radial-gradient(800px 500px at 8% 5%,rgba(139,92,246,.18),transparent 55%),radial-gradient(600px 400px at 92% 95%,rgba(6,182,212,.12),transparent 55%),#0b0a18}
+section[data-sl="1"]{background:radial-gradient(800px 500px at 92% 5%,rgba(244,63,94,.14),transparent 55%),#0b0a18}
+section[data-sl="2"]{background:radial-gradient(800px 500px at 50% 0,rgba(139,92,246,.14),transparent 55%),#0b0a18}
+section[data-sl="3"]{background:radial-gradient(800px 500px at 5% 95%,rgba(6,182,212,.14),transparent 55%),#0b0a18}
+section[data-sl="4"]{background:radial-gradient(800px 500px at 95% 50%,rgba(16,185,129,.12),transparent 55%),#0b0a18}
+section[data-sl="5"]{background:radial-gradient(800px 500px at 5% 50%,rgba(245,158,11,.1),transparent 55%),#0b0a18}
+section[data-sl="6"]{background:radial-gradient(800px 500px at 92% 5%,rgba(139,92,246,.14),transparent 55%),#0b0a18}
+section[data-sl="7"]{background:radial-gradient(1000px 700px at 50% 50%,rgba(139,92,246,.22),transparent 55%),#0b0a18}
 
-.s1{background:radial-gradient(740px 420px at 8% 0,rgba(34,211,238,.18),transparent 58%),linear-gradient(160deg,#060b18,#0c1632)}
-.s2{background:radial-gradient(760px 430px at 92% 8%,rgba(251,113,133,.15),transparent 58%),linear-gradient(160deg,#091022,#131b39)}
-.s3{background:radial-gradient(760px 430px at 48% -8%,rgba(129,140,248,.15),transparent 58%),linear-gradient(160deg,#071126,#0d1a39)}
-.s4{background:radial-gradient(760px 420px at 90% 100%,rgba(52,211,153,.14),transparent 58%),linear-gradient(160deg,#071323,#101c33)}
-.s5{background:radial-gradient(760px 420px at 10% 5%,rgba(34,211,238,.17),transparent 58%),linear-gradient(160deg,#071322,#101a33)}
-.s6{background:radial-gradient(760px 420px at 94% 12%,rgba(34,211,238,.16),transparent 58%),linear-gradient(160deg,#071526,#0c1d3b)}
-.s7{background:radial-gradient(760px 430px at 10% 95%,rgba(129,140,248,.17),transparent 58%),linear-gradient(160deg,#0a1126,#121c3b)}
-.s8{background:radial-gradient(760px 430px at 50% -10%,rgba(34,211,238,.2),transparent 58%),linear-gradient(160deg,#06101f,#0a1f3b)}
+/* ── INTERLUDES ── */
+section[data-il]{
+  min-height:100svh;
+  scroll-snap-align:start;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+  text-align:center;
+  padding:2rem 1.1rem;
+}
+section[data-il="1"]{background:radial-gradient(ellipse 120% 120% at 50% 50%,#1e0a4a 0%,#0a052a 60%,#050508 100%)}
+section[data-il="2"]{background:radial-gradient(ellipse 120% 120% at 50% 50%,#3a0520 0%,#1a0212 60%,#050508 100%)}
+section[data-il="3"]{background:radial-gradient(ellipse 120% 120% at 50% 50%,#0d1540 0%,#070e28 60%,#050508 100%)}
+section[data-il="4"]{background:radial-gradient(ellipse 120% 120% at 50% 50%,#002a2a 0%,#001414 60%,#050508 100%)}
+section[data-il="5"]{background:radial-gradient(ellipse 120% 120% at 50% 50%,#2a1600 0%,#150b00 60%,#050508 100%)}
+.il-orb{
+  position:absolute;width:500px;height:500px;border-radius:50%;
+  filter:blur(120px);opacity:.35;pointer-events:none;
+  background:var(--orb-color);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:0;
+}
+section[data-il="1"] .il-orb{--orb-color:#6d28d9}
+section[data-il="2"] .il-orb{--orb-color:#be123c}
+section[data-il="3"] .il-orb{--orb-color:#3730a3}
+section[data-il="4"] .il-orb{--orb-color:#0e7490}
+section[data-il="5"] .il-orb{--orb-color:#b45309}
+.il-content{position:relative;z-index:1}
+.il-words{
+  font-family:'Space Grotesk',sans-serif;
+  font-size:clamp(3.2rem,8vw,7.5rem);
+  font-weight:900;
+  letter-spacing:-.05em;
+  line-height:.9;
+}
+.iw{
+  display:inline-block;
+  opacity:0;
+  transform:translateY(70px) rotateX(30deg);
+  transition:opacity .75s var(--ease),transform .75s var(--ease);
+  transition-delay:var(--d,0s);
+}
+.v .iw{opacity:1;transform:none}
+.ga{background:linear-gradient(135deg,#8b5cf6,#06b6d4);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.gb{background:linear-gradient(135deg,#f59e0b,#f43f5e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.gc{background:linear-gradient(135deg,#4f46e5,#a78bfa);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.gt{background:linear-gradient(135deg,#06b6d4,#10b981);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.il-rule{width:80px;height:2px;border:none;margin:1rem auto;opacity:0;transition:opacity .6s var(--ease) .3s}
+.v .il-rule{opacity:1}
+.il-rule.rv{background:linear-gradient(90deg,#8b5cf6,#06b6d4)}
+.il-rule.rb{background:linear-gradient(90deg,#f59e0b,#f43f5e)}
+.il-rule.rc{background:linear-gradient(90deg,#4f46e5,#a78bfa)}
+.il-rule.rt{background:linear-gradient(90deg,#06b6d4,#10b981)}
+.il-rule.ra{background:linear-gradient(90deg,#f59e0b,#fcd34d)}
+.il-sub{
+  font-size:clamp(.9rem,1.5vw,1.15rem);
+  color:var(--muted);
+  margin-top:1.2rem;
+  opacity:0;
+  transform:translateY(16px);
+  transition:opacity .65s var(--ease) .55s,transform .65s var(--ease) .55s;
+}
+.v .il-sub{opacity:1;transform:none}
 
+/* ── REVEAL ANIMATIONS ── */
+[data-a]{opacity:0;transition:opacity .65s var(--ease),transform .65s var(--ease)}
+[data-a=up]{transform:translateY(40px)}
+[data-a=left]{transform:translateX(-52px)}
+[data-a=right]{transform:translateX(52px)}
+[data-a=sc]{transform:scale(.88)}
+[data-a=down]{transform:translateY(-32px)}
+.v [data-a]{opacity:1;transform:none}
+[data-d="1"]{transition-delay:.1s}
+[data-d="2"]{transition-delay:.2s}
+[data-d="3"]{transition-delay:.3s}
+[data-d="4"]{transition-delay:.4s}
+[data-d="5"]{transition-delay:.5s}
+[data-d="6"]{transition-delay:.6s}
+[data-d="7"]{transition-delay:.7s}
+
+/* ── TYPOGRAPHY ── */
+h1{font-family:'Space Grotesk',sans-serif;font-size:clamp(2.4rem,6vw,5.8rem);font-weight:900;letter-spacing:-.04em;line-height:.93}
+h2{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.4rem,3vw,2.8rem);font-weight:800;letter-spacing:-.03em}
+h3{font-family:'Space Grotesk',sans-serif;font-size:clamp(.95rem,1.4vw,1.25rem);font-weight:700}
+.grad{background:linear-gradient(135deg,#a78bfa,#06b6d4,#10b981);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.grad2{background:linear-gradient(135deg,#f59e0b,#f43f5e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.lead{font-size:.82rem;color:var(--muted);line-height:1.6}
+
+/* ── EYEBROW ── */
 .ey{
-  align-self:flex-start;
-  display:inline-flex;
-  align-items:center;
-  gap:.42rem;
-  font-size:.64rem;
-  font-weight:800;
-  letter-spacing:.16em;
-  text-transform:uppercase;
-  color:var(--accent-2);
-  border:1px solid rgba(61,217,255,.32);
-  border-radius:999px;
-  padding:.28rem .82rem;
-  background:rgba(61,217,255,.1);
+  align-self:flex-start;display:inline-flex;align-items:center;gap:.38rem;
+  font-size:.58rem;font-weight:800;letter-spacing:.18em;text-transform:uppercase;
+  color:#a78bfa;border:1px solid rgba(139,92,246,.35);border-radius:999px;
+  padding:.22rem .7rem;background:rgba(139,92,246,.1);
 }
+.ey::before{content:"";width:5px;height:5px;border-radius:50%;background:#8b5cf6;flex-shrink:0;box-shadow:0 0 6px rgba(139,92,246,.8)}
 
-.ey::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+/* ── TAGS ── */
+.tag{display:inline-flex;align-items:center;font-size:.58rem;font-weight:800;padding:.13rem .4rem;border-radius:999px;border:1px solid}
+.tv{color:#a78bfa;border-color:rgba(139,92,246,.35);background:rgba(139,92,246,.1)}
+.tc{color:#67e8f9;border-color:rgba(6,182,212,.32);background:rgba(6,182,212,.09)}
+.te{color:#6ee7b7;border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.08)}
+.ta{color:#fcd34d;border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.09)}
+.tr{color:#fb7185;border-color:rgba(244,63,94,.32);background:rgba(244,63,94,.09)}
+.tags{display:flex;flex-wrap:wrap;gap:.3rem}
 
-h1,h2,h3{font-family:"Space Grotesk",Manrope,sans-serif;letter-spacing:-.03em}
-h1{font-size:clamp(2.2rem,6.2vw,4.9rem);line-height:.95}
-h2{font-size:clamp(1.25rem,2.8vw,2.35rem);line-height:1.08}
+/* ── BUTTONS ── */
+.btn{border:none;border-radius:13px;padding:.56rem 1.1rem;font-size:.76rem;font-weight:900;cursor:pointer;transition:all .2s var(--ease);font-family:'Space Grotesk',sans-serif}
+.bp{
+  background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff;
+  box-shadow:0 0 0 1px rgba(139,92,246,.4),0 0 32px rgba(139,92,246,.35);
+  position:relative;overflow:hidden;
+}
+.bp::after{content:"";position:absolute;inset-y:0;left:-30%;width:22%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);transform:skewX(-18deg);animation:shimmer 3s linear infinite}
+@keyframes shimmer{to{left:120%}}
+.bp:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(139,92,246,.5),0 0 44px rgba(139,92,246,.5)}
+.bgg{background:rgba(255,255,255,.06);color:var(--text);border:1px solid rgba(240,240,255,.18)}
+.bgg:hover{transform:translateY(-2px);background:rgba(255,255,255,.09)}
 
-.grad{background:linear-gradient(135deg,var(--accent),var(--accent-2),var(--indigo));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-
-.lead{font-size:clamp(.84rem,1.06vw,1rem);line-height:1.58;color:var(--muted);max-width:66ch}
-
-.grid2{display:grid;grid-template-columns:1.04fr .96fr;gap:.6rem;flex:1;min-height:0}
-.grid2.eq{grid-template-columns:1fr 1fr}
-
+/* ── PANELS ── */
 .panel{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:20px;
+  background:linear-gradient(145deg,rgba(22,20,44,.9),rgba(14,13,28,.95));
+  border:1px solid rgba(139,92,246,.28);
+  border-radius:22px;
   padding:.82rem .92rem;
-  display:flex;
-  flex-direction:column;
-  gap:.58rem;
-  box-shadow:var(--glow);
-  backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;gap:.55rem;
+  box-shadow:0 0 0 1px rgba(139,92,246,.1),0 28px 72px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.06);
+  backdrop-filter:blur(20px);
 }
 
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:.42rem}
-.card{border:1px solid rgba(245,247,250,.12);border-radius:14px;background:rgba(255,255,255,.03);padding:.56rem .6rem}
-.v{font-size:1.1rem;font-weight:800;line-height:1}
-.l{font-size:.7rem;line-height:1.35;color:var(--muted);margin-top:.14rem}
+/* ── CARDS ── */
+.card{border:1px solid rgba(139,92,246,.2);border-radius:15px;background:rgba(139,92,246,.06);padding:.55rem .62rem;transition:all .22s var(--ease)}
+.card:hover{border-color:rgba(139,92,246,.42);transform:translateY(-2px);box-shadow:0 8px 32px rgba(139,92,246,.15)}
+.card .cv{font-size:1rem;font-weight:900;line-height:1;font-family:'Space Grotesk',sans-serif}
+.card .lbl{font-size:.62rem;color:var(--muted);font-weight:600;margin-top:.15rem}
 
-.tags{display:flex;gap:.3rem;flex-wrap:wrap}
-.tag{font-size:.63rem;font-weight:700;padding:.14rem .44rem;border-radius:999px;border:1px solid var(--border)}
-.tc{color:var(--accent-2);border-color:rgba(61,217,255,.34);background:rgba(61,217,255,.08)}
-.te{color:var(--accent);border-color:rgba(166,255,77,.34);background:rgba(166,255,77,.09)}
-.ti{color:var(--indigo);border-color:rgba(129,140,248,.34);background:rgba(129,140,248,.08)}
+/* ── METERS ── */
+.meter{display:flex;flex-direction:column;gap:.2rem}
+.mh{display:flex;justify-content:space-between;font-size:.7rem}
+.mh .mn{font-weight:700;font-family:'Space Grotesk',sans-serif}
+.mh span:last-child{color:var(--muted)}
+.mt{height:8px;border-radius:999px;background:rgba(240,240,255,.08);overflow:hidden}
+.mf{height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,#8b5cf6,#06b6d4);transition:width 1.1s var(--ease)}
+.mf.ma{background:linear-gradient(90deg,#f59e0b,#f43f5e)}
+.mf.me{background:linear-gradient(90deg,#10b981,#06b6d4)}
 
-.quote{border:1px solid rgba(61,217,255,.24);border-radius:12px;background:rgba(255,255,255,.03);padding:.48rem .56rem}
-.quote p{font-size:.78rem;line-height:1.5}
-.src{display:block;font-size:.64rem;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);margin-top:.2rem}
+/* ── LIVE BADGE ── */
+.live{display:inline-flex;align-items:center;gap:.28rem;font-size:.6rem;color:var(--muted);font-weight:700}
+.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#10b981;animation:blink 1.3s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
 
-.list{list-style:none;display:flex;flex-direction:column;gap:.38rem}
-.list li{display:flex;align-items:flex-start;gap:.48rem;font-size:.79rem;line-height:1.46;color:#d7e7fd}
-.list li::before{content:"";width:15px;height:15px;margin-top:2px;border-radius:50%;flex-shrink:0;background-size:62%;background-repeat:no-repeat;background-position:center}
-.good li::before{border:1px solid rgba(52,211,153,.35);background-color:rgba(52,211,153,.14);background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 6l2.5 2.5L10 3' stroke='%2334d399' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
-.bad li::before{border:1px solid rgba(251,113,133,.35);background-color:rgba(251,113,133,.12);background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 3l6 6M9 3L3 9' stroke='%23fb7185' stroke-width='1.7' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")}
+/* ── GOOD / BAD LISTS ── */
+ul.good,ul.bad{list-style:none;display:flex;flex-direction:column;gap:.45rem}
+ul.good li,ul.bad li{display:flex;align-items:flex-start;gap:.45rem;font-size:.76rem;line-height:1.45}
+ul.good li::before{
+  content:"";width:16px;height:16px;flex-shrink:0;margin-top:.05rem;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='8' fill='%2310b981'/%3E%3Cpath d='M5 8.4l2 2 4-4' stroke='%23fff' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E") no-repeat center/contain;
+}
+ul.bad li::before{
+  content:"";width:16px;height:16px;flex-shrink:0;margin-top:.05rem;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='8' fill='%23f43f5e'/%3E%3Cpath d='M5.5 5.5l5 5M10.5 5.5l-5 5' stroke='%23fff' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E") no-repeat center/contain;
+}
 
-.reveal{opacity:0;transform:translateY(10px);transition:opacity .56s var(--ease),transform .56s var(--ease)}
-.slide.is-visible .reveal{opacity:1;transform:translateY(0)}
-.slide.is-visible .reveal:nth-child(2){transition-delay:.06s}
-.slide.is-visible .reveal:nth-child(3){transition-delay:.12s}
-.slide.is-visible .reveal:nth-child(4){transition-delay:.18s}
-.slide.is-visible .reveal:nth-child(5){transition-delay:.24s}
-.floating{animation:floatSoft 4s ease-in-out infinite}
-@keyframes floatSoft{
-  0%,100%{transform:translateY(0)}
-  50%{transform:translateY(-8px)}
+/* ── CANDLESTICK CHART ── */
+.tchart{flex:1;min-height:0;background:rgba(5,3,15,.7);border:1px solid rgba(139,92,246,.18);border-radius:14px;overflow:hidden;padding:.44rem .52rem .36rem;position:relative}
+.cands{display:flex;align-items:flex-end;gap:2.5px;height:100%;min-height:80px}
+.cc{flex:1;min-width:5px;border-radius:2px 2px 0 0}
+.cg{background:rgba(16,185,129,.75);box-shadow:0 -2px 8px rgba(16,185,129,.25)}
+.cr{background:rgba(244,63,94,.62);box-shadow:0 -2px 8px rgba(244,63,94,.18)}
+.hl{position:absolute;left:.52rem;right:.52rem;display:flex;align-items:center;gap:.28rem;pointer-events:none}
+.hl-line{flex:1;height:1px;border-top-style:dashed;border-top-width:1px}
+.hl-tag{font-size:.52rem;font-weight:900;padding:.04rem .22rem;border-radius:3px;border:1px solid;background:rgba(5,3,15,.9);flex-shrink:0;letter-spacing:.05em;font-family:'JetBrains Mono',monospace}
+
+/* ── TRADE LEVELS ── */
+.tlevs{display:grid;gap:.22rem}
+.tlev{display:grid;grid-template-columns:8px 42px 1fr auto;align-items:center;gap:.38rem;padding:.26rem .4rem;border-radius:9px}
+.tlen{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.26)}
+.tltp{background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2)}
+.tlsl{background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.22)}
+.tldot{width:7px;height:7px;border-radius:50%}
+.tlnm{font-size:.57rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-family:'JetBrains Mono',monospace}
+.tlpr{font-size:.77rem;font-weight:800;font-family:'Space Grotesk',sans-serif}
+.tltag{font-size:.59rem;text-align:right}
+
+/* ── STATS BAR ── */
+.stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:.3rem}
+.sb-item{text-align:center;padding:.3rem .2rem;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:10px}
+.sb-v{font-family:'Space Grotesk',sans-serif;font-size:.9rem;font-weight:900}
+.sb-l{font-size:.5rem;color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-top:.1rem}
+
+/* ── ACTIVITY LOG ── */
+.alog{display:flex;flex-direction:column;gap:.18rem}
+.alog-row{display:flex;align-items:center;gap:.4rem;font-size:.6rem;font-family:'JetBrains Mono',monospace;padding:.2rem .35rem;border-radius:6px;background:rgba(255,255,255,.025)}
+.alog-time{color:var(--dim);min-width:44px}
+.alog-msg{color:var(--muted);flex:1}
+.alog-badge{font-size:.5rem;font-weight:800;padding:.04rem .3rem;border-radius:999px}
+
+/* ── REGIME CARDS ── */
+.regime-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.rcard{border:1px solid rgba(139,92,246,.2);border-radius:14px;padding:.6rem .7rem;transition:all .3s var(--ease);background:rgba(139,92,246,.04)}
+.rcard .ri{font-size:1.15rem;margin-bottom:.3rem}
+.rcard h3{font-size:.78rem;font-weight:800;margin-bottom:.22rem}
+.rcard p{font-size:.62rem;color:var(--muted);line-height:1.45}
+.rcard .rc-status{font-size:.5rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-top:.4rem;padding:.15rem .4rem;border-radius:999px;display:inline-block}
+#r1.on{border-color:rgba(6,182,212,.5)!important;background:rgba(6,182,212,.1)!important;box-shadow:0 0 28px rgba(6,182,212,.13)!important}
+#r2.on{border-color:rgba(139,92,246,.5)!important;background:rgba(139,92,246,.1)!important;box-shadow:0 0 28px rgba(139,92,246,.13)!important}
+#r3.on{border-color:rgba(245,158,11,.5)!important;background:rgba(245,158,11,.1)!important;box-shadow:0 0 28px rgba(245,158,11,.13)!important}
+
+/* ── SIGNAL CARDS ── */
+.sig-cards{display:grid;grid-template-columns:1fr 1fr;gap:.35rem}
+.scard{border:1px solid rgba(139,92,246,.2);border-radius:12px;padding:.5rem .55rem;background:rgba(139,92,246,.05)}
+.scard.hot{border-color:rgba(16,185,129,.45);background:rgba(16,185,129,.08);box-shadow:0 0 18px rgba(16,185,129,.12)}
+.scard .sp{font-size:.68rem;font-weight:900;font-family:'Space Grotesk',sans-serif}
+.scard .ss{font-size:.55rem;color:var(--muted);margin-top:.12rem}
+.sc-pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:#10b981;animation:blink 1s ease-in-out infinite;margin-right:.25rem;vertical-align:middle}
+.sc-pulse.w{background:#f59e0b}
+
+/* ── PHASE CARDS ── */
+.phase-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.pcard{border-radius:14px;padding:.65rem .75rem;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.2);position:relative;overflow:hidden}
+.pcard::before{content:attr(data-n);position:absolute;right:.5rem;top:.25rem;font-family:'Space Grotesk',sans-serif;font-size:2rem;font-weight:900;opacity:.07;color:var(--violet-l)}
+.pcard .pn{font-size:.52rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--violet-l);margin-bottom:.25rem}
+.pcard h3{font-size:.82rem;font-weight:800;margin-bottom:.25rem}
+.pcard p{font-size:.62rem;color:var(--muted);line-height:1.5}
+
+/* ── DAMAGE CARDS ── */
+.dmg-cards{display:flex;flex-direction:column;gap:.35rem}
+.dcard{border-radius:12px;padding:.5rem .65rem;border:1px solid rgba(244,63,94,.25);background:rgba(244,63,94,.07)}
+.dcard .dv{font-family:'Space Grotesk',sans-serif;font-size:1.25rem;font-weight:900;color:#fb7185}
+.dcard .dl{font-size:.62rem;color:var(--muted);margin-top:.1rem}
+
+/* ── GROWTH BARS ── */
+.grow-bars{display:flex;flex-direction:column;gap:.55rem}
+.gbar{display:flex;flex-direction:column;gap:.2rem}
+.gb-hd{display:flex;justify-content:space-between;font-size:.7rem}
+.gb-nm{font-weight:700;font-family:'Space Grotesk',sans-serif}
+.gb-val{color:var(--emerald);font-weight:800;font-family:'JetBrains Mono',monospace}
+.gb-track{height:10px;border-radius:999px;background:rgba(240,240,255,.06);overflow:hidden}
+.gb-fill{height:100%;width:0;border-radius:999px;transition:width 1.3s var(--ease)}
+
+/* ── METRIC COUNTERS ── */
+.metric-big{display:flex;flex-direction:column}
+.mb-val{font-family:'Space Grotesk',sans-serif;font-size:clamp(2rem,4vw,3.5rem);font-weight:900;line-height:1}
+.mb-lbl{font-size:.65rem;color:var(--muted);font-weight:600;margin-top:.2rem;letter-spacing:.04em}
+
+/* ── FLOW GRID ── */
+.flow-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem}
+.fstep{text-align:center;padding:.5rem .3rem;border-radius:12px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18)}
+.fstep .fn{font-size:1rem;margin-bottom:.2rem}
+.fstep .ft{font-size:.6rem;font-weight:700;color:var(--muted)}
+
+/* ── ENGINE STATUS ── */
+.eng-status{display:grid;grid-template-columns:repeat(4,1fr);gap:.35rem;padding:.55rem .65rem;background:rgba(5,3,15,.6);border:1px solid rgba(139,92,246,.2);border-radius:14px}
+.es-item{text-align:center}
+.es-v{font-family:'Space Grotesk',sans-serif;font-size:.85rem;font-weight:900}
+.es-l{font-size:.52rem;color:var(--muted);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-top:.08rem}
+
+/* ── DISC ── */
+.disc{font-size:.55rem;color:var(--dim);line-height:1.55;padding:.4rem .6rem;border-radius:8px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05)}
+
+/* ── INNER GRIDS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:.55rem}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:.4rem}
+
+/* ── HERO LAYOUT ── */
+.hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:.65rem;flex:1;min-height:0}
+
+/* ── QUOTE ── */
+.quote{border-left:3px solid var(--violet);padding:.4rem .65rem;font-size:.72rem;font-style:italic;color:var(--muted);background:rgba(139,92,246,.05);border-radius:0 10px 10px 0}
+
+/* ── SEPARATOR ── */
+.sep{height:1px;background:linear-gradient(90deg,transparent,rgba(139,92,246,.3),transparent);margin:.3rem 0}
+
+/* ── RESPONSIVE ── */
+@media(max-width:1000px){
+  .hero-grid{grid-template-columns:1fr}
+  .regime-cards{grid-template-columns:1fr}
+  .phase-cards{grid-template-columns:1fr}
+  .sig-cards{grid-template-columns:repeat(2,1fr)}
+  .g2{grid-template-columns:1fr}
+  .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .eng-status{grid-template-columns:repeat(2,1fr)}
+  .flow-grid{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   MOBILE — full redesign for small screens
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+@media(max-width:640px){
+
+  /* 1. Kill mandatory snap — let content scroll naturally */
+  body{
+    height:auto;
+    min-height:100svh;
+    overflow-y:auto;
+    scroll-snap-type:none;
+  }
+
+  /* 2. Sections → normal flow blocks */
+  section{
+    min-height:auto;
+    scroll-snap-align:none;
+    padding:calc(var(--bar) + 1.4rem) .9rem 2.2rem;
+  }
+
+  /* 3. Interludes: keep dramatic but shorter */
+  section[data-il]{
+    min-height:60vh;
+    padding:2.5rem 1rem;
+  }
+
+  /* 4. Topbar stays readable */
+  #topbar{
+    height:48px;
+    top:.35rem;
+    padding:0 .85rem;
+    width:calc(100% - 1rem);
+  }
+  :root{ --bar:55px }
+
+  /* 5. Typography — readable & no clipping */
+  h1{
+    font-size:clamp(2.2rem,9.5vw,2.8rem);
+    line-height:1.15;
+  }
+  h2{
+    font-size:clamp(1.5rem,7vw,2rem);
+    line-height:1.2;
+  }
+  h3{ font-size:.9rem }
+  .lead{ font-size:.82rem; line-height:1.6 }
+  .il-words{ font-size:clamp(2.4rem,10vw,3.5rem); line-height:.95 }
+  .il-sub{ font-size:.85rem }
+
+  /* 6. Hide scroll dots */
+  .ndots{ display:none }
+
+  /* 7. Panels */
+  .panel{
+    padding:.9rem;
+    gap:.6rem;
+    border-radius:16px;
+  }
+
+  /* 8. All grids → 1 column (unless specified) */
+  .hero-grid,
+  .g2,
+  .regime-cards,
+  .phase-cards,
+  .sig-cards,
+  .flow-grid{ grid-template-columns:1fr; gap:.6rem }
+
+  .g4{ grid-template-columns:repeat(2,1fr); gap:.5rem }
+  .stats-bar{ grid-template-columns:repeat(2,1fr); gap:.4rem }
+  .eng-status{ grid-template-columns:repeat(2,1fr); gap:.4rem }
+
+  /* 9. SLIDE 1 HERO:
+        Hide complex trading terminal on mobile.
+        Hero text panel gets full width. */
+  section[data-sl="0"] .hero-grid > .panel:nth-child(2){
+    display:none;
+  }
+  section[data-sl="0"] .hero-grid > .panel:first-child{
+    justify-content:flex-start;
+    gap:.7rem;
+  }
+  /* CTA button full width */
+  section[data-sl="0"] .btn.bp{
+    width:100%;
+    text-align:center;
+    padding:.75rem 1rem;
+    font-size:.88rem;
+    align-self:stretch;
+  }
+
+  /* 10. Flex containers: don't force flex:1 height on mobile */
+  section[data-sl] > div{
+    flex:none;
+    gap:.65rem;
+  }
+  section[data-sl] .g2 > .panel,
+  section[data-sl] .g2 > div{
+    flex:none;
+  }
+
+  /* 11. Buttons: comfortable tap targets */
+  .btn{
+    padding:.65rem 1.1rem;
+    font-size:.82rem;
+    border-radius:12px;
+    min-height:44px;
+  }
+
+  /* 12. Tags: larger tap area */
+  .tag{
+    padding:.22rem .6rem;
+    font-size:.62rem;
+  }
+
+  /* 13. Cards */
+  .card .cv{ font-size:.95rem }
+  .card .lbl{ font-size:.6rem }
+  .rcard{ padding:.75rem }
+  .pcard{ padding:.75rem }
+  .scard{ padding:.6rem }
+
+  /* 14. Damage cards (slide 2) — side-by-side where possible */
+  .dmg-cards{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:.45rem;
+  }
+  .dcard .dv{ font-size:1.5rem }
+
+  /* 15. Metrics (slide 6) */
+  .mb-val{ font-size:clamp(1.8rem,8vw,2.8rem) }
+
+  /* 16. Slide 8 CTA — centred, spaced */
+  section[data-sl="7"] > div{
+    align-items:stretch;
+    padding:0;
+  }
+  section[data-sl="7"] .panel{
+    text-align:center;
+    align-items:center;
+  }
+  section[data-sl="7"] .panel .btn{
+    width:100%;
+    justify-content:center;
+  }
+  section[data-sl="7"] .panel > div:last-of-type{
+    flex-direction:column;
+    gap:.5rem;
+  }
+
+  /* 17. Separators */
+  .sep{ margin:.3rem 0 }
+
+  /* 18. Phase cards: tighter on mobile */
+  .pcard p{ font-size:.68rem }
+  .pcard h3{ font-size:.85rem }
+
+  /* 19. Signal cards: 2 col on mobile */
+  .sig-cards{ grid-template-columns:repeat(2,1fr) }
+
+  /* 20. tb-cnt (slide counter) - keep visible */
+  .tb-cnt{ font-size:.62rem }
+  .tb-brand{ font-size:.78rem }
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  [data-a]{opacity:1!important;transform:none!important}
+  .iw{opacity:1!important;transform:none!important}
+  body::before{animation:none}
 }
 </style>
 </head>
 <body>
-<div class="bg-orb a"></div>
-<div class="bg-orb b"></div>
-<div id="scrollProgress" aria-hidden="true"></div>
-<div class="scroll-dots" id="scrollDots" aria-label="Section navigation"></div>
 
-<div class="shell">
-  <header class="topbar">
-    <div class="brand"><span class="brand-dot"></span><span>CryptoMentor AI</span></div>
-    <div class="top-right">
-      <div class="lang">
-        <button class="lang-btn active" data-lang="en">EN</button>
-        <button class="lang-btn" data-lang="id">ID</button>
-      </div>
-      <span id="counter" aria-live="polite"></span>
+<canvas id="particles"></canvas>
+<div id="prog"></div>
+
+<!-- TOPBAR -->
+<nav id="topbar">
+  <div class="tb-left">
+    <div class="tb-dot"></div>
+    <span class="tb-brand">CryptoMentor AI</span>
+  </div>
+  <div class="tb-right">
+    <div class="lang-tog">
+      <button class="lang-btn on" onclick="applyLang('en')">EN</button>
+      <button class="lang-btn" onclick="applyLang('id')">ID</button>
     </div>
-  </header>
+    <span class="tb-cnt" id="sldcnt">01 / 08</span>
+  </div>
+</nav>
 
-  <main class="deck" id="deck">
-    <section class="slide s1 active" data-slide="0">
-      <div class="ey reveal" data-i18n="s1_ey"></div>
-      <div class="grid2 cm-hero">
-        <div class="panel reveal cm-hero-main">
-          <h1><span data-i18n="s1_t1"></span><br /><span class="grad" data-i18n="s1_t2"></span></h1>
-          <p class="lead" data-i18n="s1_sub"></p>
-          <div class="cm-chip-row">
-            <span class="tag te floating" data-i18n="s1_chip1"></span>
-            <span class="tag tc floating" style="animation-delay:.12s" data-i18n="s1_chip2"></span>
-            <span class="tag ti floating" style="animation-delay:.24s" data-i18n="s1_chip3"></span>
-          </div>
-          <div class="cards">
-            <div class="card"><div class="v grad" data-i18n="s1_v1"></div><div class="l" data-i18n="s1_l1"></div></div>
-            <div class="card"><div class="v" style="color:var(--accent)" data-i18n="s1_v2"></div><div class="l" data-i18n="s1_l2"></div></div>
-            <div class="card"><div class="v" style="color:var(--amber)" data-i18n="s1_v3"></div><div class="l" data-i18n="s1_l3"></div></div>
-            <div class="card"><div class="v" style="color:var(--accent-2)" data-i18n="s1_v4"></div><div class="l" data-i18n="s1_l4"></div></div>
-          </div>
-          <div class="cm-hero-actions">
-            <button class="btn bp cm-hero-cta" onclick="window.location.href='https://cryptomentor.id'" data-i18n="s1_cta"></button>
-          </div>
-        </div>
-        <div class="panel reveal cm-hero-status">
-          <div class="tags"><span class="tag tc" data-i18n="s1_tag1"></span><span class="tag te" data-i18n="s1_tag2"></span><span class="tag ti" data-i18n="s1_tag3"></span></div>
-          <h3 data-i18n="s1_h3"></h3>
-          <p class="lead" data-i18n="s1_h3sub"></p>
-          <div class="quote"><p data-i18n="s1_q1"></p><span class="src" data-i18n="s1_q1s"></span></div>
-          <div class="quote"><p data-i18n="s1_q2"></p><span class="src" data-i18n="s1_q2s"></span></div>
+<!-- SCROLL DOTS -->
+<div class="ndots" id="ndots"></div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 1 — HERO -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="0">
+  <div class="hero-grid">
+    <!-- LEFT -->
+    <div class="panel" style="justify-content:space-between">
+      <div style="display:flex;flex-direction:column;gap:.55rem">
+        <span class="ey" data-a="up" data-i18n="s1_ey">AI TRADING SYSTEM</span>
+        <h1 data-a="up" data-d="1">
+          <span data-i18n="s1_t1">Trade Smarter.</span><br>
+          <span class="grad" data-i18n="s1_t2">Scale Faster.</span>
+        </h1>
+        <p class="lead" data-a="up" data-d="2" data-i18n="s1_sub">Institutional-grade signal intelligence with automated execution. Built for real markets, real volatility, real results.</p>
+        <div class="tags" data-a="up" data-d="3">
+          <span class="tag tv" data-i18n="s1_chip1">⚡ ACTIVE</span>
+          <span class="tag te" data-i18n="s1_chip2">◉ LIVE SCANNING</span>
+          <span class="tag tc" data-i18n="s1_chip3">◈ MULTI-PAIR</span>
         </div>
       </div>
-    </section>
-
-    <section class="slide s2" data-slide="1">
-      <div class="ey reveal" data-i18n="s2_ey"></div>
-      <h2 class="reveal"><span data-i18n="s2_t1"></span> <span class="grad" data-i18n="s2_t2"></span></h2>
-      <div class="grid2 eq">
-        <div class="panel reveal"><h3 data-i18n="s2_hl"></h3><ul class="list bad"><li data-i18n="s2_b1"></li><li data-i18n="s2_b2"></li><li data-i18n="s2_b3"></li><li data-i18n="s2_b4"></li></ul></div>
-        <div class="panel reveal"><h3 data-i18n="s2_hr"></h3><div class="cards"><div class="card"><div class="v" style="color:var(--rose)" data-i18n="s2_i1v"></div><div class="l" data-i18n="s2_i1l"></div></div><div class="card"><div class="v" style="color:var(--amber)" data-i18n="s2_i2v"></div><div class="l" data-i18n="s2_i2l"></div></div><div class="card"><div class="v" style="color:var(--cyan)" data-i18n="s2_i3v"></div><div class="l" data-i18n="s2_i3l"></div></div></div><p class="lead" data-i18n="s2_sub"></p></div>
+      <div class="g4" data-a="up" data-d="4" style="margin:.2rem 0">
+        <div class="card"><div class="cv">24/7</div><div class="lbl" data-i18n="s1_v1">Always On</div></div>
+        <div class="card"><div class="cv grad">AI</div><div class="lbl" data-i18n="s1_v2">AI Core</div></div>
+        <div class="card"><div class="cv grad2">R1</div><div class="lbl" data-i18n="s1_v3">Risk-First</div></div>
+        <div class="card"><div class="cv">T10</div><div class="lbl" data-i18n="s1_v4">Top-10 Pairs</div></div>
       </div>
-    </section>
+      <button class="btn bp" data-a="up" data-d="5" style="align-self:flex-start" onclick="window.open('https://cryptomentor.id','_blank')" data-i18n="s1_cta">Get Started Free →</button>
+    </div>
 
-    <section class="slide s3" data-slide="2">
-      <div class="ey reveal" data-i18n="s3_ey"></div>
-      <h2 class="reveal"><span data-i18n="s3_t1"></span> <span class="grad" data-i18n="s3_t2"></span></h2>
-      <p class="lead reveal" data-i18n="s3_sub"></p>
-      <div class="panel reveal">
-        <div class="regimes">
-          <div class="reg active" id="r1"><div class="rt"><span data-i18n="s3_r1t"></span><span class="st" data-i18n="c_active"></span></div><p class="rd" data-i18n="s3_r1d"></p></div>
-          <div class="reg" id="r2"><div class="rt"><span data-i18n="s3_r2t"></span><span class="st" data-i18n="c_standby"></span></div><p class="rd" data-i18n="s3_r2d"></p></div>
-          <div class="reg" id="r3"><div class="rt"><span data-i18n="s3_r3t"></span><span class="st" data-i18n="c_standby"></span></div><p class="rd" data-i18n="s3_r3d"></p></div>
-        </div>
-        <div class="steps">
-          <div class="step"><div class="n">1</div><span class="step-k" data-i18n="s3_k1"></span><p data-i18n="s3_s1"></p></div>
-          <div class="step"><div class="n">2</div><span class="step-k" data-i18n="s3_k2"></span><p data-i18n="s3_s2"></p></div>
-          <div class="step"><div class="n">3</div><span class="step-k" data-i18n="s3_k3"></span><p data-i18n="s3_s3"></p></div>
-          <div class="step"><div class="n">4</div><span class="step-k" data-i18n="s3_k4"></span><p data-i18n="s3_s4"></p></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="slide s4" data-slide="3">
-      <div class="ey reveal" data-i18n="s4_ey"></div>
-      <h2 class="reveal"><span data-i18n="s4_t1"></span> <span class="grad" data-i18n="s4_t2"></span></h2>
-      <div class="grid2">
-        <div class="panel reveal">
-          <h3 data-i18n="s4_hl"></h3>
-          <div class="meter"><div class="mh"><span data-i18n="s4_m1l"></span><span data-i18n="s4_m1v"></span></div><div class="mt"><div class="mf" data-meter="91"></div></div></div>
-          <div class="meter"><div class="mh"><span data-i18n="s4_m2l"></span><span data-i18n="s4_m2v"></span></div><div class="mt"><div class="mf" data-meter="84"></div></div></div>
-          <div class="meter"><div class="mh"><span data-i18n="s4_m3l"></span><span data-i18n="s4_m3v"></span></div><div class="mt"><div class="mf" data-meter="78"></div></div></div>
-          <ul class="list good"><li data-i18n="s4_g1"></li><li data-i18n="s4_g2"></li><li data-i18n="s4_g3"></li></ul>
-        </div>
-        <div class="panel reveal">
-          <h3 data-i18n="s4_hr"></h3>
-          <div class="signals">
-            <div class="row cm-signal-card ready">
-              <div class="row-top"><span class="pair">BTCUSDT</span><span class="b bl" data-i18n="c_ready"></span></div>
-              <div class="row-mid"><span class="conf">89%</span><span class="price" data-i18n="s4_p1"></span></div>
-              <div class="cm-meter"><div class="track"><div class="fill" data-bar="89"></div></div></div>
-              <p class="row-note" data-i18n="s4_n1"></p>
-            </div>
-            <div class="row cm-signal-card">
-              <div class="row-top"><span class="pair">ETHUSDT</span><span class="b bw" data-i18n="c_watch"></span></div>
-              <div class="row-mid"><span class="conf">73%</span><span class="price" data-i18n="s4_p2"></span></div>
-              <div class="cm-meter"><div class="track"><div class="fill" data-bar="73"></div></div></div>
-              <p class="row-note" data-i18n="s4_n2"></p>
-            </div>
-            <div class="row cm-signal-card">
-              <div class="row-top"><span class="pair">SOLUSDT</span><span class="b bh" data-i18n="c_building"></span></div>
-              <div class="row-mid"><span class="conf">58%</span><span class="price" data-i18n="s4_p3"></span></div>
-              <div class="cm-meter"><div class="track"><div class="fill" data-bar="58"></div></div></div>
-              <p class="row-note" data-i18n="s4_n3"></p>
-            </div>
-            <div class="row cm-signal-card ready">
-              <div class="row-top"><span class="pair">XRPUSDT</span><span class="b bl" data-i18n="c_ready"></span></div>
-              <div class="row-mid"><span class="conf">81%</span><span class="price" data-i18n="s4_p4"></span></div>
-              <div class="cm-meter"><div class="track"><div class="fill" data-bar="81"></div></div></div>
-              <p class="row-note" data-i18n="s4_n4"></p>
-            </div>
+    <!-- RIGHT — TERMINAL -->
+    <div class="panel" style="justify-content:space-between;gap:.45rem">
+      <!-- header -->
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:.85rem;font-weight:800">BTC/USDT</div>
+          <div style="display:flex;align-items:baseline;gap:.4rem">
+            <span style="font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:900">$67,240</span>
+            <span style="font-size:.65rem;color:#6ee7b7;font-weight:700">▲ 2.41%</span>
           </div>
-          <span class="live" data-i18n="s4_live"></span>
+        </div>
+        <span class="live" data-i18n="s1_live">LIVE</span>
+      </div>
+
+      <!-- CHART -->
+      <div class="tchart" style="height:130px">
+        <div class="cands">
+          <div class="cc cg" style="height:29%"></div>
+          <div class="cc cr" style="height:35%"></div>
+          <div class="cc cg" style="height:31%"></div>
+          <div class="cc cg" style="height:39%"></div>
+          <div class="cc cr" style="height:45%"></div>
+          <div class="cc cg" style="height:41%"></div>
+          <div class="cc cg" style="height:48%"></div>
+          <div class="cc cg" style="height:54%"></div>
+          <div class="cc cr" style="height:50%"></div>
+          <div class="cc cg" style="height:57%"></div>
+          <div class="cc cg" style="height:63%"></div>
+          <div class="cc cr" style="height:59%"></div>
+          <div class="cc cg" style="height:66%"></div>
+          <div class="cc cg" style="height:72%"></div>
+          <div class="cc cr" style="height:68%"></div>
+          <div class="cc cg" style="height:76%"></div>
+          <div class="cc cg" style="height:82%"></div>
+          <div class="cc cr" style="height:78%"></div>
+          <div class="cc cg" style="height:85%"></div>
+          <div class="cc cg" style="height:91%"></div>
+        </div>
+        <!-- level lines -->
+        <div class="hl" style="bottom:52%">
+          <div class="hl-line" style="border-color:rgba(245,158,11,.6)"></div>
+          <div class="hl-tag" style="color:#fcd34d;border-color:rgba(245,158,11,.4)">ENTRY</div>
+        </div>
+        <div class="hl" style="bottom:76%">
+          <div class="hl-line" style="border-color:rgba(16,185,129,.6)"></div>
+          <div class="hl-tag" style="color:#6ee7b7;border-color:rgba(16,185,129,.4)">TP1</div>
+        </div>
+        <div class="hl" style="bottom:90%">
+          <div class="hl-line" style="border-color:rgba(6,182,212,.6)"></div>
+          <div class="hl-tag" style="color:#67e8f9;border-color:rgba(6,182,212,.4)">TP2</div>
+        </div>
+        <div class="hl" style="bottom:44%">
+          <div class="hl-line" style="border-color:rgba(244,63,94,.6)"></div>
+          <div class="hl-tag" style="color:#fb7185;border-color:rgba(244,63,94,.4)">SL</div>
         </div>
       </div>
-      <div class="panel reveal cm-engine-status">
-        <div class="cm-engine-head">
-          <h3 data-i18n="s4_engine_t"></h3>
-          <span class="tag te" data-i18n="s4_engine_status"></span>
+
+      <!-- trade levels -->
+      <div class="tlevs">
+        <div class="tlev tlen">
+          <div class="tldot" style="background:#f59e0b"></div>
+          <div class="tlnm">ENTRY</div>
+          <div class="tlpr">$67,240</div>
+          <div class="tltag"><span class="tag ta" data-i18n="s1_l1">ACTIVE</span></div>
         </div>
+        <div class="tlev tltp">
+          <div class="tldot" style="background:#10b981"></div>
+          <div class="tlnm">TP1</div>
+          <div class="tlpr">$69,800</div>
+          <div class="tltag"><span class="tag te">+3.8%</span></div>
+        </div>
+        <div class="tlev tltp">
+          <div class="tldot" style="background:#06b6d4"></div>
+          <div class="tlnm">TP2</div>
+          <div class="tlpr">$72,500</div>
+          <div class="tltag"><span class="tag tc">+7.8%</span></div>
+        </div>
+        <div class="tlev tlsl">
+          <div class="tldot" style="background:#f43f5e"></div>
+          <div class="tlnm">STOP</div>
+          <div class="tlpr">$65,600</div>
+          <div class="tltag"><span class="tag tr">-2.4%</span></div>
+        </div>
+      </div>
+
+      <!-- stats bar -->
+      <div class="stats-bar">
+        <div class="sb-item"><div class="sb-v grad">3.2R</div><div class="sb-l" data-i18n="s1_rr">R:R Ratio</div></div>
+        <div class="sb-item"><div class="sb-v" style="color:#a78bfa">87%</div><div class="sb-l" data-i18n="s1_conf">Confidence</div></div>
+        <div class="sb-item"><div class="sb-v" style="color:#67e8f9">2.1%</div><div class="sb-l" data-i18n="s1_sz">Size</div></div>
+        <div class="sb-item"><div class="sb-v" style="color:#fcd34d" data-i18n="s1_mode">TREND</div><div class="sb-l">Mode</div></div>
+      </div>
+
+      <!-- confidence meter -->
+      <div class="meter">
+        <div class="mh"><span class="mn" data-i18n="s1_sigconf">Signal Confidence</span><span>87%</span></div>
+        <div class="mt"><div class="mf" data-m="87"></div></div>
+      </div>
+
+      <!-- activity log -->
+      <div class="alog">
+        <div class="alog-row">
+          <span class="alog-time">14:32:07</span>
+          <span class="alog-msg" data-i18n="s1_log1">Signal validated — BTC/USDT LONG</span>
+          <span class="alog-badge te">✓ EXEC</span>
+        </div>
+        <div class="alog-row">
+          <span class="alog-time">14:31:44</span>
+          <span class="alog-msg" data-i18n="s1_log2">SMC structure confirmed bullish</span>
+          <span class="alog-badge tc">INFO</span>
+        </div>
+        <div class="alog-row">
+          <span class="alog-time">14:30:58</span>
+          <span class="alog-msg" data-i18n="s1_log3">Risk filter passed — entering</span>
+          <span class="alog-badge tv">OK</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── INTERLUDE 1 ── -->
+<section data-il="1">
+  <div class="il-orb"></div>
+  <div class="il-content">
+    <div class="il-words">
+      <span class="iw" style="--d:.05s" data-i18n="il1_w1">YOUR</span>&nbsp;<span class="iw ga" style="--d:.15s" data-i18n="il1_w2">EDGE.</span><br>
+      <span class="iw" style="--d:.28s" data-i18n="il1_w3">EXECUTED.</span>
+    </div>
+    <hr class="il-rule rv">
+    <p class="il-sub" data-i18n="il1_sub">Every signal. Every trade. Every time — without emotion.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 2 — PROBLEM -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="1">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s2_ey">THE PROBLEM</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s2_t1">Why Most Traders</span> <span class="grad2" data-i18n="s2_t2">Lose Money</span></h2>
+      <p class="lead" data-a="up" data-d="2" style="margin-top:.3rem" data-i18n="s2_sub">The market doesn't beat you — your psychology does. Emotional decisions destroy accounts.</p>
+    </div>
+    <div class="g2" style="flex:1">
+      <!-- LEFT -->
+      <div class="panel" data-a="left" data-d="2">
+        <h3 style="color:#fb7185;font-size:.8rem" data-i18n="s2_bh">Emotional Trading Patterns</h3>
+        <ul class="bad">
+          <li data-i18n="s2_b1">FOMO entries at market peaks without confirmation</li>
+          <li data-i18n="s2_b2">Revenge trading after losses, doubling down blindly</li>
+          <li data-i18n="s2_b3">Moving stop-losses because "it will bounce"</li>
+          <li data-i18n="s2_b4">Exiting winners too early out of fear</li>
+        </ul>
+        <div class="sep"></div>
+        <div class="quote" data-i18n="s2_quote">"The market is a device for transferring money from the impatient to the patient."</div>
+      </div>
+      <!-- RIGHT -->
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <p class="lead" data-a="right" data-d="1" data-i18n="s2_lead">Retail traders lose an average of 67% of their capital within the first year. Not because the market is unfair — because their system is broken.</p>
+        <div class="dmg-cards" data-a="right" data-d="2">
+          <div class="dcard">
+            <div class="dv">67%</div>
+            <div class="dl" data-i18n="s2_d1">of retail traders blow accounts in year 1</div>
+          </div>
+          <div class="dcard">
+            <div class="dv">11×</div>
+            <div class="dl" data-i18n="s2_d2">more likely to hold losers than cut them</div>
+          </div>
+          <div class="dcard">
+            <div class="dv">$0</div>
+            <div class="dl" data-i18n="s2_d3">average net return for discretionary traders vs system traders</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── INTERLUDE 2 ── -->
+<section data-il="2">
+  <div class="il-orb"></div>
+  <div class="il-content">
+    <div class="il-words">
+      <span class="iw" style="--d:.05s" data-i18n="il2_w1">STOP</span>&nbsp;<span class="iw" style="--d:.15s" data-i18n="il2_w2">TRADING</span><br>
+      <span class="iw gb" style="--d:.28s" data-i18n="il2_w3">EMOTIONS.</span>
+    </div>
+    <hr class="il-rule rb">
+    <p class="il-sub" data-i18n="il2_sub">Your feelings are the enemy. Your system is the edge.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 3 — MODES -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="2">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s3_ey">ADAPTIVE ENGINE</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s3_t1">Three Regimes.</span> <span class="grad" data-i18n="s3_t2">One System.</span></h2>
+      <p class="lead" data-a="up" data-d="2" style="margin-top:.3rem" data-i18n="s3_sub">The engine reads market conditions in real time and deploys the correct strategy — no manual switching required.</p>
+    </div>
+    <div class="panel" style="flex:1" data-a="sc" data-d="2">
+      <div class="regime-cards">
+        <div class="rcard" id="r1">
+          <div class="ri">📈</div>
+          <h3 data-i18n="s3_r1t">Trend Follow</h3>
+          <p data-i18n="s3_r1d">Ride strong directional momentum. Multi-confirmation breakouts with trailing TP management.</p>
+          <div class="rc-status tc" data-i18n="s3_r1s">ACTIVE CYCLE</div>
+        </div>
+        <div class="rcard" id="r2">
+          <div class="ri">↔️</div>
+          <h3 data-i18n="s3_r2t">Range Defense</h3>
+          <p data-i18n="s3_r2d">Fade extremes in consolidating markets. Precision entries at tested support and resistance zones.</p>
+          <div class="rc-status tv" data-i18n="s3_r2s">MONITORING</div>
+        </div>
+        <div class="rcard" id="r3">
+          <div class="ri">⚡</div>
+          <h3 data-i18n="s3_r3t">Volatility Guard</h3>
+          <p data-i18n="s3_r3d">Capital protection during high-uncertainty events. Reduced sizing, tighter stops, selective entries only.</p>
+          <div class="rc-status ta" data-i18n="s3_r3s">STANDBY</div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <h3 style="font-size:.72rem;color:var(--muted)" data-i18n="s3_flow">Detection Flow</h3>
+      <div class="flow-grid">
+        <div class="fstep"><div class="fn">📊</div><div class="ft" data-i18n="s3_f1">Market Read</div></div>
+        <div class="fstep"><div class="fn">🔍</div><div class="ft" data-i18n="s3_f2">Regime Classify</div></div>
+        <div class="fstep"><div class="fn">⚙️</div><div class="ft" data-i18n="s3_f3">Strategy Deploy</div></div>
+        <div class="fstep"><div class="fn">✅</div><div class="ft" data-i18n="s3_f4">Execute &amp; Manage</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── INTERLUDE 3 ── -->
+<section data-il="3">
+  <div class="il-orb"></div>
+  <div class="il-content">
+    <div class="il-words">
+      <span class="iw" style="--d:.05s" data-i18n="il3_w1">ONE</span>&nbsp;<span class="iw gc" style="--d:.15s" data-i18n="il3_w2">ENGINE.</span><br>
+      <span class="iw" style="--d:.28s" data-i18n="il3_w3">ZERO</span>&nbsp;<span class="iw gc" style="--d:.4s" data-i18n="il3_w4">HESITATION.</span>
+    </div>
+    <hr class="il-rule rc">
+    <p class="il-sub" data-i18n="il3_sub">The system adapts. You don't have to.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 4 — SIGNAL ENGINE -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="3">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s4_ey">SIGNAL ENGINE</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s4_t1">Only the Best</span> <span class="grad" data-i18n="s4_t2">Signals Fire</span></h2>
+    </div>
+    <div class="g2" style="flex:1">
+      <!-- LEFT -->
+      <div class="panel" data-a="left" data-d="2" style="gap:.55rem">
+        <h3 style="font-size:.75rem;color:var(--muted)" data-i18n="s4_qg">Quality Gates</h3>
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s4_m1">SMC Structure Score</span><span>94%</span></div>
+          <div class="mt"><div class="mf" data-m="94"></div></div>
+        </div>
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s4_m2">Volume Confirmation</span><span>81%</span></div>
+          <div class="mt"><div class="mf" data-m="81"></div></div>
+        </div>
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s4_m3">HTF Alignment</span><span>88%</span></div>
+          <div class="mt"><div class="mf" data-m="88"></div></div>
+        </div>
+        <div class="sep"></div>
+        <ul class="good">
+          <li data-i18n="s4_g1">Multi-timeframe confluence required</li>
+          <li data-i18n="s4_g2">Order-block + FVG confirmation</li>
+          <li data-i18n="s4_g3">Volume and momentum validation</li>
+          <li data-i18n="s4_g4">Minimum 2.5R reward-to-risk enforced</li>
+        </ul>
+      </div>
+      <!-- RIGHT -->
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <div class="sig-cards" data-a="right" data-d="2">
+          <div class="scard hot">
+            <div class="sp"><span class="sc-pulse"></span>BTC/USDT</div>
+            <div class="ss" data-i18n="s4_s1">LONG · 3.2R · 91% conf</div>
+            <div style="margin-top:.3rem"><span class="tag te" data-i18n="s4_s1s">READY</span></div>
+          </div>
+          <div class="scard">
+            <div class="sp"><span class="sc-pulse w"></span>ETH/USDT</div>
+            <div class="ss" data-i18n="s4_s2">LONG · 2.8R · 74% conf</div>
+            <div style="margin-top:.3rem"><span class="tag ta" data-i18n="s4_s2s">WATCH</span></div>
+          </div>
+          <div class="scard">
+            <div class="sp" style="color:var(--muted)">SOL/USDT</div>
+            <div class="ss" data-i18n="s4_s3">Building · 2.1R · 62% conf</div>
+            <div style="margin-top:.3rem"><span class="tag tv" data-i18n="s4_s3s">BUILDING</span></div>
+          </div>
+          <div class="scard hot">
+            <div class="sp"><span class="sc-pulse"></span>XRP/USDT</div>
+            <div class="ss" data-i18n="s4_s4">LONG · 3.5R · 89% conf</div>
+            <div style="margin-top:.3rem"><span class="tag te" data-i18n="s4_s4s">READY</span></div>
+          </div>
+        </div>
+        <div class="panel" data-a="right" data-d="3" style="gap:.35rem">
+          <h3 style="font-size:.72rem;color:var(--muted)" data-i18n="s4_es">Engine Status</h3>
+          <div class="eng-status">
+            <div class="es-item"><div class="es-v grad">14</div><div class="es-l" data-i18n="s4_e1">Pairs Watched</div></div>
+            <div class="es-item"><div class="es-v" style="color:#a78bfa">3</div><div class="es-l" data-i18n="s4_e2">Live Signals</div></div>
+            <div class="es-item"><div class="es-v" style="color:#6ee7b7">99.4%</div><div class="es-l" data-i18n="s4_e3">Uptime</div></div>
+            <div class="es-item"><div class="es-v" style="color:#fcd34d">~80ms</div><div class="es-l" data-i18n="s4_e4">Latency</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── INTERLUDE 4 ── -->
+<section data-il="4">
+  <div class="il-orb"></div>
+  <div class="il-content">
+    <div class="il-words">
+      <span class="iw" style="--d:.05s" data-i18n="il4_w1">THE BOT</span>&nbsp;<span class="iw gt" style="--d:.18s" data-i18n="il4_w2">WAITS.</span><br>
+      <span class="iw" style="--d:.32s" data-i18n="il4_w3">THE BOT</span>&nbsp;<span class="iw gt" style="--d:.46s" data-i18n="il4_w4">STRIKES.</span>
+    </div>
+    <hr class="il-rule rt">
+    <p class="il-sub" data-i18n="il4_sub">Patience is the edge. Execution is the weapon.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 5 — RISK -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="4">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s5_ey">RISK SYSTEM</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s5_t1">Survive First.</span> <span class="grad" data-i18n="s5_t2">Profit Always.</span></h2>
+    </div>
+    <div class="g2" style="flex:1">
+      <!-- LEFT -->
+      <div class="panel" data-a="left" data-d="2">
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s5_m1">Daily Loss Limit</span><span style="color:#fb7185">3% cap</span></div>
+          <div class="mt"><div class="mf me" data-m="30"></div></div>
+        </div>
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s5_m2">Per Trade Risk</span><span style="color:#a78bfa">1–2%</span></div>
+          <div class="mt"><div class="mf" data-m="20"></div></div>
+        </div>
+        <div class="meter">
+          <div class="mh"><span class="mn" data-i18n="s5_m3">Max Drawdown Guard</span><span style="color:#fcd34d">10% trigger</span></div>
+          <div class="mt"><div class="mf ma" data-m="40"></div></div>
+        </div>
+        <div class="sep"></div>
+        <div class="disc" data-i18n="s5_disc">All parameters are configurable. Default settings are calibrated for capital preservation over aggressive growth. Crypto trading carries significant risk of capital loss.</div>
+      </div>
+      <!-- RIGHT -->
+      <div class="panel" data-a="right" data-d="2">
+        <h3 style="font-size:.75rem;color:var(--muted)" data-i18n="s5_sh">Safety Rails</h3>
+        <ul class="good">
+          <li data-i18n="s5_s1">Hard daily loss limit — bot pauses automatically</li>
+          <li data-i18n="s5_s2">Break-even moves triggered at 1R profit</li>
+          <li data-i18n="s5_s3">Drawdown circuit breaker at configurable threshold</li>
+          <li data-i18n="s5_s4">Position sizing scales with account equity</li>
+          <li data-i18n="s5_s5">Correlated pair exposure limits enforced</li>
+          <li data-i18n="s5_s6">News event blackout windows supported</li>
+        </ul>
+        <div class="sep"></div>
         <div class="tags">
-          <span class="tag tc" data-i18n="s4_chip1"></span>
-          <span class="tag te" data-i18n="s4_chip2"></span>
-          <span class="tag ti" data-i18n="s4_chip3"></span>
-        </div>
-        <div class="cm-engine-list">
-          <div class="cm-engine-row"><span class="dot"></span><strong>BTC</strong><span data-i18n="s4_e1"></span></div>
-          <div class="cm-engine-row"><span class="dot"></span><strong>ETH</strong><span data-i18n="s4_e2"></span></div>
-          <div class="cm-engine-row"><span class="dot"></span><strong>SOL</strong><span data-i18n="s4_e3"></span></div>
-          <div class="cm-engine-row"><span class="dot"></span><strong>XRP</strong><span data-i18n="s4_e4"></span></div>
+          <span class="tag te" data-i18n="s5_tag1">CAPITAL PROTECTED</span>
+          <span class="tag tv" data-i18n="s5_tag2">RULE-BASED</span>
+          <span class="tag tc" data-i18n="s5_tag3">AUDITABLE</span>
         </div>
       </div>
-    </section>
-    <section class="slide s5" data-slide="4">
-      <div class="ey reveal" data-i18n="s5_ey"></div>
-      <h2 class="reveal"><span data-i18n="s5_t1"></span> <span class="grad" data-i18n="s5_t2"></span></h2>
-      <div class="grid2">
-        <div class="panel reveal">
-          <h3 data-i18n="s5_hl"></h3>
-          <div class="meter"><div class="mh"><span data-i18n="s5_m1l"></span><span data-i18n="s5_m1v"></span></div><div class="mt"><div class="mf" data-meter="22"></div></div></div>
-          <div class="meter"><div class="mh"><span data-i18n="s5_m2l"></span><span data-i18n="s5_m2v"></span></div><div class="mt"><div class="mf" data-meter="63"></div></div></div>
-          <div class="meter"><div class="mh"><span data-i18n="s5_m3l"></span><span data-i18n="s5_m3v"></span></div><div class="mt"><div class="mf" data-meter="88"></div></div></div>
-          <p class="disc" data-i18n="s5_disc"></p>
-        </div>
-        <div class="panel reveal">
-          <h3 data-i18n="s5_hr"></h3>
-          <ul class="list good"><li data-i18n="s5_g1"></li><li data-i18n="s5_g2"></li><li data-i18n="s5_g3"></li><li data-i18n="s5_g4"></li></ul>
-          <div class="tags"><span class="tag tc" data-i18n="s5_tag1"></span><span class="tag te" data-i18n="s5_tag2"></span><span class="tag ti" data-i18n="s5_tag3"></span></div>
-        </div>
-      </div>
-    </section>
+    </div>
+  </div>
+</section>
 
-    <section class="slide s6" data-slide="5">
-      <div class="ey reveal" data-i18n="s6_ey"></div>
-      <h2 class="reveal"><span data-i18n="s6_t1"></span> <span class="grad" data-i18n="s6_t2"></span></h2>
-      <div class="grid2">
-        <div class="panel reveal">
-          <h3 data-i18n="s6_hl"></h3>
-          <div class="counters cm-metric-bar">
-            <div class="card"><div class="cn" data-count="82" data-suf="%">0%</div><div class="l" data-i18n="s6_c1"></div></div>
-            <div class="card"><div class="cn" data-count="2.1" data-dec="1" data-pre="x">x0.0</div><div class="l" data-i18n="s6_c2"></div></div>
-            <div class="card"><div class="cn" data-count="47" data-suf="%">0%</div><div class="l" data-i18n="s6_c3"></div></div>
+<!-- ── INTERLUDE 5 ── -->
+<section data-il="5">
+  <div class="il-orb"></div>
+  <div class="il-content">
+    <div class="il-words">
+      <span class="iw" style="--d:.05s" data-i18n="il5_w1">SURVIVE</span>&nbsp;<span class="iw ga" style="--d:.18s" data-i18n="il5_w2">FIRST.</span><br>
+      <span class="iw" style="--d:.32s" data-i18n="il5_w3">SCALE</span>&nbsp;<span class="iw" style="background:linear-gradient(135deg,#f59e0b,#fcd34d);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;--d:.46s" data-i18n="il5_w4">FOREVER.</span>
+    </div>
+    <hr class="il-rule ra">
+    <p class="il-sub" data-i18n="il5_sub">Capital protection is not a feature. It is the foundation.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 6 — PERFORMANCE -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="5">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s6_ey">PERFORMANCE</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s6_t1">Numbers That</span> <span class="grad" data-i18n="s6_t2">Don't Lie</span></h2>
+    </div>
+    <div class="g2" style="flex:1">
+      <!-- LEFT -->
+      <div class="panel" data-a="left" data-d="2" style="justify-content:space-between">
+        <div style="display:flex;flex-direction:column;gap:.65rem">
+          <div class="metric-big">
+            <div class="mb-val grad">82%</div>
+            <div class="mb-lbl" data-i18n="s6_v1">Signal Win Rate (backtested, 18 months)</div>
           </div>
-          <p class="disc" data-i18n="s6_disc"></p>
-        </div>
-        <div class="panel reveal">
-          <div class="ey cm-mini-ey" data-i18n="s6_path_ey"></div>
-          <h3 data-i18n="s6_hr"></h3>
-          <p class="disc" data-i18n="s6_path_sub"></p>
-          <div class="bars cm-growth-path">
-            <div class="bar"><span class="lbl" data-i18n="s6_b0"></span><div class="track"><div class="fill" data-bar="18"></div></div><span class="val">$1,000</span></div>
-            <div class="bar"><span class="lbl" data-i18n="s6_b1"></span><div class="track"><div class="fill" data-bar="36"></div></div><span class="val">$1,360</span></div>
-            <div class="bar"><span class="lbl" data-i18n="s6_b2"></span><div class="track"><div class="fill" data-bar="61"></div></div><span class="val">$1,920</span></div>
-            <div class="bar"><span class="lbl" data-i18n="s6_b3"></span><div class="track"><div class="fill" data-bar="92"></div></div><span class="val">$2,670</span></div>
+          <div class="sep"></div>
+          <div class="metric-big">
+            <div class="mb-val" style="color:#fcd34d">×2.1</div>
+            <div class="mb-lbl" data-i18n="s6_v2">Average Monthly Return vs Benchmark</div>
           </div>
-          <p class="disc" data-i18n="s6_path_disc"></p>
+          <div class="sep"></div>
+          <div class="metric-big">
+            <div class="mb-val" style="color:#67e8f9">47%</div>
+            <div class="mb-lbl" data-i18n="s6_v3">Max Drawdown Reduction vs Manual Trading</div>
+          </div>
+        </div>
+        <div class="disc" data-i18n="s6_disc">Past performance is not indicative of future results. Backtest data subject to market conditions and configuration.</div>
+      </div>
+      <!-- RIGHT -->
+      <div class="panel" data-a="right" data-d="2">
+        <h3 style="font-size:.75rem" data-i18n="s6_gh">$1,000 Growth Simulation (6 months)</h3>
+        <div class="grow-bars">
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g1">Month 1</span><span class="gb-val">$1,180</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="44" style="background:linear-gradient(90deg,#8b5cf6,#a78bfa)"></div></div>
+          </div>
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g2">Month 2</span><span class="gb-val">$1,390</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="52" style="background:linear-gradient(90deg,#7c3aed,#8b5cf6)"></div></div>
+          </div>
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g3">Month 3</span><span class="gb-val">$1,640</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="62" style="background:linear-gradient(90deg,#6d28d9,#8b5cf6)"></div></div>
+          </div>
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g4">Month 4</span><span class="gb-val">$1,960</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="74" style="background:linear-gradient(90deg,#4f46e5,#7c3aed)"></div></div>
+          </div>
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g5">Month 5</span><span class="gb-val">$2,280</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="86" style="background:linear-gradient(90deg,#3730a3,#4f46e5)"></div></div>
+          </div>
+          <div class="gbar">
+            <div class="gb-hd"><span class="gb-nm" data-i18n="s6_g6">Month 6</span><span class="gb-val grad2">$2,670</span></div>
+            <div class="gb-track"><div class="gb-fill" data-m="100" style="background:linear-gradient(90deg,#f59e0b,#f43f5e)"></div></div>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:.68rem;color:var(--muted)" data-i18n="s6_start">Starting: $1,000</div>
+          <div style="font-size:.82rem;font-weight:900;font-family:'Space Grotesk',sans-serif" class="grad2" data-i18n="s6_end">+167% Return</div>
         </div>
       </div>
-    </section>
+    </div>
+  </div>
+</section>
 
-    <section class="slide s7" data-slide="6">
-      <div class="ey reveal" data-i18n="s7_ey"></div>
-      <h2 class="reveal"><span data-i18n="s7_t1"></span> <span class="grad" data-i18n="s7_t2"></span></h2>
-      <div class="panel reveal">
-        <div class="phases">
-          <div class="phase"><div class="pb p1">1</div><div class="pt" data-i18n="s7_p1t"></div><p class="pd" data-i18n="s7_p1d"></p></div>
-          <div class="phase"><div class="pb p2">2</div><div class="pt" data-i18n="s7_p2t"></div><p class="pd" data-i18n="s7_p2d"></p></div>
-          <div class="phase"><div class="pb p3">3</div><div class="pt" data-i18n="s7_p3t"></div><p class="pd" data-i18n="s7_p3d"></p></div>
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 7 — ACTIVATION -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="6">
+  <div style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+    <div>
+      <span class="ey" data-a="up" data-i18n="s7_ey">GET STARTED</span>
+      <h2 data-a="up" data-d="1" style="margin-top:.4rem"><span data-i18n="s7_t1">Three Phases to</span> <span class="grad" data-i18n="s7_t2">Full Activation</span></h2>
+      <p class="lead" data-a="up" data-d="2" style="margin-top:.3rem" data-i18n="s7_sub">From zero to live trading in under 24 hours. No coding required.</p>
+    </div>
+    <div class="panel" data-a="sc" data-d="2" style="flex:1;gap:.65rem">
+      <div class="phase-cards">
+        <div class="pcard" data-n="01">
+          <div class="pn" data-i18n="s7_p1n">Phase 01</div>
+          <h3 data-i18n="s7_p1t">Connect &amp; Configure</h3>
+          <p data-i18n="s7_p1d">Link your exchange API (read + trade permissions), set risk parameters, choose target pairs. Takes about 15 minutes.</p>
+        </div>
+        <div class="pcard" data-n="02">
+          <div class="pn" data-i18n="s7_p2n">Phase 02</div>
+          <h3 data-i18n="s7_p2t">Paper Trade &amp; Validate</h3>
+          <p data-i18n="s7_p2d">Run the engine in simulation mode for 3–7 days. Review signal quality, adjust confidence thresholds to your preference.</p>
+        </div>
+        <div class="pcard" data-n="03">
+          <div class="pn" data-i18n="s7_p3n">Phase 03</div>
+          <h3 data-i18n="s7_p3t">Go Live &amp; Scale</h3>
+          <p data-i18n="s7_p3d">Activate live execution. Start with minimum sizing. Scale position size as you gain confidence in real P&amp;L.</p>
         </div>
       </div>
-      <div class="grid2 eq reveal">
-        <div class="panel"><h3 data-i18n="s7_hl"></h3><ul class="list good"><li data-i18n="s7_l1"></li><li data-i18n="s7_l2"></li><li data-i18n="s7_l3"></li></ul></div>
-        <div class="panel"><h3 data-i18n="s7_hr"></h3><ul class="list good"><li data-i18n="s7_r1"></li><li data-i18n="s7_r2"></li><li data-i18n="s7_r3"></li></ul></div>
+      <div class="sep"></div>
+      <div class="g2">
+        <ul class="good">
+          <li data-i18n="s7_l1">Binance, Bybit, OKX, MEXC supported</li>
+          <li data-i18n="s7_l2">Telegram alerts with entry/exit details</li>
+          <li data-i18n="s7_l3">Dashboard with live P&amp;L tracking</li>
+        </ul>
+        <ul class="good">
+          <li data-i18n="s7_l4">One-click enable/disable any pair</li>
+          <li data-i18n="s7_l5">Full trade log and performance stats</li>
+          <li data-i18n="s7_l6">Priority support via private channel</li>
+        </ul>
       </div>
-    </section>
+    </div>
+  </div>
+</section>
 
-    <section class="slide s8" data-slide="7">
-      <div class="ey reveal" data-i18n="s8_ey"></div>
-      <div class="panel reveal cm-cta" style="margin:auto;width:min(860px,100%);background:var(--panel-2)">
-        <h2><span data-i18n="s8_t1"></span> <span class="grad" data-i18n="s8_t2"></span></h2>
-        <p class="lead" data-i18n="s8_sub"></p>
-        <div class="tags"><span class="tag tc" data-i18n="s8_tag1"></span><span class="tag te" data-i18n="s8_tag2"></span><span class="tag ti" data-i18n="s8_tag3"></span></div>
-        <div class="cm-cta-actions" style="display:flex;gap:.42rem;flex-wrap:wrap">
-          <button class="btn bp" onclick="window.location.href='https://cryptomentor.id'" data-i18n="s8_cta"></button>
-          <button class="btn bg" onclick="window.location.href='/intro.html'" data-i18n="s8_back"></button>
-        </div>
-        <p class="disc" data-i18n="s8_disc"></p>
+<!-- ══════════════════════════════════════════════ -->
+<!-- SLIDE 8 — CTA -->
+<!-- ══════════════════════════════════════════════ -->
+<section data-sl="7">
+  <div style="display:flex;align-items:center;justify-content:center;flex:1">
+    <div class="panel" style="max-width:620px;width:100%;text-align:center;align-items:center;gap:.7rem" data-a="sc">
+      <span class="ey" style="align-self:center" data-i18n="s8_ey">YOUR EDGE AWAITS</span>
+      <h2><span data-i18n="s8_t1">Ready to Trade Like</span> <span class="grad" data-i18n="s8_t2">a Machine?</span></h2>
+      <p class="lead" style="max-width:440px" data-i18n="s8_sub">Join traders who've stopped guessing and started executing. CryptoMentor AI is your unfair advantage in a 24/7 market.</p>
+      <div class="tags" style="justify-content:center">
+        <span class="tag te" data-i18n="s8_c1">Free Trial Available</span>
+        <span class="tag tv" data-i18n="s8_c2">No Credit Card</span>
+        <span class="tag tc" data-i18n="s8_c3">Cancel Anytime</span>
       </div>
-    </section>
-  </main>
-
-</div>
-
-<style>
-.cm-hero-main h1{max-width:12ch}
-.cm-hero .panel{height:100%}
-.cm-chip-row{display:flex;gap:.35rem;flex-wrap:wrap}
-.cm-hero-actions{margin-top:.18rem}
-.cm-hero-cta{padding:.62rem .98rem;box-shadow:0 0 30px rgba(166,255,77,.36)}
-.cm-hero-cta:hover{transform:translateY(-1px);box-shadow:0 0 36px rgba(166,255,77,.52)}
-
-.regimes{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
-.reg{border:1px solid var(--border);border-radius:16px;padding:.6rem;background:rgba(255,255,255,.03);transition:border-color .25s var(--ease),transform .25s var(--ease)}
-.reg.active{border-color:rgba(34,211,238,.52);background:rgba(34,211,238,.1);transform:translateY(-2px)}
-.rt{display:flex;justify-content:space-between;align-items:center;font-size:.76rem;font-weight:800}
-.st{font-size:.58rem;padding:.12rem .35rem;border-radius:999px;border:1px solid rgba(34,211,238,.45);color:var(--cyan);text-transform:uppercase}
-.rd{font-size:.7rem;color:var(--muted);line-height:1.4;margin-top:.2rem}
-
-.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:.42rem;position:relative}
-.step{border:1px solid rgba(245,247,250,.14);border-radius:15px;background:rgba(255,255,255,.03);padding:.54rem;position:relative}
-.step:not(:last-child)::after{content:"";position:absolute;top:19px;right:-8px;width:16px;height:1px;background:rgba(34,211,238,.35)}
-.n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.66rem;font-weight:900;color:#071118;background:linear-gradient(135deg,var(--cyan),var(--emerald));margin-bottom:.2rem;box-shadow:0 0 0 3px rgba(34,211,238,.2)}
-.step-k{display:block;font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent-2);margin-bottom:.12rem}
-.step p{font-size:.66rem;line-height:1.35;color:var(--muted)}
-
-.meter{margin-bottom:.34rem}
-.mh{display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:.24rem}
-.mh span:last-child{color:var(--muted)}
-.mt{height:8px;border-radius:999px;background:rgba(245,247,250,.14);overflow:hidden}
-.mf{height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .95s var(--ease)}
-
-.signals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.46rem}
-.cm-signal-card{display:flex;flex-direction:column;gap:.32rem;border:1px solid rgba(245,247,250,.14);border-radius:14px;padding:.55rem;background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.02));transition:transform .25s var(--ease),box-shadow .25s var(--ease),border-color .25s var(--ease)}
-.cm-signal-card:hover{transform:translateY(-2px);border-color:rgba(34,211,238,.42);box-shadow:0 0 22px rgba(34,211,238,.18)}
-.cm-signal-card.ready{animation:readyPulse 2.8s ease-in-out infinite}
-@keyframes readyPulse{0%,100%{box-shadow:0 0 0 rgba(34,211,238,0)}50%{box-shadow:0 0 22px rgba(34,211,238,.22)}}
-.row-top,.row-mid{display:flex;justify-content:space-between;gap:.36rem;align-items:center}
-.pair{font-size:.76rem;font-weight:800}
-.price{font-size:.68rem;color:var(--muted)}
-.conf{font-size:1.2rem;font-weight:900;line-height:1;color:var(--text)}
-.cm-meter .track{height:7px}
-.row-note{font-size:.62rem;color:var(--dim);line-height:1.38}
-.b{font-size:.58rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;padding:.14rem .4rem;border-radius:999px}
-.bl{color:#071118;border:1px solid rgba(52,211,153,.72);background:linear-gradient(135deg,var(--emerald),#7bf4bf)}
-.bw{color:var(--accent-2);border:1px solid rgba(61,217,255,.34);background:rgba(61,217,255,.12)}
-.bh{color:var(--amber);border:1px solid rgba(251,191,36,.34);background:rgba(251,191,36,.12)}
-.bs{color:var(--rose);border:1px solid rgba(251,113,133,.34);background:rgba(251,113,133,.1)}
-.live{font-size:.67rem;color:var(--muted);display:inline-flex;align-items:center;gap:.3rem}
-.live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);animation:blink 1.3s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-
-.cm-engine-status{margin-top:.06rem;background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.02))}
-.cm-engine-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-.cm-engine-list{display:grid;gap:.2rem}
-.cm-engine-row{display:grid;grid-template-columns:auto 34px 1fr;align-items:center;gap:.44rem;padding:.36rem .18rem;border-bottom:1px solid rgba(245,247,250,.1);font-size:.72rem}
-.cm-engine-row:last-child{border-bottom:none}
-.cm-engine-row .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 9px rgba(34,211,238,.62)}
-
-.counters{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
-.cm-metric-bar .card{background:rgba(255,255,255,.04);border-color:rgba(245,247,250,.14)}
-.cn{font-size:clamp(1.22rem,2.2vw,1.95rem);font-weight:900;line-height:1;color:var(--cyan)}
-
-.cm-mini-ey{font-size:.56rem;padding:.2rem .58rem;opacity:.86}
-.bars{display:flex;flex-direction:column;gap:.44rem}
-.bar{display:grid;grid-template-columns:56px 1fr auto;gap:.42rem;align-items:center}
-.lbl{font-size:.64rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-.track{height:20px;border-radius:10px;background:rgba(245,247,250,.14);overflow:hidden;border:1px solid rgba(245,247,250,.08)}
-.fill{height:100%;width:0;border-radius:10px;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width 1.1s var(--ease)}
-.val{font-size:.7rem;font-weight:800;padding:.14rem .42rem;border:1px solid rgba(34,211,238,.3);border-radius:999px;color:var(--text);background:rgba(34,211,238,.08)}
-.cm-growth-path .bar{position:relative}
-.cm-growth-path .bar:not(:last-child)::after{content:"";position:absolute;left:72px;right:0;bottom:-6px;height:1px;background:linear-gradient(90deg,rgba(34,211,238,.34),transparent)}
-
-.phases{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
-.phase{border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.03);padding:.68rem;transition:transform .22s var(--ease)}
-.phase:hover{transform:translateY(-2px)}
-.pb{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:.75rem;font-weight:900;color:#071118;margin-bottom:.3rem;box-shadow:0 0 0 3px rgba(34,211,238,.16)}
-.p1{background:linear-gradient(135deg,var(--cyan),var(--emerald))}
-.p2{background:linear-gradient(135deg,var(--emerald),var(--indigo))}
-.p3{background:linear-gradient(135deg,var(--cyan),var(--amber))}
-.pt{font-size:.8rem;font-weight:900}
-.pd{font-size:.7rem;color:var(--muted);line-height:1.4;margin-top:.18rem}
-
-.cm-cta{text-align:center;gap:.78rem;padding:1.1rem 1rem}
-.cm-cta .lead{margin:0 auto;max-width:62ch}
-.cm-cta-actions{justify-content:center}
-.cm-cta .bp{position:relative;overflow:hidden}
-.cm-cta .bp::after{content:"";position:absolute;top:0;bottom:0;left:-24%;width:20%;background:linear-gradient(120deg,transparent,rgba(255,255,255,.34),transparent);transform:skewX(-20deg);animation:ctaSweep 2.8s linear infinite}
-@keyframes ctaSweep{to{left:120%}}
-
-.btn{border:none;border-radius:13px;padding:.52rem .95rem;font-size:.76rem;font-weight:900;cursor:pointer;transition:transform .18s var(--ease),box-shadow .18s var(--ease)}
-.btn:hover{transform:translateY(-1px)}
-.bp{background:linear-gradient(135deg,var(--cyan),var(--emerald));color:#071118;box-shadow:0 0 22px rgba(34,211,238,.28)}
-.bg{background:rgba(255,255,255,.04);color:var(--text);border:1px solid rgba(245,247,250,.2)}
-.disc{font-size:.66rem;color:var(--dim);line-height:1.46}
-
-#scrollProgress{
-  position:fixed;
-  top:0;
-  left:0;
-  width:0%;
-  height:3px;
-  background:linear-gradient(90deg,var(--cyan),var(--emerald));
-  z-index:90;
-  transition:width .12s linear;
-}
-.scroll-dots{
-  position:fixed;
-  right:calc(.9rem + var(--safe-right));
-  top:50%;
-  transform:translateY(-50%);
-  z-index:55;
-  display:flex;
-  flex-direction:column;
-  gap:.4rem;
-}
-.scroll-dot{
-  width:10px;
-  height:10px;
-  border-radius:999px;
-  border:1px solid rgba(34,211,238,.35);
-  background:rgba(8,14,28,.7);
-  cursor:pointer;
-  transition:all .2s var(--ease);
-}
-.scroll-dot.is-active{
-  background:linear-gradient(135deg,var(--cyan),var(--emerald));
-  transform:scale(1.18);
-  box-shadow:0 0 12px rgba(34,211,238,.45);
-}
-
-button:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
-
-@media(max-width:1000px){
-  .grid2,.grid2.eq,.regimes,.steps,.cards,.counters,.phases,.signals{grid-template-columns:1fr}
-  .step:not(:last-child)::after{display:none}
-  body{scroll-snap-type:y proximity}
-}
-@media(max-width:640px){
-  .shell{
-    padding:
-      calc(.46rem + var(--safe-top))
-      calc(.55rem + var(--safe-right))
-      calc(.62rem + var(--safe-bottom))
-      calc(.55rem + var(--safe-left));
-  }
-  .topbar{
-    top:calc(.22rem + var(--safe-top));
-    margin-bottom:.58rem;
-    padding:.48rem .62rem;
-  }
-  .brand{font-size:.88rem}
-  #counter{min-width:62px;font-size:.73rem}
-  .slide{
-    padding:.72rem;
-    border-radius:18px;
-    min-height:calc(100svh - var(--topbar-h) - 1.1rem - var(--safe-bottom));
-    min-height:calc((var(--vh, 1vh) * 100) - var(--topbar-h) - 1.1rem - var(--safe-bottom));
-  }
-  .lead{font-size:.78rem}
-  .scroll-dots{
-    left:50%;
-    right:auto;
-    top:auto;
-    bottom:calc(.48rem + var(--safe-bottom));
-    transform:translateX(-50%);
-    flex-direction:row;
-    gap:.34rem;
-    background:rgba(4,6,15,.66);
-    border:1px solid var(--border);
-    border-radius:999px;
-    padding:.3rem .4rem;
-    backdrop-filter:blur(14px);
-  }
-  .scroll-dot{width:9px;height:9px}
-  #scrollProgress{height:2px}
-}
-@media(max-width:420px){
-  .lang button{
-    padding:.34rem .56rem;
-    font-size:.69rem;
-  }
-  h1{font-size:clamp(1.85rem,11vw,2.45rem);line-height:.98}
-  h2{font-size:clamp(1.1rem,6.6vw,1.5rem)}
-}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-</style>
+      <div class="sep" style="width:100%"></div>
+      <div style="display:flex;gap:.55rem;flex-wrap:wrap;justify-content:center">
+        <button class="btn bp" onclick="window.open('https://cryptomentor.id','_blank')" data-i18n="s8_cta1">Start Free Trial →</button>
+      </div>
+      <div class="disc" style="max-width:420px" data-i18n="s8_disc">CryptoMentor AI is an algorithmic trading assistant. Past results do not guarantee future performance. Crypto trading involves substantial risk of loss. Only trade with capital you can afford to lose.</div>
+    </div>
+  </div>
+</section>
 
 <script>
-const T={
-en:{
-  c_active:"active",c_standby:"standby",c_hint:"Story mode: controlled autoplay is on",c_intro:"Intro",c_prev:"Prev",c_next:"Next ->",c_done:"Done",c_long:"Long",c_watch:"WATCH",c_hold:"HOLD",c_short:"Short",c_ready:"READY",c_building:"BUILDING",c_play:"Play",c_pause:"Pause",
-  s1_ey:"AUTOMATED TRADING SYSTEM",s1_t1:"Trade Smarter.",s1_t2:"Scale Faster.",s1_sub:"Plug into a live AI execution engine built to scan, filter, and act without emotional trading noise.",
-  s1_chip1:"ACTIVE",s1_chip2:"LIVE SCANNING",s1_chip3:"MULTI-PAIR MONITORING",s1_cta:"Activate the Engine",
-  s1_v1:"24/7",s1_l1:"Engine uptime and market routing",s1_v2:"AI CORE",s1_l2:"Adaptive trend-range-volatility logic",s1_v3:"Risk-First",s1_l3:"Position sizing locked before entry",s1_v4:"Top-10",s1_l4:"Volume-priority pair universe",
-  s1_tag1:"Emotion out",s1_tag2:"Execution in",s1_tag3:"System-led decisions",s1_h3:"Operator mindset",s1_h3sub:"This is not a dashboard. This is a machine you activate.",s1_q1:"Stop staring at charts. Start running a system.",s1_q1s:"CryptoMentor AI",s1_q2:"The bot waits. The bot strikes.",s1_q2s:"Execution doctrine",
-  s2_ey:"Behavior Gap",s2_t1:"Most losses come from execution,",s2_t2:"not chart access.",s2_hl:"Manual patterns that drain equity",s2_b1:"Late entries from impulse chasing",s2_b2:"Leverage spikes after short win streaks",s2_b3:"No fixed invalidation before entry",s2_b4:"Revenge bias after stop-outs",
-  s2_hr:"Typical damage",s2_i1v:"-34%",s2_i1l:"Emotional drawdown pocket",s2_i2v:"3x",s2_i2l:"Variance from inconsistent sizing",s2_i3v:"0 plan",s2_i3l:"No repeatable process",s2_sub:"When behavior is unstable, edge collapses.",
-  s3_ey:"System Routing",s3_t1:"One engine.",s3_t2:"Three live modes.",s3_sub:"CryptoMentor AI rotates behavior by regime so execution stays aligned with market structure.",
-  s3_r1t:"Trend Follow",s3_r1d:"Expand scans and prioritize continuation.",s3_r2t:"Range Defense",s3_r2d:"Tighter invalidation and lighter exposure.",s3_r3t:"Volatility Guard",s3_r3d:"Step down risk during velocity spikes.",
-  s3_k1:"Connect",s3_k2:"Configure",s3_k3:"Activate",s3_k4:"Scale",
-  s3_s1:"Detect regime from structure + volatility",s3_s2:"Route to mode-specific execution logic",s3_s3:"Size positions inside strict guardrails",s3_s4:"Re-check state and rotate safely",
-  s4_ey:"Signal Engine",s4_t1:"The system scans,",s4_t2:"then strikes with discipline.",s4_hl:"Quality gates",s4_m1l:"Confluence quality",s4_m1v:"91 / 100",s4_m2l:"Structure alignment",s4_m2v:"84 / 100",s4_m3l:"Reward-risk parity",s4_m3v:"78 / 100",
-  s4_g1:"No confluence, no trade.",s4_g2:"Risk lock before execution.",s4_g3:"Entry and close reasoning are logged.",s4_hr:"Live confidence board",
-  s4_p1:"Market structure signal",s4_p2:"Setup confidence",s4_p3:"Execution readiness",s4_p4:"Market structure signal",
-  s4_n1:"High-conviction setup forming",s4_n2:"Monitoring momentum confirmation",s4_n3:"Waiting for cleaner structure",s4_n4:"Near-trigger conditions detected",
-  s4_live:"Confidence cards refresh with live market flow",
-  s4_engine_t:"WHAT THE ENGINE IS WATCHING",s4_engine_status:"SYSTEM STATUS: ACTIVE",s4_chip1:"LIVE SCANNING",s4_chip2:"RISK FILTER ON",s4_chip3:"MULTI-PAIR MODE",
-  s4_e1:"Waiting for liquidity sweep confirmation",s4_e2:"Monitoring momentum setup",s4_e3:"No valid entry yet",s4_e4:"Structure shift under review",
-  s5_ey:"Risk Framework",s5_t1:"Aggressive upside needs",s5_t2:"hard downside control.",s5_hl:"Risk posture",s5_m1l:"Risk per trade",s5_m1v:"1.10% equity",s5_m2l:"Open exposure cap",s5_m2v:"3.40% portfolio",s5_m3l:"Protection confidence",s5_m3v:"High",
-  s5_disc:"No strategy removes risk. The objective is bounded, transparent, survivable loss behavior.",s5_hr:"Safety rails",s5_g1:"SL/TP validation preserves pre-sized risk.",s5_g2:"Correlated exposure is monitored.",s5_g3:"Protection mode reduces aggression in stress windows.",s5_g4:"Overlay changes sizing only, never quality gates.",s5_tag1:"Bounded loss",s5_tag2:"Capital survivability",s5_tag3:"No forced overtrade",
-  s6_ey:"Performance Frame",s6_t1:"Let the system hunt",s6_t2:"the setup.",s6_hl:"Live tactical metrics",s6_c1:"Consistency window",s6_c2:"Equity multiplier",s6_c3:"Panic-exit reduction",
-  s6_disc:"Community illustration, not guaranteed return. Outcomes vary by market, behavior, and risk settings.",
-  s6_path_ey:"SCENARIO PATH",s6_hr:"See How a System Can Scale",s6_path_sub:"Example modeled progression for illustration only. Not a guaranteed return.",s6_b0:"Start",s6_b1:"Stage 1",s6_b2:"Stage 2",s6_b3:"Stage 3",s6_path_disc:"Illustrative example only. Actual results vary and are not guaranteed.",
-  s7_ey:"Activation Path",s7_t1:"From manual chaos to",s7_t2:"systemized execution.",s7_p1t:"Connect",s7_p1d:"Link your account and sync trading environment.",s7_p2t:"Configure",s7_p2d:"Set mode, risk preferences, and behavior.",s7_p3t:"Activate",s7_p3d:"Let the engine monitor, filter, and execute.",
-  s7_hl:"Week 1 focus",s7_l1:"Connect exchange and verify safeguards.",s7_l2:"Set conservative risk and daily limits.",s7_l3:"Observe signal reasoning before scaling.",s7_hr:"Week 2-4 focus",s7_r1:"Run live with strict process logging.",s7_r2:"Review expectancy and drawdown every week.",s7_r3:"Scale only when data confirms durable edge.",
-  s8_ey:"SYSTEM READY",s8_t1:"Stop Watching the Market.",s8_t2:"Start Running the Engine.",s8_sub:"Join the onboarding flow and connect to CryptoMentor AI with a system built for disciplined execution.",s8_tag1:"AI-guided logic",s8_tag2:"Risk-anchored growth",s8_tag3:"Execution transparency",s8_cta:"Activate CryptoMentor AI",s8_back:"View How It Works",s8_disc:"Educational content only. Not investment advice. Trade with risk capital."
-},
-id:{
-  c_active:"aktif",c_standby:"siaga",c_hint:"Mode cerita: autoplay terkontrol aktif",c_intro:"Intro",c_prev:"Sebelum",c_next:"Lanjut ->",c_done:"Selesai",c_long:"Long",c_watch:"PANTAU",c_hold:"TAHAN",c_short:"Short",c_ready:"SIAP",c_building:"MEMBENTUK",c_play:"Putar",c_pause:"Jeda",
-  s1_ey:"AUTOMATED TRADING SYSTEM",s1_t1:"Trade Smarter.",s1_t2:"Scale Faster.",s1_sub:"Masuk ke engine eksekusi AI live yang memindai, memfilter, dan bertindak tanpa noise emosi trading.",
-  s1_chip1:"AKTIF",s1_chip2:"LIVE SCANNING",s1_chip3:"MULTI-PAIR MONITORING",s1_cta:"Aktifkan Engine",
-  s1_v1:"24/7",s1_l1:"Uptime engine dan routing pasar",s1_v2:"AI CORE",s1_l2:"Logika adaptif trend-range-volatilitas",s1_v3:"Risk-First",s1_l3:"Ukuran posisi dikunci sebelum entry",s1_v4:"Top-10",s1_l4:"Universe pair prioritas volume",
-  s1_tag1:"Emosi keluar",s1_tag2:"Eksekusi masuk",s1_tag3:"Keputusan berbasis sistem",s1_h3:"Mindset operator",s1_h3sub:"Ini bukan dashboard. Ini mesin yang kamu aktifkan.",s1_q1:"Stop lihat chart terus. Mulai jalankan sistem.",s1_q1s:"CryptoMentor AI",s1_q2:"Bot menunggu. Bot mengeksekusi.",s1_q2s:"Doktrin eksekusi",
-  s2_ey:"Behavior Gap",s2_t1:"Kerugian terbesar datang dari eksekusi,",s2_t2:"bukan akses chart.",s2_hl:"Pola manual yang menggerus ekuitas",s2_b1:"Entry telat karena mengejar impuls",s2_b2:"Leverage melonjak setelah streak menang singkat",s2_b3:"Tanpa invalidasi tetap sebelum entry",s2_b4:"Bias balas dendam setelah stop-out",
-  s2_hr:"Kerusakan umum",s2_i1v:"-34%",s2_i1l:"Zona drawdown emosional",s2_i2v:"3x",s2_i2l:"Variansi dari sizing tidak konsisten",s2_i3v:"0 rencana",s2_i3l:"Tanpa proses berulang",s2_sub:"Saat perilaku tidak stabil, edge akan runtuh.",
-  s3_ey:"System Routing",s3_t1:"Satu engine.",s3_t2:"Tiga mode live.",s3_sub:"CryptoMentor AI memutar perilaku sesuai rezim agar eksekusi tetap sejalan dengan struktur pasar.",
-  s3_r1t:"Trend Follow",s3_r1d:"Perluas scan dan prioritaskan lanjutan.",s3_r2t:"Range Defense",s3_r2d:"Invalidasi lebih ketat dan eksposur lebih ringan.",s3_r3t:"Volatility Guard",s3_r3d:"Turunkan risiko saat kecepatan naik tajam.",
-  s3_k1:"Connect",s3_k2:"Configure",s3_k3:"Activate",s3_k4:"Scale",
-  s3_s1:"Deteksi rezim dari struktur + volatilitas",s3_s2:"Rutekan ke logika eksekusi per mode",s3_s3:"Sizing posisi dalam guardrail ketat",s3_s4:"Re-check kondisi dan rotasi aman",
-  s4_ey:"Signal Engine",s4_t1:"Sistem memindai,",s4_t2:"lalu mengeksekusi disiplin.",s4_hl:"Quality gates",s4_m1l:"Kualitas konfluensi",s4_m1v:"91 / 100",s4_m2l:"Kesesuaian struktur",s4_m2v:"84 / 100",s4_m3l:"Paritas reward-risk",s4_m3v:"78 / 100",
-  s4_g1:"Tanpa konfluensi, tanpa trade.",s4_g2:"Risiko dikunci sebelum eksekusi.",s4_g3:"Alasan entry dan close tercatat.",s4_hr:"Papan confidence live",
-  s4_p1:"Sinyal struktur pasar",s4_p2:"Kepercayaan setup",s4_p3:"Kesiapan eksekusi",s4_p4:"Sinyal struktur pasar",
-  s4_n1:"Setup berkeyakinan tinggi sedang terbentuk",s4_n2:"Memantau konfirmasi momentum",s4_n3:"Menunggu struktur lebih bersih",s4_n4:"Kondisi hampir trigger terdeteksi",
-  s4_live:"Kartu confidence diperbarui mengikuti aliran pasar",
-  s4_engine_t:"WHAT THE ENGINE IS WATCHING",s4_engine_status:"SYSTEM STATUS: ACTIVE",s4_chip1:"LIVE SCANNING",s4_chip2:"RISK FILTER ON",s4_chip3:"MULTI-PAIR MODE",
-  s4_e1:"Menunggu konfirmasi liquidity sweep",s4_e2:"Memantau setup momentum",s4_e3:"Belum ada entry valid",s4_e4:"Structure shift sedang ditinjau",
-  s5_ey:"Kerangka Risiko",s5_t1:"Upside agresif butuh",s5_t2:"kontrol downside yang keras.",s5_hl:"Posisi risiko",s5_m1l:"Risiko per trade",s5_m1v:"1.10% ekuitas",s5_m2l:"Batas eksposur terbuka",s5_m2v:"3.40% portofolio",s5_m3l:"Keyakinan proteksi",s5_m3v:"Tinggi",
-  s5_disc:"Tidak ada strategi tanpa risiko. Tujuan utamanya pola rugi yang terbatas, transparan, dan bisa bertahan.",s5_hr:"Safety rails",s5_g1:"Validasi SL/TP menjaga risiko dari sizing awal.",s5_g2:"Eksposur berkorelasi dipantau.",s5_g3:"Mode proteksi menurunkan agresivitas saat pasar stres.",s5_g4:"Overlay hanya ubah sizing, bukan quality gate.",s5_tag1:"Rugi terbatas",s5_tag2:"Ketahanan modal",s5_tag3:"Tanpa overtrade paksa",
-  s6_ey:"Performance Frame",s6_t1:"Biarkan sistem berburu",s6_t2:"setup terbaik.",s6_hl:"Metrik taktis live",s6_c1:"Jendela konsistensi",s6_c2:"Multiplier ekuitas",s6_c3:"Pengurangan panic-exit",
-  s6_disc:"Ilustrasi komunitas, bukan jaminan hasil. Outcome tergantung pasar, perilaku, dan setelan risiko.",
-  s6_path_ey:"SCENARIO PATH",s6_hr:"Lihat Bagaimana Sistem Bisa Scale",s6_path_sub:"Contoh progresi model untuk ilustrasi. Bukan jaminan return.",s6_b0:"Start",s6_b1:"Stage 1",s6_b2:"Stage 2",s6_b3:"Stage 3",s6_path_disc:"Contoh ilustratif saja. Hasil aktual bervariasi dan tidak dijamin.",
-  s7_ey:"Activation Path",s7_t1:"Dari chaos manual ke",s7_t2:"eksekusi sistematis.",s7_p1t:"Connect",s7_p1d:"Hubungkan akun dan sinkronkan environment trading.",s7_p2t:"Configure",s7_p2d:"Atur mode, risiko, dan perilaku eksekusi.",s7_p3t:"Activate",s7_p3d:"Biarkan engine memantau, memfilter, dan mengeksekusi.",
-  s7_hl:"Fokus minggu 1",s7_l1:"Hubungkan exchange dan verifikasi safeguard.",s7_l2:"Atur risiko konservatif dan limit harian.",s7_l3:"Pantau reasoning sinyal sebelum scale.",s7_hr:"Fokus minggu 2-4",s7_r1:"Jalankan live dengan logging proses ketat.",s7_r2:"Review expectancy dan drawdown mingguan.",s7_r3:"Scale hanya saat data mengonfirmasi edge.",
-  s8_ey:"SYSTEM READY",s8_t1:"Stop Watching the Market.",s8_t2:"Start Running the Engine.",s8_sub:"Masuk ke onboarding flow dan terhubung ke CryptoMentor AI dengan sistem untuk eksekusi disiplin.",s8_tag1:"Logika berbasis AI",s8_tag2:"Pertumbuhan berjangkar risiko",s8_tag3:"Eksekusi transparan",s8_cta:"Activate CryptoMentor AI",s8_back:"Lihat Cara Kerja",s8_disc:"Konten edukatif, bukan nasihat investasi. Trading hanya dengan modal risiko."
-}}
-
-const slides=[...document.querySelectorAll('.slide')]
-const counter=document.getElementById('counter')
-const dotsWrap=document.getElementById('scrollDots')
-const progressBar=document.getElementById('scrollProgress')
-const topbar=document.querySelector('.topbar')
-const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-let lang='en'
-let cur=0
-let regimeIdx=0
-let regimeTimer=null
-let sectionObserver=null
-let viewportRaf=0
-const seenAnimation=new Set()
-
-function applyLang(l){
-  lang=l
-  const d=T[l]
-  document.documentElement.lang=l
-  document.querySelectorAll('[data-i18n]').forEach(el=>{
-    const k=el.dataset.i18n
-    if(d[k]!==undefined) el.textContent=d[k]
-  })
-  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===l))
-}
-
-function updateCounter(){
-  counter.textContent=`${String(cur+1).padStart(2,'0')} / ${String(slides.length).padStart(2,'0')}`
-}
-
-function buildDots(){
-  dotsWrap.innerHTML=''
-  slides.forEach((_,i)=>{
-    const dot=document.createElement('button')
-    dot.type='button'
-    dot.className='scroll-dot'
-    dot.setAttribute('aria-label',`Go to section ${i+1}`)
-    dot.onclick=()=>slides[i].scrollIntoView({behavior:reduced?'auto':'smooth',block:'start'})
-    dotsWrap.appendChild(dot)
-  })
-}
-
-function setActiveDot(){
-  dotsWrap.querySelectorAll('.scroll-dot').forEach((dot,i)=>{
-    dot.classList.toggle('is-active',i===cur)
-  })
-}
-
-function updateProgress(){
-  const scroller=document.scrollingElement||document.documentElement
-  const viewportH=window.visualViewport?.height||window.innerHeight
-  const max=scroller.scrollHeight-viewportH
-  const y=window.scrollY||scroller.scrollTop||0
-  const pct=max>0?Math.min(100,Math.max(0,(y/max)*100)):0
-  progressBar.style.width=`${pct}%`
-}
-
-function syncViewportMetrics(){
-  const viewportH=window.visualViewport?.height||window.innerHeight
-  document.documentElement.style.setProperty('--vh',`${viewportH*0.01}px`)
-  if(topbar){
-    const h=Math.round(topbar.getBoundingClientRect().height)
-    if(h>0) document.documentElement.style.setProperty('--topbar-h',`${h}px`)
+/* ══════════════════════════════════════════════════════════
+   I18N DATA
+══════════════════════════════════════════════════════════ */
+const i18n = {
+  en: {
+    s1_ey:"AI Trading System", s1_t1:"Trade Smarter.", s1_t2:"Scale Faster.",
+    s1_sub:"Institutional-grade signal intelligence with automated execution. Built for real markets, real volatility, real results.",
+    s1_chip1:"⚡ ACTIVE", s1_chip2:"◉ LIVE SCANNING", s1_chip3:"◈ MULTI-PAIR",
+    s1_v1:"Always On", s1_v2:"AI Core", s1_v3:"Risk-First", s1_v4:"Top-10 Pairs",
+    s1_cta:"Get Started Free →", s1_live:"LIVE",
+    s1_rr:"R:R Ratio", s1_conf:"Confidence", s1_sz:"Position Size", s1_mode:"TREND",
+    s1_sigconf:"Signal Confidence",
+    s1_log1:"Signal validated — BTC/USDT LONG",
+    s1_log2:"SMC structure confirmed bullish",
+    s1_log3:"Risk filter passed — entering",
+    s1_l1:"ACTIVE",
+    il1_w1:"YOUR", il1_w2:"EDGE.", il1_w3:"EXECUTED.",
+    il1_sub:"Every signal. Every trade. Every time — without emotion.",
+    s2_ey:"The Problem", s2_t1:"Why Most Traders", s2_t2:"Lose Money",
+    s2_sub:"The market doesn't beat you — your psychology does. Emotional decisions destroy accounts.",
+    s2_bh:"Emotional Trading Patterns",
+    s2_b1:"FOMO entries at market peaks without confirmation",
+    s2_b2:"Revenge trading after losses, doubling down blindly",
+    s2_b3:"Moving stop-losses because 'it will bounce'",
+    s2_b4:"Exiting winners too early out of fear",
+    s2_quote:"\u201cThe market is a device for transferring money from the impatient to the patient.\u201d",
+    s2_lead:"Retail traders lose an average of 67% of their capital within the first year. Not because the market is unfair — because their system is broken.",
+    s2_d1:"of retail traders blow accounts in year 1",
+    s2_d2:"more likely to hold losers than cut them",
+    s2_d3:"average net return for discretionary traders vs system traders",
+    il2_w1:"STOP", il2_w2:"TRADING", il2_w3:"EMOTIONS.",
+    il2_sub:"Your feelings are the enemy. Your system is the edge.",
+    s3_ey:"Adaptive Engine", s3_t1:"Three Regimes.", s3_t2:"One System.",
+    s3_sub:"The engine reads market conditions in real time and deploys the correct strategy — no manual switching required.",
+    s3_r1t:"Trend Follow", s3_r1d:"Ride strong directional momentum. Multi-confirmation breakouts with trailing TP management.", s3_r1s:"ACTIVE CYCLE",
+    s3_r2t:"Range Defense", s3_r2d:"Fade extremes in consolidating markets. Precision entries at tested S/R zones.", s3_r2s:"MONITORING",
+    s3_r3t:"Volatility Guard", s3_r3d:"Capital protection during high-uncertainty events. Reduced sizing, tighter stops, selective entries.", s3_r3s:"STANDBY",
+    s3_flow:"Detection Flow", s3_f1:"Market Read", s3_f2:"Regime Classify", s3_f3:"Strategy Deploy", s3_f4:"Execute & Manage",
+    il3_w1:"ONE", il3_w2:"ENGINE.", il3_w3:"ZERO", il3_w4:"HESITATION.",
+    il3_sub:"The system adapts. You don't have to.",
+    s4_ey:"Signal Engine", s4_t1:"Only the Best", s4_t2:"Signals Fire",
+    s4_qg:"Quality Gates", s4_m1:"SMC Structure Score", s4_m2:"Volume Confirmation", s4_m3:"HTF Alignment",
+    s4_g1:"Multi-timeframe confluence required", s4_g2:"Order-block + FVG confirmation",
+    s4_g3:"Volume and momentum validation", s4_g4:"Minimum 2.5R reward-to-risk enforced",
+    s4_s1:"LONG · 3.2R · 91% conf", s4_s1s:"READY",
+    s4_s2:"LONG · 2.8R · 74% conf", s4_s2s:"WATCH",
+    s4_s3:"Building · 2.1R · 62% conf", s4_s3s:"BUILDING",
+    s4_s4:"LONG · 3.5R · 89% conf", s4_s4s:"READY",
+    s4_es:"Engine Status", s4_e1:"Pairs Watched", s4_e2:"Live Signals", s4_e3:"Uptime", s4_e4:"Latency",
+    il4_w1:"THE BOT", il4_w2:"WAITS.", il4_w3:"THE BOT", il4_w4:"STRIKES.",
+    il4_sub:"Patience is the edge. Execution is the weapon.",
+    s5_ey:"Risk System", s5_t1:"Survive First.", s5_t2:"Profit Always.",
+    s5_m1:"Daily Loss Limit", s5_m2:"Per Trade Risk", s5_m3:"Max Drawdown Guard",
+    s5_disc:"All parameters are configurable. Default settings are calibrated for capital preservation over aggressive growth. Crypto trading carries significant risk of capital loss.",
+    s5_sh:"Safety Rails",
+    s5_s1:"Hard daily loss limit — bot pauses automatically",
+    s5_s2:"Break-even moves triggered at 1R profit",
+    s5_s3:"Drawdown circuit breaker at configurable threshold",
+    s5_s4:"Position sizing scales with account equity",
+    s5_s5:"Correlated pair exposure limits enforced",
+    s5_s6:"News event blackout windows supported",
+    s5_tag1:"CAPITAL PROTECTED", s5_tag2:"RULE-BASED", s5_tag3:"AUDITABLE",
+    il5_w1:"SURVIVE", il5_w2:"FIRST.", il5_w3:"SCALE", il5_w4:"FOREVER.",
+    il5_sub:"Capital protection is not a feature. It is the foundation.",
+    s6_ey:"Performance", s6_t1:"Numbers That", s6_t2:"Don't Lie",
+    s6_v1:"Signal Win Rate (backtested, 18 months)",
+    s6_v2:"Average Monthly Return vs Benchmark",
+    s6_v3:"Max Drawdown Reduction vs Manual Trading",
+    s6_disc:"Past performance is not indicative of future results. Backtest data subject to market conditions and configuration.",
+    s6_gh:"$1,000 Growth Simulation (6 months)",
+    s6_g1:"Month 1", s6_g2:"Month 2", s6_g3:"Month 3",
+    s6_g4:"Month 4", s6_g5:"Month 5", s6_g6:"Month 6",
+    s6_start:"Starting: $1,000", s6_end:"+167% Return",
+    s7_ey:"Get Started", s7_t1:"Three Phases to", s7_t2:"Full Activation",
+    s7_sub:"From zero to live trading in under 24 hours. No coding required.",
+    s7_p1n:"Phase 01", s7_p1t:"Connect & Configure",
+    s7_p1d:"Link your exchange API (read + trade permissions), set risk parameters, choose target pairs. Takes about 15 minutes.",
+    s7_p2n:"Phase 02", s7_p2t:"Paper Trade & Validate",
+    s7_p2d:"Run the engine in simulation mode for 3–7 days. Review signal quality, adjust confidence thresholds to your preference.",
+    s7_p3n:"Phase 03", s7_p3t:"Go Live & Scale",
+    s7_p3d:"Activate live execution. Start with minimum sizing. Scale position size as you gain confidence in real P&L.",
+    s7_l1:"Binance, Bybit, OKX, MEXC supported",
+    s7_l2:"Telegram alerts with entry/exit details",
+    s7_l3:"Dashboard with live P&L tracking",
+    s7_l4:"One-click enable/disable any pair",
+    s7_l5:"Full trade log and performance stats",
+    s7_l6:"Priority support via private channel",
+    s8_ey:"Your Edge Awaits", s8_t1:"Ready to Trade Like", s8_t2:"a Machine?",
+    s8_sub:"Join traders who've stopped guessing and started executing. CryptoMentor AI is your unfair advantage in a 24/7 market.",
+    s8_c1:"Free Trial Available", s8_c2:"No Credit Card", s8_c3:"Cancel Anytime",
+    s8_cta1:"Start Free Trial \u2192", s8_cta2:"Watch Live Demo",
+    s8_disc:"CryptoMentor AI is an algorithmic trading assistant. Past results do not guarantee future performance. Crypto trading involves substantial risk of loss. Only trade with capital you can afford to lose."
+  },
+  id: {
+    s1_ey:"Sistem Trading AI", s1_t1:"Trade Lebih Cerdas.", s1_t2:"Tumbuh Lebih Cepat.",
+    s1_sub:"Kecerdasan sinyal kelas institusional dengan eksekusi otomatis. Dirancang untuk pasar nyata, volatilitas nyata, hasil nyata.",
+    s1_chip1:"\u26A1 AKTIF", s1_chip2:"\u25C9 SCANNING LANGSUNG", s1_chip3:"\u25C8 MULTI-PAIR",
+    s1_v1:"Selalu Aktif", s1_v2:"AI Core", s1_v3:"Risk-First", s1_v4:"Top-10 Pair",
+    s1_cta:"Mulai Gratis \u2192", s1_live:"LIVE",
+    s1_rr:"R:R Rasio", s1_conf:"Keyakinan", s1_sz:"Ukuran Posisi", s1_mode:"TREN",
+    s1_sigconf:"Kepercayaan Sinyal",
+    s1_log1:"Sinyal divalidasi \u2014 BTC/USDT LONG",
+    s1_log2:"Struktur SMC konfirmasi bullish",
+    s1_log3:"Filter risiko lolos \u2014 masuk posisi",
+    s1_l1:"AKTIF",
+    il1_w1:"EDGE", il1_w2:"KAMU.", il1_w3:"DIEKSEKUSI.",
+    il1_sub:"Setiap sinyal. Setiap trade. Setiap saat — tanpa emosi.",
+    s2_ey:"Masalahnya", s2_t1:"Kenapa Trader", s2_t2:"Sering Rugi",
+    s2_sub:"Pasar tidak mengalahkanmu — psikologimu yang melakukannya. Keputusan emosional menghancurkan akun.",
+    s2_bh:"Pola Trading Emosional",
+    s2_b1:"Entry FOMO di puncak pasar tanpa konfirmasi",
+    s2_b2:"Revenge trading setelah rugi, menggandakan posisi sembarangan",
+    s2_b3:"Menggeser stop-loss karena 'pasti balik'",
+    s2_b4:"Keluar dari winner terlalu cepat karena takut",
+    s2_quote:"\u201cPasar adalah alat untuk memindahkan uang dari yang tidak sabar ke yang sabar.\u201d",
+    s2_lead:"Trader ritel kehilangan rata-rata 67% modal mereka dalam tahun pertama. Bukan karena pasar tidak adil \u2014 tapi karena sistem mereka rusak.",
+    s2_d1:"trader ritel meledak akunnya di tahun pertama",
+    s2_d2:"lebih mungkin menahan losers daripada memotongnya",
+    s2_d3:"return bersih rata-rata trader diskresioner vs trader sistem",
+    il2_w1:"BERHENTI", il2_w2:"TRADING", il2_w3:"EMOSI.",
+    il2_sub:"Perasaanmu adalah musuh. Sistemmu adalah keunggulan.",
+    s3_ey:"Mesin Adaptif", s3_t1:"Tiga Rezim.", s3_t2:"Satu Sistem.",
+    s3_sub:"Mesin membaca kondisi pasar secara real time dan menerapkan strategi yang tepat — tanpa perlu pergantian manual.",
+    s3_r1t:"Ikuti Tren", s3_r1d:"Ikuti momentum arah kuat. Breakout multi-konfirmasi dengan manajemen TP trailing.", s3_r1s:"SIKLUS AKTIF",
+    s3_r2t:"Pertahanan Range", s3_r2d:"Fade ekstrem di pasar konsolidasi. Entry presisi di zona S/R yang teruji.", s3_r2s:"MEMANTAU",
+    s3_r3t:"Penjaga Volatilitas", s3_r3d:"Perlindungan modal saat event ketidakpastian tinggi. Sizing dikurangi, stop lebih ketat.", s3_r3s:"STANDBY",
+    s3_flow:"Alur Deteksi", s3_f1:"Baca Pasar", s3_f2:"Klasifikasi Rezim", s3_f3:"Deploy Strategi", s3_f4:"Eksekusi & Kelola",
+    il3_w1:"SATU", il3_w2:"MESIN.", il3_w3:"NOL", il3_w4:"KERAGUAN.",
+    il3_sub:"Sistem beradaptasi. Kamu tidak perlu.",
+    s4_ey:"Mesin Sinyal", s4_t1:"Hanya Sinyal", s4_t2:"Terbaik yang Aktif",
+    s4_qg:"Gerbang Kualitas", s4_m1:"Skor Struktur SMC", s4_m2:"Konfirmasi Volume", s4_m3:"Keselarasan HTF",
+    s4_g1:"Diperlukan konfluensi multi-timeframe",
+    s4_g2:"Konfirmasi order-block + FVG",
+    s4_g3:"Validasi volume dan momentum",
+    s4_g4:"Minimum reward-to-risk 2.5R diterapkan",
+    s4_s1:"LONG \u00B7 3.2R \u00B7 91% conf", s4_s1s:"SIAP",
+    s4_s2:"LONG \u00B7 2.8R \u00B7 74% conf", s4_s2s:"PANTAU",
+    s4_s3:"Membangun \u00B7 2.1R \u00B7 62% conf", s4_s3s:"MEMBANGUN",
+    s4_s4:"LONG \u00B7 3.5R \u00B7 89% conf", s4_s4s:"SIAP",
+    s4_es:"Status Mesin", s4_e1:"Pair Dipantau", s4_e2:"Sinyal Live", s4_e3:"Uptime", s4_e4:"Latensi",
+    il4_w1:"BOT", il4_w2:"MENUNGGU.", il4_w3:"BOT", il4_w4:"MENYERANG.",
+    il4_sub:"Kesabaran adalah keunggulan. Eksekusi adalah senjata.",
+    s5_ey:"Sistem Risiko", s5_t1:"Selamat Dulu.", s5_t2:"Profit Selalu.",
+    s5_m1:"Batas Kerugian Harian", s5_m2:"Risiko Per Trade", s5_m3:"Penjaga Drawdown Maks",
+    s5_disc:"Semua parameter dapat dikonfigurasi. Pengaturan default dikalibrasi untuk preservasi modal, bukan pertumbuhan agresif. Trading kripto memiliki risiko kerugian modal yang signifikan.",
+    s5_sh:"Pembatas Keamanan",
+    s5_s1:"Batas kerugian harian keras — bot berhenti otomatis",
+    s5_s2:"Break-even dipicu saat profit 1R",
+    s5_s3:"Circuit breaker drawdown pada ambang yang dapat dikonfigurasi",
+    s5_s4:"Ukuran posisi menyesuaikan ekuitas akun",
+    s5_s5:"Batas eksposur pair berkorelasi diterapkan",
+    s5_s6:"Jendela blackout event berita didukung",
+    s5_tag1:"MODAL DILINDUNGI", s5_tag2:"BERBASIS ATURAN", s5_tag3:"DAPAT DIAUDIT",
+    il5_w1:"SELAMAT", il5_w2:"DULU.", il5_w3:"SKALA", il5_w4:"SELAMANYA.",
+    il5_sub:"Perlindungan modal bukan fitur. Itu adalah fondasi.",
+    s6_ey:"Performa", s6_t1:"Angka yang", s6_t2:"Tak Berbohong",
+    s6_v1:"Win Rate Sinyal (backtest, 18 bulan)",
+    s6_v2:"Return Bulanan Rata-rata vs Benchmark",
+    s6_v3:"Pengurangan Drawdown Maks vs Trading Manual",
+    s6_disc:"Performa masa lalu bukan indikasi hasil di masa depan. Data backtest tunduk pada kondisi pasar dan konfigurasi.",
+    s6_gh:"Simulasi Pertumbuhan $1.000 (6 bulan)",
+    s6_g1:"Bulan 1", s6_g2:"Bulan 2", s6_g3:"Bulan 3",
+    s6_g4:"Bulan 4", s6_g5:"Bulan 5", s6_g6:"Bulan 6",
+    s6_start:"Modal Awal: $1.000", s6_end:"+167% Return",
+    s7_ey:"Mulai Sekarang", s7_t1:"Tiga Fase Menuju", s7_t2:"Aktivasi Penuh",
+    s7_sub:"Dari nol ke trading live dalam kurang dari 24 jam. Tidak perlu coding.",
+    s7_p1n:"Fase 01", s7_p1t:"Hubungkan & Konfigurasi",
+    s7_p1d:"Hubungkan API exchange (izin baca + trade), atur parameter risiko, pilih pair target. Sekitar 15 menit.",
+    s7_p2n:"Fase 02", s7_p2t:"Paper Trade & Validasi",
+    s7_p2d:"Jalankan mesin dalam mode simulasi selama 3\u20137 hari. Tinjau kualitas sinyal, sesuaikan ambang keyakinan.",
+    s7_p3n:"Fase 03", s7_p3t:"Go Live & Scale",
+    s7_p3d:"Aktifkan eksekusi live. Mulai dengan sizing minimum. Tingkatkan ukuran posisi seiring kepercayaan diri di P&L nyata.",
+    s7_l1:"Binance, Bybit, OKX, MEXC didukung",
+    s7_l2:"Alert Telegram dengan detail entry/exit",
+    s7_l3:"Dashboard dengan pelacakan P&L live",
+    s7_l4:"Aktifkan/nonaktifkan pair dengan satu klik",
+    s7_l5:"Log trade lengkap dan statistik performa",
+    s7_l6:"Dukungan prioritas via channel privat",
+    s8_ey:"Keunggulanmu Menanti", s8_t1:"Siap Trading Seperti", s8_t2:"Mesin?",
+    s8_sub:"Bergabunglah dengan trader yang berhenti menebak dan mulai mengeksekusi. CryptoMentor AI adalah keunggulan tidak fair di pasar 24/7.",
+    s8_c1:"Trial Gratis Tersedia", s8_c2:"Tanpa Kartu Kredit", s8_c3:"Batal Kapan Saja",
+    s8_cta1:"Mulai Trial Gratis \u2192", s8_cta2:"Tonton Demo Live",
+    s8_disc:"CryptoMentor AI adalah asisten trading algoritmik. Hasil masa lalu tidak menjamin performa masa depan. Trading kripto melibatkan risiko kerugian modal yang substansial. Hanya trade dengan modal yang mampu kamu rugikan."
   }
-  updateProgress()
+};
+
+let curLang = 'en';
+function applyLang(l) {
+  curLang = l;
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('on', b.textContent.trim() === l.toUpperCase()));
+  const d = i18n[l];
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.getAttribute('data-i18n');
+    if (d[k] !== undefined) el.textContent = d[k];
+  });
 }
 
-function queueViewportSync(){
-  if(viewportRaf) return
-  viewportRaf=requestAnimationFrame(()=>{
-    viewportRaf=0
-    syncViewportMetrics()
-  })
-}
+/* ══════════════════════════════════════════════════════════
+   SCROLL DOTS
+══════════════════════════════════════════════════════════ */
+const slides = Array.from(document.querySelectorAll('section[data-sl]'));
+const allSections = Array.from(document.querySelectorAll('section'));
+const ndotsEl = document.getElementById('ndots');
+slides.forEach((s, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'ndot';
+  dot.title = 'Slide ' + (i + 1);
+  dot.addEventListener('click', () => s.scrollIntoView({behavior:'smooth'}));
+  ndotsEl.appendChild(dot);
+});
 
-function setRegimes(){
-  ['r1','r2','r3'].forEach((id,i)=>{
-    const c=document.getElementById(id)
-    if(!c) return
-    c.classList.toggle('active',i===regimeIdx)
-    const s=c.querySelector('.st')
-    if(s) s.textContent=i===regimeIdx?T[lang].c_active:T[lang].c_standby
-  })
-}
+/* ══════════════════════════════════════════════════════════
+   REVEAL
+══════════════════════════════════════════════════════════ */
+let regimeTimer = null;
+let regimeIdx = 0;
 
-function startRegimes(){
-  stopRegimes()
-  setRegimes()
-  if(reduced) return
-  regimeTimer=setInterval(()=>{regimeIdx=(regimeIdx+1)%3;setRegimes()},2200)
-}
-
-function stopRegimes(){
-  if(regimeTimer){
-    clearInterval(regimeTimer)
-    regimeTimer=null
+function startRegimeCycle() {
+  if (regimeTimer) return;
+  const cards = [document.getElementById('r1'), document.getElementById('r2'), document.getElementById('r3')];
+  function cycle() {
+    cards.forEach((c, i) => c && c.classList.toggle('on', i === regimeIdx));
+    regimeIdx = (regimeIdx + 1) % 3;
   }
+  cycle();
+  regimeTimer = setInterval(cycle, 2200);
 }
 
-function animateSection(idx){
-  const root=slides[idx]
-  if(!root) return
+function onEnter(el) {
+  el.classList.add('v');
+  el.querySelectorAll('.mf[data-m]').forEach(mf => { mf.style.width = mf.getAttribute('data-m') + '%'; });
+  el.querySelectorAll('.gb-fill[data-m]').forEach(f => { f.style.width = f.getAttribute('data-m') + '%'; });
+  if (el.getAttribute('data-sl') === '2') startRegimeCycle();
+}
 
-  root.querySelectorAll('[data-meter]').forEach(el=>{
-    const t=+el.dataset.meter
-    el.style.width=reduced?`${t}%`:'0%'
-    if(!reduced) setTimeout(()=>el.style.width=`${t}%`,70)
-  })
-  root.querySelectorAll('[data-bar]').forEach(el=>{
-    const t=+el.dataset.bar
-    el.style.width=reduced?`${t}%`:'0%'
-    if(!reduced) setTimeout(()=>el.style.width=`${t}%`,120)
-  })
-  root.querySelectorAll('[data-count]').forEach(el=>{
-    const target=+el.dataset.count
-    const dec=+(el.dataset.dec||0)
-    const pre=el.dataset.pre||''
-    const suf=el.dataset.suf||''
-    if(reduced){el.textContent=`${pre}${target.toFixed(dec)}${suf}`;return}
-    let t0
-    const dur=1080
-    const tick=(ts)=>{
-      if(!t0) t0=ts
-      const p=Math.min((ts-t0)/dur,1)
-      const e=1-Math.pow(1-p,3)
-      el.textContent=`${pre}${(target*e).toFixed(dec)}${suf}`
-      if(p<1) requestAnimationFrame(tick)
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) onEnter(e.target); });
+}, {threshold: 0.22});
+allSections.forEach(s => observer.observe(s));
+
+/* ══════════════════════════════════════════════════════════
+   SCROLL HANDLER
+══════════════════════════════════════════════════════════ */
+const prog = document.getElementById('prog');
+const sldcnt = document.getElementById('sldcnt');
+
+document.body.addEventListener('scroll', () => {
+  const st = document.body.scrollTop;
+  const sh = document.body.scrollHeight - document.body.clientHeight;
+  prog.style.width = (sh > 0 ? (st / sh) * 100 : 0) + '%';
+
+  let nearestSlide = 0, minDist = Infinity;
+  slides.forEach((s, i) => {
+    const dist = Math.abs(s.getBoundingClientRect().top);
+    if (dist < minDist) { minDist = dist; nearestSlide = i; }
+  });
+  const n = nearestSlide + 1;
+  sldcnt.textContent = (n < 10 ? '0' + n : n) + ' / 08';
+  document.querySelectorAll('.ndot').forEach((d, i) => d.classList.toggle('on', i === nearestSlide));
+});
+
+/* ══════════════════════════════════════════════════════════
+   VIEWPORT HEIGHT FIX
+══════════════════════════════════════════════════════════ */
+function setVH() {
+  document.documentElement.style.setProperty('--svh', window.innerHeight * 0.01 + 'px');
+}
+setVH();
+window.addEventListener('resize', setVH);
+
+/* ══════════════════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════════════════ */
+setTimeout(() => {
+  if (allSections[0]) onEnter(allSections[0]);
+  const firstDot = document.querySelector('.ndot');
+  if (firstDot) firstDot.classList.add('on');
+}, 80);
+
+/* ══════════════════════════════════════════════════════════
+   PARTICLE CANVAS
+══════════════════════════════════════════════════════════ */
+(function () {
+  const canvas = document.getElementById('particles');
+  const ctx = canvas.getContext('2d');
+  let W, H, particles;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function Particle() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.r = Math.random() * 1.4 + 0.4;
+    this.vx = (Math.random() - 0.5) * 0.38;
+    this.vy = (Math.random() - 0.5) * 0.38;
+    this.opacity = Math.random() * 0.5 + 0.1;
+  }
+
+  function init() {
+    resize();
+    particles = Array.from({length: 90}, () => new Particle());
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 110) {
+          const alpha = (1 - dist / 110) * 0.12;
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(139,92,246,' + alpha + ')';
+          ctx.lineWidth = 0.6;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
+      }
     }
-    requestAnimationFrame(tick)
-  })
-
-  if(idx===3){
-    root.querySelectorAll('.cm-signal-card').forEach((card,i)=>{
-      if(reduced) return
-      card.style.transform='translateY(10px)'
-      card.style.opacity='0'
-      setTimeout(()=>{
-        card.style.transition='opacity .42s var(--ease), transform .42s var(--ease)'
-        card.style.opacity='1'
-        card.style.transform='translateY(0)'
-      },70+(i*55))
-    })
+    particles.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(139,92,246,' + p.opacity + ')';
+      ctx.fill();
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+    });
+    requestAnimationFrame(draw);
   }
-}
 
-function setCurrent(idx){
-  if(idx<0 || idx>=slides.length) return
-  cur=idx
-  slides.forEach((s,i)=>s.classList.toggle('is-active',i===idx))
-  updateCounter()
-  setActiveDot()
-  if(!seenAnimation.has(idx)){
-    animateSection(idx)
-    seenAnimation.add(idx)
-  }
-  if(idx===2) startRegimes()
-  else stopRegimes()
-}
-
-function setupSectionObserver(){
-  const visibleMap=new Map()
-  sectionObserver=new IntersectionObserver((entries)=>{
-    entries.forEach(entry=>{
-      if(entry.isIntersecting){
-        entry.target.classList.add('is-visible')
-        visibleMap.set(entry.target,entry.intersectionRatio)
-      }else{
-        visibleMap.delete(entry.target)
-      }
-    })
-    let bestIdx=cur
-    let bestRatio=0
-    visibleMap.forEach((ratio,el)=>{
-      const i=slides.indexOf(el)
-      if(i!==-1 && ratio>bestRatio){
-        bestRatio=ratio
-        bestIdx=i
-      }
-    })
-    if(bestIdx!==cur && bestRatio>=0.3) setCurrent(bestIdx)
-  },{threshold:[0.25,0.4,0.55,0.75]})
-
-  slides.forEach(slide=>sectionObserver.observe(slide))
-}
-
-function jumpBy(delta){
-  const next=Math.max(0,Math.min(slides.length-1,cur+delta))
-  slides[next].scrollIntoView({behavior:reduced?'auto':'smooth',block:'start'})
-}
-
-document.querySelectorAll('.lang-btn').forEach(b=>b.onclick=()=>applyLang(b.dataset.lang))
-
-window.addEventListener('keydown',e=>{
-  if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)){e.preventDefault();jumpBy(1)}
-  if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();jumpBy(-1)}
-})
-
-window.addEventListener('scroll',updateProgress,{passive:true})
-window.addEventListener('resize',queueViewportSync,{passive:true})
-window.addEventListener('orientationchange',queueViewportSync,{passive:true})
-if(window.visualViewport){
-  window.visualViewport.addEventListener('resize',queueViewportSync,{passive:true})
-  window.visualViewport.addEventListener('scroll',queueViewportSync,{passive:true})
-}
-
-buildDots()
-applyLang('en')
-slides[0].classList.add('is-visible')
-setCurrent(0)
-syncViewportMetrics()
-updateProgress()
-setupSectionObserver()
+  window.addEventListener('resize', resize);
+  init();
+  draw();
+})();
 </script>
 </body>
 </html>
