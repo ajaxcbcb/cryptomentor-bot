@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
+    return raw in {"1", "true", "yes", "y", "on"}
+
 def _dashboard_keyboard():
     """Returns an InlineKeyboardMarkup with a Dashboard button."""
     return InlineKeyboardMarkup([
@@ -2126,6 +2131,43 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         "modes": {"swing": {"sample_size": 0, "active_adaptations": []}},
     }
     confidence_adapt_next_refresh_ts = 0.0
+    stale_reconcile_enabled = _env_flag("STALE_RECONCILE_ENABLED", True)
+    swing_stale_reconcile_interval_seconds = max(
+        30,
+        int(float(os.getenv("SWING_STALE_RECONCILE_INTERVAL_SECONDS", "300") or 300)),
+    )
+    swing_stale_reconcile_next_ts = 0.0
+
+    async def _run_swing_stale_reconcile(reconcile_reason: str) -> Dict[str, Any]:
+        from app.trade_history import inspect_open_trade_drift, apply_open_trade_reconcile
+
+        drift = await asyncio.to_thread(
+            inspect_open_trade_drift,
+            user_id,
+            client,
+            "swing",
+        )
+        result = await asyncio.to_thread(
+            apply_open_trade_reconcile,
+            user_id,
+            client,
+            "swing",
+            drift,
+        )
+        marker = (
+            f"[Engine:{user_id}] stale_reconcile trade_type=swing "
+            f"reconcile_reason={reconcile_reason} "
+            f"db_open_count={int(result.get('db_open_count', 0) or 0)} "
+            f"exchange_open_count={int(result.get('exchange_open_count', 0) or 0)} "
+            f"healed_count={int(result.get('healed_count', 0) or 0)} "
+            f"stale_symbols={list(result.get('stale_symbols') or [])}"
+        )
+        if not bool(result.get("exchange_fetch_ok", True)):
+            logger.warning(f"{marker} exchange_fetch_ok=false error={result.get('exchange_error')}")
+        else:
+            logger.info(marker)
+        return result
+
     try:
         await asyncio.to_thread(refresh_global_confidence_adaptation_state)
         confidence_adapt_state = await asyncio.to_thread(get_confidence_adaptation_snapshot)
@@ -2171,6 +2213,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             )
     except Exception as _startup_err:
         logger.warning(f"[Engine:{user_id}] Startup notification failed (non-fatal): {_startup_err}")
+
+    if stale_reconcile_enabled:
+        try:
+            await _run_swing_stale_reconcile("startup")
+            swing_stale_reconcile_next_ts = time.time() + float(swing_stale_reconcile_interval_seconds)
+        except Exception as stale_err:
+            logger.warning(f"[Engine:{user_id}] startup stale reconcile failed: {stale_err}")
 
     while True:
         try:
@@ -2279,6 +2328,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 except Exception:
                     pass
                 return
+
+            if stale_reconcile_enabled and now_ts >= float(swing_stale_reconcile_next_ts or 0.0):
+                try:
+                    await _run_swing_stale_reconcile("periodic")
+                except Exception as stale_err:
+                    logger.warning(f"[Engine:{user_id}] periodic stale reconcile failed: {stale_err}")
+                swing_stale_reconcile_next_ts = now_ts + float(swing_stale_reconcile_interval_seconds)
             
             # ── Reset harian ──────────────────────────────────────────
             today = date.today()

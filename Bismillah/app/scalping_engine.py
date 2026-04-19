@@ -64,6 +64,19 @@ logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+STALE_RECONCILE_ENABLED = _env_flag("STALE_RECONCILE_ENABLED", True)
+SCALPING_STALE_RECONCILE_INTERVAL_SECONDS = max(
+    30,
+    int(float(os.getenv("SCALPING_STALE_RECONCILE_INTERVAL_SECONDS", "120") or 120)),
+)
+STALE_RECONCILE_JIT_ON_CAPACITY = _env_flag("STALE_RECONCILE_JIT_ON_CAPACITY", True)
+
+
 def _fmt_price(v: float) -> str:
     s = f"{float(v):,.6f}"
     return s.rstrip("0").rstrip(".")
@@ -209,6 +222,12 @@ class ScalpingEngine:
             "modes": {"scalping": {"active_adaptations": [], "sample_size": 0}},
         }
         self._confidence_adapt_next_refresh = 0.0
+        self._stale_reconcile_enabled = bool(STALE_RECONCILE_ENABLED)
+        self._stale_reconcile_interval_seconds = int(SCALPING_STALE_RECONCILE_INTERVAL_SECONDS)
+        self._stale_reconcile_jit_on_capacity = bool(STALE_RECONCILE_JIT_ON_CAPACITY)
+        self._stale_reconcile_next_ts = 0.0
+        self._stale_reconcile_lock = asyncio.Lock()
+        self._last_jit_reconcile_ts = 0.0
 
         # Multi-user symbol coordinator
         self.coordinator = get_coordinator()
@@ -276,6 +295,98 @@ class ScalpingEngine:
             now_ts=now_ts,
         )
         return True
+
+    async def _prune_stale_local_positions(self) -> int:
+        """
+        Remove in-memory tracked positions that no longer have open DB rows.
+        Keeps capacity checks aligned immediately after reconcile heals.
+        """
+        removed = 0
+        for symbol in list(self.positions.keys()):
+            open_row = await self._get_open_trade_row(symbol)
+            if open_row:
+                continue
+            self.positions.pop(symbol, None)
+            removed += 1
+        if removed > 0:
+            logger.info(
+                f"[Scalping:{self.user_id}] stale_reconcile trade_type=scalping "
+                f"action=prune_local removed={removed}"
+            )
+        return removed
+
+    async def _run_stale_reconcile(self, reconcile_reason: str) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            "exchange_fetch_ok": True,
+            "db_open_count": 0,
+            "exchange_open_count": 0,
+            "stale_symbols": [],
+            "healed_count": 0,
+            "healed_trade_ids": [],
+            "pruned_local_count": 0,
+        }
+        if not self._stale_reconcile_enabled:
+            return out
+
+        now_ts = time.time()
+        if reconcile_reason == "jit_capacity" and (now_ts - self._last_jit_reconcile_ts) < 8.0:
+            return out
+
+        async with self._stale_reconcile_lock:
+            now_ts = time.time()
+            if reconcile_reason == "jit_capacity":
+                if (now_ts - self._last_jit_reconcile_ts) < 8.0:
+                    return out
+                self._last_jit_reconcile_ts = now_ts
+
+            from app.trade_history import inspect_open_trade_drift, apply_open_trade_reconcile
+
+            drift = await asyncio.to_thread(
+                inspect_open_trade_drift,
+                self.user_id,
+                self.client,
+                "scalping",
+            )
+            out = await asyncio.to_thread(
+                apply_open_trade_reconcile,
+                self.user_id,
+                self.client,
+                "scalping",
+                drift,
+            )
+            pruned_local_count = 0
+            if int(out.get("healed_count", 0) or 0) > 0 or reconcile_reason == "jit_capacity":
+                pruned_local_count = await self._prune_stale_local_positions()
+            out["pruned_local_count"] = int(pruned_local_count)
+
+            marker = (
+                f"[Scalping:{self.user_id}] stale_reconcile trade_type=scalping "
+                f"reconcile_reason={reconcile_reason} "
+                f"db_open_count={int(out.get('db_open_count', 0) or 0)} "
+                f"exchange_open_count={int(out.get('exchange_open_count', 0) or 0)} "
+                f"healed_count={int(out.get('healed_count', 0) or 0)} "
+                f"pruned_local_count={int(out.get('pruned_local_count', 0) or 0)} "
+                f"stale_symbols={list(out.get('stale_symbols') or [])}"
+            )
+            if not bool(out.get("exchange_fetch_ok", True)):
+                logger.warning(f"{marker} exchange_fetch_ok=false error={out.get('exchange_error')}")
+            else:
+                logger.info(marker)
+            return out
+
+    async def _ensure_capacity_for_entry(self) -> bool:
+        if len(self.positions) < self.config.max_concurrent_positions:
+            return True
+        if self._stale_reconcile_enabled and self._stale_reconcile_jit_on_capacity:
+            rec = await self._run_stale_reconcile("jit_capacity")
+            if int(rec.get("healed_count", 0) or 0) > 0 or int(rec.get("pruned_local_count", 0) or 0) > 0:
+                if len(self.positions) < self.config.max_concurrent_positions:
+                    logger.info(
+                        f"[Scalping:{self.user_id}] Capacity unblocked after JIT stale reconcile "
+                        f"(max={self.config.max_concurrent_positions}, now={len(self.positions)})"
+                    )
+                    return True
+        return len(self.positions) < self.config.max_concurrent_positions
 
     async def _open_managed_position_safe(self, open_managed_position_fn, **kwargs):
         """
@@ -440,19 +551,12 @@ class ScalpingEngine:
         logger.info(f"[Scalping:{self.user_id}] Engine started")
         
         # ── Recover existing state ───────────────────────────────────────────
-        # 1. Reconcile DB with Exchange (close stale rows if positions closed manually)
+        # 1) Startup stale-open reconcile (DB vs exchange)
         try:
-            from app.trade_history import reconcile_open_trades_with_exchange
-            reconciled = await asyncio.to_thread(
-                reconcile_open_trades_with_exchange,
-                self.user_id,
-                self.client,
-                "scalping",
-            )
-            if reconciled > 0:
-                logger.info(f"[Scalping:{self.user_id}] Reconciled {reconciled} stale positions on startup")
+            await self._run_stale_reconcile("startup")
+            self._stale_reconcile_next_ts = time.time() + float(self._stale_reconcile_interval_seconds)
         except Exception as e:
-            logger.error(f"[Scalping:{self.user_id}] Reconciliation failed: {e}")
+            logger.error(f"[Scalping:{self.user_id}] Startup stale reconcile failed: {e}")
 
         # 2. Load open positions from DB to resume monitoring
         await self._load_existing_positions()
@@ -639,6 +743,11 @@ class ScalpingEngine:
                         )
                     elif conf_adapt_err:
                         logger.warning(f"[Scalping:{self.user_id}] Confidence adaptation refresh failed: {conf_adapt_err}")
+
+                    if self._stale_reconcile_enabled and now_ts >= float(self._stale_reconcile_next_ts or 0.0):
+                        await self._run_stale_reconcile("periodic")
+                        self._stale_reconcile_next_ts = now_ts + float(self._stale_reconcile_interval_seconds)
+
                     if now_ts >= self._sideways_hourly_kpi_next:
                         policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
                         logger.info(
@@ -724,7 +833,7 @@ class ScalpingEngine:
                                 break
                                 
                             # Re-check concurrent safety limits safely in the sequential block
-                            if len(self.positions) >= self.config.max_concurrent_positions:
+                            if not await self._ensure_capacity_for_entry():
                                 break
                             
                             if signal.symbol in self.positions:
@@ -771,6 +880,9 @@ class ScalpingEngine:
     
     async def _scan_single_symbol(self, symbol: str) -> Optional[ScalpingSignal]:
         try:
+            if len(self.positions) >= self.config.max_concurrent_positions:
+                if not await self._ensure_capacity_for_entry():
+                    return None
             if self.check_cooldown(symbol):
                 return None
                 

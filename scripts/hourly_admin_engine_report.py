@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -159,6 +160,11 @@ def _journal_indicators(service_name: str, minutes: int) -> Dict[str, int]:
         "confidence_gate_reject": 0,
         "trade_skipped": 0,
         "api_key_or_decrypt_issue": 0,
+        "stale_reconcile_healed_1h": 0,
+        "stale_reconcile_users_1h": 0,
+        "stale_reconcile_scalping_1h": 0,
+        "stale_reconcile_swing_1h": 0,
+        "stale_reconcile_jit_capacity_events": 0,
     }
     if os.name == "nt":
         return out
@@ -192,6 +198,43 @@ def _journal_indicators(service_name: str, minutes: int) -> Dict[str, int]:
         + text.count("decrypt failed")
         + text.count("api key decrypt")
     )
+
+    reconcile_users = set()
+    for raw_line in (res.stdout or "").splitlines():
+        line = str(raw_line or "").strip()
+        lower = line.lower()
+        if "stale_reconcile" not in lower:
+            continue
+        healed_match = re.search(r"healed_count=(\d+)", lower)
+        healed = int(healed_match.group(1)) if healed_match else 0
+        if healed <= 0:
+            continue
+
+        out["stale_reconcile_healed_1h"] += healed
+        mode_match = re.search(r"trade_type=([a-z_]+)", lower)
+        mode = mode_match.group(1) if mode_match else ""
+        if mode == "scalping":
+            out["stale_reconcile_scalping_1h"] += healed
+        elif mode == "swing":
+            out["stale_reconcile_swing_1h"] += healed
+
+        if "reconcile_reason=jit_capacity" in lower:
+            out["stale_reconcile_jit_capacity_events"] += 1
+
+        uid = None
+        for pattern in (
+            r"\[scalping:(\d+)\]",
+            r"\[engine:(\d+)\]",
+            r"user_id=(\d+)",
+        ):
+            m = re.search(pattern, lower)
+            if m:
+                uid = m.group(1)
+                break
+        if uid:
+            reconcile_users.add(uid)
+
+    out["stale_reconcile_users_1h"] = len(reconcile_users)
     return out
 
 
@@ -307,6 +350,10 @@ def _build_report(minutes: int, service_name: str) -> Dict[str, Any]:
             no_trade_reasons.append(
                 f"API/decrypt issues reduced tradable sessions ({indicators['api_key_or_decrypt_issue']} logs)."
             )
+        if indicators["stale_reconcile_healed_1h"] > 0:
+            no_trade_reasons.append(
+                "Stale-open healing occurred this hour; prior cycles may have been capacity-blocked before reconcile."
+            )
 
         governor_mode = str(sideways_snapshot.get("mode") or "").strip().lower()
         if governor_mode in {"strict", "defensive"}:
@@ -400,6 +447,12 @@ def _render_html_message(report: Dict[str, Any]) -> str:
         f"• Confidence adaptation: <b>{adapt.get('confidence_adapt_enabled')}</b> "
         f"(samples swing={adapt.get('confidence_samples', {}).get('swing', 0)}, "
         f"scalping={adapt.get('confidence_samples', {}).get('scalping', 0)})\n\n"
+        "🧹 <b>STALE RECONCILE (Last 1h)</b>\n"
+        f"• Healed trades: <b>{_safe_int(indicators.get('stale_reconcile_healed_1h'), 0)}</b>\n"
+        f"• Affected users: <b>{_safe_int(indicators.get('stale_reconcile_users_1h'), 0)}</b>\n"
+        f"• By mode: <b>scalping={_safe_int(indicators.get('stale_reconcile_scalping_1h'), 0)}, "
+        f"swing={_safe_int(indicators.get('stale_reconcile_swing_1h'), 0)}</b>\n"
+        f"• JIT capacity heals: <b>{_safe_int(indicators.get('stale_reconcile_jit_capacity_events'), 0)}</b>\n\n"
     )
 
     if _safe_int(trades.get("opened"), 0) == 0:

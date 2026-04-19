@@ -830,12 +830,16 @@ async def _engine_health_check_task(application):
 
 async def _check_stale_positions(application):
     """
-    Saat startup: baca semua open trades dari DB, cross-check dengan exchange,
-    lalu cek apakah arahnya masih sesuai kondisi market.
-    Hanya kirim alert kalau posisi BENAR-BENAR masih open di exchange.
+    Startup stale-open reconciliation + optional conflict alerts.
+    Uses standardized trade_history reconcile path (no raw status mutation).
     """
     try:
-        from app.trade_history import get_all_open_trades
+        from app.trade_history import (
+            get_all_open_trades,
+            get_open_trades,
+            inspect_open_trade_drift,
+            apply_open_trade_reconcile,
+        )
         from app.autotrade_engine import _compute_signal_pro
         from app.supabase_repo import get_user_api_key
         from app.exchange_registry import get_client
@@ -854,37 +858,48 @@ async def _check_stale_positions(application):
             uid = t["telegram_id"]
             by_user.setdefault(uid, []).append(t)
 
-        for user_id, trades in by_user.items():
+        for user_id, _trades in by_user.items():
             # Fetch live positions from exchange for this user
-            live_symbols = set()
             try:
                 keys = get_user_api_key(int(user_id))
                 if keys:
                     exchange_id = keys.get("exchange", "bitunix")
                     client = get_client(exchange_id, keys["api_key"], keys["api_secret"])
-                    pos_result = await asyncio.to_thread(client.get_positions)
-                    if pos_result.get("success"):
-                        for p in (pos_result.get("positions") or []):
-                            sym = (p.get("symbol") or "").upper()
-                            if sym:
-                                live_symbols.add(sym)
+                else:
+                    continue
             except Exception as e:
                 logger.warning(f"[StartupCheck] Could not fetch live positions for {user_id}: {e}")
                 # Jika tidak bisa fetch exchange, skip user ini — jangan kirim notif palsu
                 continue
 
+            # Reconcile stale-open rows via standardized path
+            try:
+                drift = await asyncio.to_thread(inspect_open_trade_drift, int(user_id), client, None)
+                rec = await asyncio.to_thread(apply_open_trade_reconcile, int(user_id), client, None, drift)
+                healed_count = int(rec.get("healed_count", 0) or 0)
+                logger.info(
+                    f"[StartupCheck] stale_reconcile trade_type=all reconcile_reason=startup "
+                    f"user_id={int(user_id)} db_open_count={int(rec.get('db_open_count', 0) or 0)} "
+                    f"exchange_open_count={int(rec.get('exchange_open_count', 0) or 0)} "
+                    f"healed_count={healed_count} stale_symbols={list(rec.get('stale_symbols') or [])}"
+                )
+                live_symbols = {
+                    str(sym).strip().upper()
+                    for sym in (rec.get("live_symbols") or [])
+                    if str(sym).strip()
+                }
+            except Exception as rec_err:
+                logger.warning(f"[StartupCheck] Reconcile failed for {user_id}: {rec_err}")
+                continue
+
+            # Refresh DB-open rows post-reconcile, then alert only on real live conflicts.
+            fresh_open_trades = await asyncio.to_thread(get_open_trades, int(user_id), None)
             alerts = []
-            stale_trade_ids = []
+            for trade in fresh_open_trades:
+                symbol = str(trade.get("symbol", "")).upper()
+                side = str(trade.get("side", "LONG") or "LONG").upper()
 
-            for trade in trades:
-                symbol = trade.get("symbol", "")
-                side   = trade.get("side", "LONG")
-                trade_id = trade.get("id")
-
-                # Kalau posisi tidak ada di exchange, tandai sebagai stale dan skip
                 if symbol not in live_symbols:
-                    logger.info(f"[StartupCheck] Stale DB trade: {symbol} for user {user_id} — not on exchange, marking closed")
-                    stale_trade_ids.append(trade_id)
                     continue
 
                 # Posisi memang ada di exchange, cek arah vs sinyal
@@ -897,35 +912,26 @@ async def _check_stale_positions(application):
                 if not sig:
                     continue
 
-                new_side  = sig.get("side", "")
-                trend_1h  = sig.get("trend_1h", "NEUTRAL")
-                struct    = sig.get("market_structure", "ranging")
-                conf      = sig.get("confidence", 0)
+                new_side = str(sig.get("side", "")).upper()
+                trend_1h = sig.get("trend_1h", "NEUTRAL")
+                struct = sig.get("market_structure", "ranging")
+                conf = sig.get("confidence", 0)
+
+                side_norm = "LONG" if side in {"LONG", "BUY"} else ("SHORT" if side in {"SHORT", "SELL"} else side)
+                new_side_norm = (
+                    "LONG" if new_side in {"LONG", "BUY"} else ("SHORT" if new_side in {"SHORT", "SELL"} else new_side)
+                )
 
                 is_against = (
-                    (side == "LONG"  and new_side == "SHORT") or
-                    (side == "SHORT" and new_side == "LONG")
+                    (side_norm == "LONG" and new_side_norm == "SHORT") or
+                    (side_norm == "SHORT" and new_side_norm == "LONG")
                 )
 
                 if is_against:
                     alerts.append(
-                        f"⚠️ <b>{symbol}</b>: Position <b>{side}</b> but current signal is <b>{new_side}</b>\n"
+                        f"⚠️ <b>{symbol}</b>: Position <b>{side_norm}</b> but current signal is <b>{new_side_norm}</b>\n"
                         f"   1H: {trend_1h} | Struct: {struct} | Conf: {conf}%"
                     )
-
-            # Auto-close stale trades di DB
-            if stale_trade_ids:
-                try:
-                    from app.supabase_repo import _client as _db
-                    s = _db()
-                    for tid in stale_trade_ids:
-                        s.table("autotrade_trades").update({
-                            "status": "closed",
-                            "close_reason": "stale_startup_reconcile"
-                        }).eq("id", tid).execute()
-                    logger.info(f"[StartupCheck] Closed {len(stale_trade_ids)} stale DB trades for user {user_id}")
-                except Exception as e:
-                    logger.error(f"[StartupCheck] Failed to close stale trades: {e}")
 
             # Hanya kirim notif kalau ada posisi NYATA yang konflik
             if alerts:

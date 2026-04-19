@@ -5,7 +5,7 @@ Setiap order masuk/keluar dicatat lengkap dengan reasoning.
 import logging
 from datetime import datetime, timedelta, timezone
 from statistics import median
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, Set
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -413,6 +413,254 @@ def get_all_open_trades(trade_type: Optional[str] = None) -> List[Dict]:
         return []
 
 
+def _extract_live_symbols_from_positions(pos_resp: Dict[str, Any]) -> Set[str]:
+    live_symbols: Set[str] = set()
+    for p in (pos_resp.get("positions") or []):
+        try:
+            qty = float(p.get("qty") or p.get("size") or 0)
+        except Exception:
+            qty = 0.0
+        if qty <= 0:
+            continue
+        symbol = str(p.get("symbol") or "").strip().upper()
+        if symbol:
+            live_symbols.add(symbol)
+    return live_symbols
+
+
+def inspect_open_trade_drift(
+    telegram_id: int,
+    client,
+    trade_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Read-only drift inspector for DB-open vs exchange-open positions.
+
+    Returns structured diff used by engines/scripts without mutating DB:
+    - stale_trade_ids, stale_symbols
+    - live_symbols, db_open_count, exchange_open_count
+    """
+    open_trades = get_open_trades(telegram_id, trade_type=trade_type)
+    db_open_symbols = sorted(
+        {
+            str(r.get("symbol") or "").strip().upper()
+            for r in open_trades
+            if str(r.get("symbol") or "").strip()
+        }
+    )
+    out: Dict[str, Any] = {
+        "telegram_id": int(telegram_id),
+        "trade_type": _normalize_trade_type_filter(trade_type) or "all",
+        "exchange_fetch_ok": False,
+        "exchange_error": "",
+        "db_open_count": len(open_trades),
+        "exchange_open_count": 0,
+        "db_open_symbols": db_open_symbols,
+        "live_symbols": [],
+        "stale_trade_ids": [],
+        "stale_symbols": [],
+        "has_drift": False,
+        "open_trades": list(open_trades or []),
+    }
+    if not open_trades:
+        out["exchange_fetch_ok"] = True
+        return out
+
+    try:
+        pos_resp = client.get_positions()
+    except Exception as e:
+        out["exchange_error"] = f"get_positions_raised:{e}"
+        return out
+
+    if not isinstance(pos_resp, dict) or not pos_resp.get("success"):
+        out["exchange_error"] = str((pos_resp or {}).get("error") or "get_positions_failed")
+        return out
+
+    live_symbols = _extract_live_symbols_from_positions(pos_resp)
+    stale_ids: List[int] = []
+    stale_symbols: Set[str] = set()
+    for trade in open_trades:
+        sym = str(trade.get("symbol") or "").strip().upper()
+        if not sym or sym in live_symbols:
+            continue
+        try:
+            stale_ids.append(int(trade.get("id")))
+        except Exception:
+            continue
+        stale_symbols.add(sym)
+
+    out.update(
+        {
+            "exchange_fetch_ok": True,
+            "exchange_open_count": len(live_symbols),
+            "live_symbols": sorted(live_symbols),
+            "stale_trade_ids": sorted(set(stale_ids)),
+            "stale_symbols": sorted(stale_symbols),
+            "has_drift": bool(stale_ids),
+        }
+    )
+    return out
+
+
+def _build_stale_reconcile_close_payload(
+    telegram_id: int,
+    trade: Dict[str, Any],
+    client,
+) -> Dict[str, Any]:
+    symbol = str(trade.get("symbol") or "").strip().upper()
+    entry = float(trade.get("entry_price") or 0)
+    qty = float(
+        trade.get("qty")
+        or trade.get("quantity")
+        or trade.get("original_quantity")
+        or 0
+    )
+    side = str(trade.get("side") or "").strip().upper()
+    exit_price = entry
+    pnl = 0.0
+    roundtrip_net_pnl = None
+    roundtrip_close_price = None
+
+    get_roundtrip = getattr(client, "get_roundtrip_financials", None)
+    if callable(get_roundtrip):
+        try:
+            roundtrip = get_roundtrip(
+                symbol=symbol,
+                open_order_id=str(trade.get("order_id") or ""),
+                entry_side=side,
+                opened_at_iso=str(trade.get("opened_at") or ""),
+            )
+            if isinstance(roundtrip, dict) and roundtrip.get("success"):
+                roundtrip_net_pnl = _to_float(roundtrip.get("net_pnl"), None)
+                roundtrip_close_price = _to_float(roundtrip.get("close_avg_price"), None)
+        except Exception as e:
+            logger.warning(
+                f"[Reconcile:{telegram_id}] roundtrip financial lookup failed for {symbol}: {e}"
+            )
+
+    # Infer close reason from execution evidence when available.
+    tp1_hit = bool(trade.get("tp1_hit"))
+    tp2_hit = bool(trade.get("tp2_hit"))
+    tp3_hit = bool(trade.get("tp3_hit"))
+    if tp3_hit:
+        reason = "closed_tp3"
+    elif tp2_hit:
+        reason = "closed_tp2"
+    elif tp1_hit:
+        reason = "closed_tp1"
+    else:
+        reason = "stale_reconcile"
+
+    if roundtrip_net_pnl is not None:
+        pnl = float(roundtrip_net_pnl)
+        if roundtrip_close_price is not None and float(roundtrip_close_price) > 0:
+            exit_price = float(roundtrip_close_price)
+        source = "exchange_history"
+    else:
+        # Policy: never guess stale-reconcile PnL from ticker snapshots.
+        reason = "stale_reconcile"
+        pnl = 0.0
+        source = "fallback_zero_pnl"
+
+    reconcile_reasoning = (
+        f"Reconciled from exchange — position no longer open; "
+        f"reason={reason}; source={source}; "
+        f"roundtrip_pnl_resolved={1 if roundtrip_net_pnl is not None else 0}; "
+        f"qty={qty:.8f}; side={side}"
+    )
+    return {
+        "symbol": symbol,
+        "close_reason": reason,
+        "exit_price": float(exit_price),
+        "pnl_usdt": float(pnl),
+        "loss_reasoning": reconcile_reasoning,
+    }
+
+
+def apply_open_trade_reconcile(
+    telegram_id: int,
+    client,
+    trade_type: Optional[str] = None,
+    drift: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Apply stale-open reconciliation using structured drift result.
+
+    This is the single mutation path for stale-open healing and always closes
+    rows via save_trade_close(...) for consistency.
+    """
+    info = drift or inspect_open_trade_drift(telegram_id, client, trade_type=trade_type)
+    out: Dict[str, Any] = {
+        "telegram_id": int(telegram_id),
+        "trade_type": _normalize_trade_type_filter(trade_type) or "all",
+        "exchange_fetch_ok": bool(info.get("exchange_fetch_ok", False)),
+        "exchange_error": str(info.get("exchange_error") or ""),
+        "db_open_count": int(info.get("db_open_count", 0) or 0),
+        "exchange_open_count": int(info.get("exchange_open_count", 0) or 0),
+        "stale_trade_ids": [int(x) for x in (info.get("stale_trade_ids") or [])],
+        "stale_symbols": [str(x) for x in (info.get("stale_symbols") or [])],
+        "live_symbols": [str(x).upper() for x in (info.get("live_symbols") or []) if str(x).strip()],
+        "healed_count": 0,
+        "healed_trade_ids": [],
+        "healed_symbols": [],
+    }
+
+    if not out["exchange_fetch_ok"]:
+        return out
+
+    open_trades = list(info.get("open_trades") or [])
+    if not open_trades:
+        return out
+
+    stale_ids = set(out["stale_trade_ids"])
+    live_symbols = set(out["live_symbols"])
+    healed_symbols: Set[str] = set()
+
+    for trade in open_trades:
+        trade_id = _to_float(trade.get("id"), None)
+        symbol = str(trade.get("symbol") or "").strip().upper()
+        if trade_id is None or not symbol:
+            continue
+        is_stale = int(trade_id) in stale_ids or symbol not in live_symbols
+        if not is_stale:
+            continue
+
+        payload = _build_stale_reconcile_close_payload(telegram_id, trade, client)
+        save_trade_close(
+            trade_id=int(trade_id),
+            exit_price=float(payload["exit_price"]),
+            pnl_usdt=float(payload["pnl_usdt"]),
+            close_reason=str(payload["close_reason"]),
+            loss_reasoning=str(payload["loss_reasoning"]),
+        )
+        out["healed_count"] += 1
+        out["healed_trade_ids"].append(int(trade_id))
+        healed_symbols.add(symbol)
+        logger.warning(
+            f"[Reconcile:{telegram_id}] Healed orphan {symbol} #{int(trade_id)} "
+            f"as {payload['close_reason']} pnl={float(payload['pnl_usdt']):.4f}"
+        )
+
+    out["healed_trade_ids"] = sorted(set(out["healed_trade_ids"]))
+    out["healed_symbols"] = sorted(healed_symbols)
+
+    # Also clear stale entries from the in-memory StackMentor registry
+    # so the monitor loop stops chasing dead positions.
+    if out["healed_count"] > 0:
+        try:
+            from app.stackmentor import _stackmentor_positions, remove_stackmentor_position
+
+            user_positions = _stackmentor_positions.get(int(telegram_id), {})
+            for sym in list(user_positions.keys()):
+                if str(sym).upper() not in live_symbols:
+                    remove_stackmentor_position(int(telegram_id), sym)
+        except Exception as e:
+            logger.warning(
+                f"[Reconcile:{telegram_id}] StackMentor cleanup failed: {e}"
+            )
+    return out
+
+
 def reconcile_open_trades_with_exchange(
     telegram_id: int,
     client,
@@ -448,128 +696,16 @@ def reconcile_open_trades_with_exchange(
 
     Returns: number of trades that were healed (closed) by this call.
     """
-    healed = 0
     try:
-        open_trades = get_open_trades(telegram_id, trade_type=trade_type)
-        if not open_trades:
-            return 0
-
-        # Fetch live exchange positions ONCE for this user.
-        try:
-            pos_resp = client.get_positions()
-        except Exception as e:
-            logger.warning(
-                f"[Reconcile:{telegram_id}] get_positions raised: {e}"
-            )
-            return 0
-
-        if not pos_resp.get("success"):
-            logger.warning(
-                f"[Reconcile:{telegram_id}] get_positions failed: {pos_resp.get('error')}"
-            )
-            return 0
-
-        live_symbols = {
-            p.get("symbol")
-            for p in pos_resp.get("positions", [])
-            if float(p.get("qty") or p.get("size") or 0) > 0
-        }
-
-        for trade in open_trades:
-            symbol = trade.get("symbol")
-            if symbol in live_symbols:
-                continue  # still open on exchange — leave alone
-
-            # Orphan: DB says open, exchange says no position. Close it.
-            entry = float(trade.get("entry_price") or 0)
-            qty = float(
-                trade.get("qty")
-                or trade.get("quantity")
-                or trade.get("original_quantity")
-                or 0
-            )
-            side = (trade.get("side") or "").upper()
-            exit_price = entry
-            pnl = 0.0
-            roundtrip_net_pnl = None
-            roundtrip_close_price = None
-            get_roundtrip = getattr(client, "get_roundtrip_financials", None)
-            if callable(get_roundtrip):
-                try:
-                    roundtrip = get_roundtrip(
-                        symbol=str(symbol or ""),
-                        open_order_id=str(trade.get("order_id") or ""),
-                        entry_side=str(side or ""),
-                        opened_at_iso=str(trade.get("opened_at") or ""),
-                    )
-                    if isinstance(roundtrip, dict) and roundtrip.get("success"):
-                        roundtrip_net_pnl = _to_float(roundtrip.get("net_pnl"), None)
-                        roundtrip_close_price = _to_float(roundtrip.get("close_avg_price"), None)
-                except Exception as e:
-                    logger.warning(
-                        f"[Reconcile:{telegram_id}] roundtrip financial lookup failed for {symbol}: {e}"
-                    )
-
-            # Infer close reason from execution evidence when available.
-            tp1_hit = bool(trade.get("tp1_hit"))
-            tp2_hit = bool(trade.get("tp2_hit"))
-            tp3_hit = bool(trade.get("tp3_hit"))
-            if tp3_hit:
-                reason = "closed_tp3"
-            elif tp2_hit:
-                reason = "closed_tp2"
-            elif tp1_hit:
-                reason = "closed_tp1"
-            else:
-                reason = "stale_reconcile"
-
-            if roundtrip_net_pnl is not None:
-                pnl = float(roundtrip_net_pnl)
-                if roundtrip_close_price is not None and float(roundtrip_close_price) > 0:
-                    exit_price = float(roundtrip_close_price)
-                source = "exchange_history"
-            else:
-                # Policy: never guess stale-reconcile PnL from ticker snapshots.
-                reason = "stale_reconcile"
-                pnl = 0.0
-                source = "fallback_zero_pnl"
-
-            reconcile_reasoning = (
-                f"Reconciled from exchange — position no longer open; "
-                f"reason={reason}; source={source}; "
-                f"roundtrip_pnl_resolved={1 if roundtrip_net_pnl is not None else 0}; "
-                f"qty={qty:.8f}; side={side}"
-            )
-
-            save_trade_close(
-                trade_id=trade["id"],
-                exit_price=exit_price,
-                pnl_usdt=pnl,
-                close_reason=reason,
-                loss_reasoning=reconcile_reasoning,
-            )
-            healed += 1
-            logger.warning(
-                f"[Reconcile:{telegram_id}] Healed orphan {symbol} #{trade['id']} "
-                f"as {reason} pnl={pnl:.4f}"
-            )
-
-        # Also clear stale entries from the in-memory StackMentor registry
-        # so the monitor loop stops chasing dead positions.
-        if healed:
-            try:
-                from app.stackmentor import _stackmentor_positions, remove_stackmentor_position
-                user_positions = _stackmentor_positions.get(int(telegram_id), {})
-                for sym in list(user_positions.keys()):
-                    if sym not in live_symbols:
-                        remove_stackmentor_position(int(telegram_id), sym)
-            except Exception as e:
-                logger.warning(
-                    f"[Reconcile:{telegram_id}] StackMentor cleanup failed: {e}"
-                )
+        result = apply_open_trade_reconcile(
+            telegram_id=telegram_id,
+            client=client,
+            trade_type=trade_type,
+        )
+        return int(result.get("healed_count", 0) or 0)
     except Exception as e:
         logger.error(f"[Reconcile:{telegram_id}] Reconciliation error: {e}")
-    return healed
+        return 0
 
 
 def get_trade_history(telegram_id: int, limit: int = 20) -> List[Dict]:

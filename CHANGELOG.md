@@ -1,5 +1,64 @@
 # Changelog
 
+## [2.2.61] — 2026-04-19 — Stale-Open Drift Hardening (Both Engines + Backfill Tool)
+
+### 🧭 Unified Reconcile Core (`trade_history`)
+- Added read-only drift inspector in `Bismillah/app/trade_history.py`:
+  - `inspect_open_trade_drift(telegram_id, client, trade_type)`
+  - Returns structured drift diff: `stale_trade_ids`, `stale_symbols`, `live_symbols`, `db_open_count`, `exchange_open_count`.
+- Added unified mutation path:
+  - `apply_open_trade_reconcile(telegram_id, client, trade_type, drift=None)`
+  - All stale-open closes now flow through `save_trade_close(...)` (no raw status flips), preserving `closed_at`, reasoning, and PnL handling invariants.
+- Kept backward compatibility:
+  - `reconcile_open_trades_with_exchange(...)` now wraps the unified apply path.
+
+### ⚙️ Runtime Hardening (Scalping + Swing)
+- Updated `Bismillah/app/scalping_engine.py`:
+  - Startup stale-open reconcile.
+  - Periodic stale-open reconcile (`SCALPING_STALE_RECONCILE_INTERVAL_SECONDS`, default `120`).
+  - JIT stale-open reconcile on capacity pressure (`STALE_RECONCILE_JIT_ON_CAPACITY`) before rejecting new entries.
+  - Immediate in-memory position prune after reconcile so capacity can unblock in the same cycle.
+  - Structured logs include:
+    - `reconcile_reason=startup|periodic|jit_capacity`
+    - `trade_type=scalping`
+    - `healed_count`, `stale_symbols`.
+- Updated `Bismillah/app/autotrade_engine.py`:
+  - Startup stale-open reconcile for swing path.
+  - Periodic stale-open reconcile (`SWING_STALE_RECONCILE_INTERVAL_SECONDS`, default `300`).
+  - Structured logs include `trade_type=swing` and reconcile counters.
+
+### 🧩 Startup Path Consistency (`scheduler`)
+- Updated `Bismillah/app/scheduler.py` startup stale-check flow:
+  - Removed direct raw DB stale-close mutation path.
+  - Now uses standardized inspect/apply reconcile from `trade_history`.
+  - Keeps conflict alerts only for positions truly live on exchange after reconcile.
+
+### 🛠️ Ops Tooling + Reporting
+- Added new operational script:
+  - `scripts/reconcile_stale_open_trades.py`
+  - Modes: `--mode dry-run|apply` (default `dry-run`)
+  - Filters: `--trade-type all|scalping|swing`, `--session-scope active|nonpending`, `--limit-users`, `--rate-delay`.
+  - Artifacts: JSON + CSV under `logs/reconcile_stale_open_trades_*.{json,csv}`.
+- Extended `scripts/hourly_admin_engine_report.py`:
+  - New hourly counters:
+    - `stale_reconcile_healed_1h`
+    - `stale_reconcile_users_1h`
+    - `stale_reconcile_scalping_1h`
+    - `stale_reconcile_swing_1h`
+    - `stale_reconcile_jit_capacity_events`
+  - Added stale-reconcile section in hourly Telegram report.
+  - Added no-trade hint when stale-open healing occurred in window.
+
+### 🧪 Tests + Config
+- Added tests:
+  - `Bismillah/tests/test_trade_reconcile.py`
+  - `Bismillah/tests/test_scalping_reconcile_capacity.py`
+- Added env defaults in `Bismillah/.env.example`:
+  - `STALE_RECONCILE_ENABLED=true`
+  - `SCALPING_STALE_RECONCILE_INTERVAL_SECONDS=120`
+  - `SWING_STALE_RECONCILE_INTERVAL_SECONDS=300`
+  - `STALE_RECONCILE_JIT_ON_CAPACITY=true`
+
 ## [2.2.60] — 2026-04-19 — Bitunix Reset Approval Completion + Documentation Sync
 
 ### ✅ Approval Completion Follow-Up (Target User)
