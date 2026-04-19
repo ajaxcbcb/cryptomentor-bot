@@ -281,6 +281,34 @@ def test_build_cumulative_close_update_payload_applies_win_metadata_overrides():
     assert payload["win_reasoning"] == "manual override winner"
 
 
+def test_build_cumulative_close_update_payload_enforces_win_tags_when_manual_reasoning_provided():
+    open_row = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "entry_price": 100.0,
+        "entry_reasons": ["volume_confirmation"],
+        "confidence": 80.0,
+        "rr_ratio": 2.0,
+    }
+    position = SimpleNamespace(symbol="BTCUSDT", side="BUY", entry_price=100.0, entry_reasons=["volume_confirmation"])
+    win_meta = {
+        "win_reasoning": "manual winner context",
+        # Intentionally omit win_reason_tags to verify fallback enforcement.
+    }
+
+    payload, _, _ = build_cumulative_close_update_payload(
+        open_row=open_row,
+        position=position,
+        close_price=102.0,
+        pnl=2.0,
+        close_reason="closed_tp",
+        win_metadata=win_meta,
+        playbook_snapshot=None,
+    )
+    assert payload["win_reasoning"] == "manual winner context"
+    assert payload.get("win_reason_tags"), "Winning close paths must keep non-empty win_reason_tags"
+
+
 def test_build_cumulative_close_update_payload_enforces_win_reasoning_for_closed_tp_even_if_net_negative():
     open_row = {
         "symbol": "BTCUSDT",

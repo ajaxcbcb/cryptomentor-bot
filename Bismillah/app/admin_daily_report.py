@@ -45,6 +45,65 @@ def _escape_html(value) -> str:
     return html.escape(str(value if value is not None else ""))
 
 
+def _parse_iso_utc(raw) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        txt = str(raw)
+        if txt.endswith("Z"):
+            txt = txt[:-1] + "+00:00"
+        dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _freshness_label(raw, now_utc: datetime) -> str:
+    dt = _parse_iso_utc(raw)
+    if dt is None:
+        return "n/a"
+    try:
+        sec = max(0, int((now_utc - dt).total_seconds()))
+    except Exception:
+        return "n/a"
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m"
+    return f"{sec // 3600}h"
+
+
+def _close_reason_key(row: dict) -> str:
+    return str(row.get("close_reason") or row.get("status") or "unknown").strip().lower() or "unknown"
+
+
+def _is_expected_winning_close(row: dict) -> bool:
+    reason = _close_reason_key(row)
+    pnl = _to_float(row.get("pnl_usdt"), 0.0)
+    if reason in {"closed_tp", "closed_tp3"}:
+        return True
+    if reason == "closed_flip" and pnl > 0:
+        return True
+    return False
+
+
+def _is_expected_losing_close(row: dict) -> bool:
+    return _to_float(row.get("pnl_usdt"), 0.0) < 0 and not _is_expected_winning_close(row)
+
+
+def _format_missing_reason_map(missing: dict[str, int], max_items: int = 6) -> str:
+    if not missing:
+        return "-"
+    items = sorted(missing.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
+    shown = items[:max_items]
+    txt = ", ".join(f"{k}:{int(v)}" for k, v in shown)
+    if len(items) > max_items:
+        txt += f", +{len(items) - max_items} more"
+    return txt
+
+
 def _split_message_lines(text: str, max_len: int = 3800) -> list[str]:
     """
     Split long Telegram messages safely by line boundaries.
@@ -303,17 +362,52 @@ async def send_daily_report(bot):
         except Exception:
             pass
         confidence_adapt_snapshot = get_confidence_adaptation_snapshot()
+        now_utc = datetime.now(timezone.utc)
         overlay_pct = float(playbook_snapshot.get("risk_overlay_pct", 0.0) or 0.0)
         effective_risk_min = min(10.0, 0.25 + overlay_pct)
         effective_risk_max = min(10.0, 5.0 + overlay_pct)
         active_tags = playbook_snapshot.get("active_tags", []) or []
         top_tags = [str(t.get("tag")) for t in active_tags[:5]]
-        wins_with_reason = [w for w in wins if str(w.get("win_reasoning") or "").strip()]
-        win_reason_coverage = (len(wins_with_reason) / len(wins) * 100) if wins else 0.0
+        top_tag_context = ", ".join(
+            f"{str(t.get('tag'))}(w={float(t.get('weight', 0.0) or 0.0):.3f},n={int(t.get('support', 0) or 0)})"
+            for t in active_tags[:3]
+        )
+        adaptive_decision = str(adaptive.get("decision_reason") or "n/a")
+        adaptive_sample = int(adaptive.get("strategy_sample_size", 0) or 0)
+        adaptive_freshness = _freshness_label(adaptive.get("updated_at"), now_utc)
+        overlay_action = str(playbook_snapshot.get("last_overlay_action") or "hold")
+        playbook_freshness = _freshness_label(playbook_snapshot.get("updated_at"), now_utc)
+
+        expected_winning_closes = [t for t in closed_trades if _is_expected_winning_close(t)]
+        expected_losing_closes = [t for t in closed_trades if _is_expected_losing_close(t)]
+        wins_with_reason = [w for w in expected_winning_closes if str(w.get("win_reasoning") or "").strip()]
+        losses_with_reason = [l for l in expected_losing_closes if str(l.get("loss_reasoning") or "").strip()]
+        win_reason_coverage = (
+            len(wins_with_reason) / len(expected_winning_closes) * 100
+            if expected_winning_closes else 100.0
+        )
+        loss_reason_coverage = (
+            len(losses_with_reason) / len(expected_losing_closes) * 100
+            if expected_losing_closes else 100.0
+        )
+        missing_win_reason_by_close: dict[str, int] = {}
+        for row in expected_winning_closes:
+            if str(row.get("win_reasoning") or "").strip():
+                continue
+            key = _close_reason_key(row)
+            missing_win_reason_by_close[key] = missing_win_reason_by_close.get(key, 0) + 1
+        missing_loss_reason_by_close: dict[str, int] = {}
+        for row in expected_losing_closes:
+            if str(row.get("loss_reasoning") or "").strip():
+                continue
+            key = _close_reason_key(row)
+            missing_loss_reason_by_close[key] = missing_loss_reason_by_close.get(key, 0) + 1
+        missing_win_reason_summary = _format_missing_reason_map(missing_win_reason_by_close)
+        missing_loss_reason_summary = _format_missing_reason_map(missing_loss_reason_by_close)
         playbook_matched_wins = [
-            w for w in wins if float(w.get("playbook_match_score") or 0) >= 0.55
+            w for w in expected_winning_closes if float(w.get("playbook_match_score") or 0) >= 0.55
         ]
-        non_matched_wins = max(0, len(wins) - len(playbook_matched_wins))
+        non_matched_wins = max(0, len(expected_winning_closes) - len(playbook_matched_wins))
         conf_modes = confidence_adapt_snapshot.get("modes") or {}
         conf_swing = conf_modes.get("swing") or {}
         conf_scalp = conf_modes.get("scalping") or {}
@@ -404,6 +498,8 @@ async def send_daily_report(bot):
             f"• Active thresholds: conf_delta=<b>{int(adaptive.get('conf_delta', 0)):+d}</b>, "
             f"vol_delta=<b>{float(adaptive.get('volume_min_ratio_delta', 0.0)):+.2f}</b>, "
             f"ob_mode=<b>{adaptive.get('ob_fvg_requirement_mode', 'soft')}</b>\n"
+            f"• Controller intent: <b>{_escape_html(adaptive_decision)}</b> | "
+            f"sample=<b>{adaptive_sample}</b> | freshness=<b>{adaptive_freshness}</b>\n"
             f"• 7-day trend: strategy_loss=<b>{strategy_loss_rate_7d:.1f}%</b>, "
             f"strategy_trades/day=<b>{trades_per_day_7d:.1f}</b>\n\n"
 
@@ -411,12 +507,19 @@ async def send_daily_report(bot):
             f"• Active tags: <b>{len(active_tags)}</b>"
             + (f" ({', '.join(top_tags)})" if top_tags else "") + "\n"
             f"• Runtime overlay: <b>{overlay_pct:+.2f}%</b>\n"
+            f"• Overlay action: <b>{_escape_html(overlay_action)}</b> | "
+            f"freshness=<b>{playbook_freshness}</b>\n"
             f"• Effective risk bounds: <b>{effective_risk_min:.2f}% - {effective_risk_max:.2f}%</b>\n"
             f"• Guardrails: win_rate=<b>{float(playbook_snapshot.get('rolling_win_rate', 0.0))*100:.1f}%</b>, "
             f"expectancy=<b>{float(playbook_snapshot.get('rolling_expectancy', 0.0)):+.4f}</b>, "
             f"sample=<b>{int(playbook_snapshot.get('sample_size', 0) or 0)}</b>\n"
+            f"• Top-tag context: <b>{_escape_html(top_tag_context or '-')}</b>\n"
             f"• Win-reason coverage: <b>{win_reason_coverage:.1f}%</b> "
-            f"({len(wins_with_reason)}/{len(wins) if wins else 0})\n"
+            f"({len(wins_with_reason)}/{len(expected_winning_closes)})\n"
+            f"• Loss-reason coverage: <b>{loss_reason_coverage:.1f}%</b> "
+            f"({len(losses_with_reason)}/{len(expected_losing_closes)})\n"
+            f"• Missing win reasons by close: <b>{_escape_html(missing_win_reason_summary)}</b>\n"
+            f"• Missing loss reasons by close: <b>{_escape_html(missing_loss_reason_summary)}</b>\n"
             f"• Playbook-matched wins: <b>{len(playbook_matched_wins)}</b> | "
             f"Non-matched wins: <b>{non_matched_wins}</b>\n\n"
 

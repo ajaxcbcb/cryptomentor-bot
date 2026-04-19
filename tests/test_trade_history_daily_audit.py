@@ -79,6 +79,9 @@ def test_daily_rr_integrity_audit_summarizes_per_mode(monkeypatch):
     assert report["per_mode"]["scalping"]["realized_r_median"] == 0.5
     assert report["per_mode"]["swing"]["realized_r_median"] == -1.0
     assert report["per_mode"]["scalping"]["close_reason_mix"]["max_hold_time_exceeded"] == 1
+    assert report["explainability"]["losing_close_count"] == 1
+    assert report["explainability"]["loss_reasoning_coverage_pct"] == 0.0
+    assert report["explainability"]["missing_loss_reasoning_by_close_reason"]["closed_sl"] == 1
 
 
 def test_daily_rr_integrity_audit_runtime_snapshots_include_reason_metadata(monkeypatch):
@@ -137,5 +140,10 @@ def test_daily_rr_integrity_audit_runtime_snapshots_include_reason_metadata(monk
 
     report = trade_history.get_daily_rr_integrity_audit(include_runtime_snapshots=True)
     assert report["runtime_snapshots"]["adaptive"]["decision_reason"] == "rate_limited"
+    assert report["runtime_snapshots"]["adaptive"]["sample_size"] == 0
     assert report["runtime_snapshots"]["sideways_governor"]["mode"] == "NORMAL"
     assert report["runtime_snapshots"]["win_playbook"]["guardrails_healthy"] is False
+    assert report["runtime_snapshots"]["win_playbook"]["decision_reason"] == "hold"
+    assert "top_tags" in report["runtime_snapshots"]["win_playbook"]
+    assert "runtime_snapshot_quality" in report["explainability"]
+    assert report["explainability"]["runtime_snapshot_quality"]["runtime_snapshots_ok"] is True

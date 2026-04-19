@@ -68,6 +68,14 @@ def _normalized_win_tags(raw_tags: Any, close_reason: str) -> list[str]:
     return ["win_close", reason]
 
 
+def _build_auto_loss_reasoning(close_reason: str, cumulative_pnl: float) -> str:
+    reason = str(close_reason or "").strip().lower() or "unknown"
+    return (
+        f"auto_loss_reason: close_reason={reason}; pnl={float(cumulative_pnl):+.6f}; "
+        "source=structured_fallback"
+    )
+
+
 async def evaluate_and_apply_playbook_risk(
     *,
     signal: Any,
@@ -266,10 +274,8 @@ def build_cumulative_close_update_payload(
 
     if loss_reasoning:
         payload["loss_reasoning"] = str(loss_reasoning)
-    elif cumulative_pnl < 0 and not should_enforce_win_reasoning:
-        payload["loss_reasoning"] = (
-            f"auto_loss_reason: close_reason={close_reason}; pnl={cumulative_pnl:+.6f}"
-        )
+    elif cumulative_pnl <= 0 and not should_enforce_win_reasoning:
+        payload["loss_reasoning"] = _build_auto_loss_reasoning(str(close_reason), cumulative_pnl)
 
     if win_metadata:
         if win_metadata.get("playbook_match_score") is not None:
@@ -327,5 +333,14 @@ def build_cumulative_close_update_payload(
         else:
             payload["win_reasoning"] = build_win_reasoning(trade_ctx)
             payload["win_reason_tags"] = _normalized_win_tags([], str(close_reason))
+
+    if should_enforce_win_reasoning and not list(payload.get("win_reason_tags") or []):
+        payload["win_reason_tags"] = _normalized_win_tags(
+            (win_metadata or {}).get("win_reason_tags"),
+            str(close_reason),
+        )
+
+    if (not should_enforce_win_reasoning) and cumulative_pnl <= 0 and not str(payload.get("loss_reasoning") or "").strip():
+        payload["loss_reasoning"] = _build_auto_loss_reasoning(str(close_reason), cumulative_pnl)
 
     return payload, cumulative_pnl, partial_realized

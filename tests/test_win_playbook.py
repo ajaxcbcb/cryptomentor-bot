@@ -116,3 +116,22 @@ def test_risk_controller_ramps_and_brakes_with_cap(monkeypatch):
     res3 = win_playbook.evaluate_signal_risk(5.0, ["Volume confirmation 2.0x"])
     assert res2["risk_overlay_pct"] <= before
     assert res3["risk_overlay_pct"] <= res2["risk_overlay_pct"]
+
+
+def test_refresh_snapshot_exposes_overlay_action_and_brake_context(monkeypatch):
+    poor_trades = [_mk_trade("closed_sl", -1.0, ["RSI overbought"]) for _ in range(60)]
+    monkeypatch.setattr(win_playbook, "fetch_closed_trades", lambda limit=2500: poor_trades)
+    monkeypatch.setattr(win_playbook.time, "time", lambda: 1_000_000.0)
+
+    with win_playbook._state_lock:
+        win_playbook._state.update({
+            "risk_overlay_pct": 1.0,
+            "last_overlay_update_ts": 0.0,
+            "last_overlay_action": "ramp_up",
+        })
+
+    snapshot = win_playbook.refresh_global_win_playbook_state()
+    assert snapshot["guardrails_healthy"] is False
+    assert snapshot["risk_overlay_pct"] == pytest.approx(0.5)
+    assert snapshot["last_overlay_action"] == "brake_down"
+    assert "updated_at" in snapshot

@@ -49,6 +49,14 @@ def _normalized_win_tags(raw_tags: Any, close_reason: str) -> List[str]:
     return ["win_close", reason]
 
 
+def _build_auto_loss_reasoning(close_reason: str, cumulative_pnl: float) -> str:
+    reason = str(close_reason or "").strip().lower() or "unknown"
+    return (
+        f"auto_loss_reason: close_reason={reason}; pnl={float(cumulative_pnl):+.6f}; "
+        "source=structured_fallback"
+    )
+
+
 def _derive_executed_rr(entry_price: float, sl_price: float, tp_price: float, fallback_rr: float) -> float:
     """
     Derive R:R from the final executed levels.
@@ -292,13 +300,11 @@ def save_trade_close(
         if loss_reasoning:
             update["loss_reasoning"] = loss_reasoning
         elif (
-            float(cumulative_pnl) < 0
+            float(cumulative_pnl) <= 0
             and not should_enforce_win_reasoning
             and not str(update.get("loss_reasoning") or "").strip()
         ):
-            update["loss_reasoning"] = (
-                f"auto_loss_reason: close_reason={close_reason}; pnl={float(cumulative_pnl):+.6f}"
-            )
+            update["loss_reasoning"] = _build_auto_loss_reasoning(close_reason, float(cumulative_pnl))
         if win_metadata:
             if win_metadata.get("playbook_match_score") is not None:
                 update["playbook_match_score"] = float(win_metadata.get("playbook_match_score"))
@@ -329,6 +335,19 @@ def save_trade_close(
                 playbook_score=(win_metadata or {}).get("playbook_match_score"),
             )
             update["win_reason_tags"] = matched_tags
+
+        if should_enforce_win_reasoning and not list(update.get("win_reason_tags") or []):
+            update["win_reason_tags"] = _normalized_win_tags(
+                (win_metadata or {}).get("win_reason_tags"),
+                close_reason,
+            )
+
+        if (
+            (not should_enforce_win_reasoning)
+            and float(cumulative_pnl) <= 0
+            and not str(update.get("loss_reasoning") or "").strip()
+        ):
+            update["loss_reasoning"] = _build_auto_loss_reasoning(close_reason, float(cumulative_pnl))
 
         if partial_realized > 0 and not pnl_is_total:
             logger.info(
@@ -754,7 +773,8 @@ def _fetch_trades_for_window(
     fields = (
         "id,telegram_id,symbol,status,close_reason,trade_type,timeframe,strategy,"
         "entry_price,sl_price,tp_price,tp1_price,rr_ratio,pnl_usdt,"
-        "qty,quantity,original_quantity,remaining_quantity,opened_at,closed_at"
+        "qty,quantity,original_quantity,remaining_quantity,"
+        "win_reasoning,loss_reasoning,opened_at,closed_at"
     )
     rows: List[Dict[str, Any]] = []
     page_size = min(1000, max(200, int(limit)))
@@ -803,6 +823,84 @@ def _summarize_mode_audit(opened_rows: List[Dict[str, Any]], closed_rows: List[D
     }
 
 
+def _parse_iso_utc(raw: Any) -> Optional[datetime]:
+    if not raw:
+        return None
+    try:
+        txt = str(raw)
+        if txt.endswith("Z"):
+            txt = txt[:-1] + "+00:00"
+        dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _seconds_since_iso(raw: Any, *, now_utc: datetime) -> Optional[int]:
+    ts = _parse_iso_utc(raw)
+    if ts is None:
+        return None
+    try:
+        return max(0, int((now_utc - ts).total_seconds()))
+    except Exception:
+        return None
+
+
+def _close_reason_key(row: Dict[str, Any]) -> str:
+    return str(row.get("close_reason") or row.get("status") or "unknown").strip().lower() or "unknown"
+
+
+def _is_expected_winning_close(row: Dict[str, Any]) -> bool:
+    reason = _close_reason_key(row)
+    pnl = _to_float(row.get("pnl_usdt"), 0.0) or 0.0
+    if reason in {"closed_tp", "closed_tp3"}:
+        return True
+    if reason == "closed_flip" and pnl > 0:
+        return True
+    return False
+
+
+def _is_expected_losing_close(row: Dict[str, Any]) -> bool:
+    return (_to_float(row.get("pnl_usdt"), 0.0) or 0.0) < 0 and not _is_expected_winning_close(row)
+
+
+def _summarize_reasoning_coverage(closed_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    winning = [r for r in closed_rows if _is_expected_winning_close(r)]
+    losing = [r for r in closed_rows if _is_expected_losing_close(r)]
+    wins_with_reason = [r for r in winning if str(r.get("win_reasoning") or "").strip()]
+    losses_with_reason = [r for r in losing if str(r.get("loss_reasoning") or "").strip()]
+
+    missing_win: Dict[str, int] = {}
+    for row in winning:
+        if str(row.get("win_reasoning") or "").strip():
+            continue
+        reason = _close_reason_key(row)
+        missing_win[reason] = missing_win.get(reason, 0) + 1
+
+    missing_loss: Dict[str, int] = {}
+    for row in losing:
+        if str(row.get("loss_reasoning") or "").strip():
+            continue
+        reason = _close_reason_key(row)
+        missing_loss[reason] = missing_loss.get(reason, 0) + 1
+
+    win_coverage = (len(wins_with_reason) / len(winning) * 100.0) if winning else 100.0
+    loss_coverage = (len(losses_with_reason) / len(losing) * 100.0) if losing else 100.0
+
+    return {
+        "winning_close_count": len(winning),
+        "winning_close_with_reasoning": len(wins_with_reason),
+        "win_reasoning_coverage_pct": round(win_coverage, 2),
+        "losing_close_count": len(losing),
+        "losing_close_with_reasoning": len(losses_with_reason),
+        "loss_reasoning_coverage_pct": round(loss_coverage, 2),
+        "missing_win_reasoning_by_close_reason": missing_win,
+        "missing_loss_reasoning_by_close_reason": missing_loss,
+    }
+
+
 def get_daily_rr_integrity_audit(
     *,
     day_tz: str = "Asia/Singapore",
@@ -818,8 +916,12 @@ def get_daily_rr_integrity_audit(
     - realized R multiple median (closed rows)
     - close reason mix
     - runtime snapshot reason metadata (adaptive/governor/playbook)
+    - explainability coverage + runtime snapshot quality
     """
     window = _resolve_day_window_utc(day_tz=day_tz, now_utc=now_utc)
+    ref_now_utc = now_utc or datetime.now(timezone.utc)
+    if ref_now_utc.tzinfo is None:
+        ref_now_utc = ref_now_utc.replace(tzinfo=timezone.utc)
     opened_rows = _fetch_trades_for_window(
         time_column="opened_at",
         utc_start=window["utc_start"],
@@ -862,13 +964,23 @@ def get_daily_rr_integrity_audit(
             except Exception:
                 pass
             playbook = get_win_playbook_snapshot() or {}
+            top_tags = [str(t.get("tag")) for t in (playbook.get("active_tags") or [])[:3]]
+            adaptive_updated = adaptive.get("updated_at")
+            playbook_updated = playbook.get("updated_at")
+            overlay_action = str(playbook.get("last_overlay_action") or "hold")
 
             runtime_snapshots = {
                 "adaptive": {
-                    "updated_at": adaptive.get("updated_at"),
+                    "updated_at": adaptive_updated,
                     "decision_reason": adaptive.get("decision_reason"),
                     "conf_delta": int(adaptive.get("conf_delta", 0) or 0),
                     "volume_min_ratio_delta": float(adaptive.get("volume_min_ratio_delta", 0.0) or 0.0),
+                    "sample_size": int(adaptive.get("strategy_sample_size", 0) or 0),
+                    "guardrails_healthy": None,
+                    "risk_overlay_pct": 0.0,
+                    "last_overlay_action": None,
+                    "top_tags": [],
+                    "freshness_seconds": _seconds_since_iso(adaptive_updated, now_utc=ref_now_utc),
                 },
                 "sideways_governor": {
                     "updated_at": governor.get("updated_at"),
@@ -877,17 +989,61 @@ def get_daily_rr_integrity_audit(
                     "sample_size_24h": int(governor.get("sample_size_24h", 0) or 0),
                 },
                 "win_playbook": {
-                    "updated_at": playbook.get("updated_at"),
+                    "updated_at": playbook_updated,
+                    "decision_reason": overlay_action,
                     "guardrails_healthy": bool(playbook.get("guardrails_healthy", False)),
                     "rolling_expectancy": float(playbook.get("rolling_expectancy", 0.0) or 0.0),
                     "rolling_win_rate": float(playbook.get("rolling_win_rate", 0.0) or 0.0),
                     "sample_size": int(playbook.get("sample_size", 0) or 0),
                     "risk_overlay_pct": float(playbook.get("risk_overlay_pct", 0.0) or 0.0),
+                    "last_overlay_action": overlay_action,
+                    "top_tags": top_tags,
                     "active_tag_count": len(playbook.get("active_tags", []) or []),
+                    "freshness_seconds": _seconds_since_iso(playbook_updated, now_utc=ref_now_utc),
                 },
             }
         except Exception as e:
             runtime_snapshots = {"error": str(e)}
+
+    explainability = _summarize_reasoning_coverage(closed_rows)
+    quality: Dict[str, Any] = {
+        "runtime_snapshots_ok": False,
+        "adaptive_required_keys_ok": False,
+        "win_playbook_required_keys_ok": False,
+        "missing_required_keys": [],
+    }
+    if runtime_snapshots and not runtime_snapshots.get("error"):
+        missing_required: List[str] = []
+        adaptive = runtime_snapshots.get("adaptive") or {}
+        playbook = runtime_snapshots.get("win_playbook") or {}
+
+        adaptive_required = ("updated_at", "decision_reason", "sample_size")
+        for key in adaptive_required:
+            if key not in adaptive:
+                missing_required.append(f"adaptive.{key}")
+
+        playbook_required = (
+            "updated_at",
+            "decision_reason",
+            "sample_size",
+            "guardrails_healthy",
+            "risk_overlay_pct",
+            "last_overlay_action",
+            "top_tags",
+        )
+        for key in playbook_required:
+            if key not in playbook:
+                missing_required.append(f"win_playbook.{key}")
+
+        quality = {
+            "runtime_snapshots_ok": len(missing_required) == 0,
+            "adaptive_required_keys_ok": not any(m.startswith("adaptive.") for m in missing_required),
+            "win_playbook_required_keys_ok": not any(m.startswith("win_playbook.") for m in missing_required),
+            "missing_required_keys": missing_required,
+        }
+    elif runtime_snapshots.get("error"):
+        quality["missing_required_keys"] = ["runtime_snapshots.error"]
+    explainability["runtime_snapshot_quality"] = quality
 
     return {
         "day_tz": day_tz,
@@ -903,6 +1059,7 @@ def get_daily_rr_integrity_audit(
         },
         "per_mode": per_mode,
         "runtime_snapshots": runtime_snapshots,
+        "explainability": explainability,
     }
 
 

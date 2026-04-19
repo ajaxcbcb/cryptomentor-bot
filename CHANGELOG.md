@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.2.63] — 2026-04-20 — Self-Learning Explainability Hardening (No Behavior Change)
+
+### 🧠 Explainability Snapshot Standardization
+- Extended read-only runtime snapshot output in `Bismillah/app/trade_history.py` daily audit path:
+  - Adaptive snapshot now includes standardized explainability keys:
+    - `updated_at`, `decision_reason`, `sample_size`, `freshness_seconds`
+  - Win playbook snapshot now includes:
+    - `updated_at`, `decision_reason` (overlay action), `sample_size`,
+    - `guardrails_healthy`, `risk_overlay_pct`, `last_overlay_action`,
+    - compact top-tag context (`top_tags`), `freshness_seconds`
+- Added audit-level `explainability` block with:
+  - win/loss reasoning coverage %
+  - missing reasoning counts by close reason
+  - runtime snapshot quality checks for required explainability keys
+
+### 🗂️ Trade Close Persistence Guarantees
+- Hardened close persistence in:
+  - `Bismillah/app/trade_history.py`
+  - `Bismillah/app/engine_execution_shared.py`
+- Guarantees:
+  - Winning close paths (`closed_tp`, `closed_tp3`, profitable `closed_flip`) always persist non-empty `win_reasoning` and `win_reason_tags`.
+  - Losing/non-winner close paths with non-positive cumulative PnL always persist structured fallback `loss_reasoning` when missing.
+- Structured fallback format now includes source marker:
+  - `source=structured_fallback`
+
+### 📊 Operator Report Visibility
+- Expanded `Bismillah/app/admin_daily_report.py` with learning-controller intent context:
+  - Adaptive decision reason, sample, and freshness.
+  - Win playbook overlay action, freshness, and compact top-tag context.
+  - Win/loss reasoning coverage diagnostics and missing-by-close-reason summaries.
+
+### ✅ Tests
+- Added/updated tests:
+  - `tests/test_win_playbook.py` (overlay brake action visibility in snapshot)
+  - `tests/test_engine_shared_core.py` (winner tag enforcement with manual win reasoning)
+  - `tests/test_trade_history_close_persistence.py` (close persistence guarantees for win/loss reasoning)
+  - `tests/test_trade_history_daily_audit.py` (runtime snapshot standardized keys + explainability block)
+
 ## [2.2.62] — 2026-04-20 — Dynamic Scalping Risk Parity (Full Enforce)
 
 ### ⚖️ Runtime Parity Controller (Scalping vs Swing Effective Risk)
