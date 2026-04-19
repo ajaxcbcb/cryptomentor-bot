@@ -124,6 +124,10 @@ async def send_daily_report(bot):
         from app.handlers_autotrade import get_user_api_keys
         from app.exchange_registry import get_client
         from app.adaptive_confluence import classify_outcome_class, get_adaptive_overrides
+        from app.confidence_adaptation import (
+            get_confidence_adaptation_snapshot,
+            refresh_global_confidence_adaptation_state,
+        )
         from app.win_playbook import refresh_global_win_playbook_state, get_win_playbook_snapshot
 
         s = _client()
@@ -294,6 +298,11 @@ async def send_daily_report(bot):
         except Exception:
             pass
         playbook_snapshot = get_win_playbook_snapshot()
+        try:
+            refresh_global_confidence_adaptation_state()
+        except Exception:
+            pass
+        confidence_adapt_snapshot = get_confidence_adaptation_snapshot()
         overlay_pct = float(playbook_snapshot.get("risk_overlay_pct", 0.0) or 0.0)
         effective_risk_min = min(10.0, 0.25 + overlay_pct)
         effective_risk_max = min(10.0, 5.0 + overlay_pct)
@@ -305,6 +314,28 @@ async def send_daily_report(bot):
             w for w in wins if float(w.get("playbook_match_score") or 0) >= 0.55
         ]
         non_matched_wins = max(0, len(wins) - len(playbook_matched_wins))
+        conf_modes = confidence_adapt_snapshot.get("modes") or {}
+        conf_swing = conf_modes.get("swing") or {}
+        conf_scalp = conf_modes.get("scalping") or {}
+
+        def _fmt_bucket(bucket: dict | None) -> str:
+            if not bucket:
+                return "-"
+            return (
+                f"{bucket.get('bucket', '-')} "
+                f"(n={int(bucket.get('n', 0) or 0)}, edge={float(bucket.get('edge_adj', 0.0) or 0.0):+.3f}, "
+                f"penalty={int(bucket.get('bucket_penalty', 0) or 0)}, "
+                f"scale={float(bucket.get('bucket_risk_scale', 1.0) or 1.0):.2f})"
+            )
+
+        def _fmt_active(active_rows: list, max_rows: int = 4) -> str:
+            rows = list(active_rows or [])[:max_rows]
+            if not rows:
+                return "-"
+            return ", ".join(
+                f"{str(r.get('bucket', '-'))}:p{int(r.get('bucket_penalty', 0) or 0)}/s{float(r.get('bucket_risk_scale', 1.0) or 1.0):.2f}"
+                for r in rows
+            )
 
         # 7-day trend from closed trades
         since_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -388,6 +419,19 @@ async def send_daily_report(bot):
             f"({len(wins_with_reason)}/{len(wins) if wins else 0})\n"
             f"• Playbook-matched wins: <b>{len(playbook_matched_wins)}</b> | "
             f"Non-matched wins: <b>{non_matched_wins}</b>\n\n"
+
+            f"🎚️ <b>CONFIDENCE ADAPTATION (Global)</b>\n"
+            f"• Enabled: <b>{bool(confidence_adapt_snapshot.get('enabled', False))}</b> | "
+            f"lookback=<b>{int(confidence_adapt_snapshot.get('lookback_days', 14) or 14)}d</b> | "
+            f"min_support=<b>{int(confidence_adapt_snapshot.get('min_support', 30) or 30)}</b>\n"
+            f"• Swing sample: <b>{int(conf_swing.get('sample_size', 0) or 0)}</b> | "
+            f"top=<b>{_escape_html(_fmt_bucket(conf_swing.get('top_bucket')))}</b> | "
+            f"worst=<b>{_escape_html(_fmt_bucket(conf_swing.get('worst_bucket')))}</b>\n"
+            f"• Swing active table: <b>{_escape_html(_fmt_active(conf_swing.get('active_adaptations') or []))}</b>\n"
+            f"• Scalping sample: <b>{int(conf_scalp.get('sample_size', 0) or 0)}</b> | "
+            f"top=<b>{_escape_html(_fmt_bucket(conf_scalp.get('top_bucket')))}</b> | "
+            f"worst=<b>{_escape_html(_fmt_bucket(conf_scalp.get('worst_bucket')))}</b>\n"
+            f"• Scalping active table: <b>{_escape_html(_fmt_active(conf_scalp.get('active_adaptations') or []))}</b>\n\n"
         )
 
         # ── 6. Stopped engines with reasoning ────────────────────────

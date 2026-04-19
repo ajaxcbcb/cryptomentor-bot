@@ -40,6 +40,12 @@ from app.engine_runtime_shared import (
     should_stop_engine,
 )
 from app.adaptive_confluence import refresh_global_adaptive_state, get_adaptive_overrides
+from app.confidence_adaptation import (
+    apply_confidence_risk_brake,
+    get_confidence_adaptation,
+    get_confidence_adaptation_snapshot,
+    refresh_global_confidence_adaptation_state,
+)
 from app.sideways_governor import (
     refresh_sideways_governor_state,
     get_sideways_governor_snapshot,
@@ -198,6 +204,11 @@ class ScalpingEngine:
             "guardrails_healthy": False,
         }
         self._win_playbook_next_refresh = 0.0
+        self._confidence_adapt_snapshot: Dict[str, Any] = {
+            "enabled": False,
+            "modes": {"scalping": {"active_adaptations": [], "sample_size": 0}},
+        }
+        self._confidence_adapt_next_refresh = 0.0
 
         # Multi-user symbol coordinator
         self.coordinator = get_coordinator()
@@ -470,6 +481,11 @@ class ScalpingEngine:
                 self._win_playbook_snapshot = await asyncio.to_thread(get_win_playbook_snapshot)
             except Exception as playbook_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial win-playbook load failed: {playbook_err}")
+            try:
+                await asyncio.to_thread(refresh_global_confidence_adaptation_state)
+                self._confidence_adapt_snapshot = await asyncio.to_thread(get_confidence_adaptation_snapshot)
+            except Exception as conf_adapt_err:
+                logger.warning(f"[Scalping:{self.user_id}] Initial confidence adaptation load failed: {conf_adapt_err}")
             if self._mixed_mode:
                 assignments = await get_mixed_pair_assignments(
                     user_id=int(self.user_id),
@@ -505,7 +521,10 @@ class ScalpingEngine:
                         + f"• Adaptive vol delta: {float(self._adaptive_overlay.get('volume_min_ratio_delta', 0.0)):+.2f}\n"
                         + f"• Sideways governor: {str(self._sideways_governor_snapshot.get('mode', 'normal')).upper()}\n"
                         + f"• Win playbook tags: {len(self._win_playbook_snapshot.get('active_tags', []) or [])}\n"
-                        + f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n\n"
+                        + f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n"
+                        + f"• Confidence adaptation: {'ON' if bool(self._confidence_adapt_snapshot.get('enabled', False)) else 'OFF'}\n"
+                        + f"• Confidence active buckets: "
+                        + f"{len((((self._confidence_adapt_snapshot.get('modes') or {}).get('scalping') or {}).get('active_adaptations') or []))}\n\n"
                         + f"Bot will scan for high-probability setups every {self.config.scan_interval} seconds.\n"
                         + "Patience = profit. 🎯"
                     ),
@@ -601,6 +620,25 @@ class ScalpingEngine:
                         )
                     elif playbook_err:
                         logger.warning(f"[Scalping:{self.user_id}] Win playbook refresh failed: {playbook_err}")
+                    self._confidence_adapt_next_refresh, self._confidence_adapt_snapshot, conf_adapt_refreshed, conf_adapt_err = await refresh_runtime_snapshot(
+                        now_ts=now_ts,
+                        next_refresh_ts=self._confidence_adapt_next_refresh,
+                        refresh_fn=refresh_global_confidence_adaptation_state,
+                        snapshot_fn=get_confidence_adaptation_snapshot,
+                        current_snapshot=self._confidence_adapt_snapshot,
+                        interval_sec=600.0,
+                    )
+                    if conf_adapt_refreshed:
+                        mode_state = ((self._confidence_adapt_snapshot.get("modes") or {}).get("scalping") or {})
+                        logger.info(
+                            f"[Scalping:{self.user_id}] Confidence adaptation refreshed — "
+                            f"enabled={bool(self._confidence_adapt_snapshot.get('enabled', False))} "
+                            f"sample={int(mode_state.get('sample_size', 0) or 0)} "
+                            f"active_buckets={len(mode_state.get('active_adaptations', []) or [])} "
+                            f"top={((mode_state.get('top_bucket') or {}).get('bucket') or '-')}"
+                        )
+                    elif conf_adapt_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Confidence adaptation refresh failed: {conf_adapt_err}")
                     if now_ts >= self._sideways_hourly_kpi_next:
                         policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
                         logger.info(
@@ -1607,9 +1645,22 @@ class ScalpingEngine:
         """
         from app.trading_mode import MicroScalpSignal as _MicroScalpSignal
         is_sideways = isinstance(signal, _MicroScalpSignal)
+        is_emergency = bool(getattr(signal, "is_emergency", False))
         sideways_policy = get_sideways_entry_overrides(self._sideways_governor_snapshot)
         conf_delta = int(self._adaptive_overlay.get("conf_delta", 0) or 0)
         vol_delta = float(self._adaptive_overlay.get("volume_min_ratio_delta", 0.0) or 0.0)
+        conf_adapt = get_confidence_adaptation(
+            mode="scalping",
+            confidence=float(getattr(signal, "confidence", 0.0) or 0.0),
+            is_emergency=is_emergency,
+            snapshot=self._confidence_adapt_snapshot,
+        )
+        setattr(signal, "confidence_bucket", str(conf_adapt.get("bucket", "")))
+        setattr(signal, "confidence_bucket_penalty", int(conf_adapt.get("bucket_penalty", 0) or 0))
+        setattr(signal, "confidence_bucket_risk_scale", float(conf_adapt.get("bucket_risk_scale", 1.0) or 1.0))
+        setattr(signal, "confidence_bucket_edge_adj", float(conf_adapt.get("edge_adj", 0.0) or 0.0))
+        setattr(signal, "confidence_bucket_sample_size", int(conf_adapt.get("bucket_sample_size", 0) or 0))
+        setattr(signal, "confidence_adapt_reason", str(conf_adapt.get("reason", "")))
 
         # Check confidence
         min_conf_pct = max(0.0, min(100.0, (self.config.min_confidence * 100.0) + conf_delta))
@@ -1621,11 +1672,20 @@ class ScalpingEngine:
                     min_conf_pct + int(sideways_policy.get("sideways_confidence_bonus", 0) or 0),
                 ),
             )
+        min_conf_pct = max(
+            0.0,
+            min(100.0, min_conf_pct + int(conf_adapt.get("bucket_penalty", 0) or 0)),
+        )
+        setattr(signal, "confidence_effective_min_conf", float(min_conf_pct))
         if signal.confidence < min_conf_pct:
             logger.debug(
                 f"[Scalping:{self.user_id}] Signal rejected: "
                 f"Confidence {signal.confidence}% < {min_conf_pct}% "
-                f"(adaptive conf_delta={conf_delta})"
+                f"(adaptive conf_delta={conf_delta}, trade_type=scalping "
+                f"conf_bucket={conf_adapt.get('bucket')} "
+                f"bucket_penalty={int(conf_adapt.get('bucket_penalty', 0) or 0)} "
+                f"bucket_risk_scale={float(conf_adapt.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                f"edge_adj={float(conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f})"
             )
             return False
         
@@ -1697,7 +1757,16 @@ class ScalpingEngine:
         if self._circuit_breaker_triggered():
             logger.warning(f"[Scalping:{self.user_id}] Signal rejected: Circuit breaker triggered")
             return False
-        
+        logger.info(
+            f"[Scalping:{self.user_id}] Entry gate passed "
+            f"trade_type=scalping symbol={signal.symbol} conf={float(signal.confidence):.2f} "
+            f"min_conf={float(getattr(signal, 'confidence_effective_min_conf', 0.0)):.2f} "
+            f"conf_bucket={str(getattr(signal, 'confidence_bucket', '-'))} "
+            f"bucket_penalty={int(getattr(signal, 'confidence_bucket_penalty', 0) or 0)} "
+            f"bucket_risk_scale={float(getattr(signal, 'confidence_bucket_risk_scale', 1.0) or 1.0):.2f} "
+            f"edge_adj={float(getattr(signal, 'confidence_bucket_edge_adj', 0.0) or 0.0):+.4f} "
+            f"is_emergency={is_emergency}"
+        )
         return True
     
     def _circuit_breaker_triggered(self) -> bool:
@@ -1809,17 +1878,28 @@ class ScalpingEngine:
                     logger=logger,
                     label=f"[Scalping:{self.user_id}] {signal.symbol}",
                 )
-                effective_risk_pct = float(risk_eval.get("effective_risk_pct", 1.0))
+                playbook_effective_risk_pct = float(risk_eval.get("effective_risk_pct", 1.0))
                 risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
                 playbook_match_score = float(risk_eval.get("playbook_match_score", 0.0))
                 playbook_match_tags = list(risk_eval.get("playbook_match_tags", []))
+                confidence_risk_scale = float(getattr(signal, "confidence_bucket_risk_scale", 1.0) or 1.0)
+                confidence_bucket = str(getattr(signal, "confidence_bucket", "-") or "-")
+                confidence_edge_adj = float(getattr(signal, "confidence_bucket_edge_adj", 0.0) or 0.0)
+                effective_risk_pct = apply_confidence_risk_brake(
+                    playbook_effective_risk_pct=playbook_effective_risk_pct,
+                    bucket_risk_scale=confidence_risk_scale,
+                )
+                setattr(signal, "effective_risk_pct", effective_risk_pct)
+                setattr(signal, "risk_overlay_pct", risk_overlay_pct)
                 setattr(signal, "base_risk_pct", base_risk_pct)
                 logger.info(
                     f"[Scalping:{self.user_id}] Win playbook eval {signal.symbol} — "
                     f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
                     f"guardrails={bool(risk_eval.get('guardrails_healthy', False))} "
-                    f"overlay={risk_overlay_pct:.2f}% -> effective_risk={effective_risk_pct:.2f}% "
-                    f"action={risk_eval.get('overlay_action')}"
+                    f"overlay={risk_overlay_pct:.2f}% -> playbook_risk={playbook_effective_risk_pct:.2f}% "
+                    f"conf_bucket={confidence_bucket} conf_scale={confidence_risk_scale:.2f} "
+                    f"edge_adj={confidence_edge_adj:+.4f} -> final_effective_risk={effective_risk_pct:.2f}% "
+                    f"action={risk_eval.get('overlay_action')} trade_type=scalping"
                 )
                 
                 # CRITICAL: Calculate position size based on risk (Phase 2)

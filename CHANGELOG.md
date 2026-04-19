@@ -1,5 +1,92 @@
 # Changelog
 
+## [2.2.57] — 2026-04-19 — Confidence Correlation Adaptive Handling (Swing + Scalping)
+
+### 🎚️ Mode-Aware Confidence Adaptation
+- Added new module: `Bismillah/app/confidence_adaptation.py`
+  - Global mode-aware confidence calibrator for `swing` and `scalping`.
+  - 5-point confidence buckets (`70–74` … `95–99`) with bucket edge scoring:
+    - `edge_score = 0.6*(avg_pnl_bucket / median_abs_loss_mode) + 0.3*(win_rate_bucket - win_rate_mode) - 0.1*(timeout_rate_bucket - timeout_rate_mode)`
+    - support shrinkage: `edge_adj = edge_score * min(1.0, n_bucket / 30)`.
+  - Outcome policy:
+    - include: `strategy_win`, `strategy_loss`, `timeout_exit`
+    - exclude: ops/reconcile closures.
+  - Runtime helpers added:
+    - `refresh_global_confidence_adaptation_state()`
+    - `get_confidence_adaptation(mode, confidence, is_emergency=False)`
+    - `get_confidence_adaptation_snapshot()`
+  - Runtime risk brake helper:
+    - `apply_confidence_risk_brake(playbook_effective_risk_pct, bucket_risk_scale)`
+    - invariant: never increases risk above playbook effective risk.
+
+### ⚙️ Engine Integration (Full-Enforce, Both Modes)
+- Updated `Bismillah/app/autotrade_engine.py`:
+  - Added 10-minute confidence adaptation refresh lifecycle.
+  - Swing candidate gating now applies per-bucket confidence penalty.
+  - Emergency swing path applies emergency cap/floor behavior (`penalty cap`, `risk scale floor`).
+  - Swing entry and flip risk sizing now apply confidence risk brake after playbook effective risk.
+  - Added structured logs for confidence-gate rejections and entry/risk decisions with:
+    - `trade_type`, `conf_bucket`, `bucket_penalty`, `bucket_risk_scale`, `edge_adj`.
+- Updated `Bismillah/app/scalping_engine.py`:
+  - Added initial + 10-minute confidence adaptation snapshot refresh.
+  - Scalping entry validation applies bucket penalty on min-confidence gate.
+  - Scalping order sizing applies confidence risk brake on top of playbook effective risk.
+  - Added structured logs for gate reject/pass and final risk path with confidence metadata.
+
+### 📊 Admin Observability
+- Updated `Bismillah/app/admin_daily_report.py`:
+  - Added `CONFIDENCE ADAPTATION (Global)` section:
+    - enabled state, lookback/min-support config,
+    - per-mode sample size,
+    - top/worst bucket summary,
+    - active adaptation table (bucket penalty/risk-scale pairs).
+
+### 🧪 Tests
+- Added `Bismillah/tests/test_confidence_adaptation.py` covering:
+  - bucket assignment + edge mapping,
+  - low-support shrinkage/neutral behavior,
+  - outcome filtering (ops excluded, timeout included),
+  - risk brake invariants,
+  - emergency cap/floor behavior.
+- Validation commands:
+  - `python -m py_compile Bismillah/app/confidence_adaptation.py Bismillah/app/scalping_engine.py Bismillah/app/autotrade_engine.py Bismillah/app/admin_daily_report.py`
+  - `python -m unittest discover -s tests -p "test_*.py"` (run from `Bismillah/`)
+
+## [2.2.56] — 2026-04-19 — Verified API-Issue Recovery Broadcast (Missing + Invalid Keys)
+
+### 📢 Targeted Telegram Campaign Tooling
+- Added new campaign script: `scripts/broadcast_api_issue_verified.py`
+  - Audience normalization:
+    - Approved aliases: `approved`, `uid_verified`, `active`, `verified`
+    - Source priority: `user_verifications` first, `autotrade_sessions` fallback when verification row missing
+  - Target policy: verified users in `users` table with:
+    - missing Bitunix API material, or
+    - invalid API (`decrypt` failure / Bitunix `check_connection` failure or timeout)
+  - CTA: one-click tokenized dashboard URL via `app.lib.auth.generate_dashboard_url(...)`
+  - Modes:
+    - `--mode dry-run`
+    - `--mode test-admin`
+    - `--mode full-send`
+  - Required campaign metrics emitted:
+    - `TOTAL_TARGET`, `SENT`, `FAILED`, `BLOCKED_OR_FORBIDDEN`
+  - Run artifacts persisted:
+    - JSON + CSV logs under `logs/`
+
+### 🧾 Campaign Execution (VPS)
+- Rollout executed in sequence:
+  1. `dry-run`
+  2. `test-admin`
+  3. `full-send`
+- Resolved audience:
+  - `TOTAL_TARGET=7` (`6` missing API + `1` invalid token)
+- Full-send outcome:
+  - `SENT=5`
+  - `FAILED=0`
+  - `BLOCKED_OR_FORBIDDEN=2`
+- Campaign logs:
+  - `/root/cryptomentor-bot/logs/api_issue_broadcast_20260418T182538Z_full-send.json`
+  - `/root/cryptomentor-bot/logs/api_issue_broadcast_20260418T182538Z_full-send.csv`
+
 ## [2.2.55] — 2026-04-19 — Web Mode Switch Dependency Guard (`telegram` import)
 
 ### 🧩 Runtime Dependency Fix (Web API)

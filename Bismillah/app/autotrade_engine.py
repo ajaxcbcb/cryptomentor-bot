@@ -1916,6 +1916,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         get_sideways_governor_snapshot,
         resolve_dynamic_max_hold_seconds,
     )
+    from app.confidence_adaptation import (
+        apply_confidence_risk_brake,
+        get_confidence_adaptation,
+        get_confidence_adaptation_snapshot,
+        refresh_global_confidence_adaptation_state,
+    )
 
     # Get exchange-specific client
     ex_cfg = get_exchange(exchange_id)
@@ -2115,6 +2121,16 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         "guardrails_healthy": False,
     }
     win_playbook_next_refresh_ts = 0.0
+    confidence_adapt_state: Dict[str, Any] = {
+        "enabled": False,
+        "modes": {"swing": {"sample_size": 0, "active_adaptations": []}},
+    }
+    confidence_adapt_next_refresh_ts = 0.0
+    try:
+        await asyncio.to_thread(refresh_global_confidence_adaptation_state)
+        confidence_adapt_state = await asyncio.to_thread(get_confidence_adaptation_snapshot)
+    except Exception as conf_bootstrap_err:
+        logger.warning(f"[Engine:{user_id}] Initial confidence adaptation load failed: {conf_bootstrap_err}")
 
     logger.info(
         f"[Engine:{user_id}] PRO ENGINE STARTED — symbols_mode=dynamic_top10_volume "
@@ -2146,7 +2162,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     f"🧠 Adaptive vol delta: <b>{float(adaptive_state.get('volume_min_ratio_delta', 0.0)):+.2f}</b>\n"
                     f"🛡️ Sideways governor mode: <b>{str(sideways_governor_state.get('mode', 'normal')).upper()}</b>\n"
                     f"🏆 Win playbook tags: <b>{len(win_playbook_state.get('active_tags', []) or [])}</b>\n"
-                    f"⚡ Runtime risk overlay: <b>{float(win_playbook_state.get('risk_overlay_pct', 0.0)):+.2f}%</b>\n\n"
+                    f"⚡ Runtime risk overlay: <b>{float(win_playbook_state.get('risk_overlay_pct', 0.0)):+.2f}%</b>\n"
+                    f"🎚️ Confidence adaptation: <b>{'ON' if bool(confidence_adapt_state.get('enabled', False)) else 'OFF'}</b>\n\n"
                     "High-probability setups only. Risk per trade: fixed dollar amount."
                 ),
                 parse_mode='HTML',
@@ -2200,6 +2217,26 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 )
             elif playbook_err:
                 logger.warning(f"[Engine:{user_id}] Win playbook refresh failed, using last snapshot: {playbook_err}")
+
+            confidence_adapt_next_refresh_ts, confidence_adapt_state, conf_adapt_refreshed, conf_adapt_err = await refresh_runtime_snapshot(
+                now_ts=now_ts,
+                next_refresh_ts=confidence_adapt_next_refresh_ts,
+                refresh_fn=refresh_global_confidence_adaptation_state,
+                snapshot_fn=get_confidence_adaptation_snapshot,
+                current_snapshot=confidence_adapt_state,
+                interval_sec=600.0,
+            )
+            if conf_adapt_refreshed:
+                mode_state = ((confidence_adapt_state.get("modes") or {}).get("swing") or {})
+                logger.info(
+                    f"[Engine:{user_id}] Confidence adaptation refreshed — "
+                    f"enabled={bool(confidence_adapt_state.get('enabled', False))} "
+                    f"sample={int(mode_state.get('sample_size', 0) or 0)} "
+                    f"active_buckets={len(mode_state.get('active_adaptations', []) or [])} "
+                    f"top={((mode_state.get('top_bucket') or {}).get('bucket') or '-')}"
+                )
+            elif conf_adapt_err:
+                logger.warning(f"[Engine:{user_id}] Confidence adaptation refresh failed, using last snapshot: {conf_adapt_err}")
 
             sideways_governor_next_refresh_ts, sideways_governor_state, governor_refreshed, governor_err = await refresh_runtime_snapshot(
                 now_ts=now_ts,
@@ -2756,6 +2793,43 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
                     if not rev_sig or not _is_reversal(pos_side, rev_sig, rev_sig.get("btc_is_sideways", False)):
                         continue
+                    flip_conf_adapt = get_confidence_adaptation(
+                        mode="swing",
+                        confidence=float(rev_sig.get("confidence", 0.0) or 0.0),
+                        is_emergency=False,
+                        snapshot=confidence_adapt_state,
+                    )
+                    flip_base_min_conf = (
+                        FLIP_MIN_CONFIDENCE_SIDEWAYS
+                        if bool(rev_sig.get("btc_is_sideways", False))
+                        else FLIP_MIN_CONFIDENCE
+                    )
+                    flip_effective_min_conf = int(
+                        max(
+                            0,
+                            min(
+                                100,
+                                int(flip_base_min_conf)
+                                + int(flip_conf_adapt.get("bucket_penalty", 0) or 0),
+                            ),
+                        )
+                    )
+                    if float(rev_sig.get("confidence", 0) or 0) < float(flip_effective_min_conf):
+                        logger.info(
+                            f"[Engine:{user_id}] Flip rejected by confidence adaptation "
+                            f"trade_type=swing symbol={pos_symbol} conf={float(rev_sig.get('confidence', 0) or 0):.2f} "
+                            f"min_conf={float(flip_effective_min_conf):.2f} "
+                            f"conf_bucket={flip_conf_adapt.get('bucket')} "
+                            f"bucket_penalty={int(flip_conf_adapt.get('bucket_penalty', 0) or 0)} "
+                            f"bucket_risk_scale={float(flip_conf_adapt.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                            f"edge_adj={float(flip_conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f}"
+                        )
+                        continue
+                    rev_sig["confidence_bucket"] = str(flip_conf_adapt.get("bucket", ""))
+                    rev_sig["confidence_bucket_penalty"] = int(flip_conf_adapt.get("bucket_penalty", 0) or 0)
+                    rev_sig["confidence_bucket_risk_scale"] = float(flip_conf_adapt.get("bucket_risk_scale", 1.0) or 1.0)
+                    rev_sig["confidence_bucket_edge_adj"] = float(flip_conf_adapt.get("edge_adj", 0.0) or 0.0)
+                    rev_sig["confidence_effective_min_conf"] = float(flip_effective_min_conf)
 
                     # ── CHoCH terdeteksi — eksekusi flip ─────────────
                     new_side    = rev_sig["side"]
@@ -2826,10 +2900,27 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         logger=logger,
                         label=f"[Engine:{user_id}] Flip",
                     )
-                    flip_effective_risk_pct = float(flip_risk_eval.get("effective_risk_pct", user_risk_pct))
+                    flip_playbook_effective_risk_pct = float(flip_risk_eval.get("effective_risk_pct", user_risk_pct))
                     flip_risk_overlay_pct = float(flip_risk_eval.get("risk_overlay_pct", 0.0))
                     flip_playbook_score = float(flip_risk_eval.get("playbook_match_score", 0.0))
                     flip_playbook_tags = list(flip_risk_eval.get("playbook_match_tags", []))
+                    flip_conf_scale = float(rev_sig.get("confidence_bucket_risk_scale", 1.0) or 1.0)
+                    flip_effective_risk_pct = apply_confidence_risk_brake(
+                        playbook_effective_risk_pct=flip_playbook_effective_risk_pct,
+                        bucket_risk_scale=flip_conf_scale,
+                    )
+                    rev_sig["effective_risk_pct"] = float(flip_effective_risk_pct)
+                    rev_sig["risk_overlay_pct"] = float(flip_risk_overlay_pct)
+                    logger.info(
+                        f"[Engine:{user_id}] Flip risk eval — "
+                        f"score={flip_playbook_score:.3f} tags={flip_playbook_tags[:3]} "
+                        f"overlay={flip_risk_overlay_pct:.2f}% -> playbook_risk={flip_playbook_effective_risk_pct:.2f}% "
+                        f"trade_type=swing conf_bucket={rev_sig.get('confidence_bucket', '-')} "
+                        f"conf_scale={flip_conf_scale:.2f} "
+                        f"edge_adj={float(rev_sig.get('confidence_bucket_edge_adj', 0.0) or 0.0):+.4f} "
+                        f"-> final_effective_risk={flip_effective_risk_pct:.2f}% "
+                        f"action={flip_risk_eval.get('overlay_action')}"
+                    )
                     flip_qty, _ = await calc_qty_with_risk(
                         pos_symbol,
                         new_entry,
@@ -3071,7 +3162,25 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         adaptive_state,
                         user_id,
                     )
-                    if sig and sig.get('confidence', 0) >= min_conf_scan:
+                    if sig:
+                        conf_adapt = get_confidence_adaptation(
+                            mode="swing",
+                            confidence=float(sig.get("confidence", 0.0) or 0.0),
+                            is_emergency=False,
+                            snapshot=confidence_adapt_state,
+                        )
+                        bucket_penalty = int(conf_adapt.get("bucket_penalty", 0) or 0)
+                        min_conf_effective = int(max(0, min(100, min_conf_scan + bucket_penalty)))
+                        if float(sig.get('confidence', 0) or 0) < float(min_conf_effective):
+                            logger.info(
+                                f"[Engine:{user_id}] Candidate rejected by confidence gate "
+                                f"trade_type=swing symbol={sym} conf={float(sig.get('confidence', 0) or 0):.2f} "
+                                f"min_conf={float(min_conf_effective):.2f} conf_bucket={conf_adapt.get('bucket')} "
+                                f"bucket_penalty={bucket_penalty} "
+                                f"bucket_risk_scale={float(conf_adapt.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                                f"edge_adj={float(conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f}"
+                            )
+                            continue
                         if not _passes_swing_confirmation_gate(user_id, sig, cfg):
                             continue
                         match_meta = await asyncio.to_thread(
@@ -3082,11 +3191,20 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
                         sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
                         sig["is_emergency"] = False
+                        sig["confidence_bucket"] = str(conf_adapt.get("bucket", ""))
+                        sig["confidence_bucket_penalty"] = int(conf_adapt.get("bucket_penalty", 0) or 0)
+                        sig["confidence_bucket_risk_scale"] = float(conf_adapt.get("bucket_risk_scale", 1.0) or 1.0)
+                        sig["confidence_bucket_edge_adj"] = float(conf_adapt.get("edge_adj", 0.0) or 0.0)
+                        sig["confidence_effective_min_conf"] = float(min_conf_effective)
                         sig["_volume_rank"] = volume_rank.get(sym, 9999)
                         candidates.append(sig)
                         logger.info(f"[Engine:{user_id}] Candidate: {sym} {sig['side']} "
                                     f"conf={sig['confidence']}% RR={sig['rr_ratio']} rank={sig['_volume_rank']} "
-                                    f"playbook={sig.get('playbook_match_score', 0.0):.3f}"
+                                    f"playbook={sig.get('playbook_match_score', 0.0):.3f} "
+                                    f"trade_type=swing conf_bucket={sig.get('confidence_bucket')} "
+                                    f"bucket_penalty={sig.get('confidence_bucket_penalty', 0)} "
+                                    f"bucket_risk_scale={float(sig.get('confidence_bucket_risk_scale', 1.0) or 1.0):.2f} "
+                                    f"edge_adj={float(sig.get('confidence_bucket_edge_adj', 0.0) or 0.0):+.4f}"
                                     f"{' [SIDEWAYS]' if sig.get('btc_is_sideways') else ''}")
                 except Exception as e:
                     logger.warning(f"[Engine:{user_id}] Scan error {sym}: {e}")
@@ -3107,6 +3225,32 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             )
                             if not emer_sig:
                                 continue
+                            conf_adapt = get_confidence_adaptation(
+                                mode="swing",
+                                confidence=float(emer_sig.get("confidence", 0.0) or 0.0),
+                                is_emergency=True,
+                                snapshot=confidence_adapt_state,
+                            )
+                            emergency_base_min = max(0, min(100, int(cfg.get("swing_emergency_min_confidence", 50) or 50)))
+                            min_conf_effective = int(
+                                max(
+                                    0,
+                                    min(
+                                        100,
+                                        emergency_base_min + int(conf_adapt.get("bucket_penalty", 0) or 0),
+                                    ),
+                                )
+                            )
+                            if float(emer_sig.get("confidence", 0) or 0) < float(min_conf_effective):
+                                logger.info(
+                                    f"[Engine:{user_id}] Emergency candidate rejected by confidence gate "
+                                    f"trade_type=swing symbol={sym} conf={float(emer_sig.get('confidence', 0) or 0):.2f} "
+                                    f"min_conf={float(min_conf_effective):.2f} conf_bucket={conf_adapt.get('bucket')} "
+                                    f"bucket_penalty={int(conf_adapt.get('bucket_penalty', 0) or 0)} "
+                                    f"bucket_risk_scale={float(conf_adapt.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                                    f"edge_adj={float(conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f}"
+                                )
+                                continue
                             if not _passes_swing_confirmation_gate(user_id, emer_sig, cfg):
                                 continue
                             match_meta = await asyncio.to_thread(
@@ -3116,6 +3260,11 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             )
                             emer_sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
                             emer_sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
+                            emer_sig["confidence_bucket"] = str(conf_adapt.get("bucket", ""))
+                            emer_sig["confidence_bucket_penalty"] = int(conf_adapt.get("bucket_penalty", 0) or 0)
+                            emer_sig["confidence_bucket_risk_scale"] = float(conf_adapt.get("bucket_risk_scale", 1.0) or 1.0)
+                            emer_sig["confidence_bucket_edge_adj"] = float(conf_adapt.get("edge_adj", 0.0) or 0.0)
+                            emer_sig["confidence_effective_min_conf"] = float(min_conf_effective)
                             emer_sig["_volume_rank"] = volume_rank.get(sym, 9999)
                             emergency_candidates.append(emer_sig)
                         except Exception as emergency_err:
@@ -3308,15 +3457,26 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 logger=logger,
                 label=f"[Engine:{user_id}] {symbol}",
             )
-            effective_risk_pct = float(risk_eval.get("effective_risk_pct", user_risk_pct))
+            playbook_effective_risk_pct = float(risk_eval.get("effective_risk_pct", user_risk_pct))
             risk_overlay_pct = float(risk_eval.get("risk_overlay_pct", 0.0))
             playbook_match_score = float(risk_eval.get("playbook_match_score", sig.get("playbook_match_score", 0.0)))
             playbook_match_tags = list(risk_eval.get("playbook_match_tags", sig.get("playbook_match_tags", [])))
+            confidence_risk_scale = float(sig.get("confidence_bucket_risk_scale", 1.0) or 1.0)
+            confidence_bucket = str(sig.get("confidence_bucket", "-") or "-")
+            confidence_edge_adj = float(sig.get("confidence_bucket_edge_adj", 0.0) or 0.0)
+            effective_risk_pct = apply_confidence_risk_brake(
+                playbook_effective_risk_pct=playbook_effective_risk_pct,
+                bucket_risk_scale=confidence_risk_scale,
+            )
+            sig["effective_risk_pct"] = float(effective_risk_pct)
+            sig["risk_overlay_pct"] = float(risk_overlay_pct)
             logger.info(
                 f"[Engine:{user_id}] Win playbook eval {symbol} — "
                 f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
                 f"guardrails={bool(risk_eval.get('guardrails_healthy', False))} "
-                f"overlay={risk_overlay_pct:.2f}% -> effective_risk={effective_risk_pct:.2f}% "
+                f"overlay={risk_overlay_pct:.2f}% -> playbook_risk={playbook_effective_risk_pct:.2f}% "
+                f"trade_type=swing conf_bucket={confidence_bucket} conf_scale={confidence_risk_scale:.2f} "
+                f"edge_adj={confidence_edge_adj:+.4f} -> final_effective_risk={effective_risk_pct:.2f}% "
                 f"action={risk_eval.get('overlay_action')}"
             )
 
