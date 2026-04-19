@@ -31,8 +31,12 @@ from app.engine_execution_shared import (
     format_and_emit_order_open_risk_audit,
 )
 from app.engine_runtime_shared import (
+    apply_scalping_confidence_relief,
+    get_scalping_risk_parity_controls,
+    get_scalping_risk_parity_snapshot,
     get_top_volume_pairs,
     is_ttl_cooldown_active as _shared_is_ttl_cooldown_active,
+    refresh_scalping_risk_parity_state,
     refresh_runtime_snapshot,
     sanitize_startup_pending_locks,
     set_ttl_cooldown as _shared_set_ttl_cooldown,
@@ -222,6 +226,16 @@ class ScalpingEngine:
             "modes": {"scalping": {"active_adaptations": [], "sample_size": 0}},
         }
         self._confidence_adapt_next_refresh = 0.0
+        self._scalp_risk_parity_snapshot: Dict[str, Any] = {
+            "enabled": False,
+            "regime": "disabled",
+            "ratio": 1.0,
+            "controls": {
+                "time_profile": {"best": 1.0, "good": 0.7, "neutral": 0.5, "avoid": 0.0},
+                "cap_pct": 0.50,
+            },
+        }
+        self._scalp_risk_parity_next_refresh = 0.0
         self._stale_reconcile_enabled = bool(STALE_RECONCILE_ENABLED)
         self._stale_reconcile_interval_seconds = int(SCALPING_STALE_RECONCILE_INTERVAL_SECONDS)
         self._stale_reconcile_jit_on_capacity = bool(STALE_RECONCILE_JIT_ON_CAPACITY)
@@ -590,6 +604,11 @@ class ScalpingEngine:
                 self._confidence_adapt_snapshot = await asyncio.to_thread(get_confidence_adaptation_snapshot)
             except Exception as conf_adapt_err:
                 logger.warning(f"[Scalping:{self.user_id}] Initial confidence adaptation load failed: {conf_adapt_err}")
+            try:
+                await asyncio.to_thread(refresh_scalping_risk_parity_state)
+                self._scalp_risk_parity_snapshot = await asyncio.to_thread(get_scalping_risk_parity_snapshot)
+            except Exception as risk_parity_err:
+                logger.warning(f"[Scalping:{self.user_id}] Initial risk parity load failed: {risk_parity_err}")
             if self._mixed_mode:
                 assignments = await get_mixed_pair_assignments(
                     user_id=int(self.user_id),
@@ -628,7 +647,9 @@ class ScalpingEngine:
                         + f"• Runtime risk overlay: {float(self._win_playbook_snapshot.get('risk_overlay_pct', 0.0)):+.2f}%\n"
                         + f"• Confidence adaptation: {'ON' if bool(self._confidence_adapt_snapshot.get('enabled', False)) else 'OFF'}\n"
                         + f"• Confidence active buckets: "
-                        + f"{len((((self._confidence_adapt_snapshot.get('modes') or {}).get('scalping') or {}).get('active_adaptations') or []))}\n\n"
+                        + f"{len((((self._confidence_adapt_snapshot.get('modes') or {}).get('scalping') or {}).get('active_adaptations') or []))}\n"
+                        + f"• Risk parity regime: {str(self._scalp_risk_parity_snapshot.get('regime', 'disabled')).upper()} "
+                        + f"(ratio={float(self._scalp_risk_parity_snapshot.get('ratio', 1.0) or 1.0):.3f})\n\n"
                         + f"Bot will scan for high-probability setups every {self.config.scan_interval} seconds.\n"
                         + "Patience = profit. 🎯"
                     ),
@@ -743,6 +764,27 @@ class ScalpingEngine:
                         )
                     elif conf_adapt_err:
                         logger.warning(f"[Scalping:{self.user_id}] Confidence adaptation refresh failed: {conf_adapt_err}")
+                    self._scalp_risk_parity_next_refresh, self._scalp_risk_parity_snapshot, parity_refreshed, parity_err = await refresh_runtime_snapshot(
+                        now_ts=now_ts,
+                        next_refresh_ts=self._scalp_risk_parity_next_refresh,
+                        refresh_fn=refresh_scalping_risk_parity_state,
+                        snapshot_fn=get_scalping_risk_parity_snapshot,
+                        current_snapshot=self._scalp_risk_parity_snapshot,
+                        interval_sec=600.0,
+                    )
+                    if parity_refreshed:
+                        parity_controls = get_scalping_risk_parity_controls(self._scalp_risk_parity_snapshot)
+                        logger.info(
+                            f"[Scalping:{self.user_id}] Risk parity refreshed — "
+                            f"enabled={bool(parity_controls.get('enabled', False))} "
+                            f"regime={parity_controls.get('regime')} "
+                            f"ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f} "
+                            f"target={float(parity_controls.get('target_min', 0.85) or 0.85):.2f}-"
+                            f"{float(parity_controls.get('target_max', 1.0) or 1.0):.2f} "
+                            f"cap_pct={float(parity_controls.get('cap_pct', 0.50) or 0.50):.2f}"
+                        )
+                    elif parity_err:
+                        logger.warning(f"[Scalping:{self.user_id}] Risk parity refresh failed: {parity_err}")
 
                     if self._stale_reconcile_enabled and now_ts >= float(self._stale_reconcile_next_ts or 0.0):
                         await self._run_stale_reconcile("periodic")
@@ -1534,6 +1576,23 @@ class ScalpingEngine:
         self.signal_streaks.pop(symbol, None)
         return True
 
+    @staticmethod
+    def _effective_risk_pct_from_qty(
+        *,
+        entry_price: float,
+        sl_price: float,
+        quantity: float,
+        equity: float,
+    ) -> float:
+        try:
+            eq = float(equity or 0.0)
+            if eq <= 0:
+                return 0.0
+            risk_amount = abs(float(entry_price) - float(sl_price)) * max(0.0, float(quantity or 0.0))
+            return max(0.0, (risk_amount / eq) * 100.0)
+        except Exception:
+            return 0.0
+
     def calculate_position_size_pro(
         self,
         symbol: str,
@@ -1542,6 +1601,7 @@ class ScalpingEngine:
         capital: float,
         leverage: int,
         effective_risk_pct_override: Optional[float] = None,
+        notional_cap_pct: Optional[float] = None,
     ) -> tuple:
         """
         Calculate position size based on risk % per trade (PRO TRADER METHOD)
@@ -1555,7 +1615,7 @@ class ScalpingEngine:
             leverage: Leverage multiplier (will be capped at 10x for scalping)
             
         Returns:
-            (position_size, used_risk_sizing): tuple of (quantity, whether risk sizing was used)
+            (position_size, used_risk_sizing, sizing_meta)
         """
         try:
             # Auto Max-Safe leverage is passed in from caller
@@ -1578,17 +1638,17 @@ class ScalpingEngine:
             available = float(acc_result.get('available', 0) or 0)
             frozen = float(acc_result.get('frozen', 0) or 0)
             unrealized = float(acc_result.get('total_unrealized_pnl', 0) or 0)
-            balance = available + frozen + unrealized
-            if balance <= 0:
+            equity = available + frozen + unrealized
+            if equity <= 0:
                 raise Exception(
                     f"Invalid equity: available={available:.2f} + frozen={frozen:.2f} + "
-                    f"unrealized={unrealized:.2f} = {balance:.2f}"
+                    f"unrealized={unrealized:.2f} = {equity:.2f}"
                 )
             
             # Calculate position size using risk-based formula
             from app.position_sizing import calculate_position_size
             sizing = calculate_position_size(
-                balance=balance,
+                balance=equity,
                 risk_pct=risk_pct,
                 entry_price=entry_price,
                 sl_price=sl_price,
@@ -1603,29 +1663,48 @@ class ScalpingEngine:
             
             # SAFETY CHECK: Ensure position size is reasonable
             position_value = qty * entry_price
-            max_position_value = balance * 0.5  # Max 50% of balance per trade
+            cap_pct = max(0.10, min(float(notional_cap_pct or 0.50), 1.00))
+            max_position_value = equity * cap_pct
+            cap_hit = False
             
             if position_value > max_position_value:
                 logger.warning(
                     f"[Scalping:{self.user_id}] Position too large! "
-                    f"${position_value:.2f} > ${max_position_value:.2f} (50% of balance). "
+                    f"${position_value:.2f} > ${max_position_value:.2f} ({cap_pct*100:.1f}% of equity). "
                     f"Reducing to safe size."
                 )
                 qty = (max_position_value / entry_price) * 0.9  # 90% of max for safety margin
+                cap_hit = True
+
+            applied_risk_pct = self._effective_risk_pct_from_qty(
+                entry_price=entry_price,
+                sl_price=sl_price,
+                quantity=qty,
+                equity=equity,
+            )
+            sizing_meta = {
+                "equity": float(equity),
+                "risk_target_pct": float(risk_pct),
+                "applied_risk_pct": float(applied_risk_pct),
+                "notional_cap_pct": float(cap_pct),
+                "cap_hit": bool(cap_hit),
+                "fallback_mode": "",
+            }
             
             logger.info(
                 f"[Scalping:{self.user_id}] RISK-BASED sizing: "
-                f"Equity=${balance:.2f} (Available=${available:.2f} + Frozen=${frozen:.2f} + Unrealized=${unrealized:.2f}), "
+                f"Equity=${equity:.2f} (Available=${available:.2f} + Frozen=${frozen:.2f} + Unrealized=${unrealized:.2f}), "
                 f"BaseRisk={base_risk_pct}% EffectiveRisk={risk_pct}%, "
                 f"Leverage={leverage}x (Auto Max-Safe), "
                 f"Entry=${entry_price:.2f}, SL=${sl_price:.2f}, "
                 f"SL_Dist={sizing['sl_distance_pct']:.2f}%, "
                 f"Position=${sizing['position_size_usdt']:.2f}, "
                 f"Margin=${sizing['margin_required']:.2f}, "
-                f"Qty={qty}, Risk_Amt=${sizing['risk_amount']:.2f}"
+                f"Qty={qty}, Risk_Amt=${sizing['risk_amount']:.2f}, "
+                f"CapPct={cap_pct*100:.1f}% CapHit={cap_hit} AppliedRisk={applied_risk_pct:.3f}%"
             )
             
-            return qty, True  # Success - used risk-based sizing
+            return qty, True, sizing_meta  # Success - used risk-based sizing
             
         except Exception as e:
             logger.warning(
@@ -1643,29 +1722,50 @@ class ScalpingEngine:
             # Position size = Risk Amount / SL Distance
             position_size_usdt = risk_amount / sl_distance_pct
             
-            # SAFETY: Cap at 20% of capital
-            max_position_usdt = capital * 0.2
+            # SAFETY: Hard fallback cap at max 20% capital
+            fallback_cap_pct = min(max(0.10, min(float(notional_cap_pct or 0.50), 1.00)), 0.20)
+            max_position_usdt = capital * fallback_cap_pct
+            cap_hit = False
             if position_size_usdt > max_position_usdt:
                 logger.warning(
                     f"[Scalping:{self.user_id}] Fallback position too large! "
                     f"${position_size_usdt:.2f} > ${max_position_usdt:.2f}. Capping."
                 )
                 position_size_usdt = max_position_usdt
+                cap_hit = True
             
             # Convert to base currency
             position_size = position_size_usdt / entry_price
+            applied_risk_pct = self._effective_risk_pct_from_qty(
+                entry_price=entry_price,
+                sl_price=sl_price,
+                quantity=position_size,
+                equity=capital,
+            )
+            sizing_meta = {
+                "equity": float(capital),
+                "risk_target_pct": float(risk_per_trade_pct * 100.0),
+                "applied_risk_pct": float(applied_risk_pct),
+                "notional_cap_pct": float(fallback_cap_pct),
+                "cap_hit": bool(cap_hit),
+                "fallback_mode": "fixed_2pct",
+            }
             
             logger.info(
                 f"[Scalping:{self.user_id}] FALLBACK sizing: "
                 f"Capital=${capital:.2f}, Risk=${risk_amount:.2f} (2%), "
                 f"SL Distance={sl_distance_pct:.2%}, "
-                f"Position=${position_size_usdt:.2f} (capped at 20%), "
-                f"Quantity={position_size:.6f}"
+                f"Position=${position_size_usdt:.2f} (cap={fallback_cap_pct*100:.1f}%), "
+                f"Quantity={position_size:.6f}, AppliedRisk={applied_risk_pct:.3f}%"
             )
             
-            return position_size, False  # Fallback used
+            return position_size, False, sizing_meta  # Fallback used
     
-    def is_optimal_trading_time(self) -> tuple:
+    def is_optimal_trading_time(
+        self,
+        parity_controls: Optional[Dict[str, Any]] = None,
+        hour_utc: Optional[int] = None,
+    ) -> tuple:
         """
         Check if current time is optimal for scalping
         
@@ -1677,24 +1777,32 @@ class ScalpingEngine:
         Returns:
             (should_trade: bool, position_size_multiplier: float)
         """
-        hour_utc = datetime.utcnow().hour
+        if hour_utc is None:
+            hour_utc = datetime.utcnow().hour
+        controls = parity_controls or {}
+        profile = dict((controls.get("time_profile") or {}))
+        mult_best = max(0.0, min(float(profile.get("best", 1.0) or 1.0), 1.0))
+        mult_good = max(0.0, min(float(profile.get("good", 0.7) or 0.7), 1.0))
+        mult_neutral = max(0.0, min(float(profile.get("neutral", 0.5) or 0.5), 1.0))
+        mult_avoid = max(0.0, min(float(profile.get("avoid", 0.0) or 0.0), 1.0))
         
         # Best hours: 12:00-20:00 UTC (EU + US overlap)
         if 12 <= hour_utc < 20:
-            return True, 1.0  # Full position size
+            return mult_best > 0.0, mult_best
         
         # Good hours: 08:00-12:00 UTC (EU open)
         elif 8 <= hour_utc < 12:
-            return True, 0.7  # 70% position size
+            return mult_good > 0.0, mult_good
         
         # Avoid: 00:00-06:00 UTC (Asian session)
         elif 0 <= hour_utc < 6:
-            logger.info(f"[Scalping:{self.user_id}] Skipping trade - Asian session (low volume)")
-            return False, 0.0  # Skip trading
+            if mult_avoid <= 0.0:
+                logger.info(f"[Scalping:{self.user_id}] Skipping trade - Asian session (low volume)")
+            return mult_avoid > 0.0, mult_avoid
         
         # Neutral: Other hours
         else:
-            return True, 0.5  # 50% position size
+            return mult_neutral > 0.0, mult_neutral
     
     def calculate_scalping_tp_sl(self, entry: float, direction: str, atr: float) -> tuple:
         """
@@ -1767,12 +1875,20 @@ class ScalpingEngine:
             is_emergency=is_emergency,
             snapshot=self._confidence_adapt_snapshot,
         )
+        conf_adapt_base = dict(conf_adapt or {})
+        parity_controls = get_scalping_risk_parity_controls(self._scalp_risk_parity_snapshot)
+        conf_adapt = apply_scalping_confidence_relief(conf_adapt, parity_controls)
         setattr(signal, "confidence_bucket", str(conf_adapt.get("bucket", "")))
+        setattr(signal, "confidence_bucket_penalty_base", int(conf_adapt_base.get("bucket_penalty", 0) or 0))
         setattr(signal, "confidence_bucket_penalty", int(conf_adapt.get("bucket_penalty", 0) or 0))
+        setattr(signal, "confidence_bucket_risk_scale_base", float(conf_adapt_base.get("bucket_risk_scale", 1.0) or 1.0))
         setattr(signal, "confidence_bucket_risk_scale", float(conf_adapt.get("bucket_risk_scale", 1.0) or 1.0))
         setattr(signal, "confidence_bucket_edge_adj", float(conf_adapt.get("edge_adj", 0.0) or 0.0))
         setattr(signal, "confidence_bucket_sample_size", int(conf_adapt.get("bucket_sample_size", 0) or 0))
         setattr(signal, "confidence_adapt_reason", str(conf_adapt.get("reason", "")))
+        setattr(signal, "parity_conf_relief_applied", bool(conf_adapt.get("parity_conf_relief_applied", False)))
+        setattr(signal, "scalp_risk_parity_regime", str(parity_controls.get("regime", "disabled")))
+        setattr(signal, "scalp_risk_parity_ratio", float(parity_controls.get("ratio", 1.0) or 1.0))
 
         # Check confidence
         min_conf_pct = max(0.0, min(100.0, (self.config.min_confidence * 100.0) + conf_delta))
@@ -1796,7 +1912,11 @@ class ScalpingEngine:
                 f"(adaptive conf_delta={conf_delta}, trade_type=scalping "
                 f"conf_bucket={conf_adapt.get('bucket')} "
                 f"bucket_penalty={int(conf_adapt.get('bucket_penalty', 0) or 0)} "
+                f"bucket_penalty_base={int(conf_adapt_base.get('bucket_penalty', 0) or 0)} "
                 f"bucket_risk_scale={float(conf_adapt.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                f"bucket_risk_scale_base={float(conf_adapt_base.get('bucket_risk_scale', 1.0) or 1.0):.2f} "
+                f"parity_regime={parity_controls.get('regime')} "
+                f"parity_ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f} "
                 f"edge_adj={float(conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f})"
             )
             return False
@@ -1942,8 +2062,10 @@ class ScalpingEngine:
         Returns:
             True if order placed successfully
         """
+        parity_controls = get_scalping_risk_parity_controls(self._scalp_risk_parity_snapshot)
+        cap_pct = float(parity_controls.get("cap_pct", 0.50) or 0.50)
         # Check optimal trading time
-        should_trade, size_multiplier = self.is_optimal_trading_time()
+        should_trade, size_multiplier = self.is_optimal_trading_time(parity_controls=parity_controls)
         
         if not should_trade:
             logger.info(
@@ -1995,33 +2117,40 @@ class ScalpingEngine:
                 playbook_match_score = float(risk_eval.get("playbook_match_score", 0.0))
                 playbook_match_tags = list(risk_eval.get("playbook_match_tags", []))
                 confidence_risk_scale = float(getattr(signal, "confidence_bucket_risk_scale", 1.0) or 1.0)
+                confidence_risk_scale_base = float(getattr(signal, "confidence_bucket_risk_scale_base", confidence_risk_scale) or confidence_risk_scale)
                 confidence_bucket = str(getattr(signal, "confidence_bucket", "-") or "-")
                 confidence_edge_adj = float(getattr(signal, "confidence_bucket_edge_adj", 0.0) or 0.0)
                 effective_risk_pct = apply_confidence_risk_brake(
                     playbook_effective_risk_pct=playbook_effective_risk_pct,
                     bucket_risk_scale=confidence_risk_scale,
                 )
+                effective_risk_target_pct = min(float(playbook_effective_risk_pct), float(effective_risk_pct), 10.0)
                 setattr(signal, "effective_risk_pct", effective_risk_pct)
                 setattr(signal, "risk_overlay_pct", risk_overlay_pct)
                 setattr(signal, "base_risk_pct", base_risk_pct)
+                setattr(signal, "effective_risk_target_pct", float(effective_risk_target_pct))
                 logger.info(
                     f"[Scalping:{self.user_id}] Win playbook eval {signal.symbol} — "
                     f"score={playbook_match_score:.3f} tags={playbook_match_tags[:3]} "
                     f"guardrails={bool(risk_eval.get('guardrails_healthy', False))} "
                     f"overlay={risk_overlay_pct:.2f}% -> playbook_risk={playbook_effective_risk_pct:.2f}% "
                     f"conf_bucket={confidence_bucket} conf_scale={confidence_risk_scale:.2f} "
+                    f"conf_scale_base={confidence_risk_scale_base:.2f} "
+                    f"parity_regime={parity_controls.get('regime')} "
+                    f"parity_ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f} "
                     f"edge_adj={confidence_edge_adj:+.4f} -> final_effective_risk={effective_risk_pct:.2f}% "
                     f"action={risk_eval.get('overlay_action')} trade_type=scalping"
                 )
                 
                 # CRITICAL: Calculate position size based on risk (Phase 2)
-                quantity, used_risk_sizing = self.calculate_position_size_pro(
+                quantity, used_risk_sizing, sizing_meta = self.calculate_position_size_pro(
                     symbol=signal.symbol,
                     entry_price=signal.entry_price,
                     sl_price=signal.sl_price,
                     capital=capital,
                     leverage=effective_leverage,
                     effective_risk_pct_override=effective_risk_pct,
+                    notional_cap_pct=cap_pct,
                 )
                 
                 if used_risk_sizing:
@@ -2031,12 +2160,68 @@ class ScalpingEngine:
                 
                 # Apply time-of-day multiplier
                 quantity_adjusted = quantity * size_multiplier
+                qty_pre_time = float(quantity)
                 
                 if size_multiplier < 1.0:
                     logger.info(
                         f"[Scalping:{self.user_id}] Time-of-day adjustment: "
                         f"{size_multiplier:.0%} position size (hour={datetime.utcnow().hour} UTC)"
                     )
+
+                equity_for_risk = float(sizing_meta.get("equity", 0.0) or 0.0)
+                applied_risk_pct_raw = self._effective_risk_pct_from_qty(
+                    entry_price=float(signal.entry_price),
+                    sl_price=float(signal.sl_price),
+                    quantity=float(quantity_adjusted),
+                    equity=equity_for_risk,
+                )
+                if (
+                    equity_for_risk > 0.0
+                    and applied_risk_pct_raw > float(effective_risk_target_pct) + 1e-9
+                    and quantity_adjusted > 0.0
+                ):
+                    scale_down = float(effective_risk_target_pct) / max(applied_risk_pct_raw, 1e-9)
+                    quantity_adjusted *= max(0.0, min(scale_down, 1.0))
+                    applied_risk_pct_raw = self._effective_risk_pct_from_qty(
+                        entry_price=float(signal.entry_price),
+                        sl_price=float(signal.sl_price),
+                        quantity=float(quantity_adjusted),
+                        equity=equity_for_risk,
+                    )
+                applied_risk_pct = min(
+                    float(applied_risk_pct_raw),
+                    float(playbook_effective_risk_pct),
+                    float(effective_risk_target_pct),
+                    10.0,
+                )
+                if applied_risk_pct < 0.25:
+                    logger.warning(
+                        f"[Scalping:{self.user_id}] Trade skipped: effective risk below floor "
+                        f"trade_type=scalping symbol={signal.symbol} applied={applied_risk_pct:.4f}% "
+                        f"target={effective_risk_target_pct:.4f}% ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f}"
+                    )
+                    return False
+                setattr(signal, "effective_risk_pct", float(applied_risk_pct))
+                setattr(signal, "effective_risk_target_pct", float(effective_risk_target_pct))
+                setattr(signal, "effective_risk_raw_pct", float(applied_risk_pct_raw))
+                setattr(signal, "scalp_risk_cap_pct", float(cap_pct))
+                setattr(signal, "scalp_risk_cap_hit", bool(sizing_meta.get("cap_hit", False)))
+                setattr(signal, "scalp_risk_time_multiplier", float(size_multiplier))
+                setattr(signal, "scalp_risk_qty_pre_time", float(qty_pre_time))
+                logger.info(
+                    f"[Scalping:{self.user_id}] scalp_risk_parity "
+                    f"trade_type=scalping symbol={signal.symbol} "
+                    f"ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f} "
+                    f"regime={parity_controls.get('regime')} "
+                    f"conf_scale_base={confidence_risk_scale_base:.2f} "
+                    f"conf_scale_final={confidence_risk_scale:.2f} "
+                    f"time_multiplier={float(size_multiplier):.2f} "
+                    f"cap_pct={float(cap_pct):.2f} "
+                    f"cap_hit={bool(sizing_meta.get('cap_hit', False))} "
+                    f"effective_risk_target={float(effective_risk_target_pct):.3f} "
+                    f"effective_risk_applied={float(applied_risk_pct):.3f} "
+                    f"fallback={str(sizing_meta.get('fallback_mode') or '-')}"
+                )
                 
                 # ── Minimum qty validation (NO AUTO-LEVERAGE for risk management) ──
                 # Minimum qty per pair (Bitunix standard minimums)

@@ -1,5 +1,81 @@
 # Changelog
 
+## [2.2.62] — 2026-04-20 — Dynamic Scalping Risk Parity (Full Enforce)
+
+### ⚖️ Runtime Parity Controller (Scalping vs Swing Effective Risk)
+- Added new shared runtime parity controller in `Bismillah/app/engine_runtime_shared.py`:
+  - `refresh_scalping_risk_parity_state()`
+  - `get_scalping_risk_parity_controls(snapshot=None)`
+  - `apply_scalping_confidence_relief(conf_adapt, parity_controls)`
+- Controller refresh cadence is aligned to engine shared runtime cadence (10 minutes).
+- Computes 24h parity baseline:
+  - `scalp_avg_effective_risk_pct`
+  - `swing_avg_effective_risk_pct`
+  - `ratio = scalp_avg / swing_baseline`
+- Sparse swing fallback:
+  - when swing open-trade sample is below threshold, baseline falls back to active swing-session `risk_per_trade` average (clamped).
+- Regime mapping:
+  - `under_risk` (`ratio < 0.85`)
+  - `balanced` (`0.85 <= ratio <= 1.00`)
+  - `over_risk` (`ratio > 1.00`)
+
+### 🧠 Scalping Enforcement Changes
+- Updated `Bismillah/app/scalping_engine.py`:
+  - Loads and refreshes parity snapshot every 10 minutes.
+  - Startup and runtime observability now include parity regime + ratio.
+  - Confidence adaptation post-adjustment (scalping only):
+    - under-risk relief caps penalty at `+2` and floors `bucket_risk_scale` at `0.85`.
+  - Dynamic time multipliers by regime:
+    - Base: best `1.0`, good `0.7`, neutral `0.5`, avoid `0.0`
+    - Under-risk: best `1.0`, good `1.0`, neutral `0.7`, avoid `0.0`
+    - Over-risk: best `1.0`, good `0.6`, neutral `0.4`, avoid `0.0`
+  - Dynamic notional cap by regime:
+    - under/balanced `50%`
+    - over `45%`
+    - over with `ratio > 1.10` -> `40%`
+- `calculate_position_size_pro(...)` now accepts dynamic cap percentage and returns sizing metadata (equity/cap-hit/fallback mode).
+
+### 📊 Applied Risk Persistence + Structured Logs
+- Scalping entry flow now recomputes applied effective risk from final quantity and equity after all adjustments (confidence/time/cap).
+- Persisted `effective_risk_pct` for scalping opens now reflects applied qty-derived risk (not pre-adjust target).
+- Hard invariants enforced:
+  - applied risk never above playbook effective risk
+  - applied risk bounded to runtime guardrails (`<=10%`)
+  - entries below risk floor are skipped rather than persisting synthetic floor.
+- Added structured per-entry parity logs:
+  - `ratio`, `regime`
+  - `conf_scale_base`, `conf_scale_final`
+  - `time_multiplier`
+  - `cap_pct`, `cap_hit`
+  - `effective_risk_target`, `effective_risk_applied`
+  - `trade_type=scalping`
+
+### 📣 Hourly Admin Reporting Extensions
+- Updated `scripts/hourly_admin_engine_report.py` with parity metrics:
+  - `SCALP_AVG_EFFECTIVE_RISK_1H`
+  - `SWING_AVG_EFFECTIVE_RISK_1H`
+  - `SCALP_SWING_RISK_RATIO_1H`
+  - `UNDER_TARGET_EVENTS_1H`
+  - `OVER_TARGET_EVENTS_1H`
+- Parses parity log markers from journal and includes parity block in Telegram admin summary.
+
+### 🔧 Config + Tests
+- Added env defaults in `Bismillah/.env.example`:
+  - `SCALP_RISK_PARITY_ENABLED=true`
+  - `SCALP_RISK_PARITY_TARGET_MIN=0.85`
+  - `SCALP_RISK_PARITY_TARGET_MAX=1.00`
+  - `SCALP_RISK_PARITY_LOOKBACK_HOURS=24`
+  - `SCALP_RISK_PARITY_MIN_SWING_SAMPLE=20`
+  - `SCALP_DYNAMIC_TIME_ENABLED=true`
+  - `SCALP_DYNAMIC_CAP_ENABLED=true`
+  - `SCALP_DYNAMIC_CONF_RELIEF_ENABLED=true`
+  - `SCALP_NOTIONAL_CAP_BASE_PCT=0.50`
+  - `SCALP_NOTIONAL_CAP_TIGHT_PCT=0.45`
+  - `SCALP_NOTIONAL_CAP_TIGHTER_PCT=0.40`
+- Added test coverage:
+  - `Bismillah/tests/test_scalping_risk_parity.py`
+  - regime boundaries, sparse fallback, confidence relief behavior, no-boost time-profile, and qty-derived applied-risk helper.
+
 ## [2.2.61] — 2026-04-19 — Stale-Open Drift Hardening (Both Engines + Backfill Tool)
 
 ### 🧭 Unified Reconcile Core (`trade_history`)

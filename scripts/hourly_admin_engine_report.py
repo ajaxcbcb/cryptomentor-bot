@@ -165,6 +165,8 @@ def _journal_indicators(service_name: str, minutes: int) -> Dict[str, int]:
         "stale_reconcile_scalping_1h": 0,
         "stale_reconcile_swing_1h": 0,
         "stale_reconcile_jit_capacity_events": 0,
+        "under_target_events_1h": 0,
+        "over_target_events_1h": 0,
     }
     if os.name == "nt":
         return out
@@ -198,6 +200,16 @@ def _journal_indicators(service_name: str, minutes: int) -> Dict[str, int]:
         + text.count("decrypt failed")
         + text.count("api key decrypt")
     )
+    out["under_target_events_1h"] = 0
+    out["over_target_events_1h"] = 0
+    for raw_line in (res.stdout or "").splitlines():
+        lower = str(raw_line or "").strip().lower()
+        if "scalp_risk_parity" not in lower:
+            continue
+        if "regime=under_risk" in lower:
+            out["under_target_events_1h"] += 1
+        if "regime=over_risk" in lower:
+            out["over_target_events_1h"] += 1
 
     reconcile_users = set()
     for raw_line in (res.stdout or "").splitlines():
@@ -285,7 +297,7 @@ def _build_report(minutes: int, service_name: str) -> Dict[str, Any]:
 
     opened_rows = (
         s.table("autotrade_trades")
-        .select("id,telegram_id,symbol,side,trade_type,status,pnl_usdt,confidence,opened_at")
+        .select("id,telegram_id,symbol,side,trade_type,status,pnl_usdt,confidence,effective_risk_pct,opened_at")
         .gte("opened_at", since_utc.isoformat())
         .execute()
         .data
@@ -320,6 +332,30 @@ def _build_report(minutes: int, service_name: str) -> Dict[str, Any]:
     opened_type_counts = Counter(str(r.get("trade_type") or "unknown").strip().lower() for r in opened_rows)
     closed_type_counts = Counter(str(r.get("trade_type") or "unknown").strip().lower() for r in closed_rows)
     closed_outcome_counts = Counter(classify_outcome_class(r) for r in closed_rows)
+
+    opened_scalp_risk_vals = [
+        _safe_float(r.get("effective_risk_pct"), 0.0)
+        for r in opened_rows
+        if str(r.get("trade_type") or "").strip().lower() == "scalping"
+        and r.get("effective_risk_pct") is not None
+    ]
+    opened_swing_risk_vals = [
+        _safe_float(r.get("effective_risk_pct"), 0.0)
+        for r in opened_rows
+        if str(r.get("trade_type") or "").strip().lower() == "swing"
+        and r.get("effective_risk_pct") is not None
+    ]
+    scalp_avg_effective_risk_1h = (
+        sum(opened_scalp_risk_vals) / len(opened_scalp_risk_vals) if opened_scalp_risk_vals else 0.0
+    )
+    swing_avg_effective_risk_1h = (
+        sum(opened_swing_risk_vals) / len(opened_swing_risk_vals) if opened_swing_risk_vals else 0.0
+    )
+    scalp_swing_risk_ratio_1h = (
+        (scalp_avg_effective_risk_1h / swing_avg_effective_risk_1h)
+        if swing_avg_effective_risk_1h > 0.0
+        else 0.0
+    )
 
     closed_pnl = sum(_safe_float(r.get("pnl_usdt"), 0.0) for r in closed_rows)
     closed_wins = sum(1 for r in closed_rows if _safe_float(r.get("pnl_usdt"), 0.0) > 0)
@@ -397,6 +433,11 @@ def _build_report(minutes: int, service_name: str) -> Dict[str, Any]:
                 "swing": _safe_int((confidence_snapshot.get("modes") or {}).get("swing", {}).get("sample_size"), 0),
                 "scalping": _safe_int((confidence_snapshot.get("modes") or {}).get("scalping", {}).get("sample_size"), 0),
             },
+            "risk_parity": {
+                "scalp_avg_effective_risk_1h": float(scalp_avg_effective_risk_1h),
+                "swing_avg_effective_risk_1h": float(swing_avg_effective_risk_1h),
+                "scalp_swing_risk_ratio_1h": float(scalp_swing_risk_ratio_1h),
+            },
         },
         "log_indicators": indicators,
         "no_trade_reasons": no_trade_reasons,
@@ -409,6 +450,7 @@ def _render_html_message(report: Dict[str, Any]) -> str:
     trades = report["trades"]
     adapt = report["adaptation"]
     indicators = report["log_indicators"]
+    risk_parity = adapt.get("risk_parity", {})
 
     mode_counts = sessions.get("mode_counts", {})
     mode_text = ", ".join(
@@ -447,6 +489,12 @@ def _render_html_message(report: Dict[str, Any]) -> str:
         f"• Confidence adaptation: <b>{adapt.get('confidence_adapt_enabled')}</b> "
         f"(samples swing={adapt.get('confidence_samples', {}).get('swing', 0)}, "
         f"scalping={adapt.get('confidence_samples', {}).get('scalping', 0)})\n\n"
+        "⚖️ <b>SCALP RISK PARITY (Last 1h)</b>\n"
+        f"• SCALP_AVG_EFFECTIVE_RISK_1H: <b>{_safe_float(risk_parity.get('scalp_avg_effective_risk_1h'), 0.0):.3f}%</b>\n"
+        f"• SWING_AVG_EFFECTIVE_RISK_1H: <b>{_safe_float(risk_parity.get('swing_avg_effective_risk_1h'), 0.0):.3f}%</b>\n"
+        f"• SCALP_SWING_RISK_RATIO_1H: <b>{_safe_float(risk_parity.get('scalp_swing_risk_ratio_1h'), 0.0):.3f}</b>\n"
+        f"• UNDER_TARGET_EVENTS_1H: <b>{_safe_int(indicators.get('under_target_events_1h'), 0)}</b>\n"
+        f"• OVER_TARGET_EVENTS_1H: <b>{_safe_int(indicators.get('over_target_events_1h'), 0)}</b>\n\n"
         "🧹 <b>STALE RECONCILE (Last 1h)</b>\n"
         f"• Healed trades: <b>{_safe_int(indicators.get('stale_reconcile_healed_1h'), 0)}</b>\n"
         f"• Affected users: <b>{_safe_int(indicators.get('stale_reconcile_users_1h'), 0)}</b>\n"
