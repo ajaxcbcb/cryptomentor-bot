@@ -18,6 +18,8 @@ WAITING_COMMUNITY_NAME = 10
 WAITING_COMMUNITY_CODE = 11
 WAITING_BITUNIX_REF_CODE = 12
 
+APPROVED_REFERRAL_STATUSES = ("approved", "uid_verified", "active", "verified")
+
 
 # ------------------------------------------------------------------ #
 #  Supabase helpers                                                   #
@@ -93,6 +95,98 @@ def _load_existing_uid_for_user(user_id: int) -> str:
     return str(legacy_uid or "unknown")
 
 
+def _is_unknown_column_error(exc: Exception, column: str) -> bool:
+    msg = str(exc).lower()
+    col = column.lower()
+    return col in msg and ("schema cache" in msg or "column" in msg or "does not exist" in msg)
+
+
+def _get_live_member_count_for_leader(leader_id: int, community_code: str | None) -> Optional[int]:
+    """Count approved referrals using canonical + legacy attribution rules."""
+    s = _db()
+    statuses = list(APPROVED_REFERRAL_STATUSES)
+    total = 0
+    has_result = False
+    resolved_partner_col_available = True
+
+    try:
+        primary_res = (
+            s.table("user_verifications")
+            .select("telegram_id", count="exact")
+            .eq("resolved_partner_telegram_id", int(leader_id))
+            .in_("status", statuses)
+            .execute()
+        )
+        total += int(primary_res.count or 0)
+        has_result = True
+    except Exception as exc:
+        if _is_unknown_column_error(exc, "resolved_partner_telegram_id"):
+            resolved_partner_col_available = False
+            logger.info(
+                "[Community] resolved_partner_telegram_id unavailable; using legacy community_code fallback only."
+            )
+        else:
+            logger.error(
+                "[Community] Failed primary member-count query leader_id=%s: %s",
+                leader_id,
+                exc,
+            )
+
+    code = str(community_code or "").strip().lower()
+    if code:
+        try:
+            fallback_query = (
+                s.table("user_verifications")
+                .select("telegram_id", count="exact")
+                .eq("community_code", code)
+                .in_("status", statuses)
+            )
+            if resolved_partner_col_available:
+                fallback_query = fallback_query.is_("resolved_partner_telegram_id", "null")
+            fallback_res = fallback_query.execute()
+            total += int(fallback_res.count or 0)
+            has_result = True
+        except Exception as exc:
+            if resolved_partner_col_available and _is_unknown_column_error(exc, "resolved_partner_telegram_id"):
+                resolved_partner_col_available = False
+                logger.info(
+                    "[Community] resolved_partner_telegram_id unavailable during fallback query; retrying without null filter."
+                )
+                try:
+                    fallback_res = (
+                        s.table("user_verifications")
+                        .select("telegram_id", count="exact")
+                        .eq("community_code", code)
+                        .in_("status", statuses)
+                        .execute()
+                    )
+                    total += int(fallback_res.count or 0)
+                    has_result = True
+                except Exception as retry_exc:
+                    if _is_unknown_column_error(retry_exc, "community_code"):
+                        logger.info(
+                            "[Community] community_code unavailable; cannot run legacy member-count fallback."
+                        )
+                    else:
+                        logger.error(
+                            "[Community] Failed legacy member-count query leader_id=%s code=%s: %s",
+                            leader_id,
+                            code,
+                            retry_exc,
+                        )
+            elif _is_unknown_column_error(exc, "community_code"):
+                logger.info("[Community] community_code unavailable; cannot run legacy member-count fallback.")
+            else:
+                logger.error(
+                    "[Community] Failed legacy member-count query leader_id=%s code=%s: %s",
+                    leader_id,
+                    code,
+                    exc,
+                )
+
+    return total if has_result else None
+
+
 # ------------------------------------------------------------------ #
 #  Entry: tombol Partners di dashboard autotrade                      #
 # ------------------------------------------------------------------ #
@@ -141,7 +235,15 @@ async def callback_partners_menu(update: Update, context: ContextTypes.DEFAULT_T
         status = existing.get("status", "pending")
         code = existing.get("community_code", "")
         name = existing.get("community_name", "")
-        member_count = existing.get("member_count", 0)
+        live_member_count = _get_live_member_count_for_leader(user_id, code)
+        member_count = int(existing.get("member_count") or 0) if live_member_count is None else int(live_member_count)
+        if live_member_count is None:
+            logger.warning(
+                "[Community] Falling back to stored member_count leader_id=%s code=%s value=%s",
+                user_id,
+                code,
+                member_count,
+            )
 
         if status == "active":
             bot_username = (await context.bot.get_me()).username

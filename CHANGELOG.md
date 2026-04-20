@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.2.65] — 2026-04-20 — Referral Partner Live Member Count (Web + Telegram)
+
+### 🎯 Canonical Member Count Source (Approved Referrals)
+- Replaced stale stored counter display with live computed `member_count` based on approved referral attribution.
+- Status aliases included for compatibility: `approved`, `uid_verified`, `active`, `verified`.
+
+### 🌐 Website Referral Card Alignment
+- Updated `website-backend/app/routes/dashboard.py` (`GET /dashboard/referral`):
+  - `member_count` now resolves from live `user_verifications` data.
+  - Primary attribution: `resolved_partner_telegram_id == partner_telegram_id`.
+  - Legacy fallback attribution: `community_code == partner.community_code` for rows without resolved partner ownership.
+  - Added graceful fallback/logging when optional referral-context columns are unavailable.
+- API response contract unchanged (`member_count` key preserved).
+
+### 🤖 Telegram Community Partner Alignment
+- Updated `Bismillah/app/handlers_community.py`:
+  - `Anggota terdaftar` in Community Partners menu now uses the same live approved-referral counting policy.
+  - Added the same canonical + legacy attribution handling with schema-safe fallback logs.
+
+### ✅ Validation
+- Compile/syntax check passed:
+  - `python -m py_compile website-backend/app/routes/dashboard.py Bismillah/app/handlers_community.py Bismillah/app/handlers_autotrade_admin.py`
+- Data verification snapshot (pre-deploy):
+  - `community_code=navicrypto` partner resolution confirmed.
+  - Target user `8580502152` canonical attribution confirmed in `user_verifications`.
+  - Live logic computes `member_count=2` for `navicrypto` while legacy stored counter remains stale (`member_count=1`).
+
 ## [2.2.64] — 2026-04-20 — Pending-Lock Explainability (`blocked_pending_order`)
 
 ### 🔍 Coordinator Read-Only Pending Context

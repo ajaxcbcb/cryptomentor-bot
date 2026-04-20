@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timezone
 import httpx
 import logging
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -1150,6 +1150,104 @@ async def get_portfolio(tg_id: int = Depends(get_current_user)):
 
 import re as _re
 
+APPROVED_REFERRAL_STATUSES = ("approved", "uid_verified", "active", "verified")
+
+
+def _is_unknown_column_error(exc: Exception, column: str) -> bool:
+    msg = str(exc).lower()
+    col = column.lower()
+    return col in msg and ("schema cache" in msg or "column" in msg or "does not exist" in msg)
+
+
+def _count_partner_members_live(s, partner_telegram_id: int, community_code: str | None) -> Optional[int]:
+    """Count approved referrals with canonical + legacy attribution fallback."""
+    statuses = list(APPROVED_REFERRAL_STATUSES)
+    total = 0
+    has_result = False
+    resolved_partner_col_available = True
+
+    # Canonical attribution: resolved partner ownership.
+    try:
+        primary_res = (
+            s.table("user_verifications")
+            .select("telegram_id", count="exact")
+            .eq("resolved_partner_telegram_id", int(partner_telegram_id))
+            .in_("status", statuses)
+            .execute()
+        )
+        total += int(primary_res.count or 0)
+        has_result = True
+    except Exception as exc:
+        if _is_unknown_column_error(exc, "resolved_partner_telegram_id"):
+            resolved_partner_col_available = False
+            logger.info(
+                "[Referral] resolved_partner_telegram_id unavailable; using legacy community_code fallback only."
+            )
+        else:
+            logger.error(
+                "[Referral] Failed primary partner member-count query partner_id=%s: %s",
+                partner_telegram_id,
+                exc,
+            )
+
+    # Legacy attribution: rows tied to partner community_code.
+    code = str(community_code or "").strip().lower()
+    if code:
+        try:
+            fallback_query = (
+                s.table("user_verifications")
+                .select("telegram_id", count="exact")
+                .eq("community_code", code)
+                .in_("status", statuses)
+            )
+            # Avoid double-counting rows already captured by canonical attribution.
+            if resolved_partner_col_available:
+                fallback_query = fallback_query.is_("resolved_partner_telegram_id", "null")
+            fallback_res = fallback_query.execute()
+            total += int(fallback_res.count or 0)
+            has_result = True
+        except Exception as exc:
+            # Retry without canonical null-filter when resolved column is missing.
+            if resolved_partner_col_available and _is_unknown_column_error(exc, "resolved_partner_telegram_id"):
+                resolved_partner_col_available = False
+                logger.info(
+                    "[Referral] resolved_partner_telegram_id unavailable during fallback query; retrying without null filter."
+                )
+                try:
+                    fallback_res = (
+                        s.table("user_verifications")
+                        .select("telegram_id", count="exact")
+                        .eq("community_code", code)
+                        .in_("status", statuses)
+                        .execute()
+                    )
+                    total += int(fallback_res.count or 0)
+                    has_result = True
+                except Exception as retry_exc:
+                    if _is_unknown_column_error(retry_exc, "community_code"):
+                        logger.info(
+                            "[Referral] community_code unavailable; cannot run legacy member-count fallback."
+                        )
+                    else:
+                        logger.error(
+                            "[Referral] Failed legacy partner member-count query partner_id=%s code=%s: %s",
+                            partner_telegram_id,
+                            code,
+                            retry_exc,
+                        )
+            elif _is_unknown_column_error(exc, "community_code"):
+                logger.info("[Referral] community_code unavailable; cannot run legacy member-count fallback.")
+            else:
+                logger.error(
+                    "[Referral] Failed legacy partner member-count query partner_id=%s code=%s: %s",
+                    partner_telegram_id,
+                    code,
+                    exc,
+                )
+
+    return total if has_result else None
+
+
 def _slugify(name: str) -> str:
     slug = _re.sub(r'[^a-zA-Z0-9]', '', name.lower())
     return slug[:20]
@@ -1173,6 +1271,15 @@ async def get_referral(tg_id: int = Depends(get_current_user)):
     status = row.get("status", "pending")
     code = row.get("community_code", "")
     invite_link = f"https://cryptomentor.id/?ref={code}" if status == "active" else None
+    live_member_count = _count_partner_members_live(s, tg_id, code)
+    member_count = int(row.get("member_count") or 0) if live_member_count is None else int(live_member_count)
+    if live_member_count is None:
+        logger.warning(
+            "[Referral] Falling back to stored member_count partner_id=%s code=%s value=%s",
+            tg_id,
+            code,
+            member_count,
+        )
 
     return {
         "registered": True,
@@ -1181,7 +1288,7 @@ async def get_referral(tg_id: int = Depends(get_current_user)):
         "community_code": code,
         "bitunix_referral_code": row.get("bitunix_referral_code"),
         "bitunix_referral_url": row.get("bitunix_referral_url"),
-        "member_count": row.get("member_count", 0),
+        "member_count": member_count,
         "invite_link": invite_link,
         "created_at": row.get("created_at"),
     }
