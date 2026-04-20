@@ -60,6 +60,44 @@ def test_should_notify_blocked_pending_honors_ttl():
     assert runtime_shared.should_notify_blocked_pending(cache, key="BTCUSDT", ttl_sec=600, now_ts=1601.0) is True
 
 
+def test_normalize_pending_lock_context_exposes_diagnostics():
+    ctx = runtime_shared.normalize_pending_lock_context(
+        {
+            "pending_order": True,
+            "pending_owner": "swing",
+            "pending_age_seconds": 45.25,
+            "pending_ttl_seconds": 90.0,
+            "has_position": False,
+            "owner": "swing",
+            "last_pending_clear_reason": "",
+        }
+    )
+    assert ctx["pending_order"] is True
+    assert ctx["pending_owner"] == "swing"
+    assert ctx["pending_age_seconds"] == pytest.approx(45.25)
+    assert ctx["pending_ttl_seconds"] == pytest.approx(90.0)
+    assert ctx["has_position"] is False
+    assert ctx["owner"] == "swing"
+    assert ctx["stale_candidate"] is False
+
+
+def test_normalize_pending_lock_context_marks_stale_candidate_without_position():
+    ctx = runtime_shared.normalize_pending_lock_context(
+        {
+            "pending_order": True,
+            "pending_owner": "scalp",
+            "pending_age_seconds": 120.0,
+            "pending_ttl_seconds": 90.0,
+            "has_position": False,
+            "owner": "scalp",
+            "last_pending_clear_reason": "startup_sanitize",
+        }
+    )
+    assert ctx["stale_candidate"] is True
+    assert runtime_shared.pending_lock_age_label(ctx["pending_age_seconds"]) == "120.0s"
+    assert runtime_shared.pending_lock_age_label(None) == "n/a"
+
+
 def test_stale_cooldown_helpers_set_and_expire():
     cache = {}
     expiry = runtime_shared.set_ttl_cooldown(cache, key="ETHUSDT", ttl_sec=120, now_ts=1000.0)

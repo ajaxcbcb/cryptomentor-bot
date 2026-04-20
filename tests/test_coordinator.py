@@ -313,6 +313,60 @@ class TestPendingOrderLifecycle:
         assert "pending_order" in reason
 
     @pytest.mark.asyncio
+    async def test_pending_lock_context_active_without_position(self, coordinator):
+        """Read-only pending lock context exposes active pending details."""
+        user_id = 321
+        symbol = "ATOMUSDT"
+        await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+
+        ctx = await coordinator.get_pending_lock_context(user_id, symbol, now_ts=time.time())
+        assert ctx["pending_order"] is True
+        assert ctx["pending_owner"] == "swing"
+        assert ctx["has_position"] is False
+        assert ctx["owner"] == "swing"
+        assert isinstance(ctx["pending_ttl_seconds"], float)
+        assert float(ctx["pending_ttl_seconds"]) > 0
+        assert ctx["pending_age_seconds"] is not None
+        assert float(ctx["pending_age_seconds"]) >= 0
+
+    @pytest.mark.asyncio
+    async def test_pending_lock_context_with_position(self, coordinator):
+        """Pending context preserves has_position/owner when position is open."""
+        user_id = 654
+        symbol = "XRPUSDT"
+        await coordinator.confirm_open(
+            user_id, symbol, StrategyOwner.SCALP,
+            PositionSide.LONG, 1.0, 1.0
+        )
+        await coordinator.set_pending(user_id, symbol, StrategyOwner.SCALP)
+
+        ctx = await coordinator.get_pending_lock_context(user_id, symbol, now_ts=time.time())
+        assert ctx["pending_order"] is True
+        assert ctx["pending_owner"] == "scalp"
+        assert ctx["has_position"] is True
+        assert ctx["owner"] == "scalp"
+
+    @pytest.mark.asyncio
+    async def test_pending_lock_context_after_stale_auto_clear(self, coordinator):
+        """Stale pending clear is reflected in pending context without mutating entry rules."""
+        user_id = 777
+        symbol = "SOLUSDT"
+        t0 = time.time()
+        await coordinator.set_pending(user_id, symbol, StrategyOwner.SWING)
+        allowed, reason = await coordinator.can_enter(
+            user_id, symbol, StrategyOwner.SWING, t0 + 95
+        )
+        assert allowed is True
+        assert reason == "allowed"
+
+        ctx = await coordinator.get_pending_lock_context(user_id, symbol, now_ts=t0 + 95)
+        assert ctx["pending_order"] is False
+        assert ctx["pending_owner"] is None
+        assert ctx["has_position"] is False
+        assert ctx["owner"] == "none"
+        assert ctx["last_pending_clear_reason"] == "ttl_expired"
+
+    @pytest.mark.asyncio
     async def test_clear_all_pending_without_position_for_user(self, coordinator):
         """Restart cleanup clears only pending symbols that are flat."""
         user_id = 123

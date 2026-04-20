@@ -104,6 +104,64 @@ def _format_missing_reason_map(missing: dict[str, int], max_items: int = 6) -> s
     return txt
 
 
+def _summarize_coordinator_pending_snapshot(
+    snapshot: dict | None,
+    *,
+    pending_ttl_seconds: float = 90.0,
+    top_n: int = 5,
+) -> dict:
+    data = dict(snapshot or {})
+    users = data.get("users") or {}
+    ttl = max(1.0, float(pending_ttl_seconds or 90.0))
+    pending_total = 0
+    pending_with_position = 0
+    pending_without_position = 0
+    stale_pending_without_position = 0
+    owner_mix: dict[str, int] = {}
+    symbol_counts: dict[str, int] = {}
+
+    for user_data in users.values():
+        symbols = (user_data or {}).get("symbols") or {}
+        for symbol, st in symbols.items():
+            if not bool(st.get("pending_order", False)):
+                continue
+            pending_total += 1
+            has_position = bool(st.get("has_position", False))
+            if has_position:
+                pending_with_position += 1
+            else:
+                pending_without_position += 1
+                age = st.get("pending_age_seconds")
+                try:
+                    if age is not None and float(age) > ttl:
+                        stale_pending_without_position += 1
+                except Exception:
+                    pass
+            owner = str(st.get("pending_owner") or st.get("owner") or "unknown").strip().lower() or "unknown"
+            owner_mix[owner] = owner_mix.get(owner, 0) + 1
+            sym = str(symbol or "").upper()
+            if sym:
+                symbol_counts[sym] = symbol_counts.get(sym, 0) + 1
+
+    owner_mix_sorted = sorted(owner_mix.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))
+    top_symbols_sorted = sorted(symbol_counts.items(), key=lambda kv: (-int(kv[1]), str(kv[0])))[: max(1, int(top_n))]
+    owner_mix_text = ", ".join(f"{owner}:{count}" for owner, count in owner_mix_sorted) if owner_mix_sorted else "-"
+    top_symbols_text = ", ".join(f"{symbol}({count})" for symbol, count in top_symbols_sorted) if top_symbols_sorted else "-"
+
+    return {
+        "pending_total": int(pending_total),
+        "pending_with_position": int(pending_with_position),
+        "pending_without_position": int(pending_without_position),
+        "stale_pending_without_position": int(stale_pending_without_position),
+        "pending_ttl_seconds": float(ttl),
+        "owner_mix": owner_mix,
+        "owner_mix_text": owner_mix_text,
+        "top_symbols": top_symbols_sorted,
+        "top_symbols_text": top_symbols_text,
+        "snapshot_user_count": len(users),
+    }
+
+
 def _split_message_lines(text: str, max_len: int = 3800) -> list[str]:
     """
     Split long Telegram messages safely by line boundaries.
@@ -187,6 +245,7 @@ async def send_daily_report(bot):
             get_confidence_adaptation_snapshot,
             refresh_global_confidence_adaptation_state,
         )
+        from app.symbol_coordinator import get_coordinator
         from app.win_playbook import refresh_global_win_playbook_state, get_win_playbook_snapshot
 
         s = _client()
@@ -456,6 +515,27 @@ async def send_daily_report(bot):
         ).eq("status", "pending").execute()
         pending_verifications = pending_ver_res.data or []
 
+        coordinator_pending = {
+            "pending_total": 0,
+            "pending_with_position": 0,
+            "pending_without_position": 0,
+            "stale_pending_without_position": 0,
+            "pending_ttl_seconds": 90.0,
+            "owner_mix_text": "-",
+            "top_symbols_text": "-",
+            "snapshot_user_count": 0,
+        }
+        try:
+            coordinator = get_coordinator()
+            coord_snapshot = await coordinator.export_debug_snapshot()
+            coordinator_pending = _summarize_coordinator_pending_snapshot(
+                coord_snapshot,
+                pending_ttl_seconds=float(getattr(coordinator, "_pending_ttl_seconds", 90.0) or 90.0),
+                top_n=5,
+            )
+        except Exception as coord_err:
+            logger.warning(f"[DailyReport] Coordinator pending snapshot failed: {coord_err}")
+
         # ── 5. Build message ──────────────────────────────────────────
         pnl_emoji = "📈" if total_pnl >= 0 else "📉"
         pnl_str = _fmt(total_pnl)
@@ -474,6 +554,15 @@ async def send_daily_report(bot):
             f"• 🟢 Active engines: <b>{len(active_engines)}</b>\n"
             f"• 🔴 Stopped engines: <b>{len(stopped_engines)}</b>\n"
             f"• ⏳ Pending/unverified: <b>{len(pending_engines)}</b>\n\n"
+
+            f"🔐 <b>COORDINATOR PENDING LOCKS (Runtime)</b>\n"
+            f"• Pending total: <b>{int(coordinator_pending.get('pending_total', 0) or 0)}</b>\n"
+            f"• Pending with open position: <b>{int(coordinator_pending.get('pending_with_position', 0) or 0)}</b>\n"
+            f"• Pending without open position: <b>{int(coordinator_pending.get('pending_without_position', 0) or 0)}</b>\n"
+            f"• Stale pending without position (> {int(float(coordinator_pending.get('pending_ttl_seconds', 90.0) or 90.0))}s): "
+            f"<b>{int(coordinator_pending.get('stale_pending_without_position', 0) or 0)}</b>\n"
+            f"• Pending owner mix: <b>{_escape_html(str(coordinator_pending.get('owner_mix_text', '-')))}</b>\n"
+            f"• Top pending symbols: <b>{_escape_html(str(coordinator_pending.get('top_symbols_text', '-')))}</b>\n\n"
 
             f"{pnl_emoji} <b>TRADING (Last 24h)</b>\n"
             f"• Total trades opened: <b>{len(trades_today)}</b>\n"

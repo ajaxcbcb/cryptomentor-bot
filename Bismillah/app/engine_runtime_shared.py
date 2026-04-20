@@ -371,6 +371,51 @@ def should_notify_blocked_pending(
     return True
 
 
+def normalize_pending_lock_context(
+    context: Optional[Dict[str, Any]],
+    *,
+    default_ttl_seconds: float = 90.0,
+) -> Dict[str, Any]:
+    ctx = dict(context or {})
+    age_raw = ctx.get("pending_age_seconds")
+    age: Optional[float]
+    try:
+        age = None if age_raw is None else max(0.0, float(age_raw))
+    except Exception:
+        age = None
+    ttl = _as_float(ctx.get("pending_ttl_seconds"), float(default_ttl_seconds))
+    ttl = max(1.0, float(ttl))
+    pending_owner = str(ctx.get("pending_owner") or "").strip()
+    owner = str(ctx.get("owner") or "none").strip().lower() or "none"
+    has_position = bool(ctx.get("has_position", False))
+    pending_order = bool(ctx.get("pending_order", False))
+    stale_candidate = bool(
+        pending_order
+        and (not has_position)
+        and (age is not None)
+        and (age > ttl)
+    )
+    return {
+        "pending_order": pending_order,
+        "pending_owner": pending_owner,
+        "pending_age_seconds": age,
+        "pending_ttl_seconds": ttl,
+        "has_position": has_position,
+        "owner": owner,
+        "last_pending_clear_reason": str(ctx.get("last_pending_clear_reason") or "").strip(),
+        "stale_candidate": stale_candidate,
+    }
+
+
+def pending_lock_age_label(age_seconds: Optional[float]) -> str:
+    if age_seconds is None:
+        return "n/a"
+    try:
+        return f"{float(age_seconds):.1f}s"
+    except Exception:
+        return "n/a"
+
+
 def set_ttl_cooldown(
     cooldown_map: MutableMapping[Any, float],
     key: Any,

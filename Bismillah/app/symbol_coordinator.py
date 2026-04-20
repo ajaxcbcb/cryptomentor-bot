@@ -524,6 +524,42 @@ class MultiUserSymbolCoordinator:
                 cleared += 1
         return cleared
 
+    async def get_pending_lock_context(
+        self,
+        user_id: int,
+        symbol: str,
+        now_ts: Optional[float] = None,
+    ) -> Dict[str, Optional[object]]:
+        """
+        Read-only pending-lock context for diagnostics and notifications.
+
+        Returns keys:
+          - pending_order
+          - pending_owner
+          - pending_age_seconds
+          - pending_ttl_seconds
+          - has_position
+          - owner
+          - last_pending_clear_reason
+        """
+        if now_ts is None:
+            now_ts = time.time()
+        lock = self._get_lock(user_id, symbol)
+        async with lock:
+            state = self._ensure_state(user_id, symbol)
+            pending_age: Optional[float] = None
+            if state.pending_since_ts is not None:
+                pending_age = max(0.0, float(now_ts) - float(state.pending_since_ts))
+            return {
+                "pending_order": bool(state.pending_order),
+                "pending_owner": state.pending_owner,
+                "pending_age_seconds": pending_age,
+                "pending_ttl_seconds": float(self._pending_ttl_seconds),
+                "has_position": bool(state.has_position),
+                "owner": state.owner.value,
+                "last_pending_clear_reason": state.last_pending_clear_reason,
+            }
+
     # ──────────────────────────────────────────────────────────────────────────
     # Debug / Admin
     # ──────────────────────────────────────────────────────────────────────────
@@ -559,6 +595,7 @@ class MultiUserSymbolCoordinator:
             "total_positions": sum(
                 len(syms) for syms in self._user_symbol_states.values()
             ),
+            "pending_ttl_seconds": float(self._pending_ttl_seconds),
             "users": {}
         }
 

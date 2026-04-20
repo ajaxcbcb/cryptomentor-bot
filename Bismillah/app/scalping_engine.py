@@ -36,6 +36,8 @@ from app.engine_runtime_shared import (
     get_scalping_risk_parity_snapshot,
     get_top_volume_pairs,
     is_ttl_cooldown_active as _shared_is_ttl_cooldown_active,
+    normalize_pending_lock_context,
+    pending_lock_age_label,
     refresh_scalping_risk_parity_state,
     refresh_runtime_snapshot,
     sanitize_startup_pending_locks,
@@ -2255,13 +2257,54 @@ class ScalpingEngine:
                 if not can_enter:
                     logger.warning(f"[Coordinator:{self.user_id}] Entry BLOCKED for {signal.symbol}: {block_reason}")
                     should_notify = True
+                    pending_diag: Dict[str, Any] = {}
                     if "blocked_pending_order" in str(block_reason):
+                        pending_ctx = await self.coordinator.get_pending_lock_context(
+                            user_id=self.user_id,
+                            symbol=signal.symbol,
+                            now_ts=time.time(),
+                        )
+                        pending_diag = normalize_pending_lock_context(pending_ctx)
+                        logger.warning(
+                            "[Coordinator:%s] blocked_pending_diagnostics symbol=%s "
+                            "pending_owner=%s owner=%s pending_age=%s pending_ttl=%.1fs "
+                            "has_position=%s stale_candidate=%s last_clear_reason=%s",
+                            self.user_id,
+                            signal.symbol,
+                            pending_diag.get("pending_owner") or "-",
+                            pending_diag.get("owner") or "-",
+                            pending_lock_age_label(pending_diag.get("pending_age_seconds")),
+                            float(pending_diag.get("pending_ttl_seconds", 90.0) or 90.0),
+                            bool(pending_diag.get("has_position", False)),
+                            bool(pending_diag.get("stale_candidate", False)),
+                            pending_diag.get("last_pending_clear_reason") or "-",
+                        )
                         should_notify = self._should_notify_blocked_pending(signal.symbol, ttl_sec=600)
                     if should_notify:
+                        diag_text = ""
+                        if pending_diag:
+                            pending_owner = escape(str(pending_diag.get("pending_owner") or pending_diag.get("owner") or "unknown"))
+                            pending_age = pending_lock_age_label(pending_diag.get("pending_age_seconds"))
+                            ttl_sec = int(round(float(pending_diag.get("pending_ttl_seconds", 90.0) or 90.0)))
+                            has_position_txt = "YES" if bool(pending_diag.get("has_position", False)) else "NO"
+                            last_clear_reason = escape(str(pending_diag.get("last_pending_clear_reason") or "-"))
+                            diag_text = (
+                                f"<b>Pending owner:</b> {pending_owner}\n"
+                                f"<b>Pending age:</b> {pending_age} (TTL {ttl_sec}s)\n"
+                                f"<b>Open position on symbol:</b> {has_position_txt}\n"
+                                f"<b>Last pending clear:</b> {last_clear_reason}\n\n"
+                                f"<i>Safety hint:</i> stale auto-clear applies only when pending exists "
+                                f"without open position and age exceeds TTL."
+                            )
                         await self._notify_user(
                             f"⚠️ <b>Trade skipped on {signal.symbol}</b>\n\n"
                             f"<b>Reason:</b> {block_reason}\n\n"
-                            f"Another strategy may own this symbol.\nBot will continue scanning."
+                            + (
+                                f"{diag_text}\n\n"
+                                if diag_text else
+                                "Another strategy may own this symbol.\n\n"
+                            )
+                            + "Bot will continue scanning."
                         )
                     return False
 

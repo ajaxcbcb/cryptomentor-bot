@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.2.64] — 2026-04-20 — Pending-Lock Explainability (`blocked_pending_order`)
+
+### 🔍 Coordinator Read-Only Pending Context
+- Added read-only pending diagnostics helper in `Bismillah/app/symbol_coordinator.py`:
+  - `get_pending_lock_context(user_id, symbol, now_ts=None)`
+  - Returns: `pending_order`, `pending_owner`, `pending_age_seconds`, `pending_ttl_seconds`,
+    `has_position`, `owner`, `last_pending_clear_reason`.
+- Extended coordinator debug snapshot with `pending_ttl_seconds` metadata.
+- No changes to entry gating decisions or pending TTL policy (stays 90 seconds for pending-without-position auto-heal).
+
+### 🧭 Blocked-Pending User + Operator Diagnostics
+- Updated both engines:
+  - `Bismillah/app/autotrade_engine.py`
+  - `Bismillah/app/scalping_engine.py`
+- On `blocked_pending_order`, engines now:
+  - query coordinator pending context,
+  - emit structured diagnostics log fields (`pending_owner`, `pending_age`, `pending_ttl`, `has_position`, `stale_candidate`, `last_clear_reason`),
+  - include actionable context in user skip notification (owner/age/TTL/position/last-clear + safety hint).
+- Existing 10-minute blocked-pending notification dedupe remains unchanged.
+
+### 📊 Admin Runtime Visibility
+- Added coordinator pending-lock runtime summary in `Bismillah/app/admin_daily_report.py`:
+  - `pending_total`
+  - `pending_with_position`
+  - `pending_without_position`
+  - `stale_pending_without_position` (`age > TTL`)
+  - owner mix + top pending symbols
+- Uses runtime coordinator snapshot only; no DB schema or persistence changes.
+
+### ✅ Tests
+- Added coordinator diagnostics coverage in `tests/test_coordinator.py` for:
+  - active pending-without-position context,
+  - pending-with-position context,
+  - stale auto-clear reflected in context.
+- Added shared diagnostics utility tests in `tests/test_engine_shared_core.py`.
+- Added admin pending summary tests in `tests/test_admin_daily_report_pending_locks.py`.
+
 ## [2.2.63] — 2026-04-20 — Self-Learning Explainability Hardening (No Behavior Change)
 
 ### 🧠 Explainability Snapshot Standardization
