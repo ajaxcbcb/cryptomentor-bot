@@ -1,5 +1,107 @@
 # Changelog
 
+## [2.2.69] — 2026-04-21 — Trade Close Telegram Alerts (All Close Reasons)
+
+### 🔔 Per-Trade User Close Alerts
+- Added shared close-alert formatter in `Bismillah/app/close_alerts.py` with standardized close-reason labels and detailed payload fields (`symbol`, `side`, `close_reason`, `entry`, `exit`, `pnl`).
+- Swing engine (`Bismillah/app/autotrade_engine.py`):
+  - replaced legacy all-or-none close detection with symbol-diff close detection from successful exchange snapshots,
+  - added per-trade swing close finalization helper and immediate detailed Telegram user close alerts,
+  - added explicit detailed alerts for dynamic `max_hold_time_exceeded` closes,
+  - added stale-reconcile user alerts from reconcile payload (`healed_closes`) for startup/periodic reconcile paths.
+- Scalping engine (`Bismillah/app/scalping_engine.py`):
+  - added stale-reconcile close alerts per healed trade via `_notify_user_once` dedupe using trade-id keys.
+- Startup scheduler (`Bismillah/app/scheduler.py`):
+  - added best-effort detailed user close alerts for startup reconcile `healed_closes`, with non-fatal handling when Telegram send fails.
+
+### 🧩 Reconcile API Enrichment
+- Extended `apply_open_trade_reconcile(...)` output in `Bismillah/app/trade_history.py` with:
+  - `healed_closes: List[Dict]` (`trade_id`, `symbol`, `side`, `entry_price`, `exit_price`, `pnl_usdt`, `close_reason`, `trade_type`).
+- Existing keys remain backward-compatible (`healed_count`, `healed_trade_ids`, `healed_symbols`, etc.).
+
+### ✅ Validation
+- Added/updated tests:
+  - `tests/test_trade_history_reconcile.py`
+  - `Bismillah/tests/test_trade_reconcile.py`
+  - `Bismillah/tests/test_scalping_reconcile_capacity.py`
+  - `tests/test_scheduler_close_alerts.py`
+  - `tests/test_autotrade_close_alerts.py`
+- Pre-deploy test run (local) passed:
+  - `pytest tests/test_trade_history_reconcile.py Bismillah/tests/test_trade_reconcile.py Bismillah/tests/test_scalping_reconcile_capacity.py tests/test_scheduler_close_alerts.py tests/test_autotrade_close_alerts.py tests/test_engine_shared_core.py -q`
+  - Result: `41 passed, 2 warnings`.
+- Compile/syntax validation passed:
+  - `python -m py_compile Bismillah/app/close_alerts.py Bismillah/app/trade_history.py Bismillah/app/autotrade_engine.py Bismillah/app/scalping_engine.py Bismillah/app/scheduler.py`
+- Warning cleanup before deploy:
+  - replaced deprecated `datetime.utcnow()` usage in trade-close persistence with timezone-aware `datetime.now(timezone.utc)`,
+  - suppressed upstream Supabase `gotrue` deprecation warning at repository import boundary (`supabase_repo.py`, `users_repo.py`),
+  - re-ran targeted suite with clean output: `41 passed` and no warnings.
+
+### 🔮 Expected Next Changes (ML + Playbook Enhancement)
+- Introduce feature-flagged ML scoring overlay for candidate ranking (`ml_score`, `ml_confidence_delta`) with strict fail-open behavior when model service/data is unavailable.
+- Add playbook enhancement layer (tag weighting + recency bias + regime-aware adjustments) while preserving existing hard safety gates (confidence, R:R, risk caps).
+- Persist ML/playbook decision telemetry per trade for auditability (`ml_features_version`, `ml_score`, `playbook_score_v2`, `decision_reason`).
+- Extend admin reporting to include ML/playbook contribution snapshots (win-rate lift, expectancy delta, sample-size guardrails).
+- Add regression tests ensuring ML/playbook enhancements never bypass risk guardrails or relax entry-quality minimums.
+
+## [2.2.68] — 2026-04-21 — Scalping Quality Tightening, Sideways Strict Baseline, Dynamic Symbol Quarantine
+
+### 🎯 Trade Selection Quality
+- Tightened `Bismillah/app/scalping_engine.py` to reduce timeout-heavy low-quality scalps:
+  - sideways entries now require `bounce_confirmed=true`,
+  - retired the old low-confidence sideways fallback candidate path,
+  - weak non-sideways scalps below `75` confidence now require both `volume_confirmation` and `playbook_match_score >= 0.20` when win-playbook guardrails are unhealthy,
+  - trend/scalping open persistence now always stamps `trade_subtype`, with non-sideways rows tagged `trend_scalp`.
+
+### 🧭 Sideways Governor
+- Updated `Bismillah/app/sideways_governor.py`:
+  - strict mode is now the baseline until recent sideways quality recovers,
+  - 24h stats still lead when available, but sparse 24h samples now fall back to a 14-day recent sample,
+  - snapshot now exposes sample basis, basis expectancy, basis timeout-loss rate, and fallback recovery windows,
+  - sideways fallback stays disabled until recovery criteria are met.
+
+### 🚫 Dynamic Symbol Quarantine
+- Extended `Bismillah/app/volume_pair_selector.py` with dynamic symbol quarantine on top of the Bitunix top-volume universe:
+  - quarantine trigger: negative expectancy with high timeout drag on recent scalping sample,
+  - quarantine duration: `6h`,
+  - recovery requires `2` consecutive healthy windows,
+  - selector health now exposes `quarantined_symbols` with reason and metrics.
+
+### 📊 Observability
+- Updated runtime/audit surfaces to expose the new quality controls:
+  - `Bismillah/app/trade_history.py` sideways snapshot now includes basis window, basis sample, expectancy, timeout-loss rate, and fallback recovery state.
+- Updated `Bismillah/app/admin_daily_report.py`:
+  - timeout reporting is now separated by `trend_scalp` vs `sideways_scalp`,
+  - daily admin output now shows the sideways governor runtime basis and fallback state.
+
+### ✅ Validation
+- Added/updated tests:
+  - `tests/test_scalping_entry_quality.py`
+  - `tests/test_sideways_governor.py`
+  - `tests/test_volume_pair_selector.py`
+  - `tests/test_scalping_persistence.py`
+
+## [2.2.67] — 2026-04-21 — Daily Admin Report: Per-User PnL Breakdown (All Users)
+
+### 📊 Admin Daily Telegram Report
+- Updated `Bismillah/app/admin_daily_report.py` to include a new section:
+  - `USER PNL BREAKDOWN (Last 24h)`
+  - one line per user covering:
+    - `telegram_id`
+    - realized 24h `PnL`
+    - opened/closed/open_now trade counts
+    - win/loss counts
+    - session `status` and `trading_mode`
+- Coverage policy:
+  - includes all real users present in `autotrade_sessions` (even zero-trade users),
+  - includes trade-only users seen in 24h trades when session row is missing.
+- Existing scheduler cadence remains unchanged (`23:00 WIB` via `daily_report_task`).
+
+### ✅ Validation
+- Added unit coverage:
+  - `tests/test_admin_daily_report_user_pnl.py`
+    - includes zero-trade session users in report rows,
+    - includes trade-only users and correctly aggregates realized PnL.
+
 ## [2.2.66] — 2026-04-20 — Adaptive Daily Circuit Breaker (Swing + Scalping + Mixed)
 
 ### 🛡️ Shared Adaptive Breaker Policy (`engine_runtime_shared`)

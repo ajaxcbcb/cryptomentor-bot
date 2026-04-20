@@ -321,7 +321,10 @@ def fetch_closed_trades(limit: int = 2500) -> List[Dict[str, Any]]:
         to = frm + page_size - 1
         res = (
             s.table("autotrade_trades")
-            .select("id,status,close_reason,pnl_usdt,loss_reasoning,entry_reasons,closed_at")
+            .select(
+                "id,status,close_reason,pnl_usdt,loss_reasoning,entry_reasons,closed_at,"
+                "entry_price,sl_price,qty,quantity,original_quantity,trade_type,timeframe"
+            )
             .neq("status", "open")
             .order("closed_at", desc=True)
             .range(frm, to)
@@ -400,4 +403,3 @@ def get_adaptive_overrides() -> Dict[str, Any]:
         "decision_reason": st.get("decision_reason", ""),
         "updated_at": st.get("updated_at"),
     }
-

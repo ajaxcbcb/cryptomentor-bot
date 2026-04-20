@@ -211,7 +211,7 @@ def save_trade_open(
             "entry_reasons":    signal.get("reasons", []),
             "is_flip":          is_flip,
             "order_id":         order_id,
-            "opened_at":        datetime.utcnow().isoformat(),
+            "opened_at":        datetime.now(timezone.utc).isoformat(),
             "playbook_match_score": 0.0,
             "effective_risk_pct": 0.0,
             "risk_overlay_pct": 0.0,
@@ -290,7 +290,7 @@ def save_trade_close(
             "close_reason":   close_reason,
             "status":         close_reason,
             "remaining_quantity": 0.0,
-            "closed_at":      datetime.utcnow().isoformat(),
+            "closed_at":      datetime.now(timezone.utc).isoformat(),
             "playbook_match_score": base_playbook,
             "effective_risk_pct": base_effective,
             "risk_overlay_pct": base_overlay,
@@ -589,6 +589,9 @@ def _build_stale_reconcile_close_payload(
     )
     return {
         "symbol": symbol,
+        "side": side,
+        "entry_price": float(entry),
+        "trade_type": str(trade.get("trade_type") or "").strip().lower() or "unknown",
         "close_reason": reason,
         "exit_price": float(exit_price),
         "pnl_usdt": float(pnl),
@@ -622,6 +625,7 @@ def apply_open_trade_reconcile(
         "healed_count": 0,
         "healed_trade_ids": [],
         "healed_symbols": [],
+        "healed_closes": [],
     }
 
     if not out["exchange_fetch_ok"]:
@@ -655,6 +659,18 @@ def apply_open_trade_reconcile(
         out["healed_count"] += 1
         out["healed_trade_ids"].append(int(trade_id))
         healed_symbols.add(symbol)
+        out["healed_closes"].append(
+            {
+                "trade_id": int(trade_id),
+                "symbol": symbol,
+                "side": str(payload.get("side") or trade.get("side") or "").strip().upper() or "UNKNOWN",
+                "entry_price": float(payload.get("entry_price") or trade.get("entry_price") or 0.0),
+                "exit_price": float(payload.get("exit_price") or 0.0),
+                "pnl_usdt": float(payload.get("pnl_usdt") or 0.0),
+                "close_reason": str(payload.get("close_reason") or "stale_reconcile"),
+                "trade_type": str(payload.get("trade_type") or trade.get("trade_type") or "").strip().lower() or "unknown",
+            }
+        )
         logger.warning(
             f"[Reconcile:{telegram_id}] Healed orphan {symbol} #{int(trade_id)} "
             f"as {payload['close_reason']} pnl={float(payload['pnl_usdt']):.4f}"
@@ -662,6 +678,10 @@ def apply_open_trade_reconcile(
 
     out["healed_trade_ids"] = sorted(set(out["healed_trade_ids"]))
     out["healed_symbols"] = sorted(healed_symbols)
+    out["healed_closes"] = sorted(
+        list(out.get("healed_closes") or []),
+        key=lambda row: int(row.get("trade_id") or 0),
+    )
 
     # Also clear stale entries from the in-memory StackMentor registry
     # so the monitor loop stops chasing dead positions.
@@ -987,18 +1007,30 @@ def get_daily_rr_integrity_audit(
                     "mode": str(governor.get("mode", "normal")).upper(),
                     "decision_reason": governor.get("decision_reason"),
                     "sample_size_24h": int(governor.get("sample_size_24h", 0) or 0),
+                    "sample_basis_window": str(governor.get("sample_basis_window", "bootstrap_strict") or "bootstrap_strict"),
+                    "sample_size_basis": int(governor.get("sample_size_basis", 0) or 0),
+                    "sideways_expectancy_basis": float(governor.get("sideways_expectancy_basis", 0.0) or 0.0),
+                    "sideways_timeout_loss_rate_basis": float(governor.get("sideways_timeout_loss_rate_basis", 0.0) or 0.0),
+                    "allow_sideways_fallback": bool(governor.get("allow_sideways_fallback", False)),
+                    "fallback_recovery_windows": int(governor.get("fallback_recovery_windows", 0) or 0),
                 },
                 "win_playbook": {
                     "updated_at": playbook_updated,
                     "decision_reason": overlay_action,
                     "guardrails_healthy": bool(playbook.get("guardrails_healthy", False)),
                     "rolling_expectancy": float(playbook.get("rolling_expectancy", 0.0) or 0.0),
+                    "rolling_expectancy_pnl": float(playbook.get("rolling_expectancy_pnl", 0.0) or 0.0),
+                    "rolling_expectancy_r": float(playbook.get("rolling_expectancy_r", 0.0) or 0.0),
                     "rolling_win_rate": float(playbook.get("rolling_win_rate", 0.0) or 0.0),
                     "sample_size": int(playbook.get("sample_size", 0) or 0),
+                    "valid_r_sample_size": int(playbook.get("valid_r_sample_size", 0) or 0),
                     "risk_overlay_pct": float(playbook.get("risk_overlay_pct", 0.0) or 0.0),
                     "last_overlay_action": overlay_action,
                     "top_tags": top_tags,
+                    "top_pairs": [str(p.get("key")) for p in (playbook.get("active_pairs") or [])[:3]],
                     "active_tag_count": len(playbook.get("active_tags", []) or []),
+                    "active_pair_count": len(playbook.get("active_pairs", []) or []),
+                    "mode_stats": playbook.get("mode_stats", {}),
                     "freshness_seconds": _seconds_since_iso(playbook_updated, now_utc=ref_now_utc),
                 },
             }

@@ -61,6 +61,21 @@ def _fmt_price(v: float) -> str:
     s = f"{float(v):,.6f}"
     return s.rstrip("0").rstrip(".")
 
+
+def _extract_live_symbols(positions: List[Dict[str, Any]]) -> Set[str]:
+    live_symbols: Set[str] = set()
+    for pos in positions or []:
+        try:
+            qty = float(pos.get("qty") or pos.get("size") or 0)
+        except Exception:
+            qty = 0.0
+        if qty <= 0:
+            continue
+        symbol = str(pos.get("symbol") or "").strip().upper()
+        if symbol:
+            live_symbols.add(symbol)
+    return live_symbols
+
 # Import StackMentor system
 from app.stackmentor import (
     STACKMENTOR_CONFIG,
@@ -97,6 +112,7 @@ from app.engine_runtime_shared import (
 from app.leverage_policy import get_auto_max_safe_leverage
 from app.pair_strategy_router import get_mixed_pair_assignments
 from app.volume_pair_selector import mark_runtime_untradable_symbol
+from app.close_alerts import format_trade_close_alert
 
 _running_tasks: Dict[int, asyncio.Task] = {}
 _mixed_component_tasks: Dict[int, Dict[str, asyncio.Task]] = {}
@@ -1954,8 +1970,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
     trades_today      = 0
     last_trade_date   = datetime.now(timezone.utc).date()
-    had_open_position = False
     daily_pnl_usdt    = 0.0   # track realized PnL telemetry
+    prev_live_symbols: Set[str] = set()
+    recent_close_alert_ts: Dict[str, float] = {}
 
     # Init TP1 tracker untuk user ini
     if user_id not in _tp1_hit_positions:
@@ -2084,6 +2101,239 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             
             return qty_fallback, False  # Fallback used
 
+    def _close_alert_dedupe_key(payload: Dict[str, Any], source_label: str) -> str:
+        try:
+            trade_id = int(payload.get("trade_id") or 0)
+        except Exception:
+            trade_id = 0
+        if trade_id > 0:
+            return f"{source_label}:trade:{trade_id}"
+        return (
+            f"{source_label}:{str(payload.get('symbol') or '').upper()}:"
+            f"{str(payload.get('close_reason') or '').lower()}:"
+            f"{float(payload.get('entry_price') or 0.0):.6f}"
+        )
+
+    def _should_emit_close_alert(dedupe_key: str, ttl_sec: int = 600) -> bool:
+        now_ts = time.time()
+        last_ts = float(recent_close_alert_ts.get(dedupe_key, 0.0) or 0.0)
+        if (now_ts - last_ts) < float(ttl_sec):
+            return False
+        recent_close_alert_ts[dedupe_key] = now_ts
+        return True
+
+    async def _notify_close_payload(payload: Dict[str, Any], source_label: str) -> None:
+        dedupe_key = _close_alert_dedupe_key(payload, source_label)
+        if not _should_emit_close_alert(dedupe_key, ttl_sec=600):
+            logger.info(f"[Engine:{user_id}] Suppressed duplicate close alert: {dedupe_key}")
+            return
+        try:
+            await bot.send_message(
+                chat_id=notify_chat_id,
+                text=format_trade_close_alert(
+                    symbol=payload.get("symbol"),
+                    side=payload.get("side"),
+                    close_reason=payload.get("close_reason"),
+                    entry_price=payload.get("entry_price"),
+                    exit_price=payload.get("exit_price"),
+                    pnl_usdt=payload.get("pnl_usdt"),
+                ),
+                parse_mode="HTML",
+                reply_markup=_dashboard_keyboard(),
+            )
+        except Exception as msg_err:
+            logger.warning(f"[Engine:{user_id}] close alert send failed [{source_label}]: {msg_err}")
+
+    async def _maybe_broadcast_swing_profit(payload: Dict[str, Any]) -> None:
+        if str(payload.get("close_reason") or "").lower() != "closed_tp":
+            return
+        pnl_usdt = float(payload.get("pnl_usdt") or 0.0)
+        if pnl_usdt < 5.0:
+            return
+        try:
+            from app.social_proof import broadcast_profit
+            from app.supabase_repo import get_user_by_tid
+
+            user_data = get_user_by_tid(user_id)
+            fname = user_data.get("first_name", "User") if user_data else "User"
+            asyncio.create_task(
+                broadcast_profit(
+                    bot=bot,
+                    user_id=user_id,
+                    first_name=fname,
+                    symbol=str(payload.get("symbol") or ""),
+                    side=str(payload.get("side") or "LONG"),
+                    pnl_usdt=pnl_usdt,
+                    leverage=int(payload.get("leverage") or leverage),
+                )
+            )
+        except Exception as social_err:
+            logger.warning(f"[Engine:{user_id}] broadcast_profit failed: {social_err}")
+
+    async def _finalize_swing_closed_trade(
+        db_trade: Dict[str, Any],
+        source_label: str,
+        close_reason_override: Optional[str] = None,
+        loss_reasoning_override: str = "",
+        win_metadata_override: Optional[Dict[str, Any]] = None,
+        exit_price_override: Optional[float] = None,
+        pnl_override: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        nonlocal daily_pnl_usdt
+
+        from app.trade_history import (
+            save_trade_close,
+            build_loss_reasoning,
+            build_win_reasoning,
+        )
+        from app.providers.alternative_klines_provider import alternative_klines_provider
+
+        symbol = str(db_trade.get("symbol") or "").strip().upper()
+        if not symbol:
+            return None
+
+        entry_px = float(db_trade.get("entry_price") or 0.0)
+        side_raw = str(db_trade.get("side") or "LONG").strip().upper()
+        qty = float(db_trade.get("qty") or 0.0)
+
+        if exit_price_override is None or pnl_override is None:
+            fin: Dict[str, Any] = {}
+            if hasattr(client, "get_roundtrip_financials"):
+                try:
+                    fin = await asyncio.to_thread(
+                        client.get_roundtrip_financials,
+                        symbol,
+                        str(db_trade.get("order_id") or ""),
+                        side_raw,
+                        str(db_trade.get("opened_at") or ""),
+                        200,
+                    )
+                except Exception as fin_err:
+                    logger.warning(
+                        f"[Engine:{user_id}] roundtrip financial lookup failed for {symbol}: {fin_err}"
+                    )
+
+            try:
+                if fin.get("success") and fin.get("close_avg_price"):
+                    exit_px = float(fin.get("close_avg_price"))
+                else:
+                    ticker_result = await asyncio.to_thread(client.get_ticker, symbol)
+                    if ticker_result.get("success") and ticker_result.get("mark_price"):
+                        exit_px = float(ticker_result.get("mark_price"))
+                    else:
+                        sym_base = symbol.replace("USDT", "")
+                        klines = alternative_klines_provider.get_klines(sym_base, interval="1m", limit=2)
+                        exit_px = float(klines[-1][4]) if klines else entry_px
+            except Exception as px_err:
+                logger.warning(f"[Engine:{user_id}] Failed to resolve close price for {symbol}: {px_err}")
+                exit_px = entry_px
+
+            raw_pnl = (exit_px - entry_px) if side_raw == "LONG" else (entry_px - exit_px)
+            est_pnl_usdt = raw_pnl * qty
+            if fin.get("success") and fin.get("net_pnl") is not None:
+                pnl_usdt = float(fin.get("net_pnl"))
+            else:
+                pnl_usdt = float(est_pnl_usdt)
+        else:
+            exit_px = float(exit_price_override)
+            pnl_usdt = float(pnl_override)
+
+        loss_reasoning = str(loss_reasoning_override or "")
+        win_metadata = dict(win_metadata_override or {}) if win_metadata_override else None
+        close_status = str(close_reason_override or "").strip().lower()
+        if close_status:
+            close_status = close_status
+        elif pnl_usdt < 0:
+            try:
+                curr_sig = await asyncio.to_thread(
+                    _compute_signal_pro,
+                    symbol.replace("USDT", ""),
+                    None,
+                    user_risk_pct,
+                    adaptive_state,
+                )
+            except Exception:
+                curr_sig = None
+            loss_reasoning = build_loss_reasoning(db_trade, curr_sig)
+            close_status = "closed_sl"
+        else:
+            close_status = "closed_tp"
+            match_meta = await asyncio.to_thread(
+                compute_playbook_match_from_reasons,
+                db_trade.get("entry_reasons", []),
+                win_playbook_state,
+            )
+            win_metadata = {
+                "playbook_match_score": match_meta.get("playbook_match_score"),
+                "win_reason_tags": match_meta.get("matched_tags", []),
+                "effective_risk_pct": db_trade.get("effective_risk_pct"),
+                "risk_overlay_pct": db_trade.get("risk_overlay_pct"),
+                "win_reasoning": build_win_reasoning(
+                    db_trade,
+                    current_signal=None,
+                    playbook_tags=match_meta.get("matched_tags", []),
+                    playbook_score=match_meta.get("playbook_match_score"),
+                ),
+            }
+
+        save_trade_close(
+            trade_id=int(db_trade["id"]),
+            exit_price=float(exit_px),
+            pnl_usdt=float(pnl_usdt),
+            close_reason=close_status,
+            loss_reasoning=loss_reasoning,
+            win_metadata=win_metadata,
+        )
+
+        try:
+            await _get_coordinator().confirm_closed(
+                user_id=user_id,
+                symbol=symbol,
+                now_ts=time.time(),
+            )
+            _swing_timeout_state.get(int(user_id), {}).pop(symbol, None)
+        except Exception as close_confirm_err:
+            logger.warning(f"[Engine:{user_id}] confirm_closed failed for {symbol}: {close_confirm_err}")
+
+        daily_pnl_usdt += float(pnl_usdt)
+        payload = {
+            "trade_id": int(db_trade.get("id") or 0),
+            "symbol": symbol,
+            "side": side_raw,
+            "entry_price": float(entry_px),
+            "exit_price": float(exit_px),
+            "pnl_usdt": float(pnl_usdt),
+            "close_reason": close_status,
+            "trade_type": "swing",
+            "leverage": int(db_trade.get("leverage") or leverage),
+        }
+        await _notify_close_payload(payload, source_label=source_label)
+        await _maybe_broadcast_swing_profit(payload)
+        return payload
+
+    async def _finalize_swing_closed_symbols(closed_symbols: Set[str], source_label: str) -> List[Dict[str, Any]]:
+        if not closed_symbols:
+            return []
+        from app.trade_history import get_open_trades
+
+        rows = await asyncio.to_thread(get_open_trades, user_id, "swing")
+        closed_payloads: List[Dict[str, Any]] = []
+        for row in rows or []:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol or symbol not in closed_symbols:
+                continue
+            payload = await _finalize_swing_closed_trade(
+                db_trade=dict(row),
+                source_label=source_label,
+            )
+            if payload:
+                closed_payloads.append(payload)
+        return closed_payloads
+
+    async def _notify_reconciled_closes(reconcile_result: Dict[str, Any], source_label: str) -> None:
+        for payload in list(reconcile_result.get("healed_closes") or []):
+            await _notify_close_payload(dict(payload), source_label=source_label)
+
     # ── Fetch user's risk_per_trade setting ───────────────────────────
     user_risk_pct = 1.0  # Default (1% risk)
     try:
@@ -2168,6 +2418,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             logger.warning(f"{marker} exchange_fetch_ok=false error={result.get('exchange_error')}")
         else:
             logger.info(marker)
+        try:
+            await _notify_reconciled_closes(
+                reconcile_result=result,
+                source_label=f"stale_reconcile:{reconcile_reason}",
+            )
+        except Exception as reconcile_notify_err:
+            logger.warning(f"[Engine:{user_id}] stale reconcile close alert failed: {reconcile_notify_err}")
         return result
 
     try:
@@ -2377,8 +2634,24 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             # ── Cek posisi terbuka ────────────────────────────────────
             pos_result     = await asyncio.to_thread(client.get_positions)
-            open_positions = pos_result.get('positions', []) if pos_result.get('success') else []
+            positions_fetch_ok = bool(pos_result.get("success"))
+            open_positions = pos_result.get("positions", []) if positions_fetch_ok else []
             occupied_syms  = {p['symbol'] for p in open_positions}
+            current_live_symbols = _extract_live_symbols(open_positions) if positions_fetch_ok else set()
+
+            if positions_fetch_ok:
+                closed_symbols = set(prev_live_symbols) - set(current_live_symbols)
+                if closed_symbols:
+                    await _finalize_swing_closed_symbols(
+                        closed_symbols=closed_symbols,
+                        source_label="exchange_symbol_diff",
+                    )
+                    if not current_live_symbols:
+                        _tp1_hit_positions[user_id] = set()
+                        _swing_timeout_state.pop(int(user_id), None)
+                        if is_tracking(user_id):
+                            stop_pnl_tracker(user_id)
+                prev_live_symbols = set(current_live_symbols)
             # ── Swing adaptive timeout protection + dynamic max-hold hooks ───────
             if open_positions and (
                 bool(cfg.get("swing_dynamic_max_hold_enabled", False))
@@ -2387,7 +2660,6 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 try:
                     from app.trade_history import (
                         get_open_trades,
-                        close_open_trades_by_symbol,
                         build_loss_reasoning,
                         build_win_reasoning,
                     )
@@ -2486,23 +2758,15 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                             playbook_score=match_meta.get("playbook_match_score"),
                                         ),
                                     }
-                                await asyncio.to_thread(
-                                    close_open_trades_by_symbol,
-                                    user_id,
-                                    symbol_open,
-                                    mark_open,
-                                    pnl_est,
-                                    "max_hold_time_exceeded",
-                                    loss_reason,
-                                    win_metadata,
-                                    "swing",
+                                await _finalize_swing_closed_trade(
+                                    db_trade=dict(db_row),
+                                    source_label="max_hold_time_exceeded",
+                                    close_reason_override="max_hold_time_exceeded",
+                                    loss_reasoning_override=loss_reason,
+                                    win_metadata_override=win_metadata,
+                                    exit_price_override=float(mark_open),
+                                    pnl_override=float(pnl_est),
                                 )
-                                try:
-                                    await _get_coordinator().confirm_closed(
-                                        user_id=user_id, symbol=symbol_open, now_ts=time.time()
-                                    )
-                                except Exception:
-                                    pass
                                 timeout_state_user.pop(symbol_open, None)
                                 logger.info(
                                     f"[Engine:{user_id}] Swing dynamic max-hold close: {symbol_open} "
@@ -2579,163 +2843,6 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         )
                 except Exception as swing_timeout_err:
                     logger.warning(f"[Engine:{user_id}] Swing timeout/max-hold hook failed: {swing_timeout_err}")
-
-            # Deteksi posisi baru tutup (TP/SL hit) — estimasi PnL
-            if had_open_position and not open_positions:
-                had_open_position = False
-                # Bersihkan TP1 tracker karena semua posisi sudah tutup
-                _tp1_hit_positions[user_id] = set()
-                _swing_timeout_state.pop(int(user_id), None)
-                if is_tracking(user_id):
-                    stop_pnl_tracker(user_id)
-
-                # ── Update trade history: posisi ditutup ──────────────
-                try:
-                    from app.trade_history import (
-                        get_open_trades,
-                        save_trade_close,
-                        build_loss_reasoning,
-                        build_win_reasoning,
-                    )
-                    from app.providers.alternative_klines_provider import alternative_klines_provider
-                    open_db_trades = get_open_trades(user_id, "swing")
-                    for db_trade in open_db_trades:
-                        sym_base = db_trade["symbol"].replace("USDT", "")
-                        # Prefer exchange-realized roundtrip financials (close realized + fees).
-                        # Fallback to mark/klines estimation only when exchange history is unavailable.
-                        fin = {}
-                        try:
-                            fin = await asyncio.to_thread(
-                                client.get_roundtrip_financials,
-                                db_trade["symbol"],
-                                str(db_trade.get("order_id") or ""),
-                                str(db_trade.get("side") or ""),
-                                str(db_trade.get("opened_at") or ""),
-                                200,
-                            )
-                        except Exception as _fin_err:
-                            logger.warning(
-                                f"[Engine:{user_id}] roundtrip financial lookup failed for "
-                                f"{db_trade.get('symbol')}: {_fin_err}"
-                            )
-
-                        # Ambil harga terakhir untuk estimasi exit jika tidak ada close avg price dari history.
-                        try:
-                            if fin.get("success") and fin.get("close_avg_price"):
-                                exit_px = float(fin.get("close_avg_price"))
-                            else:
-                                # Try mark price from exchange
-                                ticker_result = await asyncio.to_thread(client.get_ticker, db_trade["symbol"])
-                                if ticker_result.get('success') and ticker_result.get('mark_price'):
-                                    exit_px = float(ticker_result['mark_price'])
-                                else:
-                                    # Fallback to klines
-                                    klines = alternative_klines_provider.get_klines(sym_base, interval='1m', limit=2)
-                                    exit_px = float(klines[-1][4]) if klines else float(db_trade.get("entry_price", 0))
-                        except Exception as e:
-                            logger.warning(f"[Engine:{user_id}] Failed to get exit price for {sym_base}: {e}")
-                            # Last resort: use entry price (will result in 0 PnL)
-                            exit_px = float(db_trade.get("entry_price", 0))
-
-                        entry_px = float(db_trade.get("entry_price", 0))
-                        db_side  = db_trade.get("side", "LONG")
-                        raw_pnl  = (exit_px - entry_px) if db_side == "LONG" else (entry_px - exit_px)
-                        est_pnl_usdt = raw_pnl * float(db_trade.get("qty", 0))
-
-                        if fin.get("success") and fin.get("net_pnl") is not None:
-                            pnl_usdt = float(fin.get("net_pnl"))
-                        else:
-                            pnl_usdt = est_pnl_usdt
-
-                        win_metadata = None
-                        if pnl_usdt < 0:
-                            # Loss — generate reasoning
-                            try:
-                                curr_sig = await asyncio.to_thread(
-                                    _compute_signal_pro, sym_base, None, user_risk_pct, adaptive_state
-                                )
-                            except Exception:
-                                curr_sig = None
-                            loss_reason = build_loss_reasoning(db_trade, curr_sig)
-                            close_status = "closed_sl"
-                        else:
-                            loss_reason  = ""
-                            close_status = "closed_tp"
-                            match_meta = await asyncio.to_thread(
-                                compute_playbook_match_from_reasons,
-                                db_trade.get("entry_reasons", []),
-                                win_playbook_state,
-                            )
-                            win_metadata = {
-                                "playbook_match_score": match_meta.get("playbook_match_score"),
-                                "win_reason_tags": match_meta.get("matched_tags", []),
-                                "effective_risk_pct": db_trade.get("effective_risk_pct"),
-                                "risk_overlay_pct": db_trade.get("risk_overlay_pct"),
-                                "win_reasoning": build_win_reasoning(
-                                    db_trade,
-                                    current_signal=None,
-                                    playbook_tags=match_meta.get("matched_tags", []),
-                                    playbook_score=match_meta.get("playbook_match_score"),
-                                ),
-                            }
-
-                        save_trade_close(
-                            trade_id=db_trade["id"],
-                            exit_price=exit_px,
-                            pnl_usdt=pnl_usdt,
-                            close_reason=close_status,
-                            loss_reasoning=loss_reason,
-                            win_metadata=win_metadata,
-                        )
-
-                        # Confirm position closed with coordinator
-                        try:
-                            coordinator = _get_coordinator()
-                            await coordinator.confirm_closed(
-                                user_id=user_id,
-                                symbol=db_trade.get("symbol", ""),
-                                now_ts=time.time()
-                            )
-                            _swing_timeout_state.get(int(user_id), {}).pop(str(db_trade.get("symbol", "")).upper(), None)
-                        except Exception as _cc_err:
-                            logger.warning(f"[Engine:{user_id}] confirm_closed failed: {_cc_err}")
-
-                        daily_pnl_usdt += pnl_usdt
-
-                        # Broadcast profit besar ke semua user (social proof)
-                        if pnl_usdt >= 5.0 and close_status == "closed_tp":
-                            try:
-                                from app.social_proof import broadcast_profit
-                                from app.supabase_repo import get_user_by_tid
-                                user_data = get_user_by_tid(user_id)
-                                fname = user_data.get("first_name", "User") if user_data else "User"
-                                asyncio.create_task(broadcast_profit(
-                                    bot=bot,
-                                    user_id=user_id,
-                                    first_name=fname,
-                                    symbol=db_trade.get("symbol", ""),
-                                    side=db_trade.get("side", "LONG"),
-                                    pnl_usdt=pnl_usdt,
-                                    leverage=db_trade.get("leverage", leverage),
-                                ))
-                            except Exception as _bp_err:
-                                logger.warning(f"[Engine:{user_id}] broadcast_profit failed: {_bp_err}")
-
-                except Exception as _he:
-                    logger.warning(f"[Engine:{user_id}] trade_history close failed: {_he}")
-                await bot.send_message(
-                    chat_id=notify_chat_id,
-                    text=(
-                        f"🔔 <b>Position Closed</b> (TP/SL hit)\n\n"
-                        f"📊 Trades today: <b>{trades_today}</b>\n"
-                        f"🔄 Looking for next setup..."
-                    ),
-                    parse_mode='HTML',
-                    reply_markup=_dashboard_keyboard()
-                )
-
-            if open_positions:
-                had_open_position = True
 
             # ── StackMentor Monitor: Check TP2/TP3 hits ──────────────
             if cfg.get("use_stackmentor", True):
@@ -3972,7 +4079,6 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
 
             order_id = exec_result.order_id or '-'
             trades_today += 1
-            had_open_position = True
 
             # Tandai posisi ini belum hit TP1
             if user_id not in _tp1_hit_positions:

@@ -67,6 +67,7 @@ from app.win_playbook import (
     get_win_playbook_snapshot,
 )
 from app.volume_pair_selector import mark_runtime_untradable_symbol
+from app.close_alerts import format_trade_close_alert
 
 logger = logging.getLogger(__name__)
 WEB_DASHBOARD_URL = os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id")
@@ -341,6 +342,7 @@ class ScalpingEngine:
             "stale_symbols": [],
             "healed_count": 0,
             "healed_trade_ids": [],
+            "healed_closes": [],
             "pruned_local_count": 0,
         }
         if not self._stale_reconcile_enabled:
@@ -372,6 +374,27 @@ class ScalpingEngine:
                 "scalping",
                 drift,
             )
+            for payload in list(out.get("healed_closes") or []):
+                try:
+                    trade_id = int(payload.get("trade_id") or 0)
+                except Exception:
+                    trade_id = 0
+                dedupe_key = f"reconcile_close:scalping:{trade_id}" if trade_id > 0 else (
+                    f"reconcile_close:scalping:{str(payload.get('symbol') or '').upper()}:"
+                    f"{str(payload.get('close_reason') or '').lower()}"
+                )
+                await self._notify_user_once(
+                    dedupe_key=dedupe_key,
+                    message=format_trade_close_alert(
+                        symbol=payload.get("symbol"),
+                        side=payload.get("side"),
+                        close_reason=payload.get("close_reason"),
+                        entry_price=payload.get("entry_price"),
+                        exit_price=payload.get("exit_price"),
+                        pnl_usdt=payload.get("pnl_usdt"),
+                    ),
+                    ttl_sec=600,
+                )
             pruned_local_count = 0
             if int(out.get("healed_count", 0) or 0) > 0 or reconcile_reason == "jit_capacity":
                 pruned_local_count = await self._prune_stale_local_positions()
@@ -940,6 +963,8 @@ class ScalpingEngine:
                     signal = None
                 else:
                     setattr(signal, "is_emergency", False)
+                    if not getattr(signal, "trade_subtype", ""):
+                        setattr(signal, "trade_subtype", "trend_scalp")
                     return signal
 
             if not getattr(self.config, "emergency_candidate_mode", False):
@@ -954,6 +979,8 @@ class ScalpingEngine:
                 return None
 
             setattr(emergency_signal, "is_emergency", True)
+            if not getattr(emergency_signal, "trade_subtype", ""):
+                setattr(emergency_signal, "trade_subtype", "trend_scalp")
             setattr(
                 emergency_signal,
                 "emergency_score",
@@ -1024,6 +1051,7 @@ class ScalpingEngine:
                 trend_15m=signal_dict["trend_15m"],
                 reasons=signal_dict["reasons"]
             )
+            setattr(signal, "trade_subtype", "trend_scalp")
             
             logger.info(
                 f"[Scalping:{self.user_id}] Signal generated: {symbol} {signal.side} "
@@ -1297,7 +1325,7 @@ class ScalpingEngine:
                             if range_result:
                                 reasons.insert(1, f"Range: {range_result.support:.4f} - {range_result.resistance:.4f}")
 
-                            return MicroScalpSignal(
+                            signal = MicroScalpSignal(
                                 symbol=symbol,
                                 side=momentum_signal.direction,
                                 entry_price=momentum_signal.entry_price,
@@ -1313,6 +1341,8 @@ class ScalpingEngine:
                                 volume_ratio=1.0,
                                 reasons=reasons,
                             )
+                            setattr(signal, "trade_subtype", "sideways_scalp")
+                            return signal
                 except Exception as e:
                     logger.warning(f"[Scalping:{self.user_id}] MicroMomentum error for {symbol}: {e}")
 
@@ -1323,80 +1353,11 @@ class ScalpingEngine:
                         f"(mode={sideways_policy.get('mode')})"
                     )
                     return None
-                # Fallback: emit a conservative range-reversion candidate when
-                # market is sideways and a valid range exists, even without a
-                # clean wick bounce or micro-momentum trigger.
-                if range_result is not None:
-                    try:
-                        closes = [float(c["close"]) for c in candles_5m[-20:]]
-                        if len(closes) >= 15:
-                            gains, losses = [], []
-                            for i in range(1, len(closes)):
-                                d = closes[i] - closes[i - 1]
-                                gains.append(max(d, 0.0))
-                                losses.append(max(-d, 0.0))
-                            period = min(14, len(gains))
-                            avg_gain = sum(gains[-period:]) / period if period else 0.0
-                            avg_loss = sum(losses[-period:]) / period if period else 0.0
-                            rsi_5m = 100.0 if avg_loss == 0 else (100 - (100 / (1 + (avg_gain / avg_loss))))
-                        else:
-                            rsi_5m = 50.0
-
-                        support = range_result.support
-                        resistance = range_result.resistance
-                        width = max(1e-12, resistance - support)
-                        pos_in_range = (price - support) / width  # 0=near support, 1=near resistance
-
-                        direction = None
-                        if pos_in_range <= 0.35 and rsi_5m <= 58:
-                            direction = "LONG"
-                        elif pos_in_range >= 0.65 and rsi_5m >= 42:
-                            direction = "SHORT"
-
-                        if direction is not None:
-                            entry = price
-                            tr_list_fb = []
-                            for i in range(1, len(candles_5m)):
-                                c = candles_5m[i]
-                                p = candles_5m[i - 1]
-                                tr_list_fb.append(max(c["high"] - c["low"], abs(c["high"] - p["close"]), abs(c["low"] - p["close"])))
-                            atr_fb = (sum(tr_list_fb[-14:]) / 14) if len(tr_list_fb) >= 14 else 0.0
-                            sl_buffer = (atr_fb * 0.6) if atr_fb > 0 else (entry * 0.0025)
-                            if direction == "LONG":
-                                tp = entry + 0.55 * (resistance - entry)
-                                sl = support - sl_buffer
-                                rr = (tp - entry) / (entry - sl) if (entry - sl) > 0 else 0
-                            else:
-                                tp = entry - 0.55 * (entry - support)
-                                sl = resistance + sl_buffer
-                                rr = (entry - tp) / (sl - entry) if (sl - entry) > 0 else 0
-
-                            if rr >= getattr(self.config, "sideways_min_rr", 1.1):
-                                reasons = [
-                                    f"Sideways fallback: {sideways_result.reason}",
-                                    f"Range reversion candidate ({pos_in_range*100:.0f}% in range, RSI={rsi_5m:.1f})",
-                                    f"Range: {support:.4f} - {resistance:.4f} ({range_result.range_width_pct:.2f}%)",
-                                ]
-                                return MicroScalpSignal(
-                                    symbol=symbol,
-                                    side=direction,
-                                    entry_price=entry,
-                                    tp_price=round(tp, 6),
-                                    sl_price=round(sl, 6),
-                                    rr_ratio=round(rr, 2),
-                                    range_support=support,
-                                    range_resistance=resistance,
-                                    range_width_pct=range_result.range_width_pct,
-                                    confidence=72,
-                                    bounce_confirmed=False,
-                                    rsi_divergence_detected=False,
-                                    volume_ratio=1.0,
-                                    reasons=reasons,
-                                )
-                    except Exception as e:
-                        logger.debug(f"[Scalping:{self.user_id}] {symbol} sideways fallback failed: {e}")
-
-                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce/momentum/fallback signal")
+                logger.info(
+                    f"[Scalping:{self.user_id}] {symbol} sideways fallback retired after loss review; "
+                    "waiting for confirmed bounce or momentum trigger"
+                )
+                logger.debug(f"[Scalping:{self.user_id}] {symbol} No bounce/momentum signal")
                 return None
 
             direction = bounce_result.direction  # "LONG" or "SHORT"
@@ -1487,7 +1448,7 @@ class ScalpingEngine:
             # Reset error counter on success
             self.sideways_error_counter[symbol] = 0
 
-            return MicroScalpSignal(
+            signal = MicroScalpSignal(
                 symbol=symbol,
                 side=direction,
                 entry_price=entry,
@@ -1503,6 +1464,8 @@ class ScalpingEngine:
                 volume_ratio=volume_ratio,
                 reasons=reasons,
             )
+            setattr(signal, "trade_subtype", "sideways_scalp")
+            return signal
 
         except Exception as e:
             logger.error(f"[Scalping:{self.user_id}] _try_sideways_signal error for {symbol}: {e}")
@@ -1893,6 +1856,8 @@ class ScalpingEngine:
         setattr(signal, "parity_conf_relief_applied", bool(conf_adapt.get("parity_conf_relief_applied", False)))
         setattr(signal, "scalp_risk_parity_regime", str(parity_controls.get("regime", "disabled")))
         setattr(signal, "scalp_risk_parity_ratio", float(parity_controls.get("ratio", 1.0) or 1.0))
+        if not getattr(signal, "trade_subtype", ""):
+            setattr(signal, "trade_subtype", "sideways_scalp" if is_sideways else "trend_scalp")
 
         # Check confidence
         min_conf_pct = max(0.0, min(100.0, (self.config.min_confidence * 100.0) + conf_delta))
@@ -1922,6 +1887,13 @@ class ScalpingEngine:
                 f"parity_regime={parity_controls.get('regime')} "
                 f"parity_ratio={float(parity_controls.get('ratio', 1.0) or 1.0):.3f} "
                 f"edge_adj={float(conf_adapt.get('edge_adj', 0.0) or 0.0):+.4f})"
+            )
+            return False
+
+        if is_sideways and not bool(getattr(signal, "bounce_confirmed", False)):
+            logger.debug(
+                f"[Scalping:{self.user_id}] Signal rejected: sideways entry requires bounce_confirmed "
+                f"(symbol={signal.symbol} trade_subtype={getattr(signal, 'trade_subtype', 'sideways_scalp')})"
             )
             return False
         
@@ -1991,10 +1963,12 @@ class ScalpingEngine:
         
         # Adaptive daily circuit breaker gate (UTC day, full bypass only for strong opportunities).
         playbook_strong_match = bool(getattr(signal, "playbook_strong_match", False))
+        match_meta: Dict[str, Any] = {}
         try:
             match_meta = compute_playbook_match_from_reasons(
                 getattr(signal, "reasons", []) or [],
                 self._win_playbook_snapshot,
+                mode_hint="scalping",
             )
             setattr(
                 signal,
@@ -2010,6 +1984,22 @@ class ScalpingEngine:
             setattr(signal, "playbook_strong_match", bool(playbook_strong_match))
         except Exception as playbook_match_err:
             logger.debug(f"[Scalping:{self.user_id}] Playbook strong-match precheck failed: {playbook_match_err}")
+
+        if not is_sideways and not bool(self._win_playbook_snapshot.get("guardrails_healthy", False)):
+            effective_confidence = float(getattr(signal, "confidence", 0.0) or 0.0)
+            if effective_confidence < 75.0:
+                reason_tags = set(match_meta.get("reason_tags", []) or [])
+                has_volume_confirmation = "volume_confirmation" in reason_tags
+                playbook_match_score = float(getattr(signal, "playbook_match_score", 0.0) or 0.0)
+                if (not has_volume_confirmation) or playbook_match_score < 0.20:
+                    logger.info(
+                        f"[Scalping:{self.user_id}] Signal rejected: weak trend scalp under unhealthy playbook "
+                        f"requires volume_confirmation + playbook_match_score>=0.20 "
+                        f"(symbol={signal.symbol} confidence={effective_confidence:.1f} "
+                        f"playbook_score={playbook_match_score:.3f} "
+                        f"has_volume_confirmation={has_volume_confirmation})"
+                    )
+                    return False
 
         min_conf_for_breaker = float(
             getattr(signal, "confidence_effective_min_conf", self.config.min_confidence * 100.0)
@@ -3235,6 +3225,7 @@ class ScalpingEngine:
                 "sl_price": position.sl_price,
                 "rr_ratio": rr_ratio,
                 "trade_type": "scalping",
+                "trade_subtype": str(getattr(signal, "trade_subtype", "trend_scalp") or "trend_scalp"),
                 "timeframe": "5m",
                 "confidence": signal.confidence,
                 "entry_reasons": list(getattr(signal, "reasons", []) or []),
@@ -3255,7 +3246,7 @@ class ScalpingEngine:
                     "range_support": signal.range_support,
                     "range_resistance": signal.range_resistance,
                     "range_width_pct": signal.range_width_pct,
-                    "bounce_confirmed": True,
+                    "bounce_confirmed": bool(getattr(signal, "bounce_confirmed", False)),
                     "rsi_divergence_detected": signal.rsi_divergence_detected,
                 })
             else:

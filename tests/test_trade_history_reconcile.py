@@ -50,8 +50,18 @@ def test_reconcile_uses_exchange_roundtrip_when_available(monkeypatch):
                 "close_avg_price": 102.4,
             }
 
-    healed = trade_history.reconcile_open_trades_with_exchange(999, _Client())
-    assert healed == 1
+    result = trade_history.apply_open_trade_reconcile(999, _Client())
+    assert result["healed_count"] == 1
+    assert len(result["healed_closes"]) == 1
+    healed_row = result["healed_closes"][0]
+    assert healed_row["trade_id"] == 101
+    assert healed_row["symbol"] == "BTCUSDT"
+    assert healed_row["side"] == "LONG"
+    assert healed_row["entry_price"] == 100.0
+    assert healed_row["exit_price"] == 102.4
+    assert healed_row["pnl_usdt"] == 2.5
+    assert healed_row["close_reason"] == "stale_reconcile"
+    assert healed_row["trade_type"] == "unknown"
     assert len(captured) == 1
     assert captured[0]["trade_id"] == 101
     assert captured[0]["close_reason"] == "stale_reconcile"
@@ -95,8 +105,18 @@ def test_reconcile_fallback_forces_stale_reconcile_zero_pnl_without_roundtrip(mo
         def get_roundtrip_financials(self, **_kwargs):
             return {"success": False, "error": "history unavailable"}
 
-    healed = trade_history.reconcile_open_trades_with_exchange(123, _Client())
-    assert healed == 1
+    result = trade_history.apply_open_trade_reconcile(123, _Client())
+    assert result["healed_count"] == 1
+    assert len(result["healed_closes"]) == 1
+    healed_row = result["healed_closes"][0]
+    assert healed_row["trade_id"] == 202
+    assert healed_row["symbol"] == "ETHUSDT"
+    assert healed_row["side"] == "SHORT"
+    assert healed_row["entry_price"] == 2500.0
+    assert healed_row["exit_price"] == 2500.0
+    assert healed_row["pnl_usdt"] == 0.0
+    assert healed_row["close_reason"] == "stale_reconcile"
+    assert healed_row["trade_type"] == "unknown"
     assert len(captured) == 1
     assert captured[0]["trade_id"] == 202
     assert captured[0]["close_reason"] == "stale_reconcile"

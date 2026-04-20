@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   LineChart, Wallet, Bot, Settings, LogOut,
   TrendingUp, TrendingDown, Activity, CheckCircle2,
-  Shield, BarChart2, Target, Zap, Layers, RefreshCw,
+  Shield, BarChart2, BarChart3, Target, Zap, Layers, RefreshCw,
   GraduationCap, Radio, Cpu, ToggleRight, ToggleLeft,
   Menu, X, Crosshair, ArrowUpRight, ArrowDownRight,
   PlayCircle, BookOpen, Lock, Clock, Power, StopCircle, XCircle,
@@ -2106,6 +2106,25 @@ function PerformanceTab() {
   const chartData = (livePerf?.equity_curve && livePerf.equity_curve.length > 0)
     ? livePerf.equity_curve
     : HISTORICAL_DATA;
+  const playbookAnalysis = livePerf?.playbook_analysis || null;
+  const paPromote = Array.isArray(playbookAnalysis?.promote) ? playbookAnalysis.promote : [];
+  const paAvoid = Array.isArray(playbookAnalysis?.avoid) ? playbookAnalysis.avoid : [];
+  const paCoverage = playbookAnalysis?.coverage || {};
+  const paSampleSize = Number(playbookAnalysis?.sample_size || 0);
+  const paSparse = Boolean(playbookAnalysis?.sparse_data);
+  const paWinsReasonPct = Number(paCoverage?.wins_with_reasoning_pct || 0);
+  const paUsableTagsPct = Number(paCoverage?.closed_with_usable_tags_pct || 0);
+  const paWeakMatchPct = Number(paCoverage?.weak_or_missing_playbook_match_wins_pct || 0);
+
+  const formatCluster = (row) => {
+    if (!row) return 'No setup data';
+    const label = String(row.label || 'Setup');
+    const support = Number(row.support || 0);
+    const winRatePct = Number(row.win_rate || 0) * 100;
+    const expectancy = Number(row.expectancy_usdt || 0);
+    const medianR = Number(row.median_r || 0);
+    return `${label} • n=${support} • WR ${winRatePct.toFixed(1)}% • Exp ${expectancy >= 0 ? '+' : ''}${expectancy.toFixed(3)} • R ${medianR >= 0 ? '+' : ''}${medianR.toFixed(2)}`;
+  };
 
   const [hoverMetrics, setHoverMetrics] = useState(null);
   const activeMetrics = hoverMetrics || liveMetrics;
@@ -2201,6 +2220,65 @@ function PerformanceTab() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+      </div>
+      <div className="bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/5 rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 relative overflow-hidden">
+        <div className="absolute -top-8 left-1/3 w-44 h-44 bg-lime-500/10 blur-[70px] rounded-full pointer-events-none" />
+        <div className="relative z-10 flex items-center justify-between gap-3 flex-wrap mb-5">
+          <h3 className="text-sm md:text-xl font-bold text-white flex items-center gap-2 bg-white/5 px-3 py-2 rounded-lg border border-white/5 w-fit">
+            <BarChart3 className="text-lime-400 w-4 h-4" />
+            Winning Playbook Analyzer V2
+          </h3>
+          <div className="text-[11px] md:text-xs font-semibold text-slate-400">
+            sample={paSampleSize} • sparse={paSparse ? 'yes' : 'no'}
+          </div>
+        </div>
+
+        {(!playbookAnalysis || paSampleSize <= 0) ? (
+          <div className="relative z-10 border border-white/10 rounded-2xl p-4 md:p-6 bg-[#050505]">
+            <p className="text-slate-300 text-sm font-semibold">Not enough closed strategy trades yet for playbook analysis.</p>
+            <p className="text-slate-500 text-xs mt-2">This section auto-populates when the learning window has usable recent trade history.</p>
+          </div>
+        ) : (
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="border border-lime-500/20 rounded-2xl p-4 bg-lime-500/5">
+              <p className="text-[11px] uppercase tracking-wider font-bold text-lime-300 mb-2">Best Working Setups</p>
+              {(paPromote.slice(0, 3).length > 0) ? (
+                <div className="space-y-2">
+                  {paPromote.slice(0, 3).map((row, idx) => (
+                    <p key={`promote-${idx}`} className="text-[12px] md:text-xs text-slate-200 leading-relaxed">{formatCluster(row)}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] md:text-xs text-slate-400">No promote setups yet. Keep collecting closed trades.</p>
+              )}
+            </div>
+
+            <div className="border border-rose-500/20 rounded-2xl p-4 bg-rose-500/5">
+              <p className="text-[11px] uppercase tracking-wider font-bold text-rose-300 mb-2">Underperforming Setups</p>
+              {(paAvoid.slice(0, 3).length > 0) ? (
+                <div className="space-y-2">
+                  {paAvoid.slice(0, 3).map((row, idx) => (
+                    <p key={`avoid-${idx}`} className="text-[12px] md:text-xs text-slate-200 leading-relaxed">{formatCluster(row)}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] md:text-xs text-slate-400">No avoid setups flagged in this sample.</p>
+              )}
+            </div>
+
+            <div className="border border-cyan-500/20 rounded-2xl p-4 bg-cyan-500/5">
+              <p className="text-[11px] uppercase tracking-wider font-bold text-cyan-300 mb-2">Coverage Gaps</p>
+              <div className="space-y-2">
+                <p className="text-[12px] md:text-xs text-slate-200">Wins with reasoning: <span className="text-cyan-300 font-bold">{paWinsReasonPct.toFixed(1)}%</span></p>
+                <p className="text-[12px] md:text-xs text-slate-200">Closed trades with usable tags: <span className="text-cyan-300 font-bold">{paUsableTagsPct.toFixed(1)}%</span></p>
+                <p className="text-[12px] md:text-xs text-slate-200">Winning trades weak/missing strong match: <span className="text-cyan-300 font-bold">{paWeakMatchPct.toFixed(1)}%</span></p>
+                {paSparse && (
+                  <p className="text-[11px] text-amber-300 font-semibold pt-1">Sparse-data mode: treat setup ranking as directional, not definitive.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

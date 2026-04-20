@@ -840,6 +840,7 @@ async def _check_stale_positions(application):
             inspect_open_trade_drift,
             apply_open_trade_reconcile,
         )
+        from app.close_alerts import format_trade_close_alert
         from app.autotrade_engine import _compute_signal_pro
         from app.supabase_repo import get_user_api_key
         from app.exchange_registry import get_client
@@ -883,6 +884,25 @@ async def _check_stale_positions(application):
                     f"exchange_open_count={int(rec.get('exchange_open_count', 0) or 0)} "
                     f"healed_count={healed_count} stale_symbols={list(rec.get('stale_symbols') or [])}"
                 )
+                for payload in list(rec.get("healed_closes") or []):
+                    try:
+                        await application.bot.send_message(
+                            chat_id=int(user_id),
+                            text=format_trade_close_alert(
+                                symbol=payload.get("symbol"),
+                                side=payload.get("side"),
+                                close_reason=payload.get("close_reason"),
+                                entry_price=payload.get("entry_price"),
+                                exit_price=payload.get("exit_price"),
+                                pnl_usdt=payload.get("pnl_usdt"),
+                            ),
+                            parse_mode="HTML",
+                        )
+                    except Exception as notify_err:
+                        logger.warning(
+                            f"[StartupCheck] Failed to send reconcile close alert user={int(user_id)} "
+                            f"trade_id={payload.get('trade_id')}: {notify_err}"
+                        )
                 live_symbols = {
                     str(sym).strip().upper()
                     for sym in (rec.get("live_symbols") or [])

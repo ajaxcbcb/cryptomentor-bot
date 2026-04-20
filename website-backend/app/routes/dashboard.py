@@ -897,99 +897,10 @@ async def update_margin_mode(
 
 @router.get("/performance")
 async def get_performance(tg_id: int = Depends(get_current_user)):
-    """
-    Live performance metrics computed from autotrade_trades.
+    # Delegate to the canonical implementation to avoid payload drift.
+    from app.routes.performance import build_performance_payload
 
-    Returns Sharpe, Max Drawdown, Win Rate, Total Trades, Volatility, plus a
-    cumulative equity series suitable for charting.
-    """
-    import math
-    from datetime import datetime, timezone
-    from collections import defaultdict
-
-    s = _client()
-
-    res = s.table("autotrade_trades").select(
-        "pnl_usdt, status, opened_at, closed_at"
-    ).eq("telegram_id", tg_id).in_("status", CLOSED_STATUSES).order("closed_at").execute()
-    trades = res.data or []
-
-    total_trades = len(trades)
-    wins = sum(1 for t in trades if float(t.get("pnl_usdt") or 0) > 0)
-    win_rate = (wins / total_trades * 100) if total_trades else 0.0
-
-    # Starting equity from session, fallback to live Bitunix balance
-    sess = s.table("autotrade_sessions").select(
-        "initial_deposit, current_balance"
-    ).eq("telegram_id", tg_id).limit(1).execute()
-    sess_row = (sess.data or [{}])[0]
-    start_equity = float(sess_row.get("initial_deposit") or 0)
-    if start_equity <= 0:
-        try:
-            acc = await bsvc.fetch_account(tg_id)
-            if acc.get("success"):
-                start_equity = float(acc.get("available", 0) or 0)
-        except Exception:
-            pass
-    if start_equity <= 0:
-        start_equity = 10000.0  # neutral baseline so chart still renders
-
-    # Bucket pnl per day for the equity curve and daily return series
-    by_day = defaultdict(float)
-    for t in trades:
-        ts = t.get("closed_at") or t.get("opened_at")
-        if not ts:
-            continue
-        try:
-            day = datetime.fromisoformat(ts.replace("Z", "+00:00")).date().isoformat()
-        except Exception:
-            continue
-        by_day[day] += float(t.get("pnl_usdt") or 0)
-
-    days_sorted = sorted(by_day.keys())
-    equity = start_equity
-    equity_series = []
-    daily_returns = []
-    peak = start_equity
-    max_dd_pct = 0.0
-    for d in days_sorted:
-        prev = equity
-        equity += by_day[d]
-        if prev > 0:
-            daily_returns.append((equity - prev) / prev)
-        peak = max(peak, equity)
-        if peak > 0:
-            dd = (equity - peak) / peak
-            if dd < max_dd_pct:
-                max_dd_pct = dd
-        equity_series.append({"date": d, "equity": round(equity, 2)})
-
-    # Sharpe (annualized, rf=0). Need at least 2 returns and non-zero stdev.
-    sharpe = 0.0
-    volatility_pct = 0.0
-    if len(daily_returns) >= 2:
-        mean_r = sum(daily_returns) / len(daily_returns)
-        var_r = sum((r - mean_r) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
-        std_r = math.sqrt(var_r)
-        if std_r > 0:
-            sharpe = (mean_r / std_r) * math.sqrt(365)
-        volatility_pct = std_r * math.sqrt(30) * 100  # ~monthly stdev in %
-
-    # Prepend a baseline point so the chart starts at the initial equity
-    if equity_series:
-        equity_series = [{"date": "Start", "equity": round(start_equity, 2)}] + equity_series
-
-    return {
-        "metrics": {
-            "sharpe": round(sharpe, 2),
-            "max_drawdown_pct": round(max_dd_pct * 100, 2),
-            "win_rate_pct": round(win_rate, 2),
-            "total_trades": total_trades,
-            "volatility_pct": round(volatility_pct, 2),
-        },
-        "equity_curve": equity_series,
-        "start_equity": round(start_equity, 2),
-    }
+    return await build_performance_payload(tg_id=int(tg_id))
 
 
 @router.get("/system")

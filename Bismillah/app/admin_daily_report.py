@@ -104,6 +104,87 @@ def _format_missing_reason_map(missing: dict[str, int], max_items: int = 6) -> s
     return txt
 
 
+def _format_playbook_clusters_brief(rows: list[dict], max_items: int = 3) -> str:
+    if not rows:
+        return "-"
+    out: list[str] = []
+    for row in list(rows)[: max(1, int(max_items or 3))]:
+        label = str(row.get("label") or "-")
+        support = int(row.get("support", 0) or 0)
+        win_rate = float(row.get("win_rate", 0.0) or 0.0) * 100.0
+        expectancy = float(row.get("expectancy_usdt", 0.0) or 0.0)
+        median_r = float(row.get("median_r", 0.0) or 0.0)
+        out.append(
+            f"{label} (n={support}, wr={win_rate:.1f}%, exp={expectancy:+.4f}, R~{median_r:+.2f})"
+        )
+    return " | ".join(out) if out else "-"
+
+
+def _build_user_pnl_breakdown_rows(all_sessions: list[dict], trades_today: list[dict]) -> list[dict]:
+    """
+    Build per-user 24h trade/PnL breakdown rows.
+
+    Coverage policy:
+    - Include all real users present in autotrade_sessions (even with zero trades).
+    - Include trade-only users seen in the 24h trade window even if session row is missing.
+    """
+    session_by_uid: dict[int, dict] = {}
+    for sess in all_sessions or []:
+        uid_raw = sess.get("telegram_id")
+        if not _is_real_user_id(uid_raw):
+            continue
+        uid = int(uid_raw)
+        if uid not in session_by_uid:
+            session_by_uid[uid] = sess
+
+    rows_by_uid: dict[int, dict] = {}
+
+    def _ensure(uid: int) -> dict:
+        if uid in rows_by_uid:
+            return rows_by_uid[uid]
+
+        sess = session_by_uid.get(uid) or {}
+        row = {
+            "telegram_id": int(uid),
+            "status": str(sess.get("status") or "no_session"),
+            "trading_mode": str(sess.get("trading_mode") or "-"),
+            "opened": 0,
+            "closed": 0,
+            "open_now": 0,
+            "wins": 0,
+            "losses": 0,
+            "pnl_usdt": 0.0,
+        }
+        rows_by_uid[uid] = row
+        return row
+
+    for uid in session_by_uid.keys():
+        _ensure(uid)
+
+    for trade in trades_today or []:
+        uid_raw = trade.get("telegram_id")
+        if not _is_real_user_id(uid_raw):
+            continue
+        uid = int(uid_raw)
+        row = _ensure(uid)
+        row["opened"] += 1
+
+        status = str(trade.get("status") or "").strip().lower()
+        pnl = _to_float(trade.get("pnl_usdt"), 0.0)
+        if status == "open":
+            row["open_now"] += 1
+            continue
+
+        row["closed"] += 1
+        row["pnl_usdt"] += pnl
+        if pnl > 0:
+            row["wins"] += 1
+        elif pnl < 0:
+            row["losses"] += 1
+
+    return [rows_by_uid[uid] for uid in sorted(rows_by_uid.keys())]
+
+
 def _summarize_coordinator_pending_snapshot(
     snapshot: dict | None,
     *,
@@ -245,8 +326,10 @@ async def send_daily_report(bot):
             get_confidence_adaptation_snapshot,
             refresh_global_confidence_adaptation_state,
         )
+        from app.sideways_governor import refresh_sideways_governor_state, get_sideways_governor_snapshot
         from app.symbol_coordinator import get_coordinator
         from app.win_playbook import refresh_global_win_playbook_state, get_win_playbook_snapshot
+        from app.playbook_analytics import build_playbook_analysis
 
         s = _client()
         now_wib = datetime.now(TZ_WIB)
@@ -350,7 +433,7 @@ async def send_daily_report(bot):
 
         # ── 2. Today's trades ─────────────────────────────────────────
         trades_res = s.table("autotrade_trades").select(
-            "telegram_id, symbol, side, pnl_usdt, status, close_reason, loss_reasoning, "
+            "telegram_id, symbol, side, pnl_usdt, status, close_reason, loss_reasoning, trade_subtype, "
             "win_reasoning, playbook_match_score, effective_risk_pct, risk_overlay_pct, opened_at, closed_at"
         ).gte("opened_at", since_24h).execute()
         trades_today = trades_res.data or []
@@ -364,6 +447,9 @@ async def send_daily_report(bot):
         win_pnl = sum(float(t.get("pnl_usdt") or 0) for t in wins)
         loss_pnl = sum(float(t.get("pnl_usdt") or 0) for t in losses)
         win_rate = (len(wins) / len(closed_trades) * 100) if closed_trades else 0
+
+        user_pnl_rows = _build_user_pnl_breakdown_rows(all_sessions, trades_today)
+        users_with_closed_trades = sum(1 for row in user_pnl_rows if int(row.get("closed", 0) or 0) > 0)
 
         # ── 2b. Outcome taxonomy + adaptive snapshot ───────────────────
         taxonomy_counts = {
@@ -409,8 +495,24 @@ async def send_daily_report(bot):
             len(timeout_protected_near_flat) / len(timeout_protected) * 100
             if timeout_protected else 0.0
         )
+        timeout_by_subtype = {
+            "trend_scalp": {"count": 0, "negative_count": 0},
+            "sideways_scalp": {"count": 0, "negative_count": 0},
+        }
+        for t in timeout_exits:
+            subtype = str(t.get("trade_subtype") or "trend_scalp").strip().lower() or "trend_scalp"
+            if subtype not in timeout_by_subtype:
+                timeout_by_subtype[subtype] = {"count": 0, "negative_count": 0}
+            timeout_by_subtype[subtype]["count"] += 1
+            if float(t.get("pnl_usdt") or 0.0) < 0.0:
+                timeout_by_subtype[subtype]["negative_count"] += 1
 
         adaptive = get_adaptive_overrides()
+        try:
+            refresh_sideways_governor_state()
+        except Exception:
+            pass
+        sideways_governor_snapshot = get_sideways_governor_snapshot()
         try:
             refresh_global_win_playbook_state()
         except Exception:
@@ -436,6 +538,44 @@ async def send_daily_report(bot):
         adaptive_freshness = _freshness_label(adaptive.get("updated_at"), now_utc)
         overlay_action = str(playbook_snapshot.get("last_overlay_action") or "hold")
         playbook_freshness = _freshness_label(playbook_snapshot.get("updated_at"), now_utc)
+        analysis_rows = []
+        try:
+            analysis_rows_res = (
+                s.table("autotrade_trades")
+                .select(
+                    "id,symbol,status,close_reason,pnl_usdt,entry_reasons,closed_at,trade_type,timeframe,"
+                    "confidence,entry_price,sl_price,qty,quantity,original_quantity,win_reasoning,playbook_match_score"
+                )
+                .neq("status", "open")
+                .order("closed_at", desc=True)
+                .limit(2500)
+                .execute()
+            )
+            analysis_rows = analysis_rows_res.data or []
+        except Exception as analysis_fetch_err:
+            logger.warning(f"[DailyReport] Playbook analysis fetch failed: {analysis_fetch_err}")
+        playbook_analysis = build_playbook_analysis(analysis_rows, now_utc=now_utc)
+        playbook_analysis_coverage = playbook_analysis.get("coverage") or {}
+        playbook_analysis_freshness = _freshness_label(playbook_analysis.get("generated_at"), now_utc)
+        playbook_analysis_promote = _format_playbook_clusters_brief(
+            list(playbook_analysis.get("promote") or []),
+            max_items=3,
+        )
+        playbook_analysis_avoid = _format_playbook_clusters_brief(
+            list(playbook_analysis.get("avoid") or []),
+            max_items=3,
+        )
+        playbook_analysis_wins_reason_pct = float(
+            playbook_analysis_coverage.get("wins_with_reasoning_pct", 100.0) or 100.0
+        )
+        playbook_analysis_tags_pct = float(
+            playbook_analysis_coverage.get("closed_with_usable_tags_pct", 0.0) or 0.0
+        )
+        playbook_analysis_weak_match_pct = float(
+            playbook_analysis_coverage.get("weak_or_missing_playbook_match_wins_pct", 100.0) or 100.0
+        )
+        playbook_analysis_sample_size = int(playbook_analysis.get("sample_size", 0) or 0)
+        playbook_analysis_sparse = bool(playbook_analysis.get("sparse_data", True))
 
         expected_winning_closes = [t for t in closed_trades if _is_expected_winning_close(t)]
         expected_losing_closes = [t for t in closed_trades if _is_expected_losing_close(t)]
@@ -572,6 +712,10 @@ async def send_daily_report(bot):
             f"• Total PnL: <b>{pnl_str}</b>\n"
             f"• Profit: <b>+${win_pnl:,.2f}</b> | Loss: <b>-${abs(loss_pnl):,.2f}</b>\n\n"
 
+            f"👤 <b>USER PNL BREAKDOWN (Last 24h)</b>\n"
+            f"• Users covered: <b>{len(user_pnl_rows)}</b>\n"
+            f"• Users with closed trades: <b>{users_with_closed_trades}</b>\n\n"
+
             f"🧠 <b>ADAPTIVE CONFLUENCE (24h)</b>\n"
             f"• Strategy outcomes: <b>{strategy_total}</b> "
             f"({taxonomy_counts['strategy_win']}W / {taxonomy_counts['strategy_loss']}L)\n"
@@ -580,6 +724,10 @@ async def send_daily_report(bot):
             f"• Ops/reconcile closures: <b>{taxonomy_counts['ops_reconcile']}</b> ({ops_rate_24h:.1f}%)\n"
             f"• Timeout losses: <b>{timeout_loss_count}</b> "
             f"({timeout_loss_rate:.1f}% of timeout exits)\n"
+            f"• Timeout by subtype: <b>trend={timeout_by_subtype.get('trend_scalp', {}).get('count', 0)}</b> "
+            f"(neg {timeout_by_subtype.get('trend_scalp', {}).get('negative_count', 0)}), "
+            f"<b>sideways={timeout_by_subtype.get('sideways_scalp', {}).get('count', 0)}</b> "
+            f"(neg {timeout_by_subtype.get('sideways_scalp', {}).get('negative_count', 0)})\n"
             f"• Timeout loss PnL: <b>{_fmt(timeout_loss_pnl)}</b> "
             f"(avg <b>{_fmt(timeout_avg_loss)}</b>)\n"
             f"• Timeout protection effectiveness: <b>{timeout_protection_effectiveness:.1f}%</b> "
@@ -612,6 +760,16 @@ async def send_daily_report(bot):
             f"• Playbook-matched wins: <b>{len(playbook_matched_wins)}</b> | "
             f"Non-matched wins: <b>{non_matched_wins}</b>\n\n"
 
+            f"📚 <b>PLAYBOOK ANALYZER V2</b>\n"
+            f"• Sample size: <b>{playbook_analysis_sample_size}</b> | "
+            f"freshness=<b>{playbook_analysis_freshness}</b> | "
+            f"sparse=<b>{playbook_analysis_sparse}</b>\n"
+            f"• Best working setups: <b>{_escape_html(playbook_analysis_promote)}</b>\n"
+            f"• Underperforming setups: <b>{_escape_html(playbook_analysis_avoid)}</b>\n"
+            f"• Coverage KPIs: wins_with_reasoning=<b>{playbook_analysis_wins_reason_pct:.1f}%</b> | "
+            f"usable_tags=<b>{playbook_analysis_tags_pct:.1f}%</b> | "
+            f"weak_or_missing_strong_match=<b>{playbook_analysis_weak_match_pct:.1f}%</b>\n\n"
+
             f"🎚️ <b>CONFIDENCE ADAPTATION (Global)</b>\n"
             f"• Enabled: <b>{bool(confidence_adapt_snapshot.get('enabled', False))}</b> | "
             f"lookback=<b>{int(confidence_adapt_snapshot.get('lookback_days', 14) or 14)}d</b> | "
@@ -624,7 +782,35 @@ async def send_daily_report(bot):
             f"top=<b>{_escape_html(_fmt_bucket(conf_scalp.get('top_bucket')))}</b> | "
             f"worst=<b>{_escape_html(_fmt_bucket(conf_scalp.get('worst_bucket')))}</b>\n"
             f"• Scalping active table: <b>{_escape_html(_fmt_active(conf_scalp.get('active_adaptations') or []))}</b>\n\n"
+
+            f"🧭 <b>SIDEWAYS GOVERNOR (Runtime)</b>\n"
+            f"• Mode: <b>{_escape_html(str(sideways_governor_snapshot.get('mode', 'strict')).upper())}</b> | "
+            f"basis=<b>{_escape_html(str(sideways_governor_snapshot.get('sample_basis_window', 'bootstrap_strict')))}</b> | "
+            f"sample=<b>{int(sideways_governor_snapshot.get('sample_size_basis', 0) or 0)}</b>\n"
+            f"• Basis expectancy: <b>{float(sideways_governor_snapshot.get('sideways_expectancy_basis', 0.0) or 0.0):+.4f}</b> | "
+            f"timeout-loss rate: <b>{float(sideways_governor_snapshot.get('sideways_timeout_loss_rate_basis', 0.0) or 0.0) * 100:.1f}%</b>\n"
+            f"• Sideways fallback enabled: <b>{bool(sideways_governor_snapshot.get('allow_sideways_fallback', False))}</b> | "
+            f"recovery windows=<b>{int(sideways_governor_snapshot.get('fallback_recovery_windows', 0) or 0)}</b>\n\n"
         )
+
+        if user_pnl_rows:
+            for row in user_pnl_rows:
+                uid = int(row.get("telegram_id") or 0)
+                status = _escape_html(str(row.get("status") or "n/a"))
+                mode = _escape_html(str(row.get("trading_mode") or "-"))
+                opened = int(row.get("opened", 0) or 0)
+                closed = int(row.get("closed", 0) or 0)
+                open_now = int(row.get("open_now", 0) or 0)
+                wins_u = int(row.get("wins", 0) or 0)
+                losses_u = int(row.get("losses", 0) or 0)
+                pnl_u = float(row.get("pnl_usdt", 0.0) or 0.0)
+                msg += (
+                    f"• <code>{uid}</code> | PnL: <b>{_fmt(pnl_u)}</b> | "
+                    f"closed: <b>{closed}</b> ({wins_u}W/{losses_u}L) | "
+                    f"opened: <b>{opened}</b> | open_now: <b>{open_now}</b> | "
+                    f"status: <b>{status}</b> | mode: <b>{mode}</b>\n"
+                )
+            msg += "\n"
 
         # ── 6. Stopped engines with reasoning ────────────────────────
         if stopped_engines:

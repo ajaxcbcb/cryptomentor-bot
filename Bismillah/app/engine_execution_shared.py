@@ -96,12 +96,18 @@ async def evaluate_and_apply_playbook_risk(
     reasons = _signal_reasons(list(raw_reasons) if raw_reasons is not None else _get_signal_field(signal, "reasons", []))
     fallback_score = _as_float(_get_signal_field(signal, "playbook_match_score", 0.0), 0.0)
     fallback_tags = list(_get_signal_field(signal, "playbook_match_tags", []) or [])
+    signal_trade_type = _get_signal_field(signal, "trade_type", None)
+    signal_timeframe = _get_signal_field(signal, "timeframe", None)
+    signal_mode_hint = _get_signal_field(signal, "trading_mode", None)
 
     try:
         risk_eval = await asyncio.to_thread(
             evaluate_signal_risk,
             float(base_risk_pct),
             reasons,
+            signal_trade_type,
+            signal_timeframe,
+            signal_mode_hint,
         )
     except Exception as exc:
         if logger is not None:

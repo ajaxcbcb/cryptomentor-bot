@@ -101,6 +101,10 @@ class TradeReconcileTests(unittest.TestCase):
         self.assertEqual(result["healed_count"], 1)
         self.assertEqual(result["healed_trade_ids"], [42])
         self.assertEqual(result["healed_symbols"], ["XRPUSDT"])
+        self.assertEqual(len(result["healed_closes"]), 1)
+        self.assertEqual(result["healed_closes"][0]["trade_id"], 42)
+        self.assertEqual(result["healed_closes"][0]["symbol"], "XRPUSDT")
+        self.assertEqual(result["healed_closes"][0]["close_reason"], "stale_reconcile")
         mock_save_trade_close.assert_called_once()
         _, kwargs = mock_save_trade_close.call_args
         self.assertEqual(kwargs["trade_id"], 42)

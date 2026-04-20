@@ -1,5 +1,13 @@
 import os
 from typing import Optional, Dict, Any, Tuple
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"The `gotrue` package is deprecated.*",
+    category=DeprecationWarning,
+)
+
 from supabase import create_client, Client
 from datetime import datetime, timezone
 

@@ -54,6 +54,9 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - Runner behavior standard (when enabled): TP1 fixed at `3R` with partial close (`STACKMENTOR_TP1_CLOSE_PCT`, default `0.80`), move SL to breakeven, and final runner target at `STACKMENTOR_TP3_RR` (default `5.0`).
 - Exchange TP must align with runtime mode: unified mode uses TP1 on exchange; runner mode uses TP3 on exchange while StackMentor monitor executes TP1 partial handling.
 - Trade close persistence must use cumulative PnL for partial-flow exits (`profit_tp1/2/3 + final_leg_pnl`) so positive net outcomes are never misclassified as losses.
+- User close-alert standard is mandatory: every realized trade close event must emit one detailed Telegram alert to the trade owner (`symbol`, `side`, `close_reason`, `entry`, `exit`, `pnl`).
+- Swing close detection must be symbol-diff based from successful exchange snapshots; do not rely on all-or-none local flags for close notification.
+- Reconcile pathways must return structured `healed_closes` payloads and runtime callers (swing/scalping/startup scheduler) must notify users from that payload with dedupe safety.
 - Timeout protection policy is feature-flagged (`adaptive_timeout_protection_enabled` default false) and must emit structured timeout loss reasoning when timeout exits occur.
 - Timeout protection env compatibility is mandatory:
 - support both `SCALPING_ADAPTIVE_TIMEOUT_PROTECTION_ENABLED` and legacy `SCALPING_TIMEOUT_PROTECTION_ENABLED`.
@@ -80,6 +83,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - R:R parity check: verify `abs(TP-entry)/abs(entry-SL)` from executed levels matches strategy expectation.
 - Playbook safety fallback check: if playbook service fails, engines degrade to base-risk behavior with no crash.
 - Win-reason coverage check for winners: target >=95% non-empty `win_reasoning`.
+- Close-alert coverage check: all close reasons (`closed_tp`, `closed_sl`, `closed_tp1/2/3`, `closed_flip`, `max_hold_time_exceeded`, `sideways_max_hold_exceeded`, `stale_reconcile`) emit user Telegram close alerts with non-empty detail fields.
 - Mode lifecycle matrix check: persisted `swing`/`scalping`/`mixed` sessions restart in same mode with matching startup message.
 - Mixed health check: `is_running` true only when required mixed components are alive.
 
@@ -125,7 +129,25 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - Never assume status mappings; normalize first (`approved/uid_verified/active/verified`).
 - For `non-verified`, include users with missing verification rows unless told otherwise.
 
-## 5) Registration Reset & Verification Recovery
+## 5) ML & Playbook Enhancement Agent (Expected Scope)
+- Owner: model-assisted signal quality and playbook intelligence upgrades.
+- Scope:
+- `Bismillah/app/adaptive_confluence.py`
+- `Bismillah/app/win_playbook.py`
+- `Bismillah/app/playbook_analytics.py`
+- `Bismillah/app/admin_daily_report.py`
+- Rules:
+- ML overlay must remain feature-flagged and fail-open; trading runtime must continue safely when ML path is degraded.
+- ML/playbook outputs may reprioritize candidates and sizing overlays only; they must never bypass core risk, SL/TP, and confluence guardrails.
+- Persist explainable decision metadata per trade (`model/version/score/decision_reason`) for replay and audits.
+- Playbook enhancement changes must preserve backward compatibility for existing `win_reasoning`/`win_reason_tags` coverage.
+- Any ML threshold or playbook weighting change requires explicit changelog entry and validation evidence.
+- Required checks:
+- Guardrail invariance check: disabling ML yields baseline behavior parity.
+- Degradation check: service timeout/exception path falls back without engine crash.
+- KPI check: report sample size, expectancy delta, and win-rate change with confidence bounds before enabling by default.
+
+## 6) Registration Reset & Verification Recovery
 - Owner: controlled UID-registration recovery for individual users.
 - Purpose:
 - Handle one-time Bitunix UID reset, force re-verification, and optionally complete re-approval.
@@ -148,7 +170,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - `user_verifications.submitted_via` is constrained; use only supported values (`web`, `telegram`).
 - Do not write unsupported sources (for example `admin_reset`) unless DB constraint is expanded first.
 
-## 5) Deploy/Sync Agent
+## 7) Deploy/Sync Agent
 - Owner: local <-> ajax <-> VPS alignment.
 - Required sequence (no skipping):
 1. Commit local changes.
@@ -168,6 +190,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 13. For mode lifecycle patches, verify restore/startup preserves persisted mode and startup message matches actual running engine.
 14. For mixed runtime patches, verify both components restore/start and mixed-mode health reflects both components.
 15. For Telegram callback patches, verify mode menu + mixed select + risk toggle + dashboard back path are functional.
+16. For close-alert patches, verify per-trade close alert delivery for TP/SL/timeout/reconcile paths and dedupe behavior (trade-id based where available).
 
 ## Release Checklist
 1. Code patch complete.
@@ -192,6 +215,7 @@ Standard operating guide for the core CryptoMentor operators: Admin, Engine, Ris
 - `at_switch_risk_mode` toggles persisted risk mode.
 - `at_dashboard` returns to gatekeeper dashboard flow.
 18. For registration reset operations: verify target post-state (`pending` or `approved` as intended), no blocked open-trade condition, and Telegram send metrics recorded.
+19. For close-alert patches: verify one sample each for strategy close and reconcile close includes `symbol`, `side`, `close_reason`, `entry`, `exit`, and `pnl` in user Telegram output.
 
 ## Guardrails
 - No destructive git actions without explicit instruction.

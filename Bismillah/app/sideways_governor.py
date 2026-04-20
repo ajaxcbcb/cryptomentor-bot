@@ -24,6 +24,8 @@ MODE_PAUSE = "pause"
 
 PAUSE_DURATION_SECONDS = 3600
 RECOVERY_WINDOWS_REQUIRED = 2
+FALLBACK_LOOKBACK_DAYS = 14
+MIN_STRICT_SAMPLE = 20
 
 SIDEWAYS_HOLD_MIN = 90
 SIDEWAYS_HOLD_MAX = 150
@@ -74,10 +76,11 @@ def _clamp_int(value: int, lo: int, hi: int) -> int:
 def default_sideways_governor_state() -> Dict[str, Any]:
     return {
         "updated_at": None,
-        "mode": MODE_NORMAL,  # normal | strict | pause
+        "mode": MODE_STRICT,  # strict baseline until recent quality recovers
         "decision_reason": "bootstrap",
         "pause_until_ts": 0.0,
         "consecutive_recovery_windows": 0,
+        "fallback_recovery_windows": 0,
         "sample_size_24h": 0,
         "non_sideways_sample_size_24h": 0,
         "sideways_expectancy_24h": 0.0,
@@ -85,12 +88,17 @@ def default_sideways_governor_state() -> Dict[str, Any]:
         "sideways_timeout_exit_count_24h": 0,
         "sideways_timeout_loss_count_24h": 0,
         "sideways_timeout_loss_rate_24h": 0.0,
+        "sample_basis_window": "bootstrap_strict",
+        "sample_size_basis": 0,
+        "sideways_expectancy_basis": 0.0,
+        "sideways_timeout_loss_rate_basis": 0.0,
+        "fallback_sample_size_14d": 0,
         "allow_sideways_entries": True,
-        "allow_sideways_fallback": True,
-        "sideways_min_rr_override": None,
-        "sideways_min_volume_floor": 0.9,
-        "sideways_confidence_bonus": 0,
-        "sideways_confirmations_required": 1,
+        "allow_sideways_fallback": False,
+        "sideways_min_rr_override": 1.25,
+        "sideways_min_volume_floor": 1.1,
+        "sideways_confidence_bonus": 3,
+        "sideways_confirmations_required": 2,
         "dynamic_hold_sideways_seconds": 120,
         "dynamic_hold_non_sideways_seconds": 1800,
         "symbol_sideways_hold_seconds": {},
@@ -154,24 +162,37 @@ def _build_symbol_hold_map(
 def build_sideways_metrics(closed_trades: List[Dict[str, Any]], now_utc: Optional[datetime] = None) -> Dict[str, Any]:
     now = now_utc or _utc_now()
     since_24h = now - timedelta(hours=24)
+    since_14d = now - timedelta(days=FALLBACK_LOOKBACK_DAYS)
 
     rows_24h: List[Dict[str, Any]] = []
+    rows_14d: List[Dict[str, Any]] = []
     for row in closed_trades:
         dt = _parse_iso(row.get("closed_at"))
-        if dt and dt >= since_24h:
+        if not dt:
+            continue
+        if dt >= since_24h:
             rows_24h.append(row)
+        if dt >= since_14d:
+            rows_14d.append(row)
 
     sideways_rows = [r for r in rows_24h if str(r.get("trade_subtype") or "") == SIDEWAYS_SUBTYPE]
     non_sideways_rows = [r for r in rows_24h if str(r.get("trade_subtype") or "") != SIDEWAYS_SUBTYPE]
+    fallback_sideways_rows = [r for r in rows_14d if str(r.get("trade_subtype") or "") == SIDEWAYS_SUBTYPE]
 
     sideways_pnls = [_as_float(r.get("pnl_usdt"), 0.0) for r in sideways_rows]
     non_sideways_pnls = [_as_float(r.get("pnl_usdt"), 0.0) for r in non_sideways_rows]
+    fallback_sideways_pnls = [_as_float(r.get("pnl_usdt"), 0.0) for r in fallback_sideways_rows]
 
     timeout_rows = [
         r for r in sideways_rows
-        if str(r.get("status") or "").strip().lower() in TIMEOUT_CLOSE_STATUSES
+        if str(r.get("close_reason") or r.get("status") or "").strip().lower() in TIMEOUT_CLOSE_STATUSES
     ]
     timeout_losses = [r for r in timeout_rows if _as_float(r.get("pnl_usdt"), 0.0) < 0]
+    fallback_timeout_rows = [
+        r for r in fallback_sideways_rows
+        if str(r.get("close_reason") or r.get("status") or "").strip().lower() in TIMEOUT_CLOSE_STATUSES
+    ]
+    fallback_timeout_losses = [r for r in fallback_timeout_rows if _as_float(r.get("pnl_usdt"), 0.0) < 0]
 
     per_symbol_sideways: Dict[str, List[float]] = {}
     per_symbol_non_sideways: Dict[str, List[float]] = {}
@@ -203,6 +224,13 @@ def build_sideways_metrics(closed_trades: List[Dict[str, Any]], now_utc: Optiona
         "sideways_timeout_loss_rate_24h": (
             float(len(timeout_losses) / len(timeout_rows)) if timeout_rows else 0.0
         ),
+        "fallback_sample_size_14d": len(fallback_sideways_rows),
+        "sideways_expectancy_14d": _avg(fallback_sideways_pnls),
+        "sideways_timeout_exit_count_14d": len(fallback_timeout_rows),
+        "sideways_timeout_loss_count_14d": len(fallback_timeout_losses),
+        "sideways_timeout_loss_rate_14d": (
+            float(len(fallback_timeout_losses) / len(fallback_timeout_rows)) if fallback_timeout_rows else 0.0
+        ),
         "symbol_sideways_stats": side_symbol_stats,
         "symbol_non_sideways_stats": non_side_symbol_stats,
     }
@@ -226,18 +254,31 @@ def compute_next_sideways_governor_state(
         "sideways_timeout_exit_count_24h": _as_int(metrics.get("sideways_timeout_exit_count_24h"), 0),
         "sideways_timeout_loss_count_24h": _as_int(metrics.get("sideways_timeout_loss_count_24h"), 0),
         "sideways_timeout_loss_rate_24h": _as_float(metrics.get("sideways_timeout_loss_rate_24h"), 0.0),
+        "fallback_sample_size_14d": _as_int(metrics.get("fallback_sample_size_14d"), 0),
     })
 
-    sample = int(out["sample_size_24h"])
-    expectancy = float(out["sideways_expectancy_24h"])
-    timeout_loss_rate = float(out["sideways_timeout_loss_rate_24h"])
+    sample_24h = int(out["sample_size_24h"])
+    sample_fallback = _as_int(metrics.get("fallback_sample_size_14d"), 0)
+    if sample_24h >= MIN_STRICT_SAMPLE:
+        sample = sample_24h
+        expectancy = float(out["sideways_expectancy_24h"])
+        timeout_loss_rate = float(out["sideways_timeout_loss_rate_24h"])
+        sample_basis_window = "24h"
+    else:
+        sample = sample_fallback
+        expectancy = _as_float(metrics.get("sideways_expectancy_14d"), 0.0)
+        timeout_loss_rate = _as_float(metrics.get("sideways_timeout_loss_rate_14d"), 0.0)
+        sample_basis_window = "14d_fallback" if sample_fallback > 0 else "bootstrap_strict"
+
     prev_mode = str(out.get("mode") or MODE_NORMAL)
     pause_until_ts = _as_float(out.get("pause_until_ts"), 0.0)
     recovery_windows = _as_int(out.get("consecutive_recovery_windows"), 0)
+    fallback_recovery_windows = _as_int(out.get("fallback_recovery_windows"), 0)
 
     severe = sample >= 30 and expectancy < -0.005 and timeout_loss_rate >= 0.65
     needs_strict = sample >= 20 and (expectancy < 0.0 or timeout_loss_rate >= 0.55)
     recovery_good = expectancy >= 0.0 and timeout_loss_rate <= 0.45
+    fallback_recovered = expectancy >= 0.0
 
     mode = prev_mode
     decision_reason = "hold"
@@ -255,6 +296,10 @@ def compute_next_sideways_governor_state(
         mode = MODE_STRICT
         decision_reason = "strict_sideways_quality"
         recovery_windows = 0
+    elif sample < MIN_STRICT_SAMPLE:
+        mode = MODE_STRICT
+        decision_reason = "strict_baseline_sparse_recent_sample"
+        recovery_windows = 0
     elif prev_mode in {MODE_STRICT, MODE_PAUSE}:
         recovery_windows = recovery_windows + 1 if recovery_good else 0
         if recovery_windows >= RECOVERY_WINDOWS_REQUIRED:
@@ -269,6 +314,8 @@ def compute_next_sideways_governor_state(
         mode = MODE_NORMAL
         decision_reason = "normal_hold"
         recovery_windows = 0
+
+    fallback_recovery_windows = (fallback_recovery_windows + 1) if fallback_recovered else 0
 
     if mode == MODE_PAUSE:
         allow_sideways_entries = False
@@ -286,7 +333,7 @@ def compute_next_sideways_governor_state(
         confirmations = 2
     else:
         allow_sideways_entries = True
-        allow_sideways_fallback = True
+        allow_sideways_fallback = fallback_recovery_windows >= RECOVERY_WINDOWS_REQUIRED
         min_rr_override = None
         min_vol_floor = 0.9
         conf_bonus = 0
@@ -315,6 +362,11 @@ def compute_next_sideways_governor_state(
         "decision_reason": decision_reason,
         "pause_until_ts": pause_until_ts,
         "consecutive_recovery_windows": recovery_windows,
+        "fallback_recovery_windows": fallback_recovery_windows,
+        "sample_basis_window": sample_basis_window,
+        "sample_size_basis": sample,
+        "sideways_expectancy_basis": expectancy,
+        "sideways_timeout_loss_rate_basis": timeout_loss_rate,
         "allow_sideways_entries": allow_sideways_entries,
         "allow_sideways_fallback": allow_sideways_fallback,
         "sideways_min_rr_override": min_rr_override,
@@ -330,11 +382,11 @@ def compute_next_sideways_governor_state(
     return out
 
 
-def _fetch_closed_trades_24h(limit: int = 2000) -> List[Dict[str, Any]]:
+def _fetch_closed_trades_recent(limit: int = 4000) -> List[Dict[str, Any]]:
     from app.supabase_repo import _client
 
     s = _client()
-    since = (_utc_now() - timedelta(hours=24)).isoformat()
+    since = (_utc_now() - timedelta(days=FALLBACK_LOOKBACK_DAYS)).isoformat()
     collected: List[Dict[str, Any]] = []
     page_size = min(1000, max(200, int(limit)))
     page = 0
@@ -343,7 +395,7 @@ def _fetch_closed_trades_24h(limit: int = 2000) -> List[Dict[str, Any]]:
         to = frm + page_size - 1
         res = (
             s.table("autotrade_trades")
-            .select("id,symbol,status,pnl_usdt,trade_subtype,closed_at")
+            .select("id,symbol,status,close_reason,pnl_usdt,trade_subtype,closed_at")
             .neq("status", "open")
             .gte("closed_at", since)
             .order("closed_at", desc=True)
@@ -363,7 +415,7 @@ def _fetch_closed_trades_24h(limit: int = 2000) -> List[Dict[str, Any]]:
 def refresh_sideways_governor_state() -> Dict[str, Any]:
     prev = get_sideways_governor_snapshot()
     try:
-        closed_rows = _fetch_closed_trades_24h(limit=3000)
+        closed_rows = _fetch_closed_trades_recent(limit=4000)
         metrics = build_sideways_metrics(closed_rows)
         nxt = compute_next_sideways_governor_state(prev, metrics, now_utc=_utc_now())
     except Exception as e:
@@ -403,6 +455,12 @@ def get_sideways_entry_overrides(snapshot: Optional[Dict[str, Any]] = None) -> D
         "sideways_expectancy_24h": float(st.get("sideways_expectancy_24h", 0.0) or 0.0),
         "sideways_timeout_loss_rate_24h": float(st.get("sideways_timeout_loss_rate_24h", 0.0) or 0.0),
         "sample_size_24h": int(st.get("sample_size_24h", 0) or 0),
+        "sample_basis_window": str(st.get("sample_basis_window", "bootstrap_strict") or "bootstrap_strict"),
+        "sample_size_basis": int(st.get("sample_size_basis", 0) or 0),
+        "sideways_expectancy_basis": float(st.get("sideways_expectancy_basis", 0.0) or 0.0),
+        "sideways_timeout_loss_rate_basis": float(st.get("sideways_timeout_loss_rate_basis", 0.0) or 0.0),
+        "fallback_recovery_windows": int(st.get("fallback_recovery_windows", 0) or 0),
+        "fallback_sample_size_14d": int(st.get("fallback_sample_size_14d", 0) or 0),
         "decision_reason": str(st.get("decision_reason") or ""),
     }
 
