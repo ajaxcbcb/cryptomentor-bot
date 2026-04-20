@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -438,3 +439,206 @@ def test_save_trade_open_derives_rr_from_executed_levels(monkeypatch):
 
     assert trade_id == 999
     assert captured["row"]["rr_ratio"] == pytest.approx(3.0)
+
+
+def test_compute_adaptive_daily_loss_limit_pct_maps_states_and_clamps():
+    strong = runtime_shared.compute_adaptive_daily_loss_limit_pct(
+        {
+            "rolling_win_rate": 0.83,
+            "rolling_expectancy": 0.07,
+            "sample_size": 55,
+            "guardrails_healthy": True,
+        },
+        base_limit_pct=0.05,
+        min_limit_pct=0.03,
+        max_limit_pct=0.08,
+    )
+    assert strong["step"] == 2
+    assert strong["adaptive_limit_pct"] == pytest.approx(0.07)
+
+    weak = runtime_shared.compute_adaptive_daily_loss_limit_pct(
+        {
+            "rolling_win_rate": 0.49,
+            "rolling_expectancy": -0.20,
+            "sample_size": 60,
+            "guardrails_healthy": False,
+        },
+        base_limit_pct=0.05,
+        min_limit_pct=0.03,
+        max_limit_pct=0.08,
+    )
+    assert weak["step"] == -2
+    assert weak["adaptive_limit_pct"] == pytest.approx(0.03)
+
+    clamped = runtime_shared.compute_adaptive_daily_loss_limit_pct(
+        {
+            "rolling_win_rate": 0.90,
+            "rolling_expectancy": 0.20,
+            "sample_size": 80,
+            "guardrails_healthy": True,
+        },
+        base_limit_pct=0.10,
+        min_limit_pct=0.03,
+        max_limit_pct=0.08,
+    )
+    assert clamped["adaptive_limit_pct"] == pytest.approx(0.08)
+    assert clamped["base_limit_pct"] == pytest.approx(0.08)
+
+
+def test_is_strong_opportunity_requires_playbook_and_quality():
+    strong = runtime_shared.is_strong_opportunity(
+        signal={"confidence": 82.0, "rr_ratio": 2.4},
+        min_confidence_pct=75.0,
+        min_rr_ratio=2.0,
+        conf_margin_pct=5.0,
+        rr_margin=0.3,
+        playbook_strong_match=True,
+    )
+    assert strong["is_strong"] is True
+    assert strong["required_confidence"] == pytest.approx(80.0)
+    assert strong["required_rr_ratio"] == pytest.approx(2.3)
+
+    weak = runtime_shared.is_strong_opportunity(
+        signal={"confidence": 82.0, "rr_ratio": 2.4},
+        min_confidence_pct=75.0,
+        min_rr_ratio=2.0,
+        conf_margin_pct=5.0,
+        rr_margin=0.3,
+        playbook_strong_match=False,
+    )
+    assert weak["is_strong"] is False
+
+
+def test_evaluate_daily_circuit_breaker_action_supports_strong_full_bypass():
+    below = runtime_shared.evaluate_daily_circuit_breaker_action(
+        enabled=True,
+        loss_pct_today=0.02,
+        adaptive_limit_pct=0.03,
+        strong_opportunity=False,
+    )
+    assert below["blocked"] is False
+    assert below["override_applied"] is False
+
+    above_weak = runtime_shared.evaluate_daily_circuit_breaker_action(
+        enabled=True,
+        loss_pct_today=0.06,
+        adaptive_limit_pct=0.05,
+        strong_opportunity=False,
+    )
+    assert above_weak["blocked"] is True
+    assert above_weak["override_applied"] is False
+
+    above_strong = runtime_shared.evaluate_daily_circuit_breaker_action(
+        enabled=True,
+        loss_pct_today=0.06,
+        adaptive_limit_pct=0.05,
+        strong_opportunity=True,
+    )
+    assert above_strong["blocked"] is False
+    assert above_strong["override_applied"] is True
+    assert above_strong["decision_reason"] == "strong_opportunity_full_bypass"
+
+
+class _FakeSupabaseQuery:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def gte(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=list(self._rows))
+
+
+class _FakeSupabase:
+    def __init__(self, rows_by_table):
+        self._rows_by_table = rows_by_table
+
+    def table(self, name):
+        return _FakeSupabaseQuery(self._rows_by_table.get(name, []))
+
+
+def test_compute_daily_loss_pct_utc_uses_today_realized_and_balance_basis():
+    fake = _FakeSupabase(
+        {
+            "autotrade_trades": [
+                {"pnl_usdt": -10.0},
+                {"pnl_usdt": 2.0},
+                {"pnl_usdt": None},
+            ],
+            "autotrade_sessions": [
+                {"initial_deposit": 150.0, "current_balance": 200.0},
+            ],
+        }
+    )
+    out = runtime_shared.compute_daily_loss_pct_utc(fake, user_id=12345)
+    assert out["utc_day"] == datetime.now(timezone.utc).date().isoformat()
+    assert out["daily_pnl_usdt"] == pytest.approx(-8.0)
+    assert out["daily_loss_usdt"] == pytest.approx(8.0)
+    assert out["balance_basis_usdt"] == pytest.approx(200.0)
+    assert out["loss_pct_today"] == pytest.approx(0.04)
+
+
+def test_evaluate_adaptive_daily_circuit_breaker_respects_mode_specific_env(monkeypatch):
+    fake = _FakeSupabase(
+        {
+            "autotrade_trades": [
+                {"pnl_usdt": -7.0},
+            ],
+            "autotrade_sessions": [
+                {"initial_deposit": 100.0, "current_balance": 100.0},
+            ],
+        }
+    )
+
+    monkeypatch.setenv("SCALPING_ADAPTIVE_CIRCUIT_BREAKER_ENABLED", "true")
+    monkeypatch.setenv("SCALPING_DAILY_LOSS_BASE_PCT", "5.0")
+    monkeypatch.setenv("SCALPING_DAILY_LOSS_MIN_PCT", "3.0")
+    monkeypatch.setenv("SCALPING_DAILY_LOSS_MAX_PCT", "8.0")
+    monkeypatch.setenv("SCALPING_BREAKER_STRONG_CONF_MARGIN", "5")
+    monkeypatch.setenv("SCALPING_BREAKER_STRONG_RR_MARGIN", "0.3")
+
+    weak = runtime_shared.evaluate_adaptive_daily_circuit_breaker(
+        mode="scalping",
+        user_id=7788,
+        signal={"confidence": 78.0, "rr_ratio": 2.1},
+        supabase_client=fake,
+        playbook_snapshot={
+            "rolling_win_rate": 0.80,
+            "rolling_expectancy": 0.04,
+            "sample_size": 50,
+            "guardrails_healthy": True,
+        },
+        min_confidence_pct=74.0,
+        min_rr_ratio=2.0,
+        playbook_strong_match=False,
+    )
+    assert weak["blocked"] is True
+    assert weak["decision_reason"] == "adaptive_limit_exceeded_non_strong"
+
+    strong = runtime_shared.evaluate_adaptive_daily_circuit_breaker(
+        mode="scalping",
+        user_id=7788,
+        signal={"confidence": 85.0, "rr_ratio": 2.5},
+        supabase_client=fake,
+        playbook_snapshot={
+            "rolling_win_rate": 0.80,
+            "rolling_expectancy": 0.04,
+            "sample_size": 50,
+            "guardrails_healthy": True,
+        },
+        min_confidence_pct=74.0,
+        min_rr_ratio=2.0,
+        playbook_strong_match=True,
+    )
+    assert strong["blocked"] is False
+    assert strong["override_applied"] is True

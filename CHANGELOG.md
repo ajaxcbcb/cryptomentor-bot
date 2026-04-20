@@ -1,5 +1,50 @@
 # Changelog
 
+## [2.2.66] — 2026-04-20 — Adaptive Daily Circuit Breaker (Swing + Scalping + Mixed)
+
+### 🛡️ Shared Adaptive Breaker Policy (`engine_runtime_shared`)
+- Added shared helpers:
+  - `compute_adaptive_daily_loss_limit_pct(...)` with deterministic step mapping and clamp to configured `min..max` band (default `3%..8%`, base `5%`).
+  - `compute_daily_loss_pct_utc(...)` using UTC-day realized PnL (`opened_at >= UTC date`) and session balance basis (`current_balance` fallback `initial_deposit`).
+  - `is_strong_opportunity(...)` requiring `playbook_strong_match` + confidence gate + R:R gate with mode-specific margins.
+  - `evaluate_adaptive_daily_circuit_breaker(...)` and decision helper with structured result payload.
+- Added mode-specific env surface (backward-safe defaults):
+  - `SCALPING_ADAPTIVE_CIRCUIT_BREAKER_ENABLED`, `SCALPING_DAILY_LOSS_BASE_PCT`, `SCALPING_DAILY_LOSS_MIN_PCT`, `SCALPING_DAILY_LOSS_MAX_PCT`, `SCALPING_BREAKER_STRONG_CONF_MARGIN`, `SCALPING_BREAKER_STRONG_RR_MARGIN`.
+  - `SWING_ADAPTIVE_CIRCUIT_BREAKER_ENABLED`, `SWING_DAILY_LOSS_BASE_PCT`, `SWING_DAILY_LOSS_MIN_PCT`, `SWING_DAILY_LOSS_MAX_PCT`, `SWING_BREAKER_STRONG_CONF_MARGIN`, `SWING_BREAKER_STRONG_RR_MARGIN`.
+- Fail-open defensive fallback added on breaker evaluation error (`decision_reason=evaluation_error_fail_open`) to avoid runtime hard-block from transient DB issues.
+
+### ⚙️ Scalping Enforcement
+- `Bismillah/app/scalping_engine.py`:
+  - Replaced fixed `_circuit_breaker_triggered()` gate with adaptive evaluation path.
+  - Added pre-gate playbook strong-match derivation from reasons.
+  - Enforced behavior:
+    - Above adaptive limit + non-strong signal: reject.
+    - Above adaptive limit + strong opportunity: full bypass.
+    - Below adaptive limit: allow.
+  - Added structured breaker decision logs including threshold source, adaptive step/reason, snapshot stats, and override decision.
+
+### ⚙️ Swing Enforcement
+- `Bismillah/app/autotrade_engine.py`:
+  - Replaced monitor-only daily-loss block with adaptive breaker decision before candidate execution.
+  - Added `playbook_strong_match` propagation on candidate generation (normal + emergency candidate paths).
+  - Enforced behavior:
+    - Above adaptive limit + non-strong candidate: skip candidate.
+    - Above adaptive limit + strong opportunity: full bypass.
+  - Updated startup/runtime messaging to reflect adaptive breaker mode (removed old “no daily loss limit” wording).
+  - Daily counter reset messaging aligned to UTC-day boundary.
+
+### ✅ Validation
+- Syntax parse check passed for touched modules using `compile(...)` fallback (environment blocked `.pyc` writes during `py_compile` with `WinError 5`).
+- Targeted tests passed:
+  - `pytest tests/test_engine_shared_core.py -q`
+  - Result: `26 passed`.
+- Added unit coverage for:
+  - adaptive limit mapping and clamp behavior,
+  - UTC-day loss calculation helper,
+  - strong-opportunity classifier,
+  - breaker weak/strong bypass decision behavior,
+  - mode-specific adaptive breaker env behavior.
+
 ## [2.2.65] — 2026-04-20 — Referral Partner Live Member Count (Web + Telegram)
 
 ### 🎯 Canonical Member Count Source (Approved Referrals)

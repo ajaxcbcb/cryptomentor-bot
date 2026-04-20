@@ -2,7 +2,7 @@
 AutoTrade Engine — Professional Grade Trading Loop
 Strategy: Multi-timeframe confluence + SMC + Risk Management
 - Min R:R 1:2, dynamic SL via ATR
-- Drawdown circuit breaker (stop if -5% daily)
+- Adaptive daily circuit breaker (UTC day, strong-opportunity full bypass)
 - Volatility filter (no trade in low-volatility ranging market)
 - Confidence threshold >= 68 (only high-quality setups)
 - Max 1 position per symbol, max 3 concurrent positions
@@ -14,7 +14,7 @@ import os
 import time
 from html import escape
 from typing import Any, Dict, Optional, List, Set
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -83,6 +83,7 @@ from app.engine_execution_shared import (
     format_and_emit_order_open_risk_audit,
 )
 from app.engine_runtime_shared import (
+    evaluate_adaptive_daily_circuit_breaker,
     get_top_volume_pairs,
     is_ttl_cooldown_active as _shared_is_ttl_cooldown_active,
     normalize_pending_lock_context,
@@ -1952,10 +1953,9 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
     _dual_tp_enabled = is_premium
 
     trades_today      = 0
-    last_trade_date   = date.today()
+    last_trade_date   = datetime.now(timezone.utc).date()
     had_open_position = False
-    daily_pnl_usdt    = 0.0   # track realized PnL for circuit breaker
-    daily_loss_limit  = amount * cfg["daily_loss_limit"]
+    daily_pnl_usdt    = 0.0   # track realized PnL telemetry
 
     # Init TP1 tracker untuk user ini
     if user_id not in _tp1_hit_positions:
@@ -2180,7 +2180,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
         f"[Engine:{user_id}] PRO ENGINE STARTED — symbols_mode=dynamic_top10_volume "
         f"{'(mixed_owner=swing) ' if mixed_mode else ''}"
         f"(bootstrap={cfg['symbols']}), min_conf={cfg['min_confidence']} (risk-profile dynamic), "
-        f"min_rr={cfg['min_rr_ratio']}, user_risk={user_risk_pct}%, daily_loss_limit_DISABLED"
+        f"min_rr={cfg['min_rr_ratio']}, user_risk={user_risk_pct}%, adaptive_daily_breaker=ENABLED"
     )
 
     try:
@@ -2200,8 +2200,8 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         if is_premium else
                         f"⚖️ Min R:R Ratio: 1:{cfg['min_rr_ratio']}\n"
                     )
-                    + f"📈 Mode: <b>Unlimited trades/day (no daily loss limit)</b>\n"
-                    f"✅ Continuous trading enabled for opportunity maximization\n\n"
+                    + f"📈 Mode: <b>Adaptive daily-loss breaker (UTC reset)</b>\n"
+                    f"✅ Strong-opportunity full bypass remains enabled\n\n"
                     f"🧠 Adaptive conf delta: <b>{int(adaptive_state.get('conf_delta', 0)):+d}</b>\n"
                     f"🧠 Adaptive vol delta: <b>{float(adaptive_state.get('volume_min_ratio_delta', 0.0)):+.2f}</b>\n"
                     f"🛡️ Sideways governor mode: <b>{str(sideways_governor_state.get('mode', 'normal')).upper()}</b>\n"
@@ -2339,22 +2339,12 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 swing_stale_reconcile_next_ts = now_ts + float(swing_stale_reconcile_interval_seconds)
             
             # ── Reset harian ──────────────────────────────────────────
-            today = date.today()
+            today = datetime.now(timezone.utc).date()
             if today != last_trade_date:
                 trades_today    = 0
                 daily_pnl_usdt  = 0.0
                 last_trade_date = today
-                logger.info(f"[Engine:{user_id}] New day — counters reset")
-
-            # ── Daily loss tracking (no circuit breaker limit) ──────────
-            # Track daily P&L for monitoring but allow continuous trading
-            if daily_pnl_usdt <= -daily_loss_limit:
-                logger.warning(
-                    f"[Engine:{user_id}] Daily P&L: {daily_pnl_usdt:.2f} USDT "
-                    f"(note: no circuit breaker, trading continues)"
-                )
-                # Note: Circuit breaker disabled per user request for opportunity maximization
-                # Daily P&L tracking continues for monitoring purposes
+                logger.info(f"[Engine:{user_id}] New UTC day — counters reset")
 
             # ── Demo user: equity cap $50 ────────────────────────────
             from app.demo_users import is_demo_user, DEMO_BALANCE_LIMIT
@@ -3248,6 +3238,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         )
                         sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
                         sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
+                        sig["playbook_strong_match"] = bool(match_meta.get("strong_match", False))
                         sig["is_emergency"] = False
                         sig["confidence_bucket"] = str(conf_adapt.get("bucket", ""))
                         sig["confidence_bucket_penalty"] = int(conf_adapt.get("bucket_penalty", 0) or 0)
@@ -3318,6 +3309,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                             )
                             emer_sig["playbook_match_score"] = float(match_meta.get("playbook_match_score", 0.0))
                             emer_sig["playbook_match_tags"] = list(match_meta.get("matched_tags", []))
+                            emer_sig["playbook_strong_match"] = bool(match_meta.get("strong_match", False))
                             emer_sig["confidence_bucket"] = str(conf_adapt.get("bucket", ""))
                             emer_sig["confidence_bucket_penalty"] = int(conf_adapt.get("bucket_penalty", 0) or 0)
                             emer_sig["confidence_bucket_risk_scale"] = float(conf_adapt.get("bucket_risk_scale", 1.0) or 1.0)
@@ -3457,6 +3449,44 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                 logger.info(
                     f"[Engine:{user_id}] Queue pre-exec stale reject: {symbol} "
                     f"(cooldown={cooldown_sec}s)"
+                )
+                _cleanup_signal_queue(user_id, symbol, success=False)
+                await asyncio.sleep(cfg["scan_interval"])
+                continue
+
+            breaker_eval = evaluate_adaptive_daily_circuit_breaker(
+                mode="swing",
+                user_id=int(user_id),
+                signal=sig,
+                supabase_client=_client(),
+                playbook_snapshot=win_playbook_state,
+                min_confidence_pct=float(sig.get("confidence_effective_min_conf", effective_min_conf) or effective_min_conf),
+                min_rr_ratio=float(cfg.get("min_rr_ratio", 2.0) or 2.0),
+                playbook_strong_match=bool(sig.get("playbook_strong_match", False)),
+            )
+            logger.info(
+                f"[Engine:{user_id}] Adaptive breaker decision "
+                f"trade_type=swing symbol={symbol} "
+                f"threshold_source={breaker_eval.get('threshold_source', 'adaptive_win_playbook')} "
+                f"loss_pct_today={float(breaker_eval.get('loss_pct_today', 0.0)):.4f} "
+                f"adaptive_limit_pct={float(breaker_eval.get('adaptive_limit_pct', 0.0)):.4f} "
+                f"base_limit_pct={float(breaker_eval.get('base_limit_pct', 0.0)):.4f} "
+                f"step={int(breaker_eval.get('adaptive_step', 0))} "
+                f"step_reason={breaker_eval.get('adaptive_step_reason')} "
+                f"sample_size={int(breaker_eval.get('sample_size', 0) or 0)} "
+                f"wr={float(breaker_eval.get('rolling_win_rate', 0.0)):.3f} "
+                f"exp={float(breaker_eval.get('rolling_expectancy', 0.0)):+.4f} "
+                f"strong_opportunity={bool(breaker_eval.get('strong_opportunity', False))} "
+                f"override_applied={bool(breaker_eval.get('override_applied', False))} "
+                f"blocked={bool(breaker_eval.get('blocked', False))} "
+                f"reason={breaker_eval.get('decision_reason')}"
+            )
+            if bool(breaker_eval.get("blocked", False)):
+                logger.warning(
+                    f"[Engine:{user_id}] Candidate skipped by adaptive breaker: "
+                    f"symbol={symbol} reason={breaker_eval.get('decision_reason')} "
+                    f"loss_pct_today={float(breaker_eval.get('loss_pct_today', 0.0)):.4f} "
+                    f"adaptive_limit_pct={float(breaker_eval.get('adaptive_limit_pct', 0.0)):.4f}"
                 )
                 _cleanup_signal_queue(user_id, symbol, success=False)
                 await asyncio.sleep(cfg["scan_interval"])

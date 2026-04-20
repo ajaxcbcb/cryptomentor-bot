@@ -48,6 +48,336 @@ def _clamp(value: Any, lo: float, hi: float, default: float) -> float:
     return max(float(lo), min(float(hi), v))
 
 
+def _ratio_from_env_pct(raw: Any, default_ratio: float) -> float:
+    """
+    Parse percent-like env values to ratio.
+
+    Accepts both:
+      - percent style: 5.0  -> 0.05
+      - ratio style:   0.05 -> 0.05
+    """
+    v = _as_float(raw, default_ratio)
+    if v > 1.0:
+        v = v / 100.0
+    return max(0.0, float(v))
+
+
+def _read_adaptive_breaker_cfg(mode: str) -> Dict[str, Any]:
+    mode_txt = str(mode or "").strip().lower()
+    prefix = "SCALPING" if mode_txt == "scalping" else "SWING"
+
+    enabled = _as_bool(os.getenv(f"{prefix}_ADAPTIVE_CIRCUIT_BREAKER_ENABLED", "true"), True)
+    base_ratio = _ratio_from_env_pct(os.getenv(f"{prefix}_DAILY_LOSS_BASE_PCT", "5.0"), 0.05)
+    min_ratio = _ratio_from_env_pct(os.getenv(f"{prefix}_DAILY_LOSS_MIN_PCT", "3.0"), 0.03)
+    max_ratio = _ratio_from_env_pct(os.getenv(f"{prefix}_DAILY_LOSS_MAX_PCT", "8.0"), 0.08)
+    if max_ratio < min_ratio:
+        max_ratio = min_ratio
+    base_ratio = _clamp(base_ratio, min_ratio, max_ratio, 0.05)
+
+    strong_conf_margin = max(0.0, _as_float(os.getenv(f"{prefix}_BREAKER_STRONG_CONF_MARGIN", "5"), 5.0))
+    strong_rr_margin = max(0.0, _as_float(os.getenv(f"{prefix}_BREAKER_STRONG_RR_MARGIN", "0.3"), 0.3))
+
+    return {
+        "mode": mode_txt if mode_txt in {"scalping", "swing"} else "swing",
+        "enabled": bool(enabled),
+        "base_limit_pct": float(base_ratio),
+        "min_limit_pct": float(min_ratio),
+        "max_limit_pct": float(max_ratio),
+        "strong_conf_margin": float(strong_conf_margin),
+        "strong_rr_margin": float(strong_rr_margin),
+    }
+
+
+def _signal_field(signal: Any, key: str, default: Any = None) -> Any:
+    if isinstance(signal, dict):
+        return signal.get(key, default)
+    return getattr(signal, key, default)
+
+
+def compute_adaptive_daily_loss_limit_pct(
+    playbook_snapshot: Optional[Dict[str, Any]],
+    *,
+    base_limit_pct: float = 0.05,
+    min_limit_pct: float = 0.03,
+    max_limit_pct: float = 0.08,
+) -> Dict[str, Any]:
+    """
+    Compute adaptive daily loss limit using deterministic playbook steps.
+
+    Step mapping (1 step = 1.0% absolute limit shift):
+      +2: strong playbook health (high WR + positive expectancy)
+      +1: mildly strong playbook health
+       0: neutral / insufficient sample
+      -1: mildly weak playbook health
+      -2: clearly weak playbook health
+    """
+    snap = dict(playbook_snapshot or {})
+    wr = _clamp(snap.get("rolling_win_rate", 0.0), 0.0, 1.0, 0.0)
+    exp = _as_float(snap.get("rolling_expectancy", 0.0), 0.0)
+    sample = int(_as_float(snap.get("sample_size", 0), 0.0))
+    guardrails = bool(snap.get("guardrails_healthy", False))
+
+    base = _clamp(base_limit_pct, min_limit_pct, max_limit_pct, 0.05)
+    min_v = _clamp(min_limit_pct, 0.0, 1.0, 0.03)
+    max_v = _clamp(max_limit_pct, min_v, 1.0, 0.08)
+
+    step = 0
+    reason = "neutral_insufficient_sample"
+    if sample >= 40:
+        if guardrails and wr >= 0.82 and exp >= 0.05:
+            step = 2
+            reason = "strong_plus2"
+        elif guardrails and wr >= 0.75 and exp > 0.0:
+            step = 1
+            reason = "strong_plus1"
+        elif (not guardrails) or wr < 0.55 or exp <= -0.15:
+            step = -2
+            reason = "weak_minus2"
+        elif wr < 0.70 or exp < 0.0:
+            step = -1
+            reason = "weak_minus1"
+        else:
+            step = 0
+            reason = "neutral_balanced"
+
+    adaptive = base + (float(step) * 0.01)
+    adaptive = _clamp(adaptive, min_v, max_v, base)
+    return {
+        "adaptive_limit_pct": float(adaptive),
+        "step": int(step),
+        "step_reason": reason,
+        "base_limit_pct": float(base),
+        "min_limit_pct": float(min_v),
+        "max_limit_pct": float(max_v),
+        "rolling_win_rate": float(wr),
+        "rolling_expectancy": float(exp),
+        "sample_size": int(sample),
+        "guardrails_healthy": bool(guardrails),
+    }
+
+
+def compute_daily_loss_pct_utc(supabase_client: Any, user_id: int) -> Dict[str, Any]:
+    """
+    Compute UTC-day loss ratio from realized trade PnL and session balance basis.
+    """
+    utc_day = datetime.now(timezone.utc).date().isoformat()
+    trades_res = (
+        supabase_client.table("autotrade_trades")
+        .select("pnl_usdt")
+        .eq("telegram_id", int(user_id))
+        .gte("opened_at", utc_day)
+        .execute()
+    )
+    trades = getattr(trades_res, "data", None) or []
+
+    total_pnl = 0.0
+    for row in trades:
+        if not isinstance(row, dict):
+            continue
+        total_pnl += _as_float(row.get("pnl_usdt"), 0.0)
+
+    session_res = (
+        supabase_client.table("autotrade_sessions")
+        .select("initial_deposit,current_balance")
+        .eq("telegram_id", int(user_id))
+        .limit(1)
+        .execute()
+    )
+    session_data = getattr(session_res, "data", None) or []
+    first = session_data[0] if session_data and isinstance(session_data[0], dict) else {}
+
+    current_balance = _as_float(first.get("current_balance"), 0.0)
+    initial_deposit = _as_float(first.get("initial_deposit"), 0.0)
+    balance_basis = current_balance if current_balance > 0.0 else initial_deposit
+    if balance_basis <= 0.0:
+        balance_basis = 100.0
+
+    daily_loss_usdt = max(0.0, -float(total_pnl))
+    daily_loss_pct = float(daily_loss_usdt / balance_basis) if balance_basis > 0.0 else 0.0
+    return {
+        "utc_day": utc_day,
+        "daily_pnl_usdt": float(total_pnl),
+        "daily_loss_usdt": float(daily_loss_usdt),
+        "balance_basis_usdt": float(balance_basis),
+        "loss_pct_today": float(daily_loss_pct),
+    }
+
+
+def is_strong_opportunity(
+    *,
+    signal: Any,
+    min_confidence_pct: float,
+    min_rr_ratio: float,
+    conf_margin_pct: float = 5.0,
+    rr_margin: float = 0.3,
+    playbook_strong_match: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """
+    Strong opportunity requires:
+      - playbook strong match
+      - confidence >= (effective_min_conf + margin)
+      - rr >= (mode_min_rr + margin)
+    """
+    conf = _as_float(_signal_field(signal, "confidence", 0.0), 0.0)
+    rr = _as_float(_signal_field(signal, "rr_ratio", 0.0), 0.0)
+    strong_playbook = bool(
+        playbook_strong_match
+        if playbook_strong_match is not None
+        else _signal_field(signal, "playbook_strong_match", False)
+    )
+    req_conf = max(0.0, float(min_confidence_pct) + max(0.0, float(conf_margin_pct)))
+    req_rr = max(0.0, float(min_rr_ratio) + max(0.0, float(rr_margin)))
+    conf_ok = conf >= req_conf
+    rr_ok = rr >= req_rr
+    is_strong = bool(strong_playbook and conf_ok and rr_ok)
+    return {
+        "is_strong": bool(is_strong),
+        "playbook_strong_match": bool(strong_playbook),
+        "confidence_ok": bool(conf_ok),
+        "rr_ok": bool(rr_ok),
+        "signal_confidence": float(conf),
+        "signal_rr_ratio": float(rr),
+        "required_confidence": float(req_conf),
+        "required_rr_ratio": float(req_rr),
+    }
+
+
+def evaluate_daily_circuit_breaker_action(
+    *,
+    enabled: bool,
+    loss_pct_today: float,
+    adaptive_limit_pct: float,
+    strong_opportunity: bool,
+) -> Dict[str, Any]:
+    if not bool(enabled):
+        return {
+            "blocked": False,
+            "override_applied": False,
+            "decision_reason": "breaker_disabled",
+        }
+    if float(loss_pct_today) < float(adaptive_limit_pct):
+        return {
+            "blocked": False,
+            "override_applied": False,
+            "decision_reason": "within_adaptive_limit",
+        }
+    if bool(strong_opportunity):
+        return {
+            "blocked": False,
+            "override_applied": True,
+            "decision_reason": "strong_opportunity_full_bypass",
+        }
+    return {
+        "blocked": True,
+        "override_applied": False,
+        "decision_reason": "adaptive_limit_exceeded_non_strong",
+    }
+
+
+def evaluate_adaptive_daily_circuit_breaker(
+    *,
+    mode: str,
+    user_id: int,
+    signal: Any,
+    supabase_client: Any,
+    playbook_snapshot: Optional[Dict[str, Any]],
+    min_confidence_pct: float,
+    min_rr_ratio: float,
+    playbook_strong_match: Optional[bool] = None,
+) -> Dict[str, Any]:
+    cfg = _read_adaptive_breaker_cfg(mode)
+    try:
+        daily = compute_daily_loss_pct_utc(supabase_client, int(user_id))
+        adaptive = compute_adaptive_daily_loss_limit_pct(
+            playbook_snapshot,
+            base_limit_pct=float(cfg["base_limit_pct"]),
+            min_limit_pct=float(cfg["min_limit_pct"]),
+            max_limit_pct=float(cfg["max_limit_pct"]),
+        )
+        strong = is_strong_opportunity(
+            signal=signal,
+            min_confidence_pct=float(min_confidence_pct),
+            min_rr_ratio=float(min_rr_ratio),
+            conf_margin_pct=float(cfg["strong_conf_margin"]),
+            rr_margin=float(cfg["strong_rr_margin"]),
+            playbook_strong_match=playbook_strong_match,
+        )
+        action = evaluate_daily_circuit_breaker_action(
+            enabled=bool(cfg["enabled"]),
+            loss_pct_today=float(daily["loss_pct_today"]),
+            adaptive_limit_pct=float(adaptive["adaptive_limit_pct"]),
+            strong_opportunity=bool(strong["is_strong"]),
+        )
+        return {
+            "mode": cfg["mode"],
+            "enabled": bool(cfg["enabled"]),
+            "threshold_source": "adaptive_win_playbook",
+            "strong_conf_margin": float(cfg["strong_conf_margin"]),
+            "strong_rr_margin": float(cfg["strong_rr_margin"]),
+            "loss_pct_today": float(daily["loss_pct_today"]),
+            "daily_loss_usdt": float(daily["daily_loss_usdt"]),
+            "daily_pnl_usdt": float(daily["daily_pnl_usdt"]),
+            "balance_basis_usdt": float(daily["balance_basis_usdt"]),
+            "utc_day": daily["utc_day"],
+            "adaptive_limit_pct": float(adaptive["adaptive_limit_pct"]),
+            "adaptive_step": int(adaptive["step"]),
+            "adaptive_step_reason": str(adaptive["step_reason"]),
+            "base_limit_pct": float(adaptive["base_limit_pct"]),
+            "min_limit_pct": float(adaptive["min_limit_pct"]),
+            "max_limit_pct": float(adaptive["max_limit_pct"]),
+            "rolling_win_rate": float(adaptive["rolling_win_rate"]),
+            "rolling_expectancy": float(adaptive["rolling_expectancy"]),
+            "sample_size": int(adaptive["sample_size"]),
+            "guardrails_healthy": bool(adaptive["guardrails_healthy"]),
+            "strong_opportunity": bool(strong["is_strong"]),
+            "playbook_strong_match": bool(strong["playbook_strong_match"]),
+            "confidence_ok": bool(strong["confidence_ok"]),
+            "rr_ok": bool(strong["rr_ok"]),
+            "signal_confidence": float(strong["signal_confidence"]),
+            "signal_rr_ratio": float(strong["signal_rr_ratio"]),
+            "required_confidence": float(strong["required_confidence"]),
+            "required_rr_ratio": float(strong["required_rr_ratio"]),
+            "blocked": bool(action["blocked"]),
+            "override_applied": bool(action["override_applied"]),
+            "decision_reason": str(action["decision_reason"]),
+        }
+    except Exception as exc:
+        return {
+            "mode": cfg["mode"],
+            "enabled": bool(cfg["enabled"]),
+            "threshold_source": "adaptive_win_playbook",
+            "strong_conf_margin": float(cfg["strong_conf_margin"]),
+            "strong_rr_margin": float(cfg["strong_rr_margin"]),
+            "loss_pct_today": 0.0,
+            "daily_loss_usdt": 0.0,
+            "daily_pnl_usdt": 0.0,
+            "balance_basis_usdt": 0.0,
+            "utc_day": datetime.now(timezone.utc).date().isoformat(),
+            "adaptive_limit_pct": float(cfg["base_limit_pct"]),
+            "adaptive_step": 0,
+            "adaptive_step_reason": "evaluation_error",
+            "base_limit_pct": float(cfg["base_limit_pct"]),
+            "min_limit_pct": float(cfg["min_limit_pct"]),
+            "max_limit_pct": float(cfg["max_limit_pct"]),
+            "rolling_win_rate": 0.0,
+            "rolling_expectancy": 0.0,
+            "sample_size": 0,
+            "guardrails_healthy": False,
+            "strong_opportunity": False,
+            "playbook_strong_match": bool(playbook_strong_match),
+            "confidence_ok": False,
+            "rr_ok": False,
+            "signal_confidence": _as_float(_signal_field(signal, "confidence", 0.0), 0.0),
+            "signal_rr_ratio": _as_float(_signal_field(signal, "rr_ratio", 0.0), 0.0),
+            "required_confidence": float(min_confidence_pct),
+            "required_rr_ratio": float(min_rr_ratio),
+            "blocked": False,
+            "override_applied": False,
+            "decision_reason": "evaluation_error_fail_open",
+            "evaluation_error": str(exc),
+        }
+
+
 def _normalize_trade_mode(row: Dict[str, Any]) -> str:
     trade_type = str(row.get("trade_type") or "").strip().lower()
     if trade_type in {"swing", "scalping"}:

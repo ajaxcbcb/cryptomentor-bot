@@ -32,6 +32,7 @@ from app.engine_execution_shared import (
 )
 from app.engine_runtime_shared import (
     apply_scalping_confidence_relief,
+    evaluate_adaptive_daily_circuit_breaker,
     get_scalping_risk_parity_controls,
     get_scalping_risk_parity_snapshot,
     get_top_volume_pairs,
@@ -61,6 +62,7 @@ from app.sideways_governor import (
 from app.leverage_policy import get_auto_max_safe_leverage
 from app.pair_strategy_router import get_mixed_pair_assignments
 from app.win_playbook import (
+    compute_playbook_match_from_reasons,
     refresh_global_win_playbook_state,
     get_win_playbook_snapshot,
 )
@@ -1987,9 +1989,68 @@ class ScalpingEngine:
                 )
                 return False
         
-        # Check circuit breaker
-        if self._circuit_breaker_triggered():
-            logger.warning(f"[Scalping:{self.user_id}] Signal rejected: Circuit breaker triggered")
+        # Adaptive daily circuit breaker gate (UTC day, full bypass only for strong opportunities).
+        playbook_strong_match = bool(getattr(signal, "playbook_strong_match", False))
+        try:
+            match_meta = compute_playbook_match_from_reasons(
+                getattr(signal, "reasons", []) or [],
+                self._win_playbook_snapshot,
+            )
+            setattr(
+                signal,
+                "playbook_match_score",
+                float(match_meta.get("playbook_match_score", getattr(signal, "playbook_match_score", 0.0)) or 0.0),
+            )
+            setattr(
+                signal,
+                "playbook_match_tags",
+                list(match_meta.get("matched_tags", getattr(signal, "playbook_match_tags", [])) or []),
+            )
+            playbook_strong_match = bool(match_meta.get("strong_match", False))
+            setattr(signal, "playbook_strong_match", bool(playbook_strong_match))
+        except Exception as playbook_match_err:
+            logger.debug(f"[Scalping:{self.user_id}] Playbook strong-match precheck failed: {playbook_match_err}")
+
+        min_conf_for_breaker = float(
+            getattr(signal, "confidence_effective_min_conf", self.config.min_confidence * 100.0)
+            or (self.config.min_confidence * 100.0)
+        )
+        breaker_eval = evaluate_adaptive_daily_circuit_breaker(
+            mode="scalping",
+            user_id=int(self.user_id),
+            signal=signal,
+            supabase_client=_client(),
+            playbook_snapshot=self._win_playbook_snapshot,
+            min_confidence_pct=min_conf_for_breaker,
+            min_rr_ratio=float(required_rr),
+            playbook_strong_match=bool(playbook_strong_match),
+        )
+        setattr(signal, "daily_breaker_override_applied", bool(breaker_eval.get("override_applied", False)))
+        setattr(signal, "daily_breaker_decision_reason", str(breaker_eval.get("decision_reason", "")))
+        logger.info(
+            f"[Scalping:{self.user_id}] Adaptive breaker decision "
+            f"trade_type=scalping symbol={signal.symbol} "
+            f"threshold_source={breaker_eval.get('threshold_source', 'adaptive_win_playbook')} "
+            f"loss_pct_today={float(breaker_eval.get('loss_pct_today', 0.0)):.4f} "
+            f"adaptive_limit_pct={float(breaker_eval.get('adaptive_limit_pct', 0.0)):.4f} "
+            f"base_limit_pct={float(breaker_eval.get('base_limit_pct', 0.0)):.4f} "
+            f"step={int(breaker_eval.get('adaptive_step', 0))} "
+            f"step_reason={breaker_eval.get('adaptive_step_reason')} "
+            f"sample_size={int(breaker_eval.get('sample_size', 0) or 0)} "
+            f"wr={float(breaker_eval.get('rolling_win_rate', 0.0)):.3f} "
+            f"exp={float(breaker_eval.get('rolling_expectancy', 0.0)):+.4f} "
+            f"strong_opportunity={bool(breaker_eval.get('strong_opportunity', False))} "
+            f"override_applied={bool(breaker_eval.get('override_applied', False))} "
+            f"blocked={bool(breaker_eval.get('blocked', False))} "
+            f"reason={breaker_eval.get('decision_reason')}"
+        )
+        if bool(breaker_eval.get("blocked", False)):
+            logger.warning(
+                f"[Scalping:{self.user_id}] Signal rejected by adaptive breaker: "
+                f"symbol={signal.symbol} reason={breaker_eval.get('decision_reason')} "
+                f"loss_pct_today={float(breaker_eval.get('loss_pct_today', 0.0)):.4f} "
+                f"adaptive_limit_pct={float(breaker_eval.get('adaptive_limit_pct', 0.0)):.4f}"
+            )
             return False
         logger.info(
             f"[Scalping:{self.user_id}] Entry gate passed "
@@ -2002,56 +2063,6 @@ class ScalpingEngine:
             f"is_emergency={is_emergency}"
         )
         return True
-    
-    def _circuit_breaker_triggered(self) -> bool:
-        """Check if daily loss limit reached"""
-        try:
-            s = _client()
-            # Get today's PnL
-            res = s.table("autotrade_trades").select("pnl_usdt").eq(
-                "telegram_id", self.user_id
-            ).gte(
-                "opened_at", datetime.utcnow().date().isoformat()
-            ).execute()
-            
-            if not res or not isinstance(getattr(res, "data", None), list) or not res.data:
-                return False
-            
-            total_pnl = 0.0
-            for t in res.data:
-                if not isinstance(t, dict):
-                    continue
-                try:
-                    total_pnl += float(t.get("pnl_usdt", 0) or 0)
-                except Exception:
-                    continue
-            
-            # Get account balance
-            session_res = s.table("autotrade_sessions").select("initial_deposit").eq(
-                "telegram_id", self.user_id
-            ).limit(1).execute()
-            
-            if not session_res or not isinstance(getattr(session_res, "data", None), list) or not session_res.data:
-                return False
-
-            first = session_res.data[0] if session_res.data else {}
-            if not isinstance(first, dict):
-                first = {}
-            balance = float(first.get("initial_deposit", 100) or 100)
-            loss_pct = abs(total_pnl / balance) if balance > 0 else 0
-            
-            if loss_pct >= self.config.daily_loss_limit:
-                logger.warning(
-                    f"[Scalping:{self.user_id}] Circuit breaker: "
-                    f"Daily loss {loss_pct:.2%} >= {self.config.daily_loss_limit:.2%}"
-                )
-                return True
-            
-            return False
-        
-        except Exception as e:
-            logger.error(f"[Scalping:{self.user_id}] Error checking circuit breaker: {e}")
-            return False  # Don't block on error
 
     
     async def place_scalping_order(self, signal: ScalpingSignal) -> bool:
