@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.74] — 2026-04-21 — Decision Tree V2 Candidate Funnel Diagnostics
+
+### 🔬 Candidate Flow Visibility
+- Added compact scalping runtime diagnostics in `Bismillah/app/scalping_engine.py` for:
+  - raw candidate funnel counts (`raw`, `normal`, `emergency`, `symbols`)
+  - selected pre-V2 symbols
+  - post-rejection-cooldown candidate counts
+- This makes it much easier to see whether signals are dropping before emergency selection, before V2 application, or during V2 cooldown suppression.
+
 ## [2.2.73] — 2026-04-21 — Decision Tree V2 Rejection Cooldown
 
 ### 🧯 Repeated Reject Dedupe

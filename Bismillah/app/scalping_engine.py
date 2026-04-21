@@ -939,6 +939,13 @@ class ScalpingEngine:
 
                         normal_signals = [s for s in candidate_signals if not getattr(s, "is_emergency", False)]
                         emergency_signals = [s for s in candidate_signals if getattr(s, "is_emergency", False)]
+                        if candidate_signals:
+                            raw_symbols = sorted({str(getattr(s, "symbol", "") or "").upper() for s in candidate_signals if getattr(s, "symbol", None)})
+                            logger.info(
+                                f"[Scalping:{self.user_id}] Candidate funnel "
+                                f"raw={len(candidate_signals)} normal={len(normal_signals)} emergency={len(emergency_signals)} "
+                                f"symbols={','.join(raw_symbols)}"
+                            )
 
                         if normal_signals:
                             valid_signals = normal_signals
@@ -964,9 +971,15 @@ class ScalpingEngine:
                             v2_mode = str(get_v2_mode() or "legacy")
                             apply_v2 = bool(valid_signals) and should_apply("scalping", mixed_mode=self._mixed_mode)
                             if valid_signals:
+                                selected_symbols = ",".join(
+                                    str(getattr(s, "symbol", "") or "").upper()
+                                    for s in valid_signals
+                                    if getattr(s, "symbol", None)
+                                )
                                 logger.info(
                                     f"[Scalping:{self.user_id}] Decision Tree V2 "
-                                    f"mode={v2_mode} apply={apply_v2} candidates={len(valid_signals)}"
+                                    f"mode={v2_mode} apply={apply_v2} candidates={len(valid_signals)} "
+                                    f"selected_symbols={selected_symbols}"
                                 )
                             if apply_v2:
                                 deduped_signals = []
@@ -980,6 +993,17 @@ class ScalpingEngine:
                                         )
                                         continue
                                     deduped_signals.append(signal)
+                                if valid_signals:
+                                    deduped_symbols = ",".join(
+                                        str(getattr(s, "symbol", "") or "").upper()
+                                        for s in deduped_signals
+                                        if getattr(s, "symbol", None)
+                                    )
+                                    logger.info(
+                                        f"[Scalping:{self.user_id}] Candidate funnel after V2 cooldown "
+                                        f"pre={len(valid_signals)} post={len(deduped_signals)} "
+                                        f"symbols={deduped_symbols or '-'}"
+                                    )
                                 valid_signals = deduped_signals
                                 evaluated_signals = []
                                 for signal in valid_signals:
