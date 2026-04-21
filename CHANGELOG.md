@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.75] — 2026-04-21 — Decision Tree V2 Live Audit Helper
+
+### 🛠️ Audit Tooling
+- Added `scripts/decision_tree_v2_live_audit.py` to summarize live Decision Tree V2 database rows and `journalctl` telemetry in one command.
+- The helper is read-only and can optionally write JSON snapshots under `logs/decision_tree_v2/` for repeat audits.
+
 ## [2.2.74] — 2026-04-21 — Decision Tree V2 Candidate Funnel Diagnostics
 
 ### 🔬 Candidate Flow Visibility
