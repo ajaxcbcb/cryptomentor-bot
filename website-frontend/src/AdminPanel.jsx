@@ -20,6 +20,12 @@ const WINDOW_OPTIONS = [
   { label: '2h', value: '2h' },
 ];
 
+const PREMIUM_ACTION_OPTIONS = [
+  { value: 'add', label: 'Add premium' },
+  { value: 'lifetime', label: 'Set lifetime' },
+  { value: 'remove', label: 'Remove premium' },
+];
+
 const EMPTY_FILTERS = {
   symbol: '',
   reject_reason: '',
@@ -691,14 +697,33 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
 
               <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
                 <p className="text-sm font-black text-white">Premium and lifetime</p>
-                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <div className="mt-4 flex flex-wrap gap-2 rounded-[1.4rem] border border-white/8 bg-white/[0.03] p-2">
+                  {PREMIUM_ACTION_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setPremiumForm((prev) => ({ ...prev, action: option.value }))}
+                      className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+                        premiumForm.action === option.value
+                          ? option.value === 'remove'
+                            ? 'border border-rose-400/25 bg-rose-500/15 text-rose-100'
+                            : 'border border-[#c7a56b]/30 bg-[#c7a56b]/15 text-[#f2ddb0]'
+                          : 'border border-white/10 bg-black/20 text-stone-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)_auto]">
                   <input value={premiumForm.user_id} onChange={(e) => setPremiumForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
-                  <select value={premiumForm.action} onChange={(e) => setPremiumForm((prev) => ({ ...prev, action: e.target.value }))} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none">
-                    <option value="add">Add premium</option>
-                    <option value="lifetime">Set lifetime</option>
-                    <option value="remove">Remove premium</option>
-                  </select>
-                  <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" disabled={premiumForm.action !== 'add'} />
+                  {premiumForm.action === 'add' ? (
+                    <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  ) : (
+                    <div className="flex min-w-0 items-center rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-stone-400">
+                      {premiumForm.action === 'lifetime' ? 'Permanent premium access will be granted.' : 'Premium access will be removed immediately.'}
+                    </div>
+                  )}
                   <button
                     onClick={() => setConfirmState({
                       title: 'Apply premium update?',

@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.80] — 2026-04-21 — Web Admin Premium Action UI Polish
+
+### 🎛️ Premium Action Control
+- Replaced the native premium-action dropdown in `website-frontend/src/AdminPanel.jsx` with a styled segmented control.
+- The premium admin panel now keeps `Add premium`, `Set lifetime`, and `Remove premium` inside the same visual language as the rest of the web admin interface.
+- The premium form now adapts its secondary field:
+  - `Add premium` keeps a days input
+  - `Set lifetime` shows a permanent-access note
+  - `Remove premium` shows an immediate-removal note
+
+### ✅ Validation
+- Rebuilt the frontend bundle after the premium action UI change.
+
 ## [2.2.79] — 2026-04-21 — Web Admin Controls Responsive Fix
 
 ### 🧩 Admin Controls Layout
