@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.73] — 2026-04-21 — Decision Tree V2 Rejection Cooldown
+
+### 🧯 Repeated Reject Dedupe
+- Added a dedicated Decision Tree V2 rejection cooldown in `Bismillah/app/scalping_engine.py` keyed by `symbol + side + setup` to suppress repeated rejected candidate loops without affecting execution or stale-price cooldowns.
+- Repeated live V2 rejects now log cooldown activation and remaining TTL instead of re-evaluating the same bad setup every scan.
+- Added `DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS` env support with a default of `180` seconds.
+
 ## [2.2.72] — 2026-04-21 — Decision Tree V2 Telemetry Hardening
 
 ### 🧾 Candidate Audit Reliability

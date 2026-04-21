@@ -84,6 +84,10 @@ SCALPING_STALE_RECONCILE_INTERVAL_SECONDS = max(
     int(float(os.getenv("SCALPING_STALE_RECONCILE_INTERVAL_SECONDS", "120") or 120)),
 )
 STALE_RECONCILE_JIT_ON_CAPACITY = _env_flag("STALE_RECONCILE_JIT_ON_CAPACITY", True)
+DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS = max(
+    30.0,
+    float(os.getenv("DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS", "180") or 180.0),
+)
 
 
 def _fmt_price(v: float) -> str:
@@ -185,6 +189,8 @@ class ScalpingEngine:
         self.last_closed_meta: Dict[str, Dict[str, float]] = {}
         self._blocked_pending_notify_ts: Dict[str, float] = {}
         self._stale_price_cooldown_ts: Dict[str, float] = {}
+        self._v2_rejection_cooldown_ts: Dict[str, float] = {}
+        self._v2_rejection_reason_by_signature: Dict[str, str] = {}
         
         # Running state
         self.running = False
@@ -314,6 +320,62 @@ class ScalpingEngine:
             now_ts=now_ts,
         )
         return True
+
+    @staticmethod
+    def _v2_rejection_signature(signal: Any) -> str:
+        if isinstance(signal, dict):
+            symbol = str(signal.get("symbol") or "").upper().strip()
+            side = str(signal.get("side") or "").upper().strip()
+            setup = str(
+                signal.get("trade_subtype")
+                or signal.get("setup_name")
+                or ("sideways_scalp" if signal.get("is_sideways") else "default_setup")
+            ).strip().lower()
+        else:
+            symbol = str(getattr(signal, "symbol", "") or "").upper().strip()
+            side = str(getattr(signal, "side", "") or "").upper().strip()
+            setup = str(
+                getattr(signal, "trade_subtype", "")
+                or getattr(signal, "setup_name", "")
+                or ("sideways_scalp" if bool(getattr(signal, "is_sideways", False)) else "default_setup")
+            ).strip().lower()
+        return f"{symbol}|{side}|{setup}"
+
+    def _mark_v2_rejection_cooldown(
+        self,
+        signal: Any,
+        reject_reason: str,
+        ttl_sec: float = DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS,
+        now_ts: Optional[float] = None,
+    ) -> float:
+        signature = self._v2_rejection_signature(signal)
+        self._v2_rejection_reason_by_signature[signature] = str(reject_reason or "").strip().lower()
+        return _shared_set_ttl_cooldown(
+            self._v2_rejection_cooldown_ts,
+            key=signature,
+            ttl_sec=float(ttl_sec),
+            now_ts=now_ts,
+        )
+
+    def _get_v2_rejection_cooldown_state(
+        self,
+        signal: Any,
+        now_ts: Optional[float] = None,
+    ) -> tuple[bool, str, int]:
+        signature = self._v2_rejection_signature(signal)
+        active = _shared_is_ttl_cooldown_active(
+            self._v2_rejection_cooldown_ts,
+            key=signature,
+            now_ts=now_ts,
+        )
+        if not active:
+            self._v2_rejection_reason_by_signature.pop(signature, None)
+            return False, "", 0
+        now_value = time.time() if now_ts is None else float(now_ts)
+        expires_at = float(self._v2_rejection_cooldown_ts.get(signature, 0.0) or 0.0)
+        remaining = max(1, int(round(expires_at - now_value)))
+        reason = str(self._v2_rejection_reason_by_signature.get(signature, "") or "")
+        return True, reason, remaining
 
     async def _prune_stale_local_positions(self) -> int:
         """
@@ -907,6 +969,18 @@ class ScalpingEngine:
                                     f"mode={v2_mode} apply={apply_v2} candidates={len(valid_signals)}"
                                 )
                             if apply_v2:
+                                deduped_signals = []
+                                for signal in valid_signals:
+                                    cd_active, cd_reason, cd_remaining = self._get_v2_rejection_cooldown_state(signal)
+                                    if cd_active:
+                                        logger.info(
+                                            f"[Scalping:{self.user_id}] V2 rejection cooldown active "
+                                            f"symbol={signal.symbol} reason={cd_reason or '-'} "
+                                            f"remaining={cd_remaining}s"
+                                        )
+                                        continue
+                                    deduped_signals.append(signal)
+                                valid_signals = deduped_signals
                                 evaluated_signals = []
                                 for signal in valid_signals:
                                     decision = await evaluate_scalping_signal(
@@ -938,10 +1012,16 @@ class ScalpingEngine:
                                     if decision.approved or v2_mode != "live":
                                         evaluated_signals.append(signal)
                                     else:
+                                        cd_expiry = self._mark_v2_rejection_cooldown(
+                                            signal,
+                                            decision.reject_reason,
+                                        )
+                                        cd_remaining = max(1, int(round(cd_expiry - time.time())))
                                         logger.info(
                                             f"[Scalping:{self.user_id}] V2 rejected signal "
                                             f"symbol={signal.symbol} reason={decision.reject_reason or '-'} "
-                                            f"score={float(decision.candidate.final_score or 0.0):.3f}"
+                                            f"score={float(decision.candidate.final_score or 0.0):.3f} "
+                                            f"cooldown={cd_remaining}s"
                                         )
                                 valid_signals = evaluated_signals
                         except Exception as v2_exc:

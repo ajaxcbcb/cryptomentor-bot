@@ -160,6 +160,52 @@ def test_scalping_stale_cooldown_not_overridden_by_generic_failure():
     assert engine.cooldown_tracker["ETHUSDT"] == pytest.approx(1120.0)
 
 
+def test_scalping_v2_rejection_cooldown_uses_symbol_side_setup_signature():
+    engine = ScalpingEngine.__new__(ScalpingEngine)
+    engine._v2_rejection_cooldown_ts = {}
+    engine._v2_rejection_reason_by_signature = {}
+
+    signal = {"symbol": "XAGUSDT", "side": "SHORT", "trade_subtype": "trend_scalp"}
+    expiry = engine._mark_v2_rejection_cooldown(
+        signal,
+        "tradeability_below_threshold",
+        ttl_sec=180.0,
+        now_ts=1000.0,
+    )
+    assert expiry == pytest.approx(1180.0)
+
+    active, reason, remaining = engine._get_v2_rejection_cooldown_state(signal, now_ts=1010.0)
+    assert active is True
+    assert reason == "tradeability_below_threshold"
+    assert remaining == 170
+
+    other_setup_signal = {"symbol": "XAGUSDT", "side": "SHORT", "trade_subtype": "breakout_scalp"}
+    active_other, reason_other, remaining_other = engine._get_v2_rejection_cooldown_state(other_setup_signal, now_ts=1010.0)
+    assert active_other is False
+    assert reason_other == ""
+    assert remaining_other == 0
+
+
+def test_scalping_v2_rejection_cooldown_clears_after_expiry():
+    engine = ScalpingEngine.__new__(ScalpingEngine)
+    engine._v2_rejection_cooldown_ts = {}
+    engine._v2_rejection_reason_by_signature = {}
+
+    signal = {"symbol": "XAGUSDT", "side": "SHORT", "trade_subtype": "trend_scalp"}
+    engine._mark_v2_rejection_cooldown(
+        signal,
+        "tradeability_below_threshold",
+        ttl_sec=60.0,
+        now_ts=1000.0,
+    )
+
+    active, reason, remaining = engine._get_v2_rejection_cooldown_state(signal, now_ts=1061.0)
+    assert active is False
+    assert reason == ""
+    assert remaining == 0
+    assert engine._v2_rejection_reason_by_signature == {}
+
+
 def test_swing_queue_upsert_refreshes_symbol_and_respects_inflight():
     uid = 4242
     autotrade_engine._signal_queues[uid] = []
