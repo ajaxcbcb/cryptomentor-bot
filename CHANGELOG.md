@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.76] — 2026-04-21 — Decision Tree V2 Global Rejection Cooldown
+
+### 🌐 Cross-User Reject Suppression
+- Upgraded the scalping Decision Tree V2 rejection cooldown to support a shared process-wide TTL so repeated bad `symbol + side + setup + reject_reason` patterns can be suppressed across engine instances, not just within one user loop.
+- Added `DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED` with a default of `true`.
+- Cooldown logs now expose `scope=global|local` for faster live diagnostics.
+
 ## [2.2.75] — 2026-04-21 — Decision Tree V2 Live Audit Helper
 
 ### 🛠️ Audit Tooling

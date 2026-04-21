@@ -88,6 +88,12 @@ DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS = max(
     30.0,
     float(os.getenv("DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS", "180") or 180.0),
 )
+DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED = _env_flag(
+    "DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED",
+    True,
+)
+_GLOBAL_V2_REJECTION_COOLDOWN_TS: Dict[str, float] = {}
+_GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE: Dict[str, str] = {}
 
 
 def _fmt_price(v: float) -> str:
@@ -349,33 +355,58 @@ class ScalpingEngine:
         now_ts: Optional[float] = None,
     ) -> float:
         signature = self._v2_rejection_signature(signal)
-        self._v2_rejection_reason_by_signature[signature] = str(reject_reason or "").strip().lower()
-        return _shared_set_ttl_cooldown(
+        reason = str(reject_reason or "").strip().lower()
+        self._v2_rejection_reason_by_signature[signature] = reason
+        local_expiry = _shared_set_ttl_cooldown(
             self._v2_rejection_cooldown_ts,
             key=signature,
             ttl_sec=float(ttl_sec),
             now_ts=now_ts,
         )
+        if DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED:
+            _GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE[signature] = reason
+            global_expiry = _shared_set_ttl_cooldown(
+                _GLOBAL_V2_REJECTION_COOLDOWN_TS,
+                key=signature,
+                ttl_sec=float(ttl_sec),
+                now_ts=now_ts,
+            )
+            return max(float(local_expiry), float(global_expiry))
+        return float(local_expiry)
 
     def _get_v2_rejection_cooldown_state(
         self,
         signal: Any,
         now_ts: Optional[float] = None,
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int, str]:
         signature = self._v2_rejection_signature(signal)
-        active = _shared_is_ttl_cooldown_active(
+        now_value = time.time() if now_ts is None else float(now_ts)
+
+        if DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED:
+            global_active = _shared_is_ttl_cooldown_active(
+                _GLOBAL_V2_REJECTION_COOLDOWN_TS,
+                key=signature,
+                now_ts=now_ts,
+            )
+            if global_active:
+                global_expires_at = float(_GLOBAL_V2_REJECTION_COOLDOWN_TS.get(signature, 0.0) or 0.0)
+                global_remaining = max(1, int(round(global_expires_at - now_value)))
+                global_reason = str(_GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE.get(signature, "") or "")
+                return True, global_reason, global_remaining, "global"
+            _GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE.pop(signature, None)
+
+        local_active = _shared_is_ttl_cooldown_active(
             self._v2_rejection_cooldown_ts,
             key=signature,
             now_ts=now_ts,
         )
-        if not active:
+        if not local_active:
             self._v2_rejection_reason_by_signature.pop(signature, None)
-            return False, "", 0
-        now_value = time.time() if now_ts is None else float(now_ts)
-        expires_at = float(self._v2_rejection_cooldown_ts.get(signature, 0.0) or 0.0)
-        remaining = max(1, int(round(expires_at - now_value)))
-        reason = str(self._v2_rejection_reason_by_signature.get(signature, "") or "")
-        return True, reason, remaining
+            return False, "", 0, ""
+        local_expires_at = float(self._v2_rejection_cooldown_ts.get(signature, 0.0) or 0.0)
+        local_remaining = max(1, int(round(local_expires_at - now_value)))
+        local_reason = str(self._v2_rejection_reason_by_signature.get(signature, "") or "")
+        return True, local_reason, local_remaining, "local"
 
     async def _prune_stale_local_positions(self) -> int:
         """
@@ -984,12 +1015,12 @@ class ScalpingEngine:
                             if apply_v2:
                                 deduped_signals = []
                                 for signal in valid_signals:
-                                    cd_active, cd_reason, cd_remaining = self._get_v2_rejection_cooldown_state(signal)
+                                    cd_active, cd_reason, cd_remaining, cd_scope = self._get_v2_rejection_cooldown_state(signal)
                                     if cd_active:
                                         logger.info(
                                             f"[Scalping:{self.user_id}] V2 rejection cooldown active "
                                             f"symbol={signal.symbol} reason={cd_reason or '-'} "
-                                            f"remaining={cd_remaining}s"
+                                            f"remaining={cd_remaining}s scope={cd_scope or 'local'}"
                                         )
                                         continue
                                     deduped_signals.append(signal)

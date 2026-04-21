@@ -174,16 +174,18 @@ def test_scalping_v2_rejection_cooldown_uses_symbol_side_setup_signature():
     )
     assert expiry == pytest.approx(1180.0)
 
-    active, reason, remaining = engine._get_v2_rejection_cooldown_state(signal, now_ts=1010.0)
+    active, reason, remaining, scope = engine._get_v2_rejection_cooldown_state(signal, now_ts=1010.0)
     assert active is True
     assert reason == "tradeability_below_threshold"
     assert remaining == 170
+    assert scope in {"global", "local"}
 
     other_setup_signal = {"symbol": "XAGUSDT", "side": "SHORT", "trade_subtype": "breakout_scalp"}
-    active_other, reason_other, remaining_other = engine._get_v2_rejection_cooldown_state(other_setup_signal, now_ts=1010.0)
+    active_other, reason_other, remaining_other, scope_other = engine._get_v2_rejection_cooldown_state(other_setup_signal, now_ts=1010.0)
     assert active_other is False
     assert reason_other == ""
     assert remaining_other == 0
+    assert scope_other == ""
 
 
 def test_scalping_v2_rejection_cooldown_clears_after_expiry():
@@ -199,11 +201,42 @@ def test_scalping_v2_rejection_cooldown_clears_after_expiry():
         now_ts=1000.0,
     )
 
-    active, reason, remaining = engine._get_v2_rejection_cooldown_state(signal, now_ts=1061.0)
+    active, reason, remaining, scope = engine._get_v2_rejection_cooldown_state(signal, now_ts=1061.0)
     assert active is False
     assert reason == ""
     assert remaining == 0
+    assert scope == ""
     assert engine._v2_rejection_reason_by_signature == {}
+
+
+def test_scalping_v2_rejection_cooldown_is_shared_across_engine_instances(monkeypatch):
+    import app.scalping_engine as scalping_engine_module  # type: ignore
+
+    monkeypatch.setattr(scalping_engine_module, "DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED", True)
+    scalping_engine_module._GLOBAL_V2_REJECTION_COOLDOWN_TS.clear()
+    scalping_engine_module._GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE.clear()
+
+    engine_a = ScalpingEngine.__new__(ScalpingEngine)
+    engine_a._v2_rejection_cooldown_ts = {}
+    engine_a._v2_rejection_reason_by_signature = {}
+
+    engine_b = ScalpingEngine.__new__(ScalpingEngine)
+    engine_b._v2_rejection_cooldown_ts = {}
+    engine_b._v2_rejection_reason_by_signature = {}
+
+    signal = {"symbol": "PIEVERSEUSDT", "side": "LONG", "trade_subtype": "trend_scalp"}
+    engine_a._mark_v2_rejection_cooldown(
+        signal,
+        "tradeability_below_threshold",
+        ttl_sec=180.0,
+        now_ts=2000.0,
+    )
+
+    active, reason, remaining, scope = engine_b._get_v2_rejection_cooldown_state(signal, now_ts=2010.0)
+    assert active is True
+    assert reason == "tradeability_below_threshold"
+    assert remaining == 170
+    assert scope == "global"
 
 
 def test_swing_queue_upsert_refreshes_symbol_and_respects_inflight():
