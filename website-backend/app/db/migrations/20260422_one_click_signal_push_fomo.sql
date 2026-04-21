@@ -9,7 +9,7 @@ UPDATE autotrade_sessions
 SET risk_per_trade = 3.0
 WHERE risk_per_trade IS NULL
    OR risk_per_trade < 0.25
-   OR risk_per_trade > 5.0;
+   OR risk_per_trade > 10.0;
 
 -- 2) Canonical one-click signal events
 CREATE TABLE IF NOT EXISTS one_click_signal_events (

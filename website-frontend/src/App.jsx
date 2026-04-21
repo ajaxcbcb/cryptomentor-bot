@@ -160,7 +160,7 @@ const MOCK_COURSES = [
 ];
 
 const RISK_OPTIONS = [0.25, 0.5, 1, 2, 3, 5, 7.5, 10];
-const ONE_CLICK_RISK_OPTIONS = [1, 5, 10, 50, 100];
+const ONE_CLICK_RISK_OPTIONS = [0.25, 0.5, 1, 2, 3, 5, 7.5, 10];
 const LOW_EQUITY_THRESHOLD_USD = 30;
 const LOW_EQUITY_MIN_RISK_PCT = 3;
 
@@ -182,24 +182,21 @@ const getAutoRiskFloorByEquity = (equity) => {
 
 const normalizeOneClickRisk = (raw) => {
   const n = Number(raw);
-  if (!Number.isFinite(n)) return 1;
-  if (n <= 1) return 1;
-  if (n >= 100) return 100;
-  const snapped = Math.round(n / 5) * 5;
-  return Math.max(5, Math.min(95, snapped));
+  if (!Number.isFinite(n)) return 3;
+  if (n <= 0.25) return 0.25;
+  if (n >= 10) return 10;
+  return Math.round(n * 100) / 100;
 };
 
 const oneClickSliderValueFromRisk = (risk) => {
   const normalized = normalizeOneClickRisk(risk);
-  if (normalized <= 1) return 0;
-  return Math.round(normalized / 5);
+  return Math.round((normalized - 0.25) / 0.25);
 };
 
 const oneClickRiskFromSliderValue = (sliderValue) => {
   const v = Number(sliderValue);
-  if (!Number.isFinite(v) || v <= 0) return 1;
-  if (v >= 20) return 100;
-  return normalizeOneClickRisk(v * 5);
+  if (!Number.isFinite(v) || v <= 0) return 0.25;
+  return normalizeOneClickRisk(0.25 + (v * 0.25));
 };
 
 const makeClientRequestId = () => {
@@ -250,12 +247,6 @@ const getRiskDescription = (risk) => {
 
 const getOneClickRiskButtonTone = (risk, selected = false) => {
   const r = Number(risk) || 0;
-  if (r >= 100) return selected
-    ? 'bg-gradient-to-r from-rose-600/40 to-red-600/40 text-red-200 border border-red-400/60 shadow-[0_0_0_1px_rgba(248,113,113,0.35)]'
-    : 'bg-[#140808] text-red-300/85 border border-red-500/30 hover:border-red-400/55 hover:text-red-200';
-  if (r >= 50) return selected
-    ? 'bg-gradient-to-r from-orange-500/35 to-rose-500/35 text-orange-100 border border-orange-400/55 shadow-[0_0_0_1px_rgba(251,146,60,0.3)]'
-    : 'bg-[#140d05] text-orange-300/85 border border-orange-500/30 hover:border-orange-400/55 hover:text-orange-200';
   if (r >= 10) return selected
     ? 'bg-gradient-to-r from-yellow-500/30 to-orange-500/25 text-yellow-100 border border-yellow-400/55 shadow-[0_0_0_1px_rgba(250,204,21,0.3)]'
     : 'bg-[#111006] text-yellow-300/85 border border-yellow-500/30 hover:border-yellow-400/55 hover:text-yellow-200';
@@ -269,8 +260,6 @@ const getOneClickRiskButtonTone = (risk, selected = false) => {
 
 const getOneClickRiskValueTone = (risk) => {
   const r = Number(risk) || 0;
-  if (r >= 100) return 'text-red-300';
-  if (r >= 50) return 'text-orange-300';
   if (r >= 10) return 'text-yellow-300';
   if (r >= 5) return 'text-lime-300';
   return 'text-green-400';
@@ -278,17 +267,13 @@ const getOneClickRiskValueTone = (risk) => {
 
 const getOneClickRiskDescription = (risk) => {
   const r = Number(risk) || 0;
-  if (r >= 100) return '🔴 ALL IN (100%) — maximum risk, full-account exposure';
-  if (r >= 50) return '🟠 High Risk Zone (50%) — aggressive exposure, large drawdown risk';
   if (r >= 10) return '🟡 Elevated Risk Zone (10%) — high volatility sensitivity';
   if (r >= 5) return '🟢/🟡 Guarded Risk Zone (5%) — upper conservative boundary';
-  return '🟢 Green Risk Zone (1%) — conservative exposure and smoother drawdowns';
+  return '🟢 Green Risk Zone (0.25% – 5%) — conservative exposure and smoother drawdowns';
 };
 
 const getOneClickRiskPanelTone = (risk) => {
   const r = Number(risk) || 0;
-  if (r >= 100) return 'bg-red-500/10 border border-red-500/25';
-  if (r >= 50) return 'bg-orange-500/10 border border-orange-500/25';
   if (r >= 10) return 'bg-yellow-500/10 border border-yellow-500/25';
   if (r >= 5) return 'bg-lime-500/10 border border-lime-500/25';
   return 'bg-green-500/10 border border-green-500/25';
@@ -396,13 +381,7 @@ export default function App() {
     loading: true,
     error: null,
   });
-  const [oneClickRiskPct, setOneClickRiskPct] = useState(() => {
-    try {
-      return normalizeOneClickRisk(localStorage.getItem('cm_one_click_risk') || 1);
-    } catch {
-      return 1;
-    }
-  });
+  const [oneClickRiskPct, setOneClickRiskPct] = useState(3);
   const [verLoading, setVerLoading] = useState(true);
   const [bootIssue, setBootIssue] = useState(null);
   const [updateNotice, setUpdateNotice] = useState({ visible: false, latest: null });
@@ -841,16 +820,40 @@ export default function App() {
     });
   };
 
-  const updateOneClickRisk = (rawRisk) => {
+  const updateOneClickRisk = async (rawRisk) => {
     const normalized = normalizeOneClickRisk(rawRisk);
+    const previous = normalizeOneClickRisk(riskSettings?.risk_per_trade ?? oneClickRiskPct);
     setOneClickRiskPct(normalized);
-  };
-
-  useEffect(() => {
+    setRiskSettings(prev => ({ ...prev, loading: true, error: null, risk_per_trade: normalized }));
     try {
-      localStorage.setItem('cm_one_click_risk', String(oneClickRiskPct));
-    } catch {}
-  }, [oneClickRiskPct]);
+      const resp = await apiFetch('/dashboard/settings/risk', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ risk_per_trade: normalized }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.detail || `Error ${resp.status}`);
+      }
+      const accepted = normalizeOneClickRisk(data?.risk_per_trade ?? normalized);
+      setOneClickRiskPct(accepted);
+      setRiskSettings(prev => ({
+        ...prev,
+        risk_per_trade: accepted,
+        risk_policy: data.risk_policy || prev.risk_policy || null,
+        loading: false,
+        error: null,
+      }));
+    } catch (e) {
+      setOneClickRiskPct(previous);
+      setRiskSettings(prev => ({
+        ...prev,
+        risk_per_trade: previous,
+        loading: false,
+        error: e?.message || 'Failed to sync 1-click risk',
+      }));
+    }
+  };
 
   const closeOneClickPosition = async (position) => {
     const symbol = String(position?.symbol || '').replace('/', '');
@@ -876,6 +879,7 @@ export default function App() {
       const resp = await apiFetch('/dashboard/settings');
       if (resp.ok) {
         const data = await resp.json();
+        const syncedRisk = normalizeOneClickRisk(data.risk_per_trade || 3);
         setRiskSettings({
           risk_per_trade: normalizeAutoRisk(data.risk_per_trade || 3),
           leverage: data.leverage || 10,
@@ -892,6 +896,7 @@ export default function App() {
           loading: false,
           error: null,
         });
+        setOneClickRiskPct(syncedRisk);
       } else {
         // Even on error, unblock the buttons
         setRiskSettings(prev => ({ ...prev, loading: false }));
@@ -919,13 +924,15 @@ export default function App() {
       });
       const data = await resp.json().catch(() => ({}));
       if (resp.ok) {
+        const acceptedRisk = normalizeOneClickRisk(data.risk_per_trade ?? effectiveRisk);
         setRiskSettings(prev => ({
           ...prev,
-          risk_per_trade: data.risk_per_trade ?? effectiveRisk,
+          risk_per_trade: acceptedRisk,
           risk_policy: data.risk_policy || prev.risk_policy || null,
           loading: false,
           error: null,
         }));
+        setOneClickRiskPct(acceptedRisk);
       } else {
         console.error('Failed to update risk setting:', resp.status, data);
         setRiskSettings(prev => ({
@@ -2634,7 +2641,7 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk,
                   <button key={risk} onClick={() => onUpdateOneClickRisk(risk)} disabled={riskSettings?.loading}
                     className={`px-4 py-2 rounded-xl font-bold text-xs transition-all ${
                       getOneClickRiskButtonTone(risk, oneClickRiskPct === risk)
-                    } disabled:opacity-50`}>{risk >= 100 ? 'ALL IN' : `${risk}%`}</button>
+                    } disabled:opacity-50`}>{`${risk}%`}</button>
                 ))}
               </div>
             </div>
@@ -2673,6 +2680,9 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk,
               oneClickRiskPct={oneClickRiskPct}
               onUpdateOneClickRisk={onUpdateOneClickRisk}
               isFocused={((focusedSignalId && String(signal.signal_id || '') === String(focusedSignalId)) || !!signal.focus_match)}
+              focusAction={((focusedSignalId && String(signal.signal_id || '') === String(focusedSignalId)) || !!signal.focus_match)
+                ? (focusAction || signal.focus_action || '')
+                : ''}
             />
           </div>
         ))}
@@ -3140,10 +3150,19 @@ function BridgeCard({ name, status, logo, logoSrc, colors, onConnect, onDisconne
   );
 }
 
-function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUpdateOneClickRisk, isFocused = false }) {
+function SignalCard({
+  signal,
+  userIsPremium,
+  riskSettings,
+  oneClickRiskPct,
+  onUpdateOneClickRisk,
+  isFocused = false,
+  focusAction = '',
+}) {
   const [isPlaced, setIsPlaced] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [instantExecuting, setInstantExecuting] = useState(false);
   const [placeError, setPlaceError] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -3175,13 +3194,17 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
   const ageMs = Math.max(0, now - generatedMs);
   const remainingMs = Math.max(0, windowMs - ageMs);
   const windowExpired = remainingMs <= 0;
-  const oneClickRisk = normalizeOneClickRisk(oneClickRiskPct || 1.0);
+  const oneClickRisk = normalizeOneClickRisk(oneClickRiskPct || 3.0);
   const controlRiskPct = sliderRisk !== null ? sliderRisk : oneClickRisk;
   const sliderValue = oneClickSliderValueFromRisk(controlRiskPct);
   const requiresRiskAck = controlRiskPct >= 50;
   const requiresHold = controlRiskPct >= 100;
   const userState = String(signal.user_state || 'ready');
   const isUserStateBlocked = ['pending', 'blocked', 'open_1click'].includes(userState);
+  const autoExecuteInstant = isFocused && String(focusAction || '').toLowerCase() === 'instant_1click';
+  const instantSignalId = String(signal.signal_id || '').trim();
+  const instantConsumeKey = instantSignalId ? `cm_instant_exec_state_${instantSignalId}` : '';
+  const instantReqKey = instantSignalId ? `cm_instant_exec_req_${instantSignalId}` : '';
   const remainingLabel = windowExpired
     ? 'Entry window closed'
     : `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0')} left`;
@@ -3213,8 +3236,73 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
     setRiskAckChecked(false);
   };
 
+  useEffect(() => {
+    if (!autoExecuteInstant) return;
+    if (!instantSignalId || !signal.signal_token) return;
+    if (isLocked || isExpired || blockedByGate || windowExpired || isUserStateBlocked || isPlaced) return;
+
+    let state = '';
+    try {
+      state = sessionStorage.getItem(instantConsumeKey) || '';
+      if (state === 'done' || state === 'failed') return;
+    } catch {}
+
+    let cancelled = false;
+    const run = async () => {
+      setInstantExecuting(true);
+      setPlaceError(null);
+      try {
+        let requestId = '';
+        try {
+          requestId = sessionStorage.getItem(instantReqKey) || '';
+        } catch {}
+        if (!requestId) {
+          requestId = `instantdl_${makeClientRequestId()}`;
+          try { sessionStorage.setItem(instantReqKey, requestId); } catch {}
+        }
+        try { sessionStorage.setItem(instantConsumeKey, 'started'); } catch {}
+
+        const r = await apiFetch('/dashboard/signals/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            signal_token: signal.signal_token,
+            client_request_id: requestId,
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(mapOneClickReasonMessage(data?.detail || data?.message || `HTTP ${r.status}`));
+        }
+        if (cancelled) return;
+        setIsPlaced(true);
+        try { sessionStorage.setItem(instantConsumeKey, 'done'); } catch {}
+      } catch (e) {
+        if (cancelled) return;
+        setPlaceError(e?.message || 'Instant execute failed');
+        try { sessionStorage.setItem(instantConsumeKey, 'failed'); } catch {}
+      } finally {
+        if (!cancelled) setInstantExecuting(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [
+    autoExecuteInstant,
+    blockedByGate,
+    instantConsumeKey,
+    instantReqKey,
+    instantSignalId,
+    isExpired,
+    isLocked,
+    isPlaced,
+    isUserStateBlocked,
+    signal.signal_token,
+    windowExpired,
+  ]);
+
   const openPreviewModal = async () => {
-    if (previewing || confirming || isPlaced || windowExpired || isUserStateBlocked) return;
+    if (previewing || confirming || instantExecuting || isPlaced || windowExpired || isUserStateBlocked) return;
     if (!signal.signal_token) {
       setPlaceError('Signal token missing. Please refresh signals.');
       return;
@@ -3277,10 +3365,6 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         throw new Error(mapOneClickReasonMessage(data?.detail || data?.message || `HTTP ${r.status}`));
-      }
-      const acceptedRisk = Number(data?.sizing?.risk_pct);
-      if (Number.isFinite(acceptedRisk) && acceptedRisk > 0) {
-        onUpdateOneClickRisk(acceptedRisk);
       }
       setIsPlaced(true);
       closeConfirmModal();
@@ -3429,12 +3513,12 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
           )}
           {!isPlaced && !windowExpired && riskSettings && onUpdateOneClickRisk && (
             <div className="bg-white/5 rounded-lg p-2.5">
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Risk Slider (1-Click, 1% – All In 100%, step 5%)</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Risk Slider (1-Click, 0.25% – 10%, step 0.25%)</p>
               <div className="flex items-center gap-2">
                 <input
                   type="range"
                   min="0"
-                  max="20"
+                  max="39"
                   step="1"
                   value={sliderValue}
                   disabled={riskSettings?.loading}
@@ -3445,9 +3529,9 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
                 />
                 <input
                   type="number"
-                  min="1"
-                  max="100"
-                  step="1"
+                  min="0.25"
+                  max="10"
+                  step="0.25"
                   value={riskDraft !== null ? riskDraft : controlRiskPct}
                   disabled={riskSettings?.loading}
                   onChange={e => setRiskDraft(e.target.value)}
@@ -3465,16 +3549,6 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
                 />
                 <span className="text-[10px] text-slate-500 font-bold">%</span>
               </div>
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => commitRisk(100)}
-                  disabled={riskSettings?.loading}
-                  className="px-2.5 py-1 rounded-md text-[10px] font-black tracking-wider uppercase border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40"
-                >
-                  ALL IN (100%)
-                </button>
-              </div>
             </div>
           )}
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest mt-1">
@@ -3483,11 +3557,13 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
           </div>
           <button
             onClick={openPreviewModal}
-            disabled={isPlaced || previewing || confirming || windowExpired || isUserStateBlocked || blockedByGate || !signal.signal_token}
+            disabled={isPlaced || previewing || confirming || instantExecuting || windowExpired || isUserStateBlocked || blockedByGate || !signal.signal_token}
             className={`mt-1 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : windowExpired ? 'bg-white/5 text-slate-500 border border-white/10' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}
           >
             {isPlaced ? (
               <><CheckCircle2 size={16} /> Position Opened</>
+            ) : instantExecuting ? (
+              <><Zap size={16} /> Instant Executing…</>
             ) : previewing ? (
               <><Zap size={16} /> Previewing…</>
             ) : windowExpired ? (

@@ -6,8 +6,8 @@ from typing import Any
 
 AUTO_RISK_MIN_PCT = 0.25
 AUTO_RISK_MAX_PCT = 10.0
-ONE_CLICK_RISK_MIN_PCT = 1.0
-ONE_CLICK_RISK_MAX_PCT = 100.0
+ONE_CLICK_RISK_MIN_PCT = 0.25
+ONE_CLICK_RISK_MAX_PCT = 10.0
 HIGH_RISK_WARN_PCT = 5.0
 LOW_EQUITY_THRESHOLD_USD = 30.0
 LOW_EQUITY_MIN_RISK_PCT = 3.0
@@ -25,8 +25,7 @@ RISK_BANDS = (
     RiskBand("conservative", "Conservative", 0.0, 2.0),
     RiskBand("moderate", "Moderate", 2.0, 5.0),
     RiskBand("high", "High Risk", 5.0, 10.0),
-    RiskBand("very_high", "Very High Risk", 10.0, ONE_CLICK_RISK_MAX_PCT),
-    RiskBand("extreme", "ALL IN", ONE_CLICK_RISK_MAX_PCT, None),
+    RiskBand("extreme", "Max Risk", 10.0, None),
 )
 
 

@@ -97,7 +97,7 @@ def _pair_label(symbol: str) -> str:
 
 def _clamp_risk_pct(raw: Any, default: float = DEFAULT_RISK_PCT) -> float:
     risk = _as_float(raw, default)
-    return max(0.25, min(5.0, risk))
+    return max(0.25, min(10.0, risk))
 
 
 def _entry_band(entry: float) -> tuple[float, float]:
@@ -722,12 +722,13 @@ def projected_missed_pnl(telegram_id: int, rr_hit: float) -> Dict[str, Any]:
     risk_pct = get_user_risk_pct(int(telegram_id))
     eq_snap = get_user_equity_snapshot(int(telegram_id))
     equity = _as_float(eq_snap.get("equity"), 0.0)
+    risk_amount = max(0.0, equity * (risk_pct / 100.0))
     if equity > 0:
-        risk_amount = equity * (risk_pct / 100.0)
         return {
             "projected_pnl_usdt": round(risk_amount * rr, 4),
             "risk_pct_used": round(risk_pct, 4),
             "equity_used_usdt": round(equity, 4),
+            "trade_value_usdt": round(risk_amount, 4),
             "example_used": False,
             "equity_source": str(eq_snap.get("source") or "live_exchange"),
             "example_note": "",
@@ -738,11 +739,17 @@ def projected_missed_pnl(telegram_id: int, rr_hit: float) -> Dict[str, Any]:
     example_risk_pct = 10.0
     example_risk_amount = example_equity * (example_risk_pct / 100.0)
     return {
-        "projected_pnl_usdt": round(example_risk_amount * rr, 4),
-        "risk_pct_used": round(example_risk_pct, 4),
-        "equity_used_usdt": round(example_equity, 4),
+        # Keep real account-context lines visible even when equity is zero.
+        "projected_pnl_usdt": round(risk_amount * rr, 4),
+        "risk_pct_used": round(risk_pct, 4),
+        "equity_used_usdt": round(equity, 4),
+        "trade_value_usdt": round(risk_amount, 4),
         "example_used": True,
         "equity_source": "example_zero_equity",
+        "example_equity_usdt": round(example_equity, 4),
+        "example_risk_pct": round(example_risk_pct, 4),
+        "example_trade_value_usdt": round(example_risk_amount, 4),
+        "example_projected_pnl_usdt": round(example_risk_amount * rr, 4),
         "example_note": "If you deposit $100 and use 10% risk/trade, this setup could have returned this amount.",
     }
 
@@ -779,4 +786,3 @@ def detect_tp_hit(event_row: Dict[str, Any], mark_price: float) -> Dict[str, Any
     denom = abs(entry - sl)
     rr_hit = abs(tp_price - entry) / denom if denom > 0 else 0.0
     return {"hit": True, "level": lvl, "tp_price": float(tp_price), "rr_hit": float(rr_hit)}
-

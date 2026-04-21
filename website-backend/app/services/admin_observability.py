@@ -430,9 +430,19 @@ def get_one_click_push_fomo_metrics(window_minutes: int = 1440) -> dict[str, Any
         receipt_rows = (
             client.table("one_click_signal_receipts")
             .select(
-                "signal_id,delivery_status,delivery_error,eligible,missed_alert_status,example_used,created_at"
+                "signal_id,delivery_status,delivery_error,eligible,missed_alert_status,example_used,"
+                "projected_pnl_usdt,projected_rr,risk_pct_used,equity_used_usdt,created_at"
             )
             .gte("created_at", cutoff)
+            .execute()
+            .data
+            or []
+        )
+        instant_rows = (
+            client.table("one_click_trades")
+            .select("status,reason_code,client_request_id,created_at")
+            .gte("created_at", cutoff)
+            .like("client_request_id", "instantdl_%")
             .execute()
             .data
             or []
@@ -457,6 +467,25 @@ def get_one_click_push_fomo_metrics(window_minutes: int = 1440) -> dict[str, Any
     failed_receipts = [row for row in receipt_rows if str(row.get("delivery_status") or "").lower() == "failed"]
     fomo_sent = [row for row in receipt_rows if str(row.get("missed_alert_status") or "").lower() == "sent"]
     fomo_failed = [row for row in receipt_rows if str(row.get("missed_alert_status") or "").lower() == "failed"]
+    trade_values = []
+    for row in fomo_sent:
+        rr = float(row.get("projected_rr") or 0.0)
+        projected = float(row.get("projected_pnl_usdt") or 0.0)
+        trade_values.append((projected / rr) if rr > 0 else 0.0)
+    instant_success = [row for row in instant_rows if str(row.get("status") or "").lower() == "open"]
+    instant_failed = [row for row in instant_rows if str(row.get("status") or "").lower() == "rejected"]
+    instant_blocked = [
+        row for row in instant_failed
+        if str(row.get("reason_code") or "").lower() in {
+            "blocked_pending_order",
+            "pending_order",
+            "existing_position",
+            "existing_position_opposite_side",
+            "exchange_position_exists",
+            "exchange_position_opposite_side",
+            "blocked_cooldown",
+        }
+    ]
 
     return {
         "available": True,
@@ -482,5 +511,13 @@ def get_one_click_push_fomo_metrics(window_minutes: int = 1440) -> dict[str, Any
             "ZERO_EQUITY_EXAMPLE_ALERTS": sum(
                 1 for row in fomo_sent if bool(row.get("example_used"))
             ),
+            "TRADE_VALUE_USDT_TOTAL": round(sum(trade_values), 4),
+            "TRADE_VALUE_USDT_AVG": round((sum(trade_values) / len(trade_values)), 4) if trade_values else 0.0,
+        },
+        "instant_deeplink": {
+            "ATTEMPTS": len(instant_rows),
+            "SUCCESS": len(instant_success),
+            "FAILED": len(instant_failed),
+            "BLOCKED": len(instant_blocked),
         },
     }

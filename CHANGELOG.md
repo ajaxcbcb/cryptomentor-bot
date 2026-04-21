@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.2.91] — 2026-04-22 — True Instant 1-Click + Expanded FOMO Payload
+
+### ⚡ True Instant 1-Click Execution (Deep-Link Auto Execute)
+- Updated `website-frontend/src/App.jsx` to support deep-link action `action=instant_1click` with one-time auto-submit directly to `/dashboard/signals/execute` for the focused signal.
+- Auto-execute path bypasses preview/confirm only for deep-link instant action while preserving the manual review flow.
+- Added session-level consume guards and request-id reuse (`instantdl_*`) to prevent refresh/poll retries from creating repeated fresh executions.
+
+### 📣 Missed-Trade FOMO Payload Upgrade
+- Updated `Bismillah/app/one_click_signal_push_worker.py` and `Bismillah/app/one_click_signal_hub.py` so missed-trade alerts always include:
+  - account equity,
+  - risk per trade (%),
+  - trade value/risk amount,
+  - potential profit missed with RR and TP level.
+- Zero-equity users now receive dual-context output:
+  - actual account lines (0-based values),
+  - explicit `$100 @ 10%` example projection for FOMO framing.
+
+### 🔄 Web/Telegram Risk Sync Normalization
+- Synced one-click risk storage to dashboard risk persistence and normalized risk bounds to `0.25%–10.0%` across:
+  - frontend risk controls (`website-frontend/src/App.jsx`),
+  - backend clamp policy (`website-backend/app/services/risk_policy.py`),
+  - bot-side clamp/read paths (`Bismillah/app/supabase_repo.py`, `Bismillah/app/one_click_signal_hub.py`).
+- Updated migration guardrails in `website-backend/app/db/migrations/20260422_one_click_signal_push_fomo.sql` to treat `>10.0` as invalid for one-time default backfill scope.
+
+### 📊 Observability
+- Extended one-click admin metrics in `website-backend/app/services/admin_observability.py` with:
+  - missed-trade payload trade-value aggregates,
+  - deep-link instant execution attempt/success/fail/block counters.
+
 ## [2.2.90] — 2026-04-22 — High-Confidence 1-Click Push + Missed-TP FOMO
 
 ### ⚡ Canonical 1-Click Signal Pipeline (Web + Telegram Sync)

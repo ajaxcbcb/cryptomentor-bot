@@ -99,23 +99,29 @@ def _fomo_message(event: Dict[str, Any], *, tp_level: str, projection: Dict[str,
     projected = _as_float(projection.get("projected_pnl_usdt"), 0.0)
     risk_pct = _as_float(projection.get("risk_pct_used"), 0.0)
     equity_used = _as_float(projection.get("equity_used_usdt"), 0.0)
+    trade_value = _as_float(projection.get("trade_value_usdt"), 0.0)
     if projection.get("example_used"):
+        example_equity = _as_float(projection.get("example_equity_usdt"), 100.0)
+        example_risk_pct = _as_float(projection.get("example_risk_pct"), 10.0)
+        example_trade_value = _as_float(projection.get("example_trade_value_usdt"), 10.0)
+        example_projected = _as_float(projection.get("example_projected_pnl_usdt"), 0.0)
         extra = (
-            "🧪 <b>Example for zero equity:</b>\n"
-            f"If you deposit <b>$100</b> and set <b>10% risk/trade</b>, this move could be "
-            f"<b>+${projected:.2f}</b> (RR {rr:.2f}).\n"
+            "🧪 <b>Zero-equity example:</b>\n"
+            f"If you deposit <b>${example_equity:.2f}</b> and set <b>{example_risk_pct:.2f}% risk/trade</b>\n"
+            f"• Example trade value: <b>${example_trade_value:.2f}</b>\n"
+            f"• This move could be: <b>+${example_projected:.2f}</b> (RR {rr:.2f})\n"
         )
     else:
-        extra = (
-            f"💰 <b>Your equity used:</b> ${equity_used:.2f}\n"
-            f"⚙️ <b>Your risk/trade (synced):</b> {risk_pct:.2f}%\n"
-            f"📊 <b>Potential profit missed:</b> <b>+${projected:.2f}</b> (RR {rr:.2f})\n"
-        )
+        extra = ""
     return (
         "⚠️ <b>Missed High-Confidence Signal</b>\n\n"
         f"🪙 <b>Pair:</b> {pair}\n"
         f"📈 <b>Direction:</b> {direction}\n"
         f"✅ <b>Outcome:</b> {tp_level} was hit\n\n"
+        f"💰 <b>Account equity:</b> ${equity_used:.2f}\n"
+        f"⚙️ <b>Risk/trade (synced):</b> {risk_pct:.2f}%\n"
+        f"📦 <b>Trade value (risk amount):</b> ${trade_value:.2f}\n"
+        f"📊 <b>Potential profit missed:</b> <b>+${projected:.2f}</b> (RR {rr:.2f})\n\n"
         f"{extra}\n"
         "⏳ <b>Stay ready for the next upcoming signal.</b>\n"
         "<i>We’ll continue pushing only strict high-confidence setups.</i>"
@@ -344,4 +350,3 @@ def start_one_click_signal_workers(application) -> None:
         missed_fomo_enabled(),
         len(_worker_tasks),
     )
-
