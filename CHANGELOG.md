@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.72] — 2026-04-21 — Decision Tree V2 Telemetry Hardening
+
+### 🧾 Candidate Audit Reliability
+- Sanitized Decision Tree V2 candidate log payloads before `trade_candidates_log` inserts so non-JSON-safe signal fields do not silently drop audit rows.
+- Raised candidate-log insert failures from debug-only to warning-level for faster production diagnosis.
+
+### 📡 Live Evaluation Visibility
+- Added explicit scalping runtime logs when Decision Tree V2 is engaged, including resolved mode, apply flag, and candidate count.
+- Flushed startup prints in `Bismillah/main.py` so boot-time mode visibility is more reliable under systemd/journal capture.
+
 ## [2.2.71] — 2026-04-21 — Decision Tree V2 Activation Hardening
 
 ### ⚙️ Startup Env Precedence

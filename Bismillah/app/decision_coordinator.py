@@ -35,6 +35,19 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    try:
+        return float(value)
+    except Exception:
+        return str(value)
+
+
 def _signal_dict(raw_signal: Any) -> Dict[str, Any]:
     if isinstance(raw_signal, dict):
         return dict(raw_signal)
@@ -185,13 +198,13 @@ def _log_candidate_decisions(cycle_id: str, decisions: Iterable[CandidateDecisio
                 "approved": decision.approved,
                 "reject_reason": decision.reject_reason,
                 "display_reason": decision.display_reason,
-                "approval_audit": candidate.approval_audit,
-                "metadata": {
+                "approval_audit": _json_safe(candidate.approval_audit),
+                "metadata": _json_safe({
                     **candidate.metadata,
                     "execution_mode": decision.execution_mode,
                     "source_signal_payload": candidate.source_signal_payload,
                     "allocation": decision.allocation.to_dict() if decision.allocation else None,
-                },
+                }),
             }
         )
     if not rows:
@@ -199,7 +212,7 @@ def _log_candidate_decisions(cycle_id: str, decisions: Iterable[CandidateDecisio
     try:
         _client().table("trade_candidates_log").insert(rows).execute()
     except Exception as exc:
-        logger.debug("[DecisionTreeV2] candidate log skipped: %s", exc)
+        logger.warning("[DecisionTreeV2] candidate log skipped: %s", exc)
 
 
 def _legacy_pass_through(signal: Dict[str, Any], user_id: int, engine: str) -> CandidateDecision:

@@ -900,7 +900,13 @@ class ScalpingEngine:
                             from app.decision_coordinator import evaluate_scalping_signal
 
                             v2_mode = str(get_v2_mode() or "legacy")
-                            if valid_signals and should_apply("scalping", mixed_mode=self._mixed_mode):
+                            apply_v2 = bool(valid_signals) and should_apply("scalping", mixed_mode=self._mixed_mode)
+                            if valid_signals:
+                                logger.info(
+                                    f"[Scalping:{self.user_id}] Decision Tree V2 "
+                                    f"mode={v2_mode} apply={apply_v2} candidates={len(valid_signals)}"
+                                )
+                            if apply_v2:
                                 evaluated_signals = []
                                 for signal in valid_signals:
                                     decision = await evaluate_scalping_signal(

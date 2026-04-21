@@ -28,15 +28,18 @@ if __name__ == "__main__":
 
     import bot
 
-    print("🚀 Starting CryptoMentor AI Bot...")
-    print(f"ℹ️ Decision Tree V2 mode: {os.getenv('DECISION_TREE_V2_MODE', 'legacy').strip().lower() or 'legacy'}")
+    print("🚀 Starting CryptoMentor AI Bot...", flush=True)
+    print(
+        f"ℹ️ Decision Tree V2 mode: {os.getenv('DECISION_TREE_V2_MODE', 'legacy').strip().lower() or 'legacy'}",
+        flush=True,
+    )
 
     # Cek curl_cffi availability
     try:
         from curl_cffi import requests as _cffi
-        print(f"✅ curl_cffi available — Cloudflare bypass aktif")
+        print(f"✅ curl_cffi available — Cloudflare bypass aktif", flush=True)
     except ImportError:
-        print("⚠️ curl_cffi NOT available — akan fallback ke requests biasa (kemungkinan 403)")
+        print("⚠️ curl_cffi NOT available — akan fallback ke requests biasa (kemungkinan 403)", flush=True)
 
     # Create bot instance
     telegram_bot = bot.TelegramBot()
