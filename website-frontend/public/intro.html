@@ -998,7 +998,6 @@
       <button class="lang-btn active" data-lang="en">EN</button>
       <button class="lang-btn" data-lang="id">ID</button>
     </div>
-    <button class="nav-cta" data-i18n="nav_cta">Get Started</button>
   </div>
 </nav>
 
@@ -1021,7 +1020,6 @@
         CryptoMentor AI reads market conditions in real time, adapts its strategy to volatility, and protects your capital while compounding consistently.
       </p>
       <div class="hero-actions">
-        <button class="btn-primary" data-i18n="hero_cta_primary">Start Your Journey</button>
         <button class="btn-ghost" data-i18n="hero_cta_secondary">See How It Works</button>
       </div>
       <div class="hero-stats">
@@ -1360,7 +1358,6 @@
       </h2>
       <p class="cta-sub" data-i18n="cta_sub">Join CryptoMentor AI and let an adaptive system handle the discipline — so you can focus on the bigger picture.</p>
       <div class="cta-actions">
-        <button class="btn-primary" data-i18n="cta_btn_primary">Get Started Free</button>
         <button class="btn-ghost" data-i18n="cta_btn_secondary">View Full Deck</button>
       </div>
     </div>
@@ -1862,15 +1859,6 @@ document.querySelector('.btn-ghost[data-i18n="cta_btn_secondary"]')?.addEventLis
 });
 
 // Primary CTAs → main app
-document.querySelectorAll('.btn-primary').forEach(btn => {
-  btn.addEventListener('click', () => {
-    window.location.href = 'https://cryptomentor.id';
-  });
-});
-document.querySelector('.nav-cta')?.addEventListener('click', () => {
-  window.location.href = 'https://cryptomentor.id';
-});
-
 /* initial render */
 applyLang('en');
 </script>

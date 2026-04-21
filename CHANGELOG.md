@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.2.85] — 2026-04-21 — Intro/Deck CTA Link Removal
+
+### 🎯 Frontend CTA Safety Cleanup
+- Removed website CTA buttons that directly linked to `https://cryptomentor.id` from:
+  - `website-frontend/public/intro.html`
+  - `website-frontend/public/cryptomentor-onboarding-deck.html`
+- Intro page updates:
+  - removed nav `Get Started` button,
+  - removed hero `Start Your Journey` primary button,
+  - removed final CTA `Get Started Free` primary button,
+  - removed JS redirect handlers for `.btn-primary` and `.nav-cta` that targeted `https://cryptomentor.id`.
+- Onboarding deck updates:
+  - removed slide-1 `Get Started Free` button,
+  - removed slide-8 `Start Free Trial` button.
+
+### ✅ Validation
+- Verified no remaining button redirect handlers in edited intro/deck pages targeting `cryptomentor.id`.
+
 ## [2.2.84] — 2026-04-21 — Admin Counters, Targeted Broadcast Audiences, Daily Report Reliability
 
 ### 📊 `/admin` User + Engine Counters
