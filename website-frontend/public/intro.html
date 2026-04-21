@@ -959,6 +959,167 @@
     .ticker-down { color: var(--rose); }
     .ticker-sym { color: var(--text); }
 
+    /* ── TESTIMONIALS ── */
+    #testimonials { position: relative; overflow: hidden; }
+    #testimonials::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(34,211,238,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .testimonials-viewport {
+      overflow: hidden;
+      position: relative;
+    }
+
+    .testimonials-track {
+      display: flex;
+      gap: 1.5rem;
+      transition: transform 0.55s cubic-bezier(0.4,0,0.2,1);
+      will-change: transform;
+    }
+
+    .testimonial-card {
+      flex: 0 0 calc(33.333% - 1rem);
+      min-width: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+
+    .testimonial-card:hover {
+      border-color: rgba(34,211,238,0.40);
+      box-shadow: 0 0 28px rgba(34,211,238,0.08);
+    }
+
+    .testimonial-header {
+      display: flex;
+      align-items: center;
+      gap: 0.875rem;
+    }
+
+    .testimonial-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(52,211,153,0.18));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--cyan);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .testimonial-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .testimonial-author-name {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .testimonial-author-role {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+
+    .testimonial-stars {
+      color: var(--amber);
+      font-size: 0.85rem;
+      letter-spacing: 0.06em;
+      line-height: 1;
+    }
+
+    .testimonial-quote {
+      font-size: 0.9rem;
+      line-height: 1.75;
+      color: var(--muted);
+      flex: 1;
+      position: relative;
+      padding-left: 1rem;
+    }
+
+    .testimonial-quote::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.25rem;
+      bottom: 0.25rem;
+      width: 2.5px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, var(--cyan), var(--emerald));
+      opacity: 0.55;
+    }
+
+    .testimonials-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 2.5rem;
+    }
+
+    .testimonials-nav-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+      backdrop-filter: blur(8px);
+    }
+
+    .testimonials-nav-btn:hover:not(:disabled) {
+      border-color: var(--cyan);
+      color: var(--cyan);
+      background: rgba(34,211,238,0.08);
+    }
+
+    .testimonials-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .testimonials-dots {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .testimonials-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.2s, transform 0.2s;
+      cursor: pointer;
+    }
+
+    .testimonials-dot.active {
+      background: var(--cyan);
+      transform: scale(1.4);
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
       .what-grid, .risk-split, .compare-grid { grid-template-columns: 1fr; }
@@ -967,6 +1128,7 @@
       .phases-row::before { display: none; }
       .scenario-metrics { grid-template-columns: 1fr 1fr; }
       .scenario-tabs { grid-template-columns: 1fr 1fr; }
+      .testimonial-card { flex: 0 0 calc(50% - 0.75rem); }
     }
 
     @media (max-width: 600px) {
@@ -976,6 +1138,7 @@
       .nav-cta { display: none; }
       .scenario-metrics { grid-template-columns: 1fr; }
       .scenario-row { grid-template-columns: 68px 1fr; }
+      .testimonial-card { flex: 0 0 100%; }
     }
   </style>
 </head>
@@ -1347,6 +1510,35 @@
   </div>
 </section>
 
+<!-- ═══ TESTIMONIALS ═══ -->
+<section id="testimonials">
+  <div class="container">
+    <div class="reveal" style="text-align:center;">
+      <div class="section-eyebrow" data-i18n="social_eyebrow">Member Stories</div>
+      <h2 class="section-title" data-i18n="social_title">Real traders. Real results.</h2>
+      <p class="section-sub" style="margin:0 auto;" data-i18n="social_sub">Join traders who use CryptoMentor AI to stay disciplined, protect capital, and compound consistently.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:3rem;">
+      <div class="testimonials-viewport" id="testimonials-viewport">
+        <div class="testimonials-track" id="testimonials-track">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <div class="testimonials-controls">
+        <button class="testimonials-nav-btn" id="testi-prev" aria-label="Previous" disabled>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="testimonials-dots" id="testimonials-dots"></div>
+        <button class="testimonials-nav-btn" id="testi-next" aria-label="Next">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══ CTA ═══ -->
 <section id="cta">
   <div class="container">
@@ -1486,6 +1678,10 @@ const i18n = {
     phase3_title: 'Scale',
     phase3_desc: 'Controlled compounding with strict risk ceilings. Scale only after proven consistency windows — and only within pre-approved bounds.',
 
+    social_eyebrow: 'Member Stories',
+    social_title: 'Real traders. Real results.',
+    social_sub: 'Join traders who use CryptoMentor AI to stay disciplined, protect capital, and compound consistently.',
+
     cta_badge: 'Ready when you are',
     cta_title_1: 'Your capital deserves',
     cta_title_2: 'a smarter strategy.',
@@ -1607,6 +1803,10 @@ const i18n = {
     phase2_desc: 'Eksekusi konsisten di berbagai rezim pasar. Variansi menurun. Kualitas kemenangan dan ekspektansi dilacak — bukan hanya PnL.',
     phase3_title: 'Skalakan',
     phase3_desc: 'Compounding terkontrol dengan batas risiko ketat. Scale hanya setelah jendela konsistensi terbukti — dan hanya dalam batas yang telah disetujui.',
+
+    social_eyebrow: 'Cerita Member',
+    social_title: 'Trader nyata. Hasil nyata.',
+    social_sub: 'Bergabunglah dengan trader yang menggunakan CryptoMentor AI untuk tetap disiplin, melindungi modal, dan berkembang secara konsisten.',
 
     cta_badge: 'Siap kapan pun Anda mau',
     cta_title_1: 'Modal Anda layak mendapatkan',
@@ -1859,6 +2059,119 @@ document.querySelector('.btn-ghost[data-i18n="cta_btn_secondary"]')?.addEventLis
 });
 
 // Primary CTAs → main app
+
+/* ══════════════════════════════════════
+   TESTIMONIALS CAROUSEL
+   ══════════════════════════════════════ */
+(function() {
+  const FALLBACK = [
+    { name: 'Rizky A.', role: 'Crypto Trader, Jakarta', rating: 5, message: 'After two years of emotional trading I finally feel in control. CryptoMentor AI filters out the noise and I stopped revenge-trading completely.' },
+    { name: 'Siti M.', role: 'Part-time Investor, Surabaya', rating: 5, message: 'The risk management is what sold me. I sleep better knowing every position has a defined exit before it even opens.' },
+    { name: 'David T.', role: 'Full-time Trader, Singapore', rating: 5, message: 'The multi-regime detection is a game-changer. It automatically shifts strategy when the market chops — something I could never do manually.' },
+    { name: 'Ayu P.', role: 'Crypto Enthusiast, Bali', rating: 5, message: 'I was skeptical at first, but the consistency over three months convinced me. Small steady gains compound faster than I expected.' },
+    { name: 'Kevin L.', role: 'Swing Trader, Kuala Lumpur', rating: 5, message: 'The compounding framework finally gave me a roadmap. I know exactly which phase I\'m in and what to focus on next.' },
+    { name: 'Nadia R.', role: 'Crypto Investor, Bandung', rating: 5, message: 'No more staring at charts all night. The signals are clear, the invalidation levels are set, and I just follow the system.' },
+  ];
+
+  const track = document.getElementById('testimonials-track');
+  const dotsEl = document.getElementById('testimonials-dots');
+  const prevBtn = document.getElementById('testi-prev');
+  const nextBtn = document.getElementById('testi-next');
+
+  if (!track) return;
+
+  let items = [];
+  let slideIdx = 0;
+  let autoTimer = null;
+
+  function perPage() {
+    return window.innerWidth <= 600 ? 1 : window.innerWidth <= 900 ? 2 : 3;
+  }
+
+  function totalSlides() {
+    const pp = perPage();
+    return Math.max(1, Math.ceil(items.length / pp));
+  }
+
+  function buildStars(n) {
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  function render(data) {
+    items = data;
+    track.innerHTML = data.map((t) => {
+      const initials = (t.name || '?').charAt(0).toUpperCase();
+      const avatarInner = t.avatar_url
+        ? `<img src="${t.avatar_url}" alt="${t.name}" style="width:100%;height:100%;object-fit:cover;">`
+        : initials;
+      return `
+        <div class="testimonial-card">
+          <div class="testimonial-header">
+            <div class="testimonial-avatar">${avatarInner}</div>
+            <div>
+              <div class="testimonial-author-name">${t.name}</div>
+              ${t.role ? `<div class="testimonial-author-role">${t.role}</div>` : ''}
+            </div>
+          </div>
+          <div class="testimonial-stars">${buildStars(t.rating || 5)}</div>
+          <p class="testimonial-quote">${t.message}</p>
+        </div>`;
+    }).join('');
+    buildDots();
+    goTo(0);
+    startAuto();
+  }
+
+  function buildDots() {
+    const total = totalSlides();
+    dotsEl.innerHTML = Array.from({ length: total }, (_, i) =>
+      `<div class="testimonials-dot${i === 0 ? ' active' : ''}" data-i="${i}"></div>`
+    ).join('');
+    dotsEl.querySelectorAll('.testimonials-dot').forEach((d) => {
+      d.addEventListener('click', () => { goTo(Number(d.dataset.i)); resetAuto(); });
+    });
+  }
+
+  function goTo(idx) {
+    const total = totalSlides();
+    slideIdx = (idx + total) % total;
+    const pp = perPage();
+    const cardW = track.parentElement.offsetWidth;
+    const gap = 24;
+    const itemW = (cardW - gap * (pp - 1)) / pp;
+    const offset = slideIdx * pp * (itemW + gap);
+    track.style.transform = `translateX(-${offset}px)`;
+    dotsEl.querySelectorAll('.testimonials-dot').forEach((d, i) => {
+      d.classList.toggle('active', i === slideIdx);
+    });
+    prevBtn.disabled = slideIdx === 0;
+    nextBtn.disabled = slideIdx === total - 1;
+  }
+
+  function startAuto() {
+    clearInterval(autoTimer);
+    autoTimer = setInterval(() => {
+      const total = totalSlides();
+      goTo(slideIdx < total - 1 ? slideIdx + 1 : 0);
+    }, 6000);
+  }
+
+  function resetAuto() { startAuto(); }
+
+  prevBtn.addEventListener('click', () => { goTo(slideIdx - 1); resetAuto(); });
+  nextBtn.addEventListener('click', () => { goTo(slideIdx + 1); resetAuto(); });
+  window.addEventListener('resize', () => { buildDots(); goTo(slideIdx); });
+
+  // Fetch from API, fall back to hardcoded
+  fetch('/api/testimonials')
+    .then((r) => r.ok ? r.json() : Promise.reject())
+    .then((d) => {
+      const list = d.testimonials || [];
+      render(list.length ? list : FALLBACK);
+    })
+    .catch(() => render(FALLBACK));
+})();
+
 /* initial render */
 applyLang('en');
 </script>

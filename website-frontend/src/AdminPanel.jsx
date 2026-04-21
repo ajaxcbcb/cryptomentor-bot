@@ -237,6 +237,14 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
   const [creditsForm, setCreditsForm] = useState({ user_id: '', amount: '100' });
   const [broadcastForm, setBroadcastForm] = useState({ audience: 'all', message: '' });
 
+  const EMPTY_TESTIMONIAL_FORM = { name: '', role: '', avatar_url: '', message: '', rating: 5, is_visible: true, display_order: 0 };
+  const [testimonials, setTestimonials] = useState([]);
+  const [testimonialsLoading, setTestimonialsLoading] = useState(false);
+  const [testimonialsError, setTestimonialsError] = useState(null);
+  const [testimonialForm, setTestimonialForm] = useState(EMPTY_TESTIMONIAL_FORM);
+  const [editingTestimonial, setEditingTestimonial] = useState(null);
+  const [testimonialBusy, setTestimonialBusy] = useState(false);
+
   useEffect(() => {
     try {
       localStorage.setItem(ADMIN_THEME_STORAGE_KEY, isDarkMode ? 'dark' : 'light');
@@ -328,6 +336,66 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
     setPage(1);
     await loadCandidates(1, pageSize, EMPTY_FILTERS, windowKey);
   };
+
+  const loadTestimonials = async () => {
+    setTestimonialsLoading(true);
+    setTestimonialsError(null);
+    try {
+      const resp = await apiFetch('/dashboard/admin/testimonials');
+      if (!resp.ok) throw new Error(await readError(resp, 'Failed to load testimonials'));
+      const data = await resp.json();
+      setTestimonials(data.testimonials || []);
+    } catch (err) {
+      setTestimonialsError(err.message || 'Failed to load testimonials');
+    } finally {
+      setTestimonialsLoading(false);
+    }
+  };
+
+  const saveTestimonial = async () => {
+    setTestimonialBusy(true);
+    try {
+      const form = editingTestimonial ? testimonialForm : testimonialForm;
+      const resp = await apiFetch(
+        editingTestimonial
+          ? `/dashboard/admin/testimonials/${editingTestimonial.id}`
+          : '/dashboard/admin/testimonials',
+        {
+          method: editingTestimonial ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...form,
+            avatar_url: form.avatar_url || null,
+            rating: Number(form.rating),
+            display_order: Number(form.display_order),
+          }),
+        },
+      );
+      if (!resp.ok) throw new Error(await readError(resp, 'Save failed'));
+      setTestimonialForm(EMPTY_TESTIMONIAL_FORM);
+      setEditingTestimonial(null);
+      await loadTestimonials();
+    } catch (err) {
+      setTestimonialsError(err.message || 'Save failed');
+    } finally {
+      setTestimonialBusy(false);
+    }
+  };
+
+  const deleteTestimonial = async (id) => {
+    setTestimonialBusy(true);
+    try {
+      const resp = await apiFetch(`/dashboard/admin/testimonials/${id}`, { method: 'DELETE' });
+      if (!resp.ok) throw new Error(await readError(resp, 'Delete failed'));
+      await loadTestimonials();
+    } catch (err) {
+      setTestimonialsError(err.message || 'Delete failed');
+    } finally {
+      setTestimonialBusy(false);
+    }
+  };
+
+  useEffect(() => { loadTestimonials(); }, []);
 
   const exportCandidates = async (format = 'json') => {
     const params = new URLSearchParams({ window: windowKey, fmt: format });
@@ -946,6 +1014,149 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 </div>
               </div>
             </div>
+          </SectionShell>
+        </div>
+
+        {/* ── Testimonials ── */}
+        <div className="mt-6">
+          <SectionShell
+            eyebrow="Social Proof"
+            title="Testimonials"
+            action={(
+              <button onClick={loadTestimonials} className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]">
+                Refresh
+              </button>
+            )}
+          >
+            {/* Form */}
+            <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+              <p className="text-sm font-black text-[var(--text-main)]">
+                {editingTestimonial ? `Editing: ${editingTestimonial.name}` : 'Add testimonial'}
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <input
+                  value={testimonialForm.name}
+                  onChange={(e) => setTestimonialForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Name *"
+                  className="rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
+                />
+                <input
+                  value={testimonialForm.role}
+                  onChange={(e) => setTestimonialForm((p) => ({ ...p, role: e.target.value }))}
+                  placeholder="Role / Location (e.g. Crypto Trader, Jakarta)"
+                  className="rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
+                />
+                <input
+                  value={testimonialForm.avatar_url}
+                  onChange={(e) => setTestimonialForm((p) => ({ ...p, avatar_url: e.target.value }))}
+                  placeholder="Avatar URL (optional)"
+                  className="rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
+                />
+                <div className="flex gap-3">
+                  <select
+                    value={testimonialForm.rating}
+                    onChange={(e) => setTestimonialForm((p) => ({ ...p, rating: Number(e.target.value) }))}
+                    className="flex-1 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none"
+                  >
+                    {[5,4,3,2,1].map((n) => <option key={n} value={n}>{n} star{n !== 1 ? 's' : ''}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    value={testimonialForm.display_order}
+                    onChange={(e) => setTestimonialForm((p) => ({ ...p, display_order: e.target.value }))}
+                    placeholder="Order"
+                    min="0"
+                    className="w-24 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
+                  />
+                  <label className="flex items-center gap-2 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-muted)] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={testimonialForm.is_visible}
+                      onChange={(e) => setTestimonialForm((p) => ({ ...p, is_visible: e.target.checked }))}
+                    />
+                    Visible
+                  </label>
+                </div>
+              </div>
+              <textarea
+                value={testimonialForm.message}
+                onChange={(e) => setTestimonialForm((p) => ({ ...p, message: e.target.value }))}
+                rows={3}
+                placeholder="Testimonial message *"
+                className="mt-3 w-full rounded-[1.4rem] border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
+              />
+              {testimonialsError && (
+                <p className="mt-2 text-xs text-rose-300">{testimonialsError}</p>
+              )}
+              <div className="mt-3 flex gap-3 justify-end">
+                {editingTestimonial && (
+                  <button
+                    onClick={() => { setEditingTestimonial(null); setTestimonialForm(EMPTY_TESTIMONIAL_FORM); }}
+                    className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={saveTestimonial}
+                  disabled={testimonialBusy || !testimonialForm.name.trim() || !testimonialForm.message.trim()}
+                  className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+                >
+                  {testimonialBusy ? 'Saving...' : editingTestimonial ? 'Save changes' : 'Add testimonial'}
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            {testimonialsLoading ? (
+              <p className="mt-4 text-sm text-[var(--text-dim)]">Loading…</p>
+            ) : testimonials.length === 0 ? (
+              <p className="mt-4 text-sm text-[var(--text-dim)]">No testimonials yet. Add the first one above.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {testimonials.map((t) => (
+                  <div key={t.id} className="flex items-start gap-3 rounded-[1.4rem] border border-[color:var(--line-faint)] bg-[var(--surface-soft)] p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--soft-border)] bg-[var(--card-bg)] text-sm font-bold text-[var(--accent-text)] overflow-hidden">
+                      {t.avatar_url ? (
+                        <img src={t.avatar_url} alt={t.name} className="h-full w-full object-cover" />
+                      ) : (
+                        t.name.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-black text-[var(--text-main)]">{t.name}</span>
+                        {t.role && <span className="text-xs text-[var(--text-muted)]">{t.role}</span>}
+                        <Badge tone={t.is_visible ? 'green' : 'neutral'}>{t.is_visible ? 'visible' : 'hidden'}</Badge>
+                        <Badge tone="neutral">order {t.display_order}</Badge>
+                        <span className="text-xs text-amber-300">{'★'.repeat(t.rating)}{'☆'.repeat(5 - t.rating)}</span>
+                      </div>
+                      <p className="mt-1 text-sm leading-6 text-[var(--text-muted)] line-clamp-2">{t.message}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => { setEditingTestimonial(t); setTestimonialForm({ name: t.name, role: t.role || '', avatar_url: t.avatar_url || '', message: t.message, rating: t.rating, is_visible: t.is_visible, display_order: t.display_order }); }}
+                        className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-3 py-1.5 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setConfirmState({
+                          title: 'Delete testimonial?',
+                          description: `"${t.name}" will be permanently removed.`,
+                          confirmLabel: 'Delete',
+                          tone: 'rose',
+                          action: () => deleteTestimonial(t.id),
+                        })}
+                        className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-500/20"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </SectionShell>
         </div>
 

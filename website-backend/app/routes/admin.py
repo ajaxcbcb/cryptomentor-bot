@@ -49,6 +49,16 @@ class BroadcastPayload(BaseModel):
     audience: str = "all"
 
 
+class TestimonialPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    role: str = Field(default="", max_length=160)
+    avatar_url: str | None = Field(default=None, max_length=2000)
+    message: str = Field(min_length=1, max_length=1000)
+    rating: int = Field(default=5, ge=1, le=5)
+    is_visible: bool = True
+    display_order: int = Field(default=0, ge=0)
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -580,3 +590,83 @@ async def admin_daily_report_now(requester: int = Depends(require_admin_user)):
         report=report,
         audit={"requester": int(requester), "sent_at": _utc_now_iso()},
     )
+
+
+# ── Testimonials ──────────────────────────────────────────────────────────────
+
+@router.get("/testimonials")
+async def admin_list_testimonials(requester: int = Depends(require_admin_user)):
+    _ = requester
+    res = (
+        _client()
+        .table("testimonials")
+        .select("*")
+        .order("display_order", desc=False)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return {"testimonials": res.data or []}
+
+
+@router.post("/testimonials")
+async def admin_create_testimonial(
+    payload: TestimonialPayload,
+    requester: int = Depends(require_admin_user),
+):
+    _ = requester
+    now = _utc_now_iso()
+    res = (
+        _client()
+        .table("testimonials")
+        .insert({
+            "name": payload.name,
+            "role": payload.role,
+            "avatar_url": payload.avatar_url,
+            "message": payload.message,
+            "rating": payload.rating,
+            "is_visible": payload.is_visible,
+            "display_order": payload.display_order,
+            "created_at": now,
+            "updated_at": now,
+        })
+        .execute()
+    )
+    row = res.data[0] if res.data else {}
+    return {"ok": True, "testimonial": row}
+
+
+@router.put("/testimonials/{testimonial_id}")
+async def admin_update_testimonial(
+    testimonial_id: str,
+    payload: TestimonialPayload,
+    requester: int = Depends(require_admin_user),
+):
+    _ = requester
+    res = (
+        _client()
+        .table("testimonials")
+        .update({
+            "name": payload.name,
+            "role": payload.role,
+            "avatar_url": payload.avatar_url,
+            "message": payload.message,
+            "rating": payload.rating,
+            "is_visible": payload.is_visible,
+            "display_order": payload.display_order,
+            "updated_at": _utc_now_iso(),
+        })
+        .eq("id", testimonial_id)
+        .execute()
+    )
+    row = res.data[0] if res.data else {}
+    return {"ok": True, "testimonial": row}
+
+
+@router.delete("/testimonials/{testimonial_id}")
+async def admin_delete_testimonial(
+    testimonial_id: str,
+    requester: int = Depends(require_admin_user),
+):
+    _ = requester
+    _client().table("testimonials").delete().eq("id", testimonial_id).execute()
+    return {"ok": True, "deleted_id": testimonial_id}

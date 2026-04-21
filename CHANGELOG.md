@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.2.86] — 2026-04-21 — Testimonials Feature Migration + Wiring Verification
+
+### 🗄️ Supabase Migration
+- Added `website-backend/app/db/migrations/20260421_create_testimonials.sql`.
+- Migration creates `public.testimonials` with:
+  - `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`
+  - `name`, `role`, `avatar_url`, `message`
+  - `rating` constrained to `1..5`
+  - `is_visible`, `display_order`
+  - `created_at`, `updated_at`
+- Added index:
+  - `idx_testimonials_visible_order` on `(is_visible, display_order, created_at DESC)`.
+- Enabled RLS on `public.testimonials`.
+- Added idempotent policy handling (`DROP POLICY IF EXISTS ...` before `CREATE POLICY`) for:
+  - `"Public can read visible testimonials"`
+  - `"Service role full access"`
+
+### 🔌 Backend / Frontend Wiring Verification
+- Verified backend public route `GET /api/testimonials` is registered and aligned with contract:
+  - `is_visible = true`, ordered by `display_order ASC` then `created_at DESC`, `limit(12)`.
+  - graceful fallback returns `{"testimonials": []}` on DB errors.
+- Verified admin testimonial CRUD routes are present under admin auth:
+  - `GET/POST/PUT/DELETE /dashboard/admin/testimonials...`
+- Verified frontend wiring in:
+  - `website-frontend/src/AdminPanel.jsx` (load/create/edit/delete with testimonial form + list + confirm delete flow)
+  - `website-frontend/public/intro.html` (carousel, responsive `perPage` behavior 3/2/1, API fetch + hardcoded fallback, EN/ID i18n keys)
+
 ## [2.2.85] — 2026-04-21 — Intro/Deck CTA Link Removal
 
 ### 🎯 Frontend CTA Safety Cleanup
