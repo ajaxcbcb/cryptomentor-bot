@@ -8,9 +8,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from telegram import Bot
 
@@ -59,6 +60,16 @@ class TestimonialPayload(BaseModel):
     display_order: int = Field(default=0, ge=0)
 
 
+_TESTIMONIAL_AVATAR_BUCKET = (os.getenv("TESTIMONIALS_AVATAR_BUCKET") or "testimonial-avatars").strip() or "testimonial-avatars"
+_TESTIMONIAL_AVATAR_MAX_BYTES = int((os.getenv("TESTIMONIALS_AVATAR_MAX_BYTES") or "5242880").strip() or "5242880")
+_TESTIMONIAL_AVATAR_ALLOWED_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -70,6 +81,44 @@ def _normalize_window(window: str | None) -> str:
 
 def _action_result(message: str, **extra):
     return {"ok": True, "message": message, **extra}
+
+
+def _resolve_testimonial_avatar_ext(filename: str | None, content_type: str) -> str:
+    if content_type in _TESTIMONIAL_AVATAR_ALLOWED_TYPES:
+        return _TESTIMONIAL_AVATAR_ALLOWED_TYPES[content_type]
+
+    ext = Path(filename or "").suffix.lower().strip()
+    if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        return ".jpg" if ext == ".jpeg" else ext
+    return ".bin"
+
+
+def _ensure_testimonial_avatar_bucket(client) -> None:
+    storage = client.storage
+    try:
+        buckets = storage.list_buckets() or []
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list storage buckets: {exc}") from exc
+
+    for bucket in buckets:
+        bucket_id = bucket.get("id") if isinstance(bucket, dict) else getattr(bucket, "id", None)
+        if str(bucket_id or "").strip() == _TESTIMONIAL_AVATAR_BUCKET:
+            return
+
+    try:
+        storage.create_bucket(
+            _TESTIMONIAL_AVATAR_BUCKET,
+            options={
+                "public": True,
+                "file_size_limit": _TESTIMONIAL_AVATAR_MAX_BYTES,
+                "allowed_mime_types": sorted(_TESTIMONIAL_AVATAR_ALLOWED_TYPES.keys()),
+            },
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "already exists" in msg or "duplicate" in msg:
+            return
+        raise HTTPException(status_code=500, detail=f"Failed to create avatar bucket: {exc}") from exc
 
 
 def _load_bot_token() -> str:
@@ -593,6 +642,60 @@ async def admin_daily_report_now(requester: int = Depends(require_admin_user)):
 
 
 # ── Testimonials ──────────────────────────────────────────────────────────────
+
+@router.post("/testimonials/upload-avatar")
+async def admin_upload_testimonial_avatar(
+    file: UploadFile = File(...),
+    requester: int = Depends(require_admin_user),
+):
+    _ = requester
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing file name")
+
+    content_type = str(file.content_type or "").strip().lower()
+    if content_type not in _TESTIMONIAL_AVATAR_ALLOWED_TYPES:
+        allowed = ", ".join(sorted(_TESTIMONIAL_AVATAR_ALLOWED_TYPES.keys()))
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {allowed}")
+
+    data = await file.read()
+    await file.close()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > _TESTIMONIAL_AVATAR_MAX_BYTES:
+        max_mb = _TESTIMONIAL_AVATAR_MAX_BYTES / (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"File too large. Max size: {max_mb:.1f} MB")
+
+    ext = _resolve_testimonial_avatar_ext(file.filename, content_type)
+    now = datetime.now(timezone.utc)
+    object_path = f"testimonials/{now:%Y/%m}/{uuid4().hex}{ext}"
+
+    client = _client()
+    _ensure_testimonial_avatar_bucket(client)
+    try:
+        client.storage.from_(_TESTIMONIAL_AVATAR_BUCKET).upload(
+            object_path,
+            data,
+            file_options={
+                "content-type": content_type,
+                "upsert": "false",
+                "cache-control": "3600",
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to upload avatar: {exc}") from exc
+
+    try:
+        public_url = client.storage.from_(_TESTIMONIAL_AVATAR_BUCKET).get_public_url(object_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Uploaded but failed to build public URL: {exc}") from exc
+
+    return {
+        "ok": True,
+        "avatar_url": public_url,
+        "bucket": _TESTIMONIAL_AVATAR_BUCKET,
+        "path": object_path,
+    }
+
 
 @router.get("/testimonials")
 async def admin_list_testimonials(requester: int = Depends(require_admin_user)):

@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.2.87] — 2026-04-21 — Admin Testimonial Avatar Upload
+
+### 🖼️ Testimonials Avatar Upload (Admin)
+- Added backend admin endpoint `POST /dashboard/admin/testimonials/upload-avatar` in `website-backend/app/routes/admin.py`.
+- Endpoint requirements and behavior:
+  - admin auth required (`require_admin_user`)
+  - accepts multipart file upload (`UploadFile`)
+  - validates image MIME type (`jpeg/png/webp/gif`) and max file size (default 5 MB)
+  - uploads to Supabase Storage bucket (`TESTIMONIALS_AVATAR_BUCKET`, default `testimonial-avatars`)
+  - auto-creates the bucket (public) when missing
+  - returns `avatar_url` for direct use in testimonial rows.
+- Added `python-multipart` dependency to `website-backend/requirements.txt`.
+- Added new optional env keys in `website-backend/.env.example`:
+  - `TESTIMONIALS_AVATAR_BUCKET`
+  - `TESTIMONIALS_AVATAR_MAX_BYTES`
+
+### 🧩 Admin UI Update
+- Updated testimonials form in `website-frontend/src/AdminPanel.jsx`:
+  - new avatar file picker (`JPG/PNG/WEBP/GIF`)
+  - `Upload` action that calls `/dashboard/admin/testimonials/upload-avatar`
+  - on success, auto-fills `avatar_url` field
+  - added upload status/validation UX and reset behavior on save/cancel/edit transitions.
+
 ## [2.2.86] — 2026-04-21 — Testimonials Feature Migration + Wiring Verification
 
 ### 🗄️ Supabase Migration

@@ -244,6 +244,8 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
   const [testimonialForm, setTestimonialForm] = useState(EMPTY_TESTIMONIAL_FORM);
   const [editingTestimonial, setEditingTestimonial] = useState(null);
   const [testimonialBusy, setTestimonialBusy] = useState(false);
+  const [testimonialAvatarFile, setTestimonialAvatarFile] = useState(null);
+  const [testimonialAvatarUploading, setTestimonialAvatarUploading] = useState(false);
 
   useEffect(() => {
     try {
@@ -374,6 +376,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
       if (!resp.ok) throw new Error(await readError(resp, 'Save failed'));
       setTestimonialForm(EMPTY_TESTIMONIAL_FORM);
       setEditingTestimonial(null);
+      setTestimonialAvatarFile(null);
       await loadTestimonials();
     } catch (err) {
       setTestimonialsError(err.message || 'Save failed');
@@ -392,6 +395,28 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
       setTestimonialsError(err.message || 'Delete failed');
     } finally {
       setTestimonialBusy(false);
+    }
+  };
+
+  const uploadTestimonialAvatar = async () => {
+    if (!testimonialAvatarFile) return;
+    setTestimonialsError(null);
+    setTestimonialAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', testimonialAvatarFile);
+      const resp = await apiFetch('/dashboard/admin/testimonials/upload-avatar', {
+        method: 'POST',
+        body: fd,
+      });
+      if (!resp.ok) throw new Error(await readError(resp, 'Avatar upload failed'));
+      const data = await resp.json();
+      setTestimonialForm((prev) => ({ ...prev, avatar_url: data.avatar_url || '' }));
+      setTestimonialAvatarFile(null);
+    } catch (err) {
+      setTestimonialsError(err.message || 'Avatar upload failed');
+    } finally {
+      setTestimonialAvatarUploading(false);
     }
   };
 
@@ -1052,6 +1077,22 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   placeholder="Avatar URL (optional)"
                   className="rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]"
                 />
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={(e) => setTestimonialAvatarFile(e.target.files?.[0] || null)}
+                    className="flex-1 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-3 py-2.5 text-xs text-[var(--text-main)] file:mr-3 file:rounded-full file:border-0 file:bg-[var(--button-muted-bg)] file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:text-[var(--text-soft)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={uploadTestimonialAvatar}
+                    disabled={!testimonialAvatarFile || testimonialAvatarUploading}
+                    className="rounded-full border border-cyan-400/25 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+                  >
+                    {testimonialAvatarUploading ? 'Uploading...' : 'Upload'}
+                  </button>
+                </div>
                 <div className="flex gap-3">
                   <select
                     value={testimonialForm.rating}
@@ -1088,10 +1129,13 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               {testimonialsError && (
                 <p className="mt-2 text-xs text-rose-300">{testimonialsError}</p>
               )}
+              <p className="mt-2 text-[11px] text-[var(--text-dim)]">
+                Upload image or paste URL. Supported upload types: JPG, PNG, WEBP, GIF (max 5 MB).
+              </p>
               <div className="mt-3 flex gap-3 justify-end">
                 {editingTestimonial && (
                   <button
-                    onClick={() => { setEditingTestimonial(null); setTestimonialForm(EMPTY_TESTIMONIAL_FORM); }}
+                    onClick={() => { setEditingTestimonial(null); setTestimonialForm(EMPTY_TESTIMONIAL_FORM); setTestimonialAvatarFile(null); }}
                     className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]"
                   >
                     Cancel
@@ -1099,7 +1143,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 )}
                 <button
                   onClick={saveTestimonial}
-                  disabled={testimonialBusy || !testimonialForm.name.trim() || !testimonialForm.message.trim()}
+                  disabled={testimonialBusy || testimonialAvatarUploading || !testimonialForm.name.trim() || !testimonialForm.message.trim()}
                   className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
                 >
                   {testimonialBusy ? 'Saving...' : editingTestimonial ? 'Save changes' : 'Add testimonial'}
@@ -1135,7 +1179,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                     </div>
                     <div className="flex shrink-0 gap-2">
                       <button
-                        onClick={() => { setEditingTestimonial(t); setTestimonialForm({ name: t.name, role: t.role || '', avatar_url: t.avatar_url || '', message: t.message, rating: t.rating, is_visible: t.is_visible, display_order: t.display_order }); }}
+                        onClick={() => { setEditingTestimonial(t); setTestimonialAvatarFile(null); setTestimonialForm({ name: t.name, role: t.role || '', avatar_url: t.avatar_url || '', message: t.message, rating: t.rating, is_visible: t.is_visible, display_order: t.display_order }); }}
                         className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-3 py-1.5 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]"
                       >
                         Edit
