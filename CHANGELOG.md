@@ -1,53 +1,56 @@
 # Changelog
 
-## [2.2.76] — 2026-04-21 — Decision Tree V2 Global Rejection Cooldown
+## [2.2.77] — 2026-04-21 — Admin Telegram Decision Tree V2 Dashboard
 
-### 🌐 Cross-User Reject Suppression
-- Upgraded the scalping Decision Tree V2 rejection cooldown to support a shared process-wide TTL so repeated bad `symbol + side + setup + reject_reason` patterns can be suppressed across engine instances, not just within one user loop.
+### 🧭 Admin-Only Telegram Dashboard
+- Added an admin-only Telegram Decision Tree V2 dashboard entry to `/admin` in `Bismillah/bot.py`.
+- Added window controls for `5m`, `30m`, and `2h`, plus inline `Refresh`, `Symbol Breakdown`, and `Export JSON` actions.
+- Access remains restricted to existing Telegram admin IDs already loaded by the bot.
+
+### 🔎 Live Funnel Visibility
+- Added `Bismillah/app/decision_tree_v2_live_dashboard.py` to summarize:
+  - top-volume scan universe and selector health,
+  - live `trade_candidates_log` rows,
+  - top symbols and rejection reasons,
+  - tier mix and score distributions,
+  - journal funnel telemetry,
+  - per-symbol breakdown for scanned, signaled, selected, rejected, cooldown-hit, and sideways-paused paths.
+
+### 💾 Audit Export
+- Added Telegram-triggered JSON export of the current Decision Tree V2 dashboard snapshot into `logs/decision_tree_v2/`.
+
+### ✅ Validation
+- Added `tests/test_decision_tree_v2_admin_dashboard.py`.
+- Verified formatter coverage for the main dashboard, per-symbol breakdown, and JSON export path.
+
+## [2.2.76] — 2026-04-21 — Decision Tree V2 Activation, Telemetry, and Live Controls
+
+### ⚙️ Activation Hardening
+- Updated `Bismillah/main.py` so repo-root `.env` overrides any local `Bismillah/.env` during bot startup, making production feature-flag activation deterministic for `DECISION_TREE_V2_MODE`.
+- Added startup mode visibility so the resolved Decision Tree V2 mode is visible immediately in boot logs.
+
+### 🧾 Telemetry Reliability
+- Sanitized Decision Tree V2 candidate-log payloads before inserting into `trade_candidates_log` so non-JSON-safe signal fields do not silently drop audit rows.
+- Raised candidate-log insert failures from debug-only to warning-level for faster production diagnosis.
+- Added explicit scalping runtime logs when Decision Tree V2 is engaged, including resolved mode, apply flag, candidate count, and selected symbols.
+
+### 🧯 Reject Suppression
+- Added a dedicated Decision Tree V2 rejection cooldown in `Bismillah/app/scalping_engine.py` keyed by `symbol + side + setup` to suppress repeated rejected candidate loops without affecting execution or stale-price cooldowns.
+- Upgraded that cooldown to support a shared process-wide TTL so repeated bad `symbol + side + setup + reject_reason` patterns can be suppressed across engine instances, not just within one user loop.
+- Added `DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS` with a default of `180` seconds.
 - Added `DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED` with a default of `true`.
 - Cooldown logs now expose `scope=global|local` for faster live diagnostics.
 
-## [2.2.75] — 2026-04-21 — Decision Tree V2 Live Audit Helper
+### 🔬 Candidate Flow Diagnostics
+- Added compact scalping runtime diagnostics for:
+  - raw candidate funnel counts (`raw`, `normal`, `emergency`, `symbols`)
+  - selected pre-V2 symbols
+  - post-rejection-cooldown candidate counts
+- These diagnostics make it easier to see whether signals are dropping before emergency selection, before V2 application, or during cooldown suppression.
 
 ### 🛠️ Audit Tooling
 - Added `scripts/decision_tree_v2_live_audit.py` to summarize live Decision Tree V2 database rows and `journalctl` telemetry in one command.
 - The helper is read-only and can optionally write JSON snapshots under `logs/decision_tree_v2/` for repeat audits.
-
-## [2.2.74] — 2026-04-21 — Decision Tree V2 Candidate Funnel Diagnostics
-
-### 🔬 Candidate Flow Visibility
-- Added compact scalping runtime diagnostics in `Bismillah/app/scalping_engine.py` for:
-  - raw candidate funnel counts (`raw`, `normal`, `emergency`, `symbols`)
-  - selected pre-V2 symbols
-  - post-rejection-cooldown candidate counts
-- This makes it much easier to see whether signals are dropping before emergency selection, before V2 application, or during V2 cooldown suppression.
-
-## [2.2.73] — 2026-04-21 — Decision Tree V2 Rejection Cooldown
-
-### 🧯 Repeated Reject Dedupe
-- Added a dedicated Decision Tree V2 rejection cooldown in `Bismillah/app/scalping_engine.py` keyed by `symbol + side + setup` to suppress repeated rejected candidate loops without affecting execution or stale-price cooldowns.
-- Repeated live V2 rejects now log cooldown activation and remaining TTL instead of re-evaluating the same bad setup every scan.
-- Added `DECISION_TREE_V2_REJECTION_COOLDOWN_SECONDS` env support with a default of `180` seconds.
-
-## [2.2.72] — 2026-04-21 — Decision Tree V2 Telemetry Hardening
-
-### 🧾 Candidate Audit Reliability
-- Sanitized Decision Tree V2 candidate log payloads before `trade_candidates_log` inserts so non-JSON-safe signal fields do not silently drop audit rows.
-- Raised candidate-log insert failures from debug-only to warning-level for faster production diagnosis.
-
-### 📡 Live Evaluation Visibility
-- Added explicit scalping runtime logs when Decision Tree V2 is engaged, including resolved mode, apply flag, and candidate count.
-- Flushed startup prints in `Bismillah/main.py` so boot-time mode visibility is more reliable under systemd/journal capture.
-
-## [2.2.71] — 2026-04-21 — Decision Tree V2 Activation Hardening
-
-### ⚙️ Startup Env Precedence
-- Updated `Bismillah/main.py` so repo-root `.env` now overrides any local `Bismillah/.env` during bot startup.
-- This makes VPS feature-flag activation deterministic for production deployments, including `DECISION_TREE_V2_MODE`.
-
-### 🔎 Startup Visibility
-- Added a startup log line that prints the resolved Decision Tree V2 mode during process boot.
-- This gives immediate verification evidence in `journalctl` after restart without needing a separate manual import probe.
 
 ## [2.2.70] — 2026-04-21 — Decision Tree V2 Live Gating Foundation
 
@@ -2496,3 +2499,15 @@ Use the **web dashboard** for all trading features:
 
 ---
 *Generated by Antigravity AI*
+## 2.2.77 - Admin-Only Telegram V2 Dashboard
+
+- Added an admin-only Telegram dashboard entry in `/admin` for live Decision Tree V2 telemetry.
+- Added `Bismillah/app/decision_tree_v2_live_dashboard.py` to summarize:
+  - top-volume scan universe,
+  - live `trade_candidates_log` rows,
+  - top candidate symbols,
+  - rejection reasons,
+  - tier mix,
+  - journal funnel metrics and recent runtime lines.
+- Added `🧭 V2 Dashboard` and `🔄 Refresh` controls to the existing Telegram admin panel in `Bismillah/bot.py`.
+- Access stays constrained to Telegram admin IDs already loaded by the bot; non-admin users cannot open the dashboard.

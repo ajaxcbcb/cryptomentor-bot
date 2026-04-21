@@ -411,7 +411,26 @@ class TelegramBot:
              InlineKeyboardButton("💰 Add Credits",     callback_data="admin_add_credits")],
             [InlineKeyboardButton("📊 User Stats",      callback_data="admin_user_stats"),
              InlineKeyboardButton("📡 Signal On/Off",   callback_data="admin_signal_control")],
+            [InlineKeyboardButton("🧭 V2 Dashboard",    callback_data="admin_v2_dashboard")],
             [InlineKeyboardButton("📢 Broadcast",       callback_data="admin_broadcast")],
+        ])
+
+    def _admin_v2_dashboard_keyboard(self, minutes: int = 30):
+        minutes = 120 if int(minutes or 30) >= 120 else (5 if int(minutes or 30) <= 5 else 30)
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("5m", callback_data="admin_v2_dashboard_5"),
+                InlineKeyboardButton("30m", callback_data="admin_v2_dashboard_30"),
+                InlineKeyboardButton("2h", callback_data="admin_v2_dashboard_120"),
+            ],
+            [
+                InlineKeyboardButton("🧩 Symbol Breakdown", callback_data=f"admin_v2_breakdown_{minutes}"),
+            ],
+            [
+                InlineKeyboardButton("💾 Export JSON", callback_data=f"admin_v2_export_{minutes}"),
+                InlineKeyboardButton("🔄 Refresh", callback_data=f"admin_v2_dashboard_{minutes}"),
+            ],
+            [InlineKeyboardButton("🔙 Back", callback_data="admin_back")],
         ])
 
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -550,6 +569,67 @@ class TelegramBot:
                 await query.edit_message_text("🔴 Auto Signal *OFF*", parse_mode='MARKDOWN', reply_markup=back_kb)
             except Exception as e:
                 await query.edit_message_text(f"❌ Error: {e}", reply_markup=back_kb)
+
+        # ── Decision Tree V2 Dashboard ───────────────────────────────
+        elif data.startswith("admin_v2_dashboard"):
+            try:
+                from app.decision_tree_v2_live_dashboard import (
+                    format_live_dashboard_message,
+                    get_live_dashboard_snapshot,
+                )
+
+                parts = data.split("_")
+                minutes = 30
+                if parts[-1].isdigit():
+                    minutes = int(parts[-1])
+                snapshot = get_live_dashboard_snapshot(minutes=minutes, tail=6)
+                await query.edit_message_text(
+                    format_live_dashboard_message(snapshot),
+                    parse_mode="HTML",
+                    reply_markup=self._admin_v2_dashboard_keyboard(minutes),
+                )
+            except Exception as e:
+                logger.exception("Admin V2 dashboard failed")
+                await query.edit_message_text(f"❌ Error loading V2 dashboard: {e}", reply_markup=back_kb)
+
+        elif data.startswith("admin_v2_breakdown_"):
+            try:
+                from app.decision_tree_v2_live_dashboard import (
+                    format_live_symbol_breakdown_message,
+                    get_live_dashboard_snapshot,
+                )
+
+                minutes = int(data.rsplit("_", 1)[-1])
+                snapshot = get_live_dashboard_snapshot(minutes=minutes, tail=6)
+                await query.edit_message_text(
+                    format_live_symbol_breakdown_message(snapshot),
+                    parse_mode="HTML",
+                    reply_markup=self._admin_v2_dashboard_keyboard(minutes),
+                )
+            except Exception as e:
+                logger.exception("Admin V2 symbol breakdown failed")
+                await query.edit_message_text(f"❌ Error loading V2 breakdown: {e}", reply_markup=back_kb)
+
+        elif data.startswith("admin_v2_export_"):
+            try:
+                from app.decision_tree_v2_live_dashboard import (
+                    get_live_dashboard_snapshot,
+                    write_live_dashboard_snapshot,
+                )
+
+                minutes = int(data.rsplit("_", 1)[-1])
+                snapshot = get_live_dashboard_snapshot(minutes=minutes, tail=6)
+                out_path = write_live_dashboard_snapshot(snapshot)
+                await query.edit_message_text(
+                    "✅ <b>V2 dashboard snapshot exported</b>\n\n"
+                    f"Window: <code>{minutes}m</code>\n"
+                    f"Path: <code>{out_path}</code>",
+                    parse_mode="HTML",
+                    reply_markup=self._admin_v2_dashboard_keyboard(minutes),
+                )
+            except Exception as e:
+                logger.exception("Admin V2 export failed")
+                await query.edit_message_text(f"❌ Error exporting V2 snapshot: {e}", reply_markup=back_kb)
 
         # ── Broadcast ────────────────────────────────────────────────
         elif data == "admin_broadcast":
