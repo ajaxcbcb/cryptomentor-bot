@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.79] — 2026-04-21 — Web Admin Controls Responsive Fix
+
+### 🧩 Admin Controls Layout
+- Fixed the `/admin` controls panel so action buttons no longer overflow or clip on narrower desktop/tablet widths.
+- Updated premium, credits, broadcast, and daily-report action rows in `website-frontend/src/AdminPanel.jsx` to use shrink-safe grid columns and full-width action buttons below their wrap thresholds.
+- Updated the daily-report control header to wrap cleanly instead of forcing the action button outside the card boundary.
+
+### ✅ Validation
+- Rebuilt the frontend bundle and verified the production asset build succeeds after the responsive layout adjustments.
+
 ## [2.2.78] — 2026-04-21 — Web Admin Panel Migration
 
 ### 🌐 Canonical Web Admin Surface

@@ -691,14 +691,14 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
 
               <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
                 <p className="text-sm font-black text-white">Premium and lifetime</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-                  <input value={premiumForm.user_id} onChange={(e) => setPremiumForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
-                  <select value={premiumForm.action} onChange={(e) => setPremiumForm((prev) => ({ ...prev, action: e.target.value }))} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none">
+                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <input value={premiumForm.user_id} onChange={(e) => setPremiumForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  <select value={premiumForm.action} onChange={(e) => setPremiumForm((prev) => ({ ...prev, action: e.target.value }))} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none">
                     <option value="add">Add premium</option>
                     <option value="lifetime">Set lifetime</option>
                     <option value="remove">Remove premium</option>
                   </select>
-                  <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" disabled={premiumForm.action !== 'add'} />
+                  <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" disabled={premiumForm.action !== 'add'} />
                   <button
                     onClick={() => setConfirmState({
                       title: 'Apply premium update?',
@@ -715,7 +715,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                         'Premium updated',
                       ),
                     })}
-                    className="rounded-full border border-[#c7a56b]/30 bg-[#c7a56b]/15 px-4 py-3 text-xs font-bold text-[#f2ddb0] hover:bg-[#c7a56b]/25"
+                    className="w-full xl:w-auto rounded-full border border-[#c7a56b]/30 bg-[#c7a56b]/15 px-4 py-3 text-xs font-bold text-[#f2ddb0] hover:bg-[#c7a56b]/25"
                   >
                     Apply
                   </button>
@@ -724,9 +724,9 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
 
               <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
                 <p className="text-sm font-black text-white">Credits</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                  <input value={creditsForm.user_id} onChange={(e) => setCreditsForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
-                  <input value={creditsForm.amount} onChange={(e) => setCreditsForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <input value={creditsForm.user_id} onChange={(e) => setCreditsForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  <input value={creditsForm.amount} onChange={(e) => setCreditsForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
                   <button
                     onClick={() => setConfirmState({
                       title: 'Grant credits?',
@@ -739,7 +739,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                         'Credits updated',
                       ),
                     })}
-                    className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-100 hover:bg-cyan-500/20"
+                    className="w-full lg:w-auto rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-100 hover:bg-cyan-500/20"
                   >
                     Grant
                   </button>
@@ -769,7 +769,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                           'Broadcast finished',
                         ),
                       })}
-                      className="inline-flex items-center gap-2 rounded-full border border-[#c7a56b]/30 bg-[#c7a56b]/15 px-4 py-3 text-xs font-bold text-[#f2ddb0] hover:bg-[#c7a56b]/25"
+                      className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-full border border-[#c7a56b]/30 bg-[#c7a56b]/15 px-4 py-3 text-xs font-bold text-[#f2ddb0] hover:bg-[#c7a56b]/25"
                     >
                       <Send className="h-3.5 w-3.5" />
                       Broadcast
@@ -779,7 +779,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               </div>
 
               <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-black text-white">Daily report</p>
                     <p className="mt-1 text-xs text-stone-400">Triggers the admin daily report immediately through the same report module used by the bot runtime.</p>
@@ -792,7 +792,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                       tone: 'cyan',
                       action: () => runAction('/dashboard/admin/daily-report-now', {}, 'Daily report sent'),
                     })}
-                    className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/20"
+                    className="w-full sm:w-auto rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/20"
                   >
                     Send now
                   </button>
