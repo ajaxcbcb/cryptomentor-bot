@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.71] — 2026-04-21 — Decision Tree V2 Activation Hardening
+
+### ⚙️ Startup Env Precedence
+- Updated `Bismillah/main.py` so repo-root `.env` now overrides any local `Bismillah/.env` during bot startup.
+- This makes VPS feature-flag activation deterministic for production deployments, including `DECISION_TREE_V2_MODE`.
+
+### 🔎 Startup Visibility
+- Added a startup log line that prints the resolved Decision Tree V2 mode during process boot.
+- This gives immediate verification evidence in `journalctl` after restart without needing a separate manual import probe.
+
 ## [2.2.70] — 2026-04-21 — Decision Tree V2 Live Gating Foundation
 
 ### 🧠 Decision Tree V2 Core

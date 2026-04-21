@@ -7,6 +7,7 @@ Simple entry point for Railway deployment
 
 if __name__ == "__main__":
     import asyncio
+    import os
     from pathlib import Path
     from dotenv import load_dotenv
 
@@ -14,10 +15,11 @@ if __name__ == "__main__":
     # 1) Bismillah/.env (if present)
     load_dotenv()
     # 2) repo-root .env (production VPS layout: /root/cryptomentor-bot/.env)
+    #    This must win over any local Bismillah/.env so VPS feature flags are deterministic.
     repo_root = Path(__file__).resolve().parent.parent
     root_env = repo_root / ".env"
     if root_env.exists():
-        load_dotenv(dotenv_path=root_env, override=False)
+        load_dotenv(dotenv_path=root_env, override=True)
     # 3) website-backend/.env for shared auth config (JWT_SECRET, FRONTEND_URL)
     #    Keep override=False so repo-root env remains highest priority.
     web_env = repo_root / "website-backend" / ".env"
@@ -27,6 +29,7 @@ if __name__ == "__main__":
     import bot
 
     print("🚀 Starting CryptoMentor AI Bot...")
+    print(f"ℹ️ Decision Tree V2 mode: {os.getenv('DECISION_TREE_V2_MODE', 'legacy').strip().lower() or 'legacy'}")
 
     # Cek curl_cffi availability
     try:
