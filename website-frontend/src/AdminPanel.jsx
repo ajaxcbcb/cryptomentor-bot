@@ -624,31 +624,33 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
           </SectionShell>
 
           <SectionShell eyebrow="Symbols" title="Per-symbol funnel breakdown">
-            <div className="overflow-hidden rounded-[1.6rem] border border-[color:var(--line-faint)]">
-              <div className="grid grid-cols-7 gap-2 bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-[var(--text-dim)]">
-                <span>Symbol</span>
-                <span>Scanned</span>
-                <span>Signals</span>
-                <span>Funnel</span>
-                <span>Selected</span>
-                <span>Rejected</span>
-                <span>Cooldown</span>
-              </div>
-              <div className="divide-y" style={{ borderColor: 'var(--line-faint)' }}>
-                {symbolEntries.slice(0, 12).map(([symbol, stats]) => (
-                  <div key={symbol} className="grid grid-cols-7 gap-2 px-4 py-3 text-sm text-[var(--text-soft)]">
-                    <span className="font-bold text-[var(--text-main)]">{symbol}</span>
-                    <span>{fmtNumber(stats.scanned)}</span>
-                    <span>{fmtNumber(stats.signal_generated)}</span>
-                    <span>{fmtNumber(stats.candidate_funnel)}</span>
-                    <span className="text-cyan-100">{fmtNumber(stats.v2_selected)}</span>
-                    <span className="text-rose-200">{fmtNumber(stats.v2_rejected)}</span>
-                    <span className="text-amber-100">{fmtNumber(stats.cooldown_active)}</span>
-                  </div>
-                ))}
-                {!symbolEntries.length ? (
-                  <div className="px-4 py-6 text-sm text-[var(--text-dim)]">No symbol breakdown data yet for this window.</div>
-                ) : null}
+            <div className="overflow-x-auto rounded-[1.6rem] border border-[color:var(--line-faint)]">
+              <div className="min-w-[820px]">
+                <div className="grid grid-cols-[minmax(170px,1.5fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)] gap-2 bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-[var(--text-dim)]">
+                  <span>Symbol</span>
+                  <span>Scanned</span>
+                  <span>Signals</span>
+                  <span>Funnel</span>
+                  <span>Selected</span>
+                  <span>Rejected</span>
+                  <span>Cooldown</span>
+                </div>
+                <div className="divide-y" style={{ borderColor: 'var(--line-faint)' }}>
+                  {symbolEntries.slice(0, 12).map(([symbol, stats]) => (
+                    <div key={symbol} className="grid grid-cols-[minmax(170px,1.5fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)_minmax(90px,0.7fr)] gap-2 px-4 py-3 text-sm text-[var(--text-soft)]">
+                      <span className="font-bold text-[var(--text-main)]">{symbol}</span>
+                      <span>{fmtNumber(stats.scanned)}</span>
+                      <span>{fmtNumber(stats.signal_generated)}</span>
+                      <span>{fmtNumber(stats.candidate_funnel)}</span>
+                      <span className="text-cyan-100">{fmtNumber(stats.v2_selected)}</span>
+                      <span className="text-rose-200">{fmtNumber(stats.v2_rejected)}</span>
+                      <span className="text-amber-100">{fmtNumber(stats.cooldown_active)}</span>
+                    </div>
+                  ))}
+                  {!symbolEntries.length ? (
+                    <div className="px-4 py-6 text-sm text-[var(--text-dim)]">No symbol breakdown data yet for this window.</div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </SectionShell>

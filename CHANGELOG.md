@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.83] — 2026-04-21 — Web Admin Symbol Table Overflow Guard
+
+### 📐 Per-Symbol Scanner Row Stability
+- Fixed `/admin` symbol breakdown row collisions in narrow viewports by updating `website-frontend/src/AdminPanel.jsx` table layout from fixed `grid-cols-7` to min-width guarded grid tracks.
+- Added horizontal overflow handling and explicit `minmax(...)` column sizing so `Symbol` and metric values no longer overlap when the panel width is constrained.
+
+### ✅ Validation
+- Rebuilt `website-frontend` successfully with `npm run build`.
+
 ## [2.2.82] — 2026-04-21 — Web Admin Dark Mode Toggle
 
 ### 🌗 Admin Theme Control
