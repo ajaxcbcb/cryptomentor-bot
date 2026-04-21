@@ -14,9 +14,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from app.decision_tree_v2_config import is_live_mode
+from app.market_context_provider import get_market_context
+from app.regime_router import classify_regime
 from app.engine_runtime_shared import get_top_volume_pairs
 from app.market_sentiment_detector import detect_market_condition
 
@@ -51,7 +54,7 @@ def _pair_base(symbol: str) -> str:
     return pair
 
 
-async def _classify_symbol_mode(symbol: str) -> str:
+async def _classify_symbol_mode(symbol: str, market_context: Optional[Any] = None) -> str:
     """
     Return classifier recommendation for one symbol as 'scalping' or 'swing'.
     Defaults to swing on any failure/unknown.
@@ -59,6 +62,14 @@ async def _classify_symbol_mode(symbol: str) -> str:
     base = _pair_base(symbol)
     if not base:
         return "swing"
+    if is_live_mode() and market_context is not None:
+        try:
+            regime = await classify_regime(symbol, market_context, {"symbol": symbol})
+            preferred_engine = str(regime.get("preferred_engine") or "").strip().lower()
+            if preferred_engine in ("scalping", "swing"):
+                return preferred_engine
+        except Exception as exc:
+            logger.debug("[PairRouter] regime-router failed for %s: %s", symbol, exc)
     try:
         result = await asyncio.to_thread(detect_market_condition, base)
         mode = str((result or {}).get("recommended_mode") or "").strip().lower()
@@ -131,15 +142,16 @@ async def get_mixed_pair_assignments(
                 "scalp": [],
                 "ranked_pairs": [],
                 "as_of_ts": now_ts,
-                "as_of_iso": datetime.utcnow().isoformat(),
+                "as_of_iso": datetime.now(timezone.utc).isoformat(),
                 "limit": limit,
                 "sticky_seconds": int(ROUTER_STICKY_SECONDS),
             }
             _router_cache[uid] = payload
             return payload
 
+        market_context = get_market_context(symbols=ranked_pairs, limit=limit) if is_live_mode() else None
         modes = await asyncio.gather(
-            *[_classify_symbol_mode(pair) for pair in ranked_pairs],
+            *[_classify_symbol_mode(pair, market_context=market_context) for pair in ranked_pairs],
             return_exceptions=True,
         )
         swing: List[str] = []
@@ -162,7 +174,7 @@ async def get_mixed_pair_assignments(
             "scalp": scalp,
             "ranked_pairs": ranked_pairs,
             "as_of_ts": now_ts,
-            "as_of_iso": datetime.utcnow().isoformat(),
+            "as_of_iso": datetime.now(timezone.utc).isoformat(),
             "limit": limit,
             "sticky_seconds": int(ROUTER_STICKY_SECONDS),
         }

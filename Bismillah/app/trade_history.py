@@ -241,6 +241,20 @@ def save_trade_open(
                 row["effective_risk_pct"] = float(execution_meta.get("effective_risk_pct"))
             if execution_meta.get("risk_overlay_pct") is not None:
                 row["risk_overlay_pct"] = float(execution_meta.get("risk_overlay_pct"))
+            if execution_meta.get("decision_trace_id") is not None:
+                row["decision_trace_id"] = str(execution_meta.get("decision_trace_id"))
+            if execution_meta.get("decision_mode_version") is not None:
+                row["decision_mode_version"] = str(execution_meta.get("decision_mode_version"))
+            if execution_meta.get("decision_regime") is not None:
+                row["decision_regime"] = str(execution_meta.get("decision_regime"))
+            if execution_meta.get("decision_final_score") is not None:
+                row["decision_final_score"] = float(execution_meta.get("decision_final_score"))
+            if execution_meta.get("decision_quality_score") is not None:
+                row["decision_quality_score"] = float(execution_meta.get("decision_quality_score"))
+            if execution_meta.get("decision_community_score") is not None:
+                row["decision_community_score"] = float(execution_meta.get("decision_community_score"))
+            if execution_meta.get("decision_user_segment_score") is not None:
+                row["decision_user_segment_score"] = float(execution_meta.get("decision_user_segment_score"))
         
         res = _db().table("autotrade_trades").insert(row).execute()
         trade_id = res.data[0]["id"] if res.data else None

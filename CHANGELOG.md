@@ -1,5 +1,59 @@
 # Changelog
 
+## [2.2.70] — 2026-04-21 — Decision Tree V2 Live Gating Foundation
+
+### 🧠 Decision Tree V2 Core
+- Added Decision Tree V2 foundation modules under `Bismillah/app/`:
+  - `decision_tree_v2_config.py`
+  - `trade_candidate.py`
+  - `market_context_provider.py`
+  - `regime_router.py`
+  - `tradeability.py`
+  - `candidate_approver.py`
+  - `community_objective.py`
+  - `user_segmentation.py`
+  - `portfolio_allocator.py`
+  - `decision_coordinator.py`
+  - `position_state_manager.py`
+  - `symbol_memory.py`
+  - `decision_explanations.py`
+- Added feature-flagged `legacy | shadow | live` Decision Tree V2 control plane with fail-open behavior and metadata logging defaults.
+
+### 🔌 Runtime Integration
+- Swing engine (`Bismillah/app/autotrade_engine.py`):
+  - wired Decision Tree V2 evaluation into the post-scan candidate seam before signal queue insertion,
+  - in `live` mode, queue eligibility now uses V2 approval and V2 score ordering while preserving existing execution/reconcile paths,
+  - in non-live modes, legacy queue behavior is preserved with decision metadata enrichment.
+- Scalping engine (`Bismillah/app/scalping_engine.py`):
+  - wired Decision Tree V2 evaluation after technical validation and before order placement,
+  - enriched scalping trade rows with decision metadata for auditability.
+- Mixed routing (`Bismillah/app/pair_strategy_router.py`):
+  - live-mode mixed routing can now use regime-router guidance while preserving sticky cached assignments and fallback behavior.
+
+### 🗃️ Persistence + Tooling
+- Added migration `db/add_decision_tree_v2.sql`:
+  - creates `trade_candidates_log`,
+  - extends `autotrade_trades` with decision metadata columns.
+- Extended `Bismillah/app/trade_history.py` open-trade persistence to carry Decision Tree V2 metadata into `autotrade_trades`.
+- Added simulation/report scaffold:
+  - `scripts/run_decision_tree_v2_simulations.py`
+  - JSON output under `logs/decision_tree_v2/`
+
+### ✅ Validation
+- Added deterministic tests:
+  - `tests/test_decision_tree_v2_sanitization.py`
+  - `tests/test_user_segmentation_filters.py`
+  - `tests/test_portfolio_allocator_stress.py`
+  - `tests/test_position_state_manager_stress.py`
+  - `tests/test_candidate_pipeline_regression.py`
+  - `tests/test_feature_flag_compatibility.py`
+- Extended routing coverage:
+  - `tests/test_pair_strategy_router.py`
+- Added simulation smoke coverage:
+  - `tests/simulations/test_equity_survival_scenarios.py`
+  - `tests/simulations/test_streak_stress.py`
+  - `tests/simulations/test_best_case_worst_case_paths.py`
+
 ## [2.2.69] — 2026-04-21 — Trade Close Telegram Alerts (All Close Reasons)
 
 ### 🔔 Per-Trade User Close Alerts

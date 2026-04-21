@@ -894,6 +894,53 @@ class ScalpingEngine:
                         else:
                             valid_signals = []
 
+                        v2_mode = "legacy"
+                        try:
+                            from app.decision_tree_v2_config import get_v2_mode, should_apply
+                            from app.decision_coordinator import evaluate_scalping_signal
+
+                            v2_mode = str(get_v2_mode() or "legacy")
+                            if valid_signals and should_apply("scalping", mixed_mode=self._mixed_mode):
+                                evaluated_signals = []
+                                for signal in valid_signals:
+                                    decision = await evaluate_scalping_signal(
+                                        user_id=int(self.user_id),
+                                        signal=signal,
+                                        client=self.client,
+                                        runtime_snapshots={
+                                            "adaptive": self._adaptive_overlay,
+                                            "win_playbook": self._win_playbook_snapshot,
+                                            "confidence_adaptation": self._confidence_adapt_snapshot,
+                                            "sideways_governor": self._sideways_governor_snapshot,
+                                            "risk_parity": self._scalp_risk_parity_snapshot,
+                                        },
+                                        mixed_mode=bool(self._mixed_mode),
+                                    )
+                                    setattr(signal, "decision_trace_id", decision.candidate.decision_trace_id)
+                                    setattr(signal, "decision_mode_version", "decision_tree_v2")
+                                    setattr(signal, "decision_regime", decision.candidate.regime)
+                                    setattr(signal, "decision_final_score", float(decision.candidate.final_score or 0.0))
+                                    setattr(signal, "decision_quality_score", float(decision.candidate.metadata.get("decision_quality_score", 0.0) or 0.0))
+                                    setattr(signal, "decision_community_score", float(decision.candidate.community_score or 0.0))
+                                    setattr(signal, "decision_user_segment_score", float(decision.candidate.user_segment_score or 0.0))
+                                    setattr(signal, "decision_display_reason", str(decision.display_reason or ""))
+                                    setattr(signal, "decision_reject_reason", str(decision.reject_reason or ""))
+                                    setattr(signal, "participation_bucket", str(decision.candidate.participation_bucket or ""))
+                                    setattr(signal, "quality_bucket", str(decision.candidate.quality_bucket or ""))
+                                    if float(decision.candidate.recommended_risk_pct or 0.0) > 0.0:
+                                        setattr(signal, "effective_risk_pct", float(decision.candidate.recommended_risk_pct))
+                                    if decision.approved or v2_mode != "live":
+                                        evaluated_signals.append(signal)
+                                    else:
+                                        logger.info(
+                                            f"[Scalping:{self.user_id}] V2 rejected signal "
+                                            f"symbol={signal.symbol} reason={decision.reject_reason or '-'} "
+                                            f"score={float(decision.candidate.final_score or 0.0):.3f}"
+                                        )
+                                valid_signals = evaluated_signals
+                        except Exception as v2_exc:
+                            logger.warning(f"[Scalping:{self.user_id}] Decision Tree V2 evaluation skipped: {v2_exc}")
+
                         signals_found += len(valid_signals)
                         
                         # Sequentially process the returned valid signals
@@ -3232,6 +3279,13 @@ class ScalpingEngine:
                 "playbook_match_score": float(getattr(signal, "playbook_match_score", 0.0) or 0.0),
                 "effective_risk_pct": float(getattr(signal, "effective_risk_pct", 0.0) or 0.0),
                 "risk_overlay_pct": float(getattr(signal, "risk_overlay_pct", 0.0) or 0.0),
+                "decision_trace_id": str(getattr(signal, "decision_trace_id", "") or "") or None,
+                "decision_mode_version": str(getattr(signal, "decision_mode_version", "") or "") or None,
+                "decision_regime": str(getattr(signal, "decision_regime", "") or "") or None,
+                "decision_final_score": float(getattr(signal, "decision_final_score", 0.0) or 0.0),
+                "decision_quality_score": float(getattr(signal, "decision_quality_score", 0.0) or 0.0),
+                "decision_community_score": float(getattr(signal, "decision_community_score", 0.0) or 0.0),
+                "decision_user_segment_score": float(getattr(signal, "decision_user_segment_score", 0.0) or 0.0),
                 "status": "open",
                 "order_id": order_id or "",
                 "opened_at": datetime.utcnow().isoformat(),

@@ -65,3 +65,23 @@ async def test_pair_router_uses_sticky_cache_for_10_minutes(monkeypatch):
     assert first["ranked_pairs"] == second["ranked_pairs"]
     assert counters["top"] == 1
     assert counters["detect"] == len(ranked)
+
+
+@pytest.mark.asyncio
+async def test_pair_router_uses_regime_router_when_live(monkeypatch):
+    pair_router.reset_pair_strategy_router_for_testing()
+
+    async def _fake_get_top_volume_pairs(**_kwargs):
+        return ["BTCUSDT", "ETHUSDT"]
+
+    async def _fake_classify_regime(symbol, _market_context, _raw_signal=None):
+        return {"preferred_engine": "scalping" if symbol == "ETHUSDT" else "swing"}
+
+    monkeypatch.setattr(pair_router, "get_top_volume_pairs", _fake_get_top_volume_pairs)
+    monkeypatch.setattr(pair_router, "is_live_mode", lambda: True)
+    monkeypatch.setattr(pair_router, "get_market_context", lambda **_kwargs: object())
+    monkeypatch.setattr(pair_router, "classify_regime", _fake_classify_regime)
+
+    result = await pair_router.get_mixed_pair_assignments(3003, limit=10)
+    assert result["swing"] == ["BTCUSDT"]
+    assert result["scalp"] == ["ETHUSDT"]

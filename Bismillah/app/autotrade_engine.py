@@ -3214,6 +3214,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                                     "playbook_match_score": flip_playbook_score,
                                     "effective_risk_pct": flip_effective_risk_pct,
                                     "risk_overlay_pct": flip_risk_overlay_pct,
+                                    "decision_trace_id": rev_sig.get("decision_trace_id"),
+                                    "decision_mode_version": rev_sig.get("decision_mode_version"),
+                                    "decision_regime": rev_sig.get("decision_regime"),
+                                    "decision_final_score": rev_sig.get("decision_final_score"),
+                                    "decision_quality_score": rev_sig.get("decision_quality_score"),
+                                    "decision_community_score": rev_sig.get("decision_community_score"),
+                                    "decision_user_segment_score": rev_sig.get("decision_user_segment_score"),
                                 },
                             )
                         except Exception as _he:
@@ -3436,12 +3443,70 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                     await asyncio.sleep(cfg["scan_interval"])
                     continue
 
+            v2_mode = "legacy"
+            v2_live = False
+            try:
+                from app.decision_tree_v2_config import get_v2_mode, should_apply
+                from app.decision_coordinator import evaluate_swing_cycle, summarize_cycle
+
+                v2_mode = str(get_v2_mode() or "legacy")
+                v2_live = v2_mode == "live"
+                if should_apply("swing", mixed_mode=mixed_mode):
+                    v2_decisions = await evaluate_swing_cycle(
+                        user_id=int(user_id),
+                        signals=candidates,
+                        client=client,
+                        runtime_snapshots={
+                            "adaptive": adaptive_state,
+                            "win_playbook": win_playbook_state,
+                            "confidence_adaptation": confidence_adapt_state,
+                            "sideways_governor": sideways_governor_state,
+                        },
+                        mixed_mode=bool(mixed_mode),
+                    )
+                    enriched_candidates: List[Dict] = []
+                    approved_candidates: List[Dict] = []
+                    for decision in v2_decisions:
+                        enriched = dict(decision.candidate.source_signal_payload or {})
+                        enriched["decision_trace_id"] = decision.candidate.decision_trace_id
+                        enriched["decision_mode_version"] = "decision_tree_v2"
+                        enriched["decision_regime"] = decision.candidate.regime
+                        enriched["decision_final_score"] = float(decision.candidate.final_score or 0.0)
+                        enriched["decision_quality_score"] = float(decision.candidate.metadata.get("decision_quality_score", 0.0) or 0.0)
+                        enriched["decision_community_score"] = float(decision.candidate.community_score or 0.0)
+                        enriched["decision_user_segment_score"] = float(decision.candidate.user_segment_score or 0.0)
+                        enriched["decision_display_reason"] = str(decision.display_reason or "")
+                        enriched["decision_reject_reason"] = str(decision.reject_reason or "")
+                        enriched["decision_execution_mode"] = str(decision.execution_mode or v2_mode)
+                        enriched["recommended_risk_pct_v2"] = float(decision.candidate.recommended_risk_pct or 0.0)
+                        enriched["participation_bucket"] = str(decision.candidate.participation_bucket or "")
+                        enriched["quality_bucket"] = str(decision.candidate.quality_bucket or "")
+                        enriched_candidates.append(enriched)
+                        if decision.approved:
+                            approved_candidates.append(enriched)
+                        else:
+                            logger.info(
+                                f"[Engine:{user_id}] V2 rejected swing candidate "
+                                f"symbol={enriched.get('symbol')} reason={decision.reject_reason or '-'} "
+                                f"score={float(enriched.get('decision_final_score', 0.0) or 0.0):.3f}"
+                            )
+                    if v2_live:
+                        candidates = approved_candidates
+                        if not candidates:
+                            logger.info(f"[Engine:{user_id}] {summarize_cycle(v2_decisions)}")
+                            await asyncio.sleep(cfg["scan_interval"])
+                            continue
+                    else:
+                        candidates = enriched_candidates or candidates
+            except Exception as v2_exc:
+                logger.warning(f"[Engine:{user_id}] Decision Tree V2 evaluation skipped: {v2_exc}")
+
             # ── Signal Queue System: Sort by volume-rank first, then quality ────────
             # Highest-volume pair is top priority, confidence and RR resolve ties.
             candidates.sort(
                 key=lambda s: (
                     int(s.get("_volume_rank", 9999)),
-                    -float(s.get("confidence", 0)),
+                    -float(s.get("decision_final_score", 0.0) or 0.0) if v2_live else -float(s.get("confidence", 0)),
                     -float(s.get("playbook_match_score", 0.0)),
                     -float(s.get("rr_ratio", 0)),
                 )
@@ -3479,7 +3544,7 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
             _signal_queues[user_id].sort(
                 key=lambda s: (
                     int(s.get("_volume_rank", 9999)),
-                    -float(s.get("confidence", 0)),
+                    -float(s.get("decision_final_score", 0.0) or 0.0) if v2_live else -float(s.get("confidence", 0)),
                     -float(s.get("rr_ratio", 0)),
                 )
             )
@@ -4115,6 +4180,13 @@ async def _trade_loop(bot, user_id: int, api_key: str, api_secret: str,
                         "playbook_match_score": sig.get("playbook_match_score"),
                         "effective_risk_pct": sig.get("effective_risk_pct"),
                         "risk_overlay_pct": sig.get("risk_overlay_pct"),
+                        "decision_trace_id": sig.get("decision_trace_id"),
+                        "decision_mode_version": sig.get("decision_mode_version"),
+                        "decision_regime": sig.get("decision_regime"),
+                        "decision_final_score": sig.get("decision_final_score"),
+                        "decision_quality_score": sig.get("decision_quality_score"),
+                        "decision_community_score": sig.get("decision_community_score"),
+                        "decision_user_segment_score": sig.get("decision_user_segment_score"),
                     },
                 )
             except Exception as _he:
