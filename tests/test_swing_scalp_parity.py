@@ -209,7 +209,7 @@ def test_scalping_v2_rejection_cooldown_clears_after_expiry():
     assert engine._v2_rejection_reason_by_signature == {}
 
 
-def test_scalping_v2_rejection_cooldown_is_shared_across_engine_instances(monkeypatch):
+def test_scalping_v2_tradeability_rejection_cooldown_is_local_only(monkeypatch):
     import app.scalping_engine as scalping_engine_module  # type: ignore
 
     monkeypatch.setattr(scalping_engine_module, "DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED", True)
@@ -225,17 +225,53 @@ def test_scalping_v2_rejection_cooldown_is_shared_across_engine_instances(monkey
     engine_b._v2_rejection_reason_by_signature = {}
 
     signal = {"symbol": "PIEVERSEUSDT", "side": "LONG", "trade_subtype": "trend_scalp"}
+    ttl_sec, use_global = engine_a._resolve_v2_rejection_cooldown_settings("tradeability_below_threshold")
+    assert use_global is False
     engine_a._mark_v2_rejection_cooldown(
         signal,
         "tradeability_below_threshold",
-        ttl_sec=180.0,
+        ttl_sec=ttl_sec,
+        use_global=use_global,
         now_ts=2000.0,
     )
 
     active, reason, remaining, scope = engine_b._get_v2_rejection_cooldown_state(signal, now_ts=2010.0)
+    assert active is False
+    assert reason == ""
+    assert remaining == 0
+    assert scope == ""
+
+
+def test_scalping_v2_market_rejection_cooldown_still_shared(monkeypatch):
+    import app.scalping_engine as scalping_engine_module  # type: ignore
+
+    monkeypatch.setattr(scalping_engine_module, "DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED", True)
+    scalping_engine_module._GLOBAL_V2_REJECTION_COOLDOWN_TS.clear()
+    scalping_engine_module._GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE.clear()
+
+    engine_a = ScalpingEngine.__new__(ScalpingEngine)
+    engine_a._v2_rejection_cooldown_ts = {}
+    engine_a._v2_rejection_reason_by_signature = {}
+
+    engine_b = ScalpingEngine.__new__(ScalpingEngine)
+    engine_b._v2_rejection_cooldown_ts = {}
+    engine_b._v2_rejection_reason_by_signature = {}
+
+    signal = {"symbol": "BTCUSDT", "side": "LONG", "trade_subtype": "trend_scalp"}
+    ttl_sec, use_global = engine_a._resolve_v2_rejection_cooldown_settings("rr_below_threshold")
+    assert use_global is True
+    engine_a._mark_v2_rejection_cooldown(
+        signal,
+        "rr_below_threshold",
+        ttl_sec=ttl_sec,
+        use_global=use_global,
+        now_ts=3000.0,
+    )
+
+    active, reason, remaining, scope = engine_b._get_v2_rejection_cooldown_state(signal, now_ts=3010.0)
     assert active is True
-    assert reason == "tradeability_below_threshold"
-    assert remaining == 170
+    assert reason == "rr_below_threshold"
+    assert remaining > 0
     assert scope == "global"
 
 

@@ -47,8 +47,8 @@ def test_governor_moves_to_strict_on_negative_expectancy():
     nxt = compute_next_sideways_governor_state(prev, metrics, now_utc=now)
     assert nxt["mode"] == "strict"
     assert nxt["allow_sideways_fallback"] is False
-    assert nxt["sideways_confirmations_required"] == 2
-    assert float(nxt["sideways_min_rr_override"]) >= 1.25
+    assert nxt["sideways_confirmations_required"] >= 1
+    assert float(nxt["sideways_min_rr_override"]) >= 1.1
 
 
 def test_governor_moves_to_pause_for_severe_degradation():
@@ -137,6 +137,31 @@ def test_governor_uses_14d_fallback_basis_when_24h_sample_sparse():
     assert nxt["sample_size_basis"] == 28
     assert nxt["sideways_expectancy_basis"] == -0.02
     assert nxt["allow_sideways_fallback"] is False
+
+
+def test_governor_does_not_pause_on_fallback_only_degradation():
+    prev = default_sideways_governor_state()
+    now = datetime.now(timezone.utc)
+    metrics = {
+        "sample_size_24h": 0,
+        "non_sideways_sample_size_24h": 80,
+        "sideways_expectancy_24h": 0.0,
+        "non_sideways_expectancy_24h": 0.01,
+        "sideways_timeout_exit_count_24h": 0,
+        "sideways_timeout_loss_count_24h": 0,
+        "sideways_timeout_loss_rate_24h": 0.0,
+        "fallback_sample_size_14d": 40,
+        "sideways_expectancy_14d": -0.02,
+        "sideways_timeout_exit_count_14d": 30,
+        "sideways_timeout_loss_count_14d": 24,
+        "sideways_timeout_loss_rate_14d": 0.80,
+        "symbol_sideways_stats": {},
+        "symbol_non_sideways_stats": {},
+    }
+
+    nxt = compute_next_sideways_governor_state(prev, metrics, now_utc=now)
+    assert nxt["mode"] == "strict"
+    assert nxt["decision_reason"] != "pause_sideways_60m"
 
 
 def test_dynamic_max_hold_respects_symbol_overrides_and_bounds():

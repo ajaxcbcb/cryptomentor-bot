@@ -33,7 +33,6 @@ SIDEWAYS_HOLD_MAX = 150
 TREND_HOLD_MIN = 1200
 TREND_HOLD_MAX = 2400
 
-
 def _env_flag(name: str, default: bool) -> bool:
     raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
     return raw in {"1", "true", "yes", "y", "on"}
@@ -64,6 +63,24 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return int(default)
+
+
+STRICT_MIN_RR = min(
+    1.35,
+    max(1.05, _as_float(os.getenv("SIDEWAYS_GOVERNOR_STRICT_MIN_RR", "1.20"), 1.20)),
+)
+STRICT_MIN_VOLUME_FLOOR = min(
+    1.30,
+    max(0.90, _as_float(os.getenv("SIDEWAYS_GOVERNOR_STRICT_MIN_VOLUME_FLOOR", "1.00"), 1.00)),
+)
+STRICT_CONFIDENCE_BONUS = min(
+    5,
+    max(0, _as_int(os.getenv("SIDEWAYS_GOVERNOR_STRICT_CONFIDENCE_BONUS", "1"), 1)),
+)
+STRICT_CONFIRMATIONS_REQUIRED = min(
+    3,
+    max(1, _as_int(os.getenv("SIDEWAYS_GOVERNOR_STRICT_CONFIRMATIONS_REQUIRED", "1"), 1)),
+)
 
 
 def _parse_iso(raw: Any) -> Optional[datetime]:
@@ -107,10 +124,10 @@ def default_sideways_governor_state() -> Dict[str, Any]:
         "fallback_sample_size_14d": 0,
         "allow_sideways_entries": True,
         "allow_sideways_fallback": False,
-        "sideways_min_rr_override": 1.25,
-        "sideways_min_volume_floor": 1.1,
-        "sideways_confidence_bonus": 3,
-        "sideways_confirmations_required": 2,
+        "sideways_min_rr_override": STRICT_MIN_RR,
+        "sideways_min_volume_floor": STRICT_MIN_VOLUME_FLOOR,
+        "sideways_confidence_bonus": STRICT_CONFIDENCE_BONUS,
+        "sideways_confirmations_required": STRICT_CONFIRMATIONS_REQUIRED,
         "dynamic_hold_sideways_seconds": 120,
         "dynamic_hold_non_sideways_seconds": 1800,
         "symbol_sideways_hold_seconds": {},
@@ -287,9 +304,14 @@ def compute_next_sideways_governor_state(
     recovery_windows = _as_int(out.get("consecutive_recovery_windows"), 0)
     fallback_recovery_windows = _as_int(out.get("fallback_recovery_windows"), 0)
 
-    severe = sample >= 30 and expectancy < -0.005 and timeout_loss_rate >= 0.65
-    needs_strict = sample >= 20 and (expectancy < 0.0 or timeout_loss_rate >= 0.55)
-    recovery_good = expectancy >= 0.0 and timeout_loss_rate <= 0.45
+    # Hard pause must be based on fresh 24h damage, not fallback history.
+    severe = (
+        sample_24h >= 30
+        and float(out["sideways_expectancy_24h"]) < -0.005
+        and float(out["sideways_timeout_loss_rate_24h"]) >= 0.65
+    )
+    needs_strict = sample >= 20 and (expectancy < -0.0015 or timeout_loss_rate >= 0.58)
+    recovery_good = expectancy >= 0.0 and timeout_loss_rate <= 0.50
     fallback_recovered = expectancy >= 0.0
 
     mode = prev_mode
@@ -332,17 +354,17 @@ def compute_next_sideways_governor_state(
     if mode == MODE_PAUSE:
         allow_sideways_entries = False
         allow_sideways_fallback = False
-        min_rr_override = 1.25
-        min_vol_floor = 1.1
-        conf_bonus = 3
-        confirmations = 2
+        min_rr_override = STRICT_MIN_RR
+        min_vol_floor = STRICT_MIN_VOLUME_FLOOR
+        conf_bonus = STRICT_CONFIDENCE_BONUS
+        confirmations = STRICT_CONFIRMATIONS_REQUIRED
     elif mode == MODE_STRICT:
         allow_sideways_entries = True
         allow_sideways_fallback = False
-        min_rr_override = 1.25
-        min_vol_floor = 1.1
-        conf_bonus = 3
-        confirmations = 2
+        min_rr_override = STRICT_MIN_RR
+        min_vol_floor = STRICT_MIN_VOLUME_FLOOR
+        conf_bonus = STRICT_CONFIDENCE_BONUS
+        confirmations = STRICT_CONFIRMATIONS_REQUIRED
     else:
         allow_sideways_entries = True
         allow_sideways_fallback = fallback_recovery_windows >= RECOVERY_WINDOWS_REQUIRED

@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.2.88] — 2026-04-22 — Scalping Over-Blocking Reduction (Governor + V2 Cooldown)
+
+### 🛡️ Sideways Governor Tuning (Safe Relaxation)
+- Updated `Bismillah/app/sideways_governor.py` to reduce over-blocking while preserving guardrails:
+  - Added env-tunable strict-profile parameters:
+    - `SIDEWAYS_GOVERNOR_STRICT_MIN_RR` (default `1.20`)
+    - `SIDEWAYS_GOVERNOR_STRICT_MIN_VOLUME_FLOOR` (default `1.00`)
+    - `SIDEWAYS_GOVERNOR_STRICT_CONFIDENCE_BONUS` (default `1`)
+    - `SIDEWAYS_GOVERNOR_STRICT_CONFIRMATIONS_REQUIRED` (default `1`)
+  - Hard `pause` escalation now requires **fresh 24h degradation evidence**; fallback-window history alone no longer triggers `pause`.
+  - Strict-mode trigger and recovery thresholds were softened slightly to reduce prolonged strict lock-in:
+    - strict trigger no longer fires on tiny negative expectancy noise
+    - recovery threshold widened for faster normalization after improving conditions
+
+### 🚦 V2 Rejection Cooldown Scope/TTL Hardening
+- Updated `Bismillah/app/scalping_engine.py`:
+  - Added reason-aware cooldown policy for Decision Tree V2 rejections:
+    - `tradeability_below_threshold` uses shorter cooldown (default `75s`)
+    - quality-only rejects use shorter cooldown (default `90s`)
+  - Added local-only rejection reason set so user-profile/tier/capacity rejects do not globally suppress all users for the same symbol/setup.
+  - Runtime rejection logging now includes cooldown scope (`local` vs `global`) for easier diagnostics.
+  - New env knobs:
+    - `DECISION_TREE_V2_REJECTION_COOLDOWN_TRADEABILITY_SECONDS`
+    - `DECISION_TREE_V2_REJECTION_COOLDOWN_QUALITY_SECONDS`
+
+### ✅ Tests Updated
+- Updated and extended tests:
+  - `tests/test_sideways_governor.py`
+    - adjusted strict-profile assertions to new safe defaults
+    - added fallback-only degradation regression test (must not enter `pause`)
+  - `tests/test_swing_scalp_parity.py`
+    - added local-only behavior test for `tradeability_below_threshold`
+    - added shared/global behavior test for market-structural reject (`rr_below_threshold`)
+
 ## [2.2.87] — 2026-04-21 — Admin Testimonial Avatar Upload
 
 ### 🖼️ Testimonials Avatar Upload (Admin)
