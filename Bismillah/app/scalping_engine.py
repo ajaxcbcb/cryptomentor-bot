@@ -92,6 +92,10 @@ DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED = _env_flag(
     "DECISION_TREE_V2_GLOBAL_REJECTION_COOLDOWN_ENABLED",
     True,
 )
+SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED = _env_flag(
+    "SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED",
+    False,
+)
 _GLOBAL_V2_REJECTION_COOLDOWN_TS: Dict[str, float] = {}
 _GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE: Dict[str, str] = {}
 
@@ -2179,13 +2183,20 @@ class ScalpingEngine:
                 reason_tags = set(match_meta.get("reason_tags", []) or [])
                 has_volume_confirmation = "volume_confirmation" in reason_tags
                 playbook_match_score = float(getattr(signal, "playbook_match_score", 0.0) or 0.0)
-                if (not has_volume_confirmation) or playbook_match_score < 0.20:
+                if SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED:
+                    gate_pass = has_volume_confirmation or playbook_match_score >= 0.20
+                    gate_desc = "volume_confirmation OR playbook_match_score>=0.20"
+                else:
+                    gate_pass = has_volume_confirmation and playbook_match_score >= 0.20
+                    gate_desc = "volume_confirmation + playbook_match_score>=0.20"
+                if not gate_pass:
                     logger.info(
                         f"[Scalping:{self.user_id}] Signal rejected: weak trend scalp under unhealthy playbook "
-                        f"requires volume_confirmation + playbook_match_score>=0.20 "
+                        f"requires {gate_desc} "
                         f"(symbol={signal.symbol} confidence={effective_confidence:.1f} "
                         f"playbook_score={playbook_match_score:.3f} "
-                        f"has_volume_confirmation={has_volume_confirmation})"
+                        f"has_volume_confirmation={has_volume_confirmation} "
+                        f"relaxation_enabled={SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED})"
                     )
                     return False
 

@@ -2601,3 +2601,17 @@ Use the **web dashboard** for all trading features:
   - journal funnel metrics and recent runtime lines.
 - Added `🧭 V2 Dashboard` and `🔄 Refresh` controls to the existing Telegram admin panel in `Bismillah/bot.py`.
 - Access stays constrained to Telegram admin IDs already loaded by the bot; non-admin users cannot open the dashboard.
+
+## 2.2.78 - Sideways Governor Pause Fallback + Unhealthy Playbook Trend-Gate Relaxation (Flagged)
+
+- Added a scoped sideways-governor hotfix path in `Bismillah/app/sideways_governor.py`:
+  - New flag `SIDEWAYS_GOVERNOR_PAUSE_FALLBACK_ENABLED` (default `false`).
+  - When enabled and runtime governor mode is `pause`, entry overrides fall back to strict-style sideways gating instead of full sideways-entry freeze.
+  - Snapshot/state computation remains unchanged; only entry override behavior is affected.
+- Added a scalping trend-gate relaxation in `Bismillah/app/scalping_engine.py`:
+  - New flag `SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED` (default `false`).
+  - When enabled under unhealthy global playbook guardrails, weak trend scalp gate changes from:
+    - `volume_confirmation AND playbook_match_score>=0.20`
+    to:
+    - `volume_confirmation OR playbook_match_score>=0.20`.
+  - All other risk/circuit-breaker/confluence checks remain in place.

@@ -9,6 +9,7 @@ recent closed-trade behavior (last 24h).
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,6 +32,17 @@ SIDEWAYS_HOLD_MIN = 90
 SIDEWAYS_HOLD_MAX = 150
 TREND_HOLD_MIN = 1200
 TREND_HOLD_MAX = 2400
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "true" if default else "false") or "").strip().lower()
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+SIDEWAYS_GOVERNOR_PAUSE_FALLBACK_ENABLED = _env_flag(
+    "SIDEWAYS_GOVERNOR_PAUSE_FALLBACK_ENABLED",
+    False,
+)
 
 _state_lock = threading.Lock()
 _state: Dict[str, Any] = {}
@@ -444,10 +456,24 @@ def get_sideways_entry_overrides(snapshot: Optional[Dict[str, Any]] = None) -> D
     mode = str(st.get("mode") or MODE_NORMAL)
     if mode not in {MODE_NORMAL, MODE_STRICT, MODE_PAUSE}:
         mode = MODE_NORMAL
+    allow_sideways_entries = bool(st.get("allow_sideways_entries", True))
+    allow_sideways_fallback = bool(st.get("allow_sideways_fallback", True))
+    decision_reason = str(st.get("decision_reason") or "")
+
+    if mode == MODE_PAUSE and SIDEWAYS_GOVERNOR_PAUSE_FALLBACK_ENABLED:
+        # Hotfix path: keep pause telemetry but avoid full sideways-entry freeze.
+        allow_sideways_entries = True
+        allow_sideways_fallback = False
+        decision_reason = (
+            f"{decision_reason}|pause_fallback_strict_override"
+            if decision_reason
+            else "pause_fallback_strict_override"
+        )
+
     return {
         "mode": mode,
-        "allow_sideways_entries": bool(st.get("allow_sideways_entries", True)),
-        "allow_sideways_fallback": bool(st.get("allow_sideways_fallback", True)),
+        "allow_sideways_entries": allow_sideways_entries,
+        "allow_sideways_fallback": allow_sideways_fallback,
         "sideways_min_rr_override": st.get("sideways_min_rr_override"),
         "sideways_min_volume_floor": float(st.get("sideways_min_volume_floor", 0.9) or 0.9),
         "sideways_confidence_bonus": int(st.get("sideways_confidence_bonus", 0) or 0),
@@ -461,7 +487,7 @@ def get_sideways_entry_overrides(snapshot: Optional[Dict[str, Any]] = None) -> D
         "sideways_timeout_loss_rate_basis": float(st.get("sideways_timeout_loss_rate_basis", 0.0) or 0.0),
         "fallback_recovery_windows": int(st.get("fallback_recovery_windows", 0) or 0),
         "fallback_sample_size_14d": int(st.get("fallback_sample_size_14d", 0) or 0),
-        "decision_reason": str(st.get("decision_reason") or ""),
+        "decision_reason": decision_reason,
     }
 
 
