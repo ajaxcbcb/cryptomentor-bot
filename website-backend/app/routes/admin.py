@@ -21,6 +21,7 @@ from app.services.admin_observability import (
     export_decision_tree_snapshot,
     export_trade_candidates,
     get_decision_tree_snapshot,
+    get_one_click_push_fomo_metrics,
     get_signal_control_snapshot,
     get_user_stats_summary,
     list_trade_candidates,
@@ -361,6 +362,7 @@ async def admin_bootstrap(requester: int = Depends(require_admin_user)):
     snapshot = get_decision_tree_snapshot(window=window, tail=6)
     user_stats = get_user_stats_summary()
     signal = get_signal_control_snapshot()
+    one_click_metrics = get_one_click_push_fomo_metrics(window_minutes=1440)
     db = snapshot.get("db") or {}
     return {
         "is_admin": True,
@@ -378,6 +380,7 @@ async def admin_bootstrap(requester: int = Depends(require_admin_user)):
         "summary_cards": {
             "users": user_stats,
             "signals": signal,
+            "one_click_push": one_click_metrics,
             "candidates": {
                 "live_candidate_count": int(db.get("live_candidate_count") or 0),
                 "approved_count": int(db.get("approved_count") or 0),

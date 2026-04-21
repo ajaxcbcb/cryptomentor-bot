@@ -411,3 +411,76 @@ def export_trade_candidates(payload: dict[str, Any], fmt: str = "json") -> tuple
     import json
 
     return "application/json", json.dumps(payload, indent=2)
+
+
+def get_one_click_push_fomo_metrics(window_minutes: int = 1440) -> dict[str, Any]:
+    cutoff = (_utc_now() - timedelta(minutes=max(1, int(window_minutes)))).isoformat()
+    client = _client()
+    try:
+        event_rows = (
+            client.table("one_click_signal_events")
+            .select(
+                "signal_id,push_started_at,push_completed_at,outcome_status,outcome_level,generated_at"
+            )
+            .gte("generated_at", cutoff)
+            .execute()
+            .data
+            or []
+        )
+        receipt_rows = (
+            client.table("one_click_signal_receipts")
+            .select(
+                "signal_id,delivery_status,delivery_error,eligible,missed_alert_status,example_used,created_at"
+            )
+            .gte("created_at", cutoff)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "window_minutes": int(window_minutes),
+            "error": str(exc),
+            "generated_at": _utc_now().isoformat(),
+        }
+
+    blocked_like = {
+        row.get("signal_id")
+        for row in receipt_rows
+        if any(
+            token in str(row.get("delivery_error") or "").lower()
+            for token in ("blocked", "forbidden", "chat not found", "deactivated")
+        )
+    }
+    sent_receipts = [row for row in receipt_rows if str(row.get("delivery_status") or "").lower() == "sent"]
+    failed_receipts = [row for row in receipt_rows if str(row.get("delivery_status") or "").lower() == "failed"]
+    fomo_sent = [row for row in receipt_rows if str(row.get("missed_alert_status") or "").lower() == "sent"]
+    fomo_failed = [row for row in receipt_rows if str(row.get("missed_alert_status") or "").lower() == "failed"]
+
+    return {
+        "available": True,
+        "generated_at": _utc_now().isoformat(),
+        "window_minutes": int(window_minutes),
+        "events": {
+            "TOTAL_EVENTS": len(event_rows),
+            "PUSH_STARTED": sum(1 for row in event_rows if row.get("push_started_at")),
+            "PUSH_COMPLETED": sum(1 for row in event_rows if row.get("push_completed_at")),
+            "TP_HIT_EVENTS": sum(1 for row in event_rows if str(row.get("outcome_status") or "").lower() == "tp_hit"),
+            "EXPIRED_EVENTS": sum(1 for row in event_rows if str(row.get("outcome_status") or "").lower() == "expired"),
+        },
+        "deliveries": {
+            "TOTAL_TARGET": len(receipt_rows),
+            "SENT": len(sent_receipts),
+            "FAILED": len(failed_receipts),
+            "BLOCKED_OR_FORBIDDEN": len(blocked_like),
+            "ELIGIBLE": sum(1 for row in receipt_rows if bool(row.get("eligible"))),
+        },
+        "missed_fomo": {
+            "MISSED_ALERTS_SENT": len(fomo_sent),
+            "MISSED_ALERTS_FAILED": len(fomo_failed),
+            "ZERO_EQUITY_EXAMPLE_ALERTS": sum(
+                1 for row in fomo_sent if bool(row.get("example_used"))
+            ),
+        },
+    }

@@ -687,7 +687,7 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
         logger.warning(f"Failed to fetch live equity for {tg_id}: {e}")
 
     min_risk_pct = auto_risk_min_by_equity(equity)
-    risk_value = clamp_auto_risk(row.get("risk_per_trade"), default=1.0, equity=equity)
+    risk_value = clamp_auto_risk(row.get("risk_per_trade"), default=3.0, equity=equity)
     leverage_baseline = int(row.get("leverage") or 10)
     leverage_baseline = max(AUTOTRADE_LEVERAGE_MIN, min(AUTOTRADE_LEVERAGE_MAX, leverage_baseline))
     band = risk_band(risk_value, all_in=False)
@@ -744,7 +744,7 @@ async def update_risk_setting(    payload: dict,
     from datetime import datetime
 
     try:
-        risk = float(payload.get("risk_per_trade") or 1.0)
+        risk = float(payload.get("risk_per_trade") or 3.0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="risk_per_trade must be a number")
 
@@ -780,7 +780,7 @@ async def update_risk_setting(    payload: dict,
         )
     try:
         # Ensure we're storing as a float for consistency
-        risk_value = clamp_auto_risk(risk, default=1.0, equity=equity)
+        risk_value = clamp_auto_risk(risk, default=3.0, equity=equity)
         s.table("autotrade_sessions").update({
             "risk_per_trade": risk_value,
             "updated_at": datetime.utcnow().isoformat(),
@@ -791,7 +791,7 @@ async def update_risk_setting(    payload: dict,
         logger.error(f"[RiskSetting:{tg_id}] Failed to update risk: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update risk: {e}")
 
-    accepted = clamp_auto_risk(risk, default=1.0, equity=equity)
+    accepted = clamp_auto_risk(risk, default=3.0, equity=equity)
     band = risk_band(accepted, all_in=False)
     return {
         "success": True,

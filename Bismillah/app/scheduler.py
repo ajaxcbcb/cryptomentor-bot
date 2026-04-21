@@ -651,6 +651,13 @@ def start_scheduler(application):
         from app.admin_daily_report import daily_report_task
         asyncio.create_task(daily_report_task(application))
 
+        # ── One-click strict push + missed-TP FOMO workers ─────────────
+        try:
+            from app.one_click_signal_push_worker import start_one_click_signal_workers
+            start_one_click_signal_workers(application)
+        except Exception as one_click_worker_err:
+            logger.error(f"[OneClickPush] Failed to start workers: {one_click_worker_err}")
+
     asyncio.create_task(_start())
 
 

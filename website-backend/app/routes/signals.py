@@ -17,6 +17,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import List, Dict, Any, Optional, Tuple
 import logging
@@ -24,7 +25,7 @@ import os
 import sys
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
@@ -63,6 +64,22 @@ except Exception:
     ) -> int:
         _ = (symbol, entry_price, sl_price, baseline_leverage)
         return 20
+
+try:
+    from one_click_signal_hub import (
+        generate_canonical_signals,
+        mark_receipt_opened_for_signal,
+        strict_gate_enabled as one_click_strict_gate_enabled,
+    )
+except Exception:
+    generate_canonical_signals = None
+
+    def mark_receipt_opened_for_signal(signal_id: str, telegram_id: int, trade_id: int | None = None) -> None:  # type: ignore
+        _ = (signal_id, telegram_id, trade_id)
+        return None
+
+    def one_click_strict_gate_enabled() -> bool:  # type: ignore
+        return False
 
 logger = logging.getLogger(__name__)
 TZ_UTC8 = timezone(timedelta(hours=8))
@@ -111,7 +128,7 @@ if not ONE_CLICK_SIGNAL_SIGNING_KEY:
     raise RuntimeError("Set ONE_CLICK_SIGNAL_SIGNING_KEY for /dashboard/signals preview/execute.")
 
 
-def _normalize_risk_pct(raw_value: Any, default: float = 1.0) -> float:
+def _normalize_risk_pct(raw_value: Any, default: float = 3.0) -> float:
     """Clamp incoming AutoTrade risk setting to supported range [0.25, 10.0]."""
     return clamp_auto_risk(raw_value, default=default)
 
@@ -125,7 +142,7 @@ def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
     Map user risk% to confluence selectivity and TP width.
     >1% is treated as high risk (lower min confidence, wider TP multipliers).
     """
-    risk = _normalize_risk_pct(user_risk_pct, default=1.0)
+    risk = _normalize_risk_pct(user_risk_pct, default=3.0)
     if risk <= 0.25:
         return {"min_confidence": 60, "atr_multiplier": 0.5}
     if risk <= 0.5:
@@ -240,7 +257,7 @@ async def generate_confluence_signals(
     symbol_upper = symbol.upper()
 
     # Get config for user's risk level (clamped to [0.25, 5.0])
-    user_risk_pct = _normalize_risk_pct(user_risk_pct, default=1.0)
+    user_risk_pct = _normalize_risk_pct(user_risk_pct, default=3.0)
     config = _risk_profile(user_risk_pct)
     min_confidence = config["min_confidence"]
     atr_multiplier = config["atr_multiplier"]
@@ -510,6 +527,29 @@ def _watchlist_entry(symbol: str):
     return None
 
 
+def _is_supported_symbol(symbol: str) -> bool:
+    sym = _norm_symbol(symbol)
+    if not sym:
+        return False
+    if _watchlist_entry(sym):
+        return True
+    if not re.fullmatch(r"[A-Z0-9]{4,20}", sym):
+        return False
+    try:
+        from volume_pair_selector import get_ranked_top_volume_pairs  # type: ignore
+
+        dynamic = {
+            _norm_symbol(s)
+            for s in (get_ranked_top_volume_pairs(20) or [])
+        }
+        if sym in dynamic:
+            return True
+    except Exception:
+        pass
+    # Last-resort allow-list for dynamic USDT symbols.
+    return sym.endswith("USDT")
+
+
 def _sign_signal_payload(payload: Dict[str, Any]) -> str:
     message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     sig = hmac.new(
@@ -570,8 +610,8 @@ def _decode_signal_token(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=410, detail="Signal token expired")
 
     sym = _norm_symbol(payload.get("symbol"))
-    if not _watchlist_entry(sym):
-        raise HTTPException(status_code=400, detail=f"Token symbol {sym} not in watchlist")
+    if not _is_supported_symbol(sym):
+        raise HTTPException(status_code=400, detail=f"Token symbol {sym} not supported")
     payload["symbol"] = sym
     payload["side"] = "BUY" if str(payload.get("direction")).upper() == "LONG" else "SELL"
     payload["stop_loss"] = _as_float(payload.get("stop_loss"), 0.0)
@@ -762,6 +802,162 @@ def _build_user_state(symbol: str, ctx: Dict[str, Any]) -> str:
     return "ready"
 
 
+def _signal_entry_window_seconds(generated_at: datetime, expires_at: datetime) -> int:
+    seconds = int(max(60, (expires_at - generated_at).total_seconds()))
+    return seconds
+
+
+def _canonical_signal_to_response(
+    *,
+    idx: int,
+    signal: Dict[str, Any],
+    now_utc: datetime,
+    trade_status: Dict[str, Dict[str, Any]],
+    status_label_map: Dict[str, str],
+    user_state_ctx: Dict[str, Any] | None,
+    include_token: bool,
+) -> Dict[str, Any]:
+    sym = _norm_symbol(signal.get("symbol"))
+    pair = str(signal.get("pair") or sym)
+    direction = str(signal.get("direction") or "LONG").upper()
+    stop_loss = _as_float(signal.get("stop_loss"), 0.0)
+    targets_raw = [
+        _as_float(signal.get("tp1"), 0.0),
+        _as_float(signal.get("tp2"), 0.0),
+        _as_float(signal.get("tp3"), 0.0),
+    ]
+    generated_at = _iso_to_dt(str(signal.get("generated_at") or now_utc.isoformat()))
+    expires_at = _iso_to_dt(str(signal.get("expires_at") or (generated_at + timedelta(seconds=SIGNAL_ENTRY_WINDOW_SECONDS)).isoformat()))
+    signal_id = str(signal.get("signal_id") or _build_signal_id(sym, generated_at, str(signal.get("model_source") or "canonical_pro_v1")))
+
+    gate_status = str(signal.get("gate_status") or "blocked").lower()
+    gate_reasons = [str(r) for r in list(signal.get("gate_reasons") or []) if str(r).strip()]
+    approved = gate_status == "approved"
+    signal_response: Dict[str, Any] = {
+        "id": idx + 1,
+        "symbol": sym,
+        "pair": pair,
+        "type": str(signal.get("type") or "Scalp"),
+        "direction": direction,
+        "entry": f"{_fmt(_as_float(signal.get('entry_zone_low'), 0.0))} - {_fmt(_as_float(signal.get('entry_zone_high'), 0.0))}",
+        "targets": [_fmt(v) for v in targets_raw if v > 0],
+        "targets_raw": targets_raw,
+        "stopLoss": _fmt(stop_loss),
+        "stopLossRaw": stop_loss,
+        "status": "Active" if approved else "Blocked",
+        "time": now_utc.astimezone(TZ_UTC8).strftime("%H:%M:%S UTC+8"),
+        "premium": False,
+        "confidence": round(_as_float(signal.get("confidence"), 0.0), 2),
+        "confidence_effective": round(_as_float(signal.get("confidence_effective", signal.get("confidence")), 0.0), 2),
+        "price": _as_float(signal.get("entry_price"), 0.0),
+        "generated_at": generated_at.isoformat(),
+        "entry_window_seconds": _signal_entry_window_seconds(generated_at, expires_at),
+        "reason": " | ".join([str(r) for r in (signal.get("reasons") or [])[:3]]) or "Canonical strict-gate signal",
+        "signal_id": signal_id,
+        "canonical_signal_id": signal_id,
+        "expires_at": expires_at.isoformat(),
+        "model_source": str(signal.get("model_source") or "canonical_pro_v1"),
+        "gate_status": "approved" if approved else "blocked",
+        "gate_reasons": gate_reasons,
+        "push_eligible": bool(signal.get("push_eligible")),
+        "universe_rank": int(signal.get("volume_rank") or 0),
+        "universe_source": "bitunix_top10_quoteVol",
+        "quality": {
+            "tradeability_score": round(_as_float(signal.get("tradeability_score"), 0.0), 4),
+            "approval_score": round(_as_float(signal.get("approval_score"), 0.0), 4),
+            "playbook_match_score": round(_as_float(signal.get("playbook_match_score"), 0.0), 4),
+            "confidence_bucket": str(signal.get("confidence_bucket") or ""),
+            "confidence_bucket_penalty": int(signal.get("confidence_bucket_penalty") or 0),
+        },
+        "user_state": _build_user_state(sym, user_state_ctx or {}) if user_state_ctx else "ready",
+    }
+    if not approved:
+        signal_response["blocked_reason"] = "; ".join(gate_reasons) if gate_reasons else "did_not_pass_strict_gate"
+
+    if include_token and approved:
+        token_payload = {
+            "v": SIGNAL_TOKEN_VERSION,
+            "signal_id": signal_id,
+            "symbol": sym,
+            "pair": pair,
+            "direction": direction,
+            "stop_loss": float(stop_loss),
+            "targets": [float(v) for v in targets_raw],
+            "generated_at": generated_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "model_source": str(signal_response["model_source"]),
+        }
+        signal_response["signal_token"] = _sign_signal_payload(token_payload)
+
+    ts = trade_status.get(sym)
+    if ts:
+        signal_response["expired"] = True
+        signal_response["trade_status"] = ts["label"]
+        signal_response["status"] = status_label_map.get(ts["label"], "Filled")
+        signal_response["trade_pnl"] = ts["pnl"]
+        signal_response["tp_hits"] = {
+            "tp1": ts["tp1_hit"],
+            "tp2": ts["tp2_hit"],
+            "tp3": ts["tp3_hit"],
+        }
+    else:
+        signal_response["expired"] = False
+        signal_response["trade_status"] = "pending"
+    return signal_response
+
+
+def _fetch_signal_event_by_id(signal_id: str) -> Optional[Dict[str, Any]]:
+    sid = str(signal_id or "").strip()
+    if not sid:
+        return None
+    try:
+        res = (
+            _client()
+            .table("one_click_signal_events")
+            .select("*")
+            .eq("signal_id", sid)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        return dict(rows[0]) if rows else None
+    except Exception as e:
+        logger.warning("Failed to fetch signal event by id=%s: %s", sid, e)
+        return None
+
+
+def _event_row_to_canonical_signal(event_row: Dict[str, Any]) -> Dict[str, Any]:
+    quality_meta = event_row.get("quality_meta") or {}
+    return {
+        "signal_id": str(event_row.get("signal_id") or ""),
+        "symbol": _norm_symbol(event_row.get("symbol")),
+        "pair": str(event_row.get("pair") or ""),
+        "type": str(event_row.get("signal_type") or "Scalp"),
+        "direction": str(event_row.get("direction") or "LONG").upper(),
+        "entry_price": _as_float(event_row.get("entry_price"), 0.0),
+        "entry_zone_low": _as_float(event_row.get("entry_price"), 0.0) * 0.999,
+        "entry_zone_high": _as_float(event_row.get("entry_price"), 0.0) * 1.001,
+        "tp1": _as_float(event_row.get("tp1_price"), 0.0),
+        "tp2": _as_float(event_row.get("tp2_price"), 0.0),
+        "tp3": _as_float(event_row.get("tp3_price"), 0.0),
+        "stop_loss": _as_float(event_row.get("sl_price"), 0.0),
+        "confidence": _as_float(event_row.get("confidence"), 0.0),
+        "confidence_effective": _as_float(event_row.get("confidence"), 0.0),
+        "model_source": str(event_row.get("model_source") or "canonical_pro_v1"),
+        "generated_at": str(event_row.get("generated_at") or datetime.now(timezone.utc).isoformat()),
+        "expires_at": str(event_row.get("expires_at") or (datetime.now(timezone.utc) + timedelta(seconds=SIGNAL_ENTRY_WINDOW_SECONDS)).isoformat()),
+        "gate_status": str(event_row.get("gate_status") or "approved"),
+        "gate_reasons": list(event_row.get("gate_reasons") or []),
+        "push_eligible": bool((quality_meta or {}).get("push_eligible", False)),
+        "volume_rank": int((quality_meta or {}).get("volume_rank") or 0),
+        "tradeability_score": _as_float((quality_meta or {}).get("tradeability_score"), 0.0),
+        "approval_score": _as_float((quality_meta or {}).get("approval_score"), 0.0),
+        "playbook_match_score": _as_float((quality_meta or {}).get("playbook_match_score"), 0.0),
+        "confidence_bucket": str((quality_meta or {}).get("confidence_bucket") or ""),
+        "confidence_bucket_penalty": int((quality_meta or {}).get("confidence_bucket_penalty") or 0),
+    }
+
+
 def _warn_list_from_sizing(sizing: Dict[str, Any]) -> List[str]:
     warnings: List[str] = []
     if bool(sizing.get("high_risk")):
@@ -791,14 +987,14 @@ def _resolve_risk_inputs(
     risk_override_pct: Optional[float],
     all_in: bool,
 ) -> Tuple[float, float]:
+    # Locked policy: one-click risk follows dashboard user risk_per_trade.
+    # Keep requested payload for observability, but enforce accepted risk to base.
     requested = float(base_risk_pct)
-    accepted = float(base_risk_pct)
-    if risk_override_pct is not None:
-        requested = float(risk_override_pct)
-        accepted = _normalize_one_click_risk_pct(risk_override_pct, default=accepted)
     if all_in:
         requested = ONE_CLICK_RISK_MAX_PCT
-        accepted = ONE_CLICK_RISK_MAX_PCT
+    elif risk_override_pct is not None:
+        requested = float(risk_override_pct)
+    accepted = float(_normalize_risk_pct(base_risk_pct, default=3.0))
     return requested, accepted
 
 
@@ -965,15 +1161,20 @@ class SignalExecutePayload(BaseModel):
 
 
 @router.get("/signals")
-async def get_signals(tg_id: int | None = Depends(_optional_user)):
+async def get_signals(
+    tg_id: int | None = Depends(_optional_user),
+    signal_id: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+):
     """
     Generate fresh confluence-based signals for all watchlist symbols.
     Adds server-signed signal tokens for deterministic 1-click execution.
     """
     signals: List[Dict[str, Any]] = []
+    seen_signal_ids: set[str] = set()
     now_utc = datetime.now(timezone.utc)
 
-    user_risk_pct = 1.0
+    user_risk_pct = 3.0
     if tg_id:
         try:
             s = _client()
@@ -985,10 +1186,10 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
                 .execute()
             )
             sess = (res.data or [{}])[0]
-            user_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)
+            user_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=3.0)
         except Exception as e:
             logger.warning("Failed to fetch user risk setting: %s", e)
-            user_risk_pct = 1.0
+            user_risk_pct = 3.0
 
     try:
         trade_status = _trade_status_by_symbol(tg_id) if tg_id else {}
@@ -1011,111 +1212,191 @@ async def get_signals(tg_id: int | None = Depends(_optional_user)):
         "manual_close": "Closed Manually",
     }
 
-    symbols = [w[1] for w in _WATCHLIST]
-    try:
-        params = {"symbols": '["' + '","'.join(symbols) + '"]'}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(_BINANCE_TICKER, params=params)
-            r.raise_for_status()
-            ticker_data = {row["symbol"]: row for row in r.json()}
-    except Exception as e:
-        logger.error("Failed to fetch Binance tickers: %s", e)
-        ticker_data = {}
+    focus_signal_id = str(signal_id or "").strip()
+    focus_action = str(action or "").strip().lower()
+    strict_pipeline_enabled = bool(one_click_strict_gate_enabled() and generate_canonical_signals is not None)
 
-    for idx, (pair, sym, tier, sig_type) in enumerate(_WATCHLIST):
+    # If deep-linked from Telegram, prioritize restoring the exact pushed signal event.
+    if focus_signal_id:
+        event_row = _fetch_signal_event_by_id(focus_signal_id)
+        if event_row:
+            try:
+                event_sig = _event_row_to_canonical_signal(event_row)
+                event_response = _canonical_signal_to_response(
+                    idx=len(signals),
+                    signal=event_sig,
+                    now_utc=now_utc,
+                    trade_status=trade_status,
+                    status_label_map=status_label_map,
+                    user_state_ctx=user_state_ctx if tg_id else None,
+                    include_token=True,
+                )
+                event_response["focus_match"] = True
+                event_response["focus_action"] = focus_action
+                signals.append(event_response)
+                seen_signal_ids.add(str(event_response.get("signal_id") or ""))
+            except Exception as e:
+                logger.warning("Failed to build deep-link event signal %s: %s", focus_signal_id, e)
+
+    if strict_pipeline_enabled:
         try:
-            conf_signal = await generate_confluence_signals(sym, user_risk_pct)
-            ts = trade_status.get(sym)
+            canonical = await generate_canonical_signals(
+                user_id=tg_id,
+                user_risk_pct=user_risk_pct,
+                limit=10,
+                include_blocked=True,
+                strict_gate=True,
+            )
+            for item in canonical:
+                try:
+                    signal_response = _canonical_signal_to_response(
+                        idx=len(signals),
+                        signal=item,
+                        now_utc=now_utc,
+                        trade_status=trade_status,
+                        status_label_map=status_label_map,
+                        user_state_ctx=user_state_ctx if tg_id else None,
+                        include_token=True,
+                    )
+                    sid = str(signal_response.get("signal_id") or "")
+                    if sid and sid in seen_signal_ids:
+                        continue
+                    if sid:
+                        seen_signal_ids.add(sid)
+                    signals.append(signal_response)
+                except Exception as e:
+                    logger.warning("Failed to normalize canonical signal %s: %s", item.get("symbol"), e)
+        except Exception as e:
+            logger.error("Strict canonical signal generation failed: %s", e)
+            strict_pipeline_enabled = False
 
-            if conf_signal:
-                generated_at = _iso_to_dt(str(conf_signal["generated_at"]))
-                model_source = "confluence_v1"
-                direction = str(conf_signal["direction"]).upper()
-                stop_loss = _as_float(conf_signal["stop_loss"], 0.0)
-                targets_raw = [
-                    _as_float(conf_signal["take_profit_1"], 0.0),
-                    _as_float(conf_signal["take_profit_2"], 0.0),
-                    _as_float(conf_signal["take_profit_3"], 0.0),
-                ]
-                signal_response = {
-                    "id": idx + 1,
+    # Safe fallback when strict pipeline is disabled/unavailable/fails.
+    if not strict_pipeline_enabled:
+        symbols = [w[1] for w in _WATCHLIST]
+        try:
+            params = {"symbols": '["' + '","'.join(symbols) + '"]'}
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(_BINANCE_TICKER, params=params)
+                r.raise_for_status()
+                ticker_data = {row["symbol"]: row for row in r.json()}
+        except Exception as e:
+            logger.error("Failed to fetch Binance tickers: %s", e)
+            ticker_data = {}
+
+        for idx, (pair, sym, tier, sig_type) in enumerate(_WATCHLIST):
+            try:
+                conf_signal = await generate_confluence_signals(sym, user_risk_pct)
+                ts = trade_status.get(sym)
+
+                if conf_signal:
+                    generated_at = _iso_to_dt(str(conf_signal["generated_at"]))
+                    model_source = "confluence_v1"
+                    direction = str(conf_signal["direction"]).upper()
+                    stop_loss = _as_float(conf_signal["stop_loss"], 0.0)
+                    targets_raw = [
+                        _as_float(conf_signal["take_profit_1"], 0.0),
+                        _as_float(conf_signal["take_profit_2"], 0.0),
+                        _as_float(conf_signal["take_profit_3"], 0.0),
+                    ]
+                    signal_response = {
+                        "id": len(signals) + 1,
+                        "symbol": sym,
+                        "pair": pair,
+                        "type": sig_type,
+                        "direction": direction,
+                        "entry": f"{_fmt(conf_signal['entry_zone_low'])} - {_fmt(conf_signal['entry_zone_high'])}",
+                        "targets": [_fmt(v) for v in targets_raw],
+                        "targets_raw": targets_raw,
+                        "stopLoss": _fmt(stop_loss),
+                        "stopLossRaw": stop_loss,
+                        "status": "Active",
+                        "time": now_utc.astimezone(TZ_UTC8).strftime("%H:%M:%S UTC+8"),
+                        "premium": tier == "pro",
+                        "confidence": conf_signal["confidence"],
+                        "confidence_effective": conf_signal["confidence"],
+                        "price": conf_signal["entry_price"],
+                        "generated_at": generated_at.isoformat(),
+                        "entry_window_seconds": SIGNAL_ENTRY_WINDOW_SECONDS,
+                        "reason": conf_signal.get("reason", ""),
+                        "gate_status": "approved",
+                        "gate_reasons": [],
+                        "push_eligible": False,
+                        "universe_rank": idx + 1,
+                        "universe_source": "legacy_watchlist",
+                        "canonical_signal_id": None,
+                        "quality": {},
+                    }
+                elif sym in ticker_data:
+                    sig = _build_signal(idx, pair, tier, sig_type, ticker_data[sym], generated_at=now_utc)
+                    generated_at = _iso_to_dt(str(sig["generated_at"]))
+                    model_source = "momentum_fallback_v1"
+                    direction = str(sig["direction"]).upper()
+                    stop_loss = _as_float(str(sig["stopLoss"]).replace(",", ""), 0.0)
+                    targets_raw = [_as_float(str(v).replace(",", ""), 0.0) for v in (sig.get("targets") or [])]
+                    sig["symbol"] = sym
+                    sig["entry_window_seconds"] = SIGNAL_ENTRY_WINDOW_SECONDS
+                    sig["reason"] = "Momentum signal"
+                    sig["targets_raw"] = targets_raw
+                    sig["stopLossRaw"] = stop_loss
+                    sig["confidence_effective"] = sig.get("confidence")
+                    sig["gate_status"] = "approved"
+                    sig["gate_reasons"] = []
+                    sig["push_eligible"] = False
+                    sig["universe_rank"] = idx + 1
+                    sig["universe_source"] = "legacy_watchlist"
+                    sig["canonical_signal_id"] = None
+                    sig["quality"] = {}
+                    signal_response = sig
+                else:
+                    continue
+
+                expires_at = generated_at + timedelta(seconds=SIGNAL_ENTRY_WINDOW_SECONDS)
+                built_signal_id = _build_signal_id(sym, generated_at, model_source)
+                token_payload = {
+                    "v": SIGNAL_TOKEN_VERSION,
+                    "signal_id": built_signal_id,
                     "symbol": sym,
                     "pair": pair,
-                    "type": sig_type,
                     "direction": direction,
-                    "entry": f"{_fmt(conf_signal['entry_zone_low'])} - {_fmt(conf_signal['entry_zone_high'])}",
-                    "targets": [_fmt(v) for v in targets_raw],
-                    "targets_raw": targets_raw,
-                    "stopLoss": _fmt(stop_loss),
-                    "stopLossRaw": stop_loss,
-                    "status": "Active",
-                    "time": now_utc.astimezone(TZ_UTC8).strftime("%H:%M:%S UTC+8"),
-                    "premium": tier == "pro",
-                    "confidence": conf_signal["confidence"],
-                    "price": conf_signal["entry_price"],
+                    "stop_loss": float(stop_loss),
+                    "targets": [float(v) for v in targets_raw],
                     "generated_at": generated_at.isoformat(),
-                    "entry_window_seconds": SIGNAL_ENTRY_WINDOW_SECONDS,
-                    "reason": conf_signal.get("reason", ""),
+                    "expires_at": expires_at.isoformat(),
+                    "model_source": model_source,
                 }
-            elif sym in ticker_data:
-                sig = _build_signal(idx, pair, tier, sig_type, ticker_data[sym], generated_at=now_utc)
-                generated_at = _iso_to_dt(str(sig["generated_at"]))
-                model_source = "momentum_fallback_v1"
-                direction = str(sig["direction"]).upper()
-                stop_loss = _as_float(str(sig["stopLoss"]).replace(",", ""), 0.0)
-                targets_raw = [_as_float(str(v).replace(",", ""), 0.0) for v in (sig.get("targets") or [])]
-                sig["symbol"] = sym
-                sig["entry_window_seconds"] = SIGNAL_ENTRY_WINDOW_SECONDS
-                sig["reason"] = "Momentum signal"
-                sig["targets_raw"] = targets_raw
-                sig["stopLossRaw"] = stop_loss
-                signal_response = sig
-            else:
+                signal_token = _sign_signal_payload(token_payload)
+                signal_response["signal_id"] = built_signal_id
+                signal_response["signal_token"] = signal_token
+                signal_response["expires_at"] = expires_at.isoformat()
+                signal_response["model_source"] = model_source
+                signal_response["user_state"] = _build_user_state(sym, user_state_ctx) if tg_id else "ready"
+                signal_response["focus_match"] = built_signal_id == focus_signal_id if focus_signal_id else False
+                signal_response["focus_action"] = focus_action if signal_response["focus_match"] else ""
+
+                if ts:
+                    signal_response["expired"] = True
+                    signal_response["trade_status"] = ts["label"]
+                    signal_response["status"] = status_label_map.get(ts["label"], "Filled")
+                    signal_response["trade_pnl"] = ts["pnl"]
+                    signal_response["tp_hits"] = {
+                        "tp1": ts["tp1_hit"],
+                        "tp2": ts["tp2_hit"],
+                        "tp3": ts["tp3_hit"],
+                    }
+                else:
+                    signal_response["expired"] = False
+                    signal_response["trade_status"] = "pending"
+                signals.append(signal_response)
+            except Exception as e:
+                logger.error("Failed to generate signal for %s: %s", sym, e)
                 continue
-
-            expires_at = generated_at + timedelta(seconds=SIGNAL_ENTRY_WINDOW_SECONDS)
-            signal_id = _build_signal_id(sym, generated_at, model_source)
-            token_payload = {
-                "v": SIGNAL_TOKEN_VERSION,
-                "signal_id": signal_id,
-                "symbol": sym,
-                "pair": pair,
-                "direction": direction,
-                "stop_loss": float(stop_loss),
-                "targets": [float(v) for v in targets_raw],
-                "generated_at": generated_at.isoformat(),
-                "expires_at": expires_at.isoformat(),
-                "model_source": model_source,
-            }
-            signal_token = _sign_signal_payload(token_payload)
-            signal_response["signal_id"] = signal_id
-            signal_response["signal_token"] = signal_token
-            signal_response["expires_at"] = expires_at.isoformat()
-            signal_response["model_source"] = model_source
-            signal_response["user_state"] = _build_user_state(sym, user_state_ctx) if tg_id else "ready"
-
-            if ts:
-                signal_response["expired"] = True
-                signal_response["trade_status"] = ts["label"]
-                signal_response["status"] = status_label_map.get(ts["label"], "Filled")
-                signal_response["trade_pnl"] = ts["pnl"]
-                signal_response["tp_hits"] = {
-                    "tp1": ts["tp1_hit"],
-                    "tp2": ts["tp2_hit"],
-                    "tp3": ts["tp3_hit"],
-                }
-            else:
-                signal_response["expired"] = False
-                signal_response["trade_status"] = "pending"
-            signals.append(signal_response)
-        except Exception as e:
-            logger.error("Failed to generate signal for %s: %s", sym, e)
-            continue
 
     return {
         "signals": signals,
         "generated_at": now_utc.astimezone(TZ_UTC8).isoformat(),
         "entry_window_seconds": SIGNAL_ENTRY_WINDOW_SECONDS,
+        "strict_pipeline_enabled": bool(strict_pipeline_enabled),
+        "focus_signal_id": focus_signal_id or None,
     }
 
 
@@ -1155,7 +1436,7 @@ async def preview_signal_execution(
         .execute()
     )
     sess = (sess_res.data or [{}])[0]
-    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)
+    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=3.0)
     requested_risk_pct, accepted_risk_pct = _resolve_risk_inputs(
         base_risk_pct=base_risk_pct,
         risk_override_pct=payload.risk_override_pct,
@@ -1310,7 +1591,7 @@ async def execute_signal(
         .execute()
     )
     sess = (sess_res.data or [{}])[0]
-    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=1.0)
+    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=3.0)
     requested_risk_pct, accepted_risk_pct = _resolve_risk_inputs(
         base_risk_pct=base_risk_pct,
         risk_override_pct=payload.risk_override_pct,
@@ -1472,6 +1753,14 @@ async def execute_signal(
             exchange_order_id=str(result.get("order_id") or ""),
             exchange_position_id=str(result.get("position_id") or result.get("order_id") or ""),
         )
+    try:
+        mark_receipt_opened_for_signal(
+            str(signal_payload.get("signal_id") or ""),
+            int(tg_id),
+            int(trade_id) if trade_id else None,
+        )
+    except Exception as e:
+        logger.warning("Failed to mark receipt opened for signal=%s user=%s: %s", signal_payload.get("signal_id"), tg_id, e)
 
     account = {
         "balance": round(balance, 2),

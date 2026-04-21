@@ -1,5 +1,55 @@
 # Changelog
 
+## [2.2.90] — 2026-04-22 — High-Confidence 1-Click Push + Missed-TP FOMO
+
+### ⚡ Canonical 1-Click Signal Pipeline (Web + Telegram Sync)
+- Added shared canonical signal hub in `Bismillah/app/one_click_signal_hub.py` with strict autotrade-grade gating, Bitunix top-volume universe routing, and canonical signal identity/fingerprint.
+- Integrated `/dashboard/signals` to use canonical strict-gate signals when enabled, including metadata:
+  - `gate_status`, `gate_reasons`, `push_eligible`
+  - `universe_rank`, `universe_source`
+  - `canonical_signal_id` and quality fields.
+- Added deep-link restore path: Telegram `signal_id` can be restored from persisted signal events so web signal context remains synchronized.
+- Signal execution now marks per-user signal receipt as opened (`mark_receipt_opened_for_signal`) after successful open.
+
+### 📣 Telegram High-Confidence Push + Missed-TP FOMO
+- Added worker module `Bismillah/app/one_click_signal_push_worker.py` and scheduler wiring in `Bismillah/app/scheduler.py`.
+- Push worker behavior:
+  - pushes only approved/high-confidence (`>=90%`) signals,
+  - targets verified status aliases (`approved/uid_verified/active/verified`),
+  - sends exactly 2 buttons:
+    - `⚡ Instant 1-Click Trade`
+    - `📊 Dashboard`.
+- Added missed-FOMO worker:
+  - monitors pushed signals for outcome windows (default scalp `6h`, swing `24h`),
+  - triggers on any TP hit (`TP1/TP2/TP3`) with explicit level labeling,
+  - sends once per user per signal when unopened.
+- Zero-equity FOMO example path added:
+  - when user equity is zero, notification shows example projection using `$100` deposit and `10%` risk/trade.
+
+### 🗄️ Persistence + Migration
+- Added migration `website-backend/app/db/migrations/20260422_one_click_signal_push_fomo.sql`:
+  - sets `autotrade_sessions.risk_per_trade` default to `3.0`,
+  - one-time backfill only for null/invalid risk rows,
+  - creates `one_click_signal_events` and `one_click_signal_receipts` lifecycle tables + indexes.
+
+### 📊 Admin Observability
+- Added one-click push/FOMO metrics aggregation in `website-backend/app/services/admin_observability.py`.
+- `/dashboard/admin/bootstrap` now includes `summary_cards.one_click_push` with delivery and missed-alert counters.
+
+### 🌐 Frontend Deep-Link Context + Card UX
+- Updated `website-frontend/src/App.jsx`:
+  - preserves non-auth query params after token bootstrap so `tab/signal_id/action` survive login,
+  - honors deep-link context to open Signals tab and highlight focused signal card,
+  - renders strict-gate blocked reason state on signal cards.
+
+### 🧮 Risk Default Alignment
+- Updated backend risk fallbacks to use `3.0` default where applicable:
+  - `website-backend/app/services/risk_policy.py`
+  - `website-backend/app/routes/dashboard.py`
+  - `website-backend/app/routes/signals.py`
+  - `Bismillah/app/supabase_repo.py`.
+- Updated frontend default risk displays to align with `3%` default baseline.
+
 ## [2.2.89] — 2026-04-22 — Scalping Funnel Unblock (Adaptive Tradeability + Reject Quarantine)
 
 ### 🎯 Adaptive Tradeability Threshold (Scalping-Only, Bounded)

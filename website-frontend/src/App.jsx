@@ -166,7 +166,7 @@ const LOW_EQUITY_MIN_RISK_PCT = 3;
 
 const normalizeAutoRisk = (raw) => {
   const n = Number(raw);
-  if (!Number.isFinite(n)) return 1;
+  if (!Number.isFinite(n)) return 3;
   if (n <= 0.25) return 0.25;
   if (n >= 10) return 10;
   return Math.round(n * 100) / 100;
@@ -305,9 +305,24 @@ const resolveReferralUi = (referralUrl, referralSource, referralCode) => {
   };
 };
 
+const VALID_DASHBOARD_TABS = new Set(['portfolio', 'engine', 'settings', 'signals', 'referral']);
+
+const parseDashboardDeepLink = () => {
+  if (typeof window === 'undefined') {
+    return { tab: null, signal_id: null, action: null };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const rawTab = String(params.get('tab') || '').trim().toLowerCase();
+  const tab = VALID_DASHBOARD_TABS.has(rawTab) ? rawTab : null;
+  const signal_id = String(params.get('signal_id') || '').trim() || null;
+  const action = String(params.get('action') || '').trim().toLowerCase() || null;
+  return { tab, signal_id, action };
+};
+
 export default function App() {
   const UPDATE_DISMISS_KEY = 'cm_update_dismissed_marker';
   const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  const [deepLinkContext, setDeepLinkContext] = useState(() => parseDashboardDeepLink());
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem('cm_user');
@@ -325,7 +340,7 @@ export default function App() {
     }
     return hasUser && hasToken;
   });
-  const [activeTab, setActiveTab] = useState('portfolio');
+  const [activeTab, setActiveTab] = useState(() => parseDashboardDeepLink().tab || 'portfolio');
   const [positions] = useState(INITIAL_POSITIONS);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [realPositions, setRealPositions] = useState([]);
@@ -367,7 +382,7 @@ export default function App() {
     community_code: null,
   });
   const [riskSettings, setRiskSettings] = useState({
-    risk_per_trade: 0.5,
+    risk_per_trade: 3,
     leverage: 10,
     leverage_baseline: 10,
     leverage_mode: 'auto_max_pair',
@@ -467,6 +482,8 @@ export default function App() {
     const urlToken = params.get('t') || params.get('token');
     const urlUserStr = params.get('u') || params.get('user');
     const urlRef = params.get('ref');
+    const initialDeepLink = parseDashboardDeepLink();
+    setDeepLinkContext(initialDeepLink);
 
     // Persist referral code if present in URL
     if (urlRef) {
@@ -529,14 +546,30 @@ export default function App() {
         setIsLoggedIn(true);
         setUserProfileHydrated(Boolean((parsedUser && typeof parsedUser.is_admin !== 'undefined') || nextUser.is_admin));
 
-        // Remove params from URL to prevent re-login issues on refresh
-        window.history.replaceState({}, document.title, window.location.pathname);
+        // Remove auth bootstrap params while preserving deep-link context.
+        params.delete('t');
+        params.delete('token');
+        params.delete('u');
+        params.delete('user');
+        const retained = params.toString();
+        window.history.replaceState(
+          {},
+          document.title,
+          retained ? `${window.location.pathname}?${retained}` : window.location.pathname
+        );
         console.log('[Phase1] Auto-login successful via bot link');
       } catch (e) {
         console.error('[Phase1] Auto-login parse error:', e);
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    if (deepLinkContext?.tab && deepLinkContext.tab !== activeTab) {
+      setActiveTab(deepLinkContext.tab);
+    }
+  }, [isLoggedIn, deepLinkContext?.tab]);
 
   const handleTelegramLogin = async (telegramUser) => {
     const photoUrl = telegramUser.photo_url ||
@@ -844,7 +877,7 @@ export default function App() {
       if (resp.ok) {
         const data = await resp.json();
         setRiskSettings({
-          risk_per_trade: normalizeAutoRisk(data.risk_per_trade || 0.5),
+          risk_per_trade: normalizeAutoRisk(data.risk_per_trade || 3),
           leverage: data.leverage || 10,
           leverage_baseline: data.leverage_baseline ?? data.leverage ?? 10,
           leverage_mode: data.leverage_mode || 'auto_max_pair',
@@ -1571,6 +1604,8 @@ export default function App() {
               riskSettings={riskSettings}
               oneClickRiskPct={oneClickRiskPct}
               onUpdateOneClickRisk={updateOneClickRisk}
+              focusedSignalId={deepLinkContext?.signal_id || null}
+              focusAction={deepLinkContext?.action || null}
             />
           )}
           {activeTab === 'referral' && <ReferralTab user={user} />}
@@ -1618,10 +1653,10 @@ function UpdateAvailablePopup({ latest, onRefresh, onDismiss }) {
 }
 
 function RiskManagementCard({ riskSettings, onUpdateRisk, onUpdateLeverage, onUpdateMarginMode }) {
-  const safeRisk = riskSettings || { risk_per_trade: 1, loading: false, error: null };
+  const safeRisk = riskSettings || { risk_per_trade: 3, loading: false, error: null };
   const [autoRiskDraft, setAutoRiskDraft] = useState(null);
   const [autoSliderRisk, setAutoSliderRisk] = useState(null);
-  const autoRiskPct = normalizeAutoRisk(safeRisk.risk_per_trade || 1);
+  const autoRiskPct = normalizeAutoRisk(safeRisk.risk_per_trade || 3);
   const policyMin = Number(safeRisk?.risk_policy?.min_pct);
   const autoRiskMin = Math.max(
     getAutoRiskFloorByEquity(safeRisk.equity),
@@ -1978,7 +2013,7 @@ function EngineTab({
   controlBusy = { autoMode: false, mode: false, stackMentor: false },
   controlError = null,
   riskSettings = {
-    risk_per_trade: 0.5,
+    risk_per_trade: 3,
     leverage: 10,
     equity: 0,
     balance: 0,
@@ -2510,7 +2545,7 @@ function SettingsTab({ onBotConnected }) {
   );
 }
 
-function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk }) {
+function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk, focusedSignalId, focusAction }) {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -2521,7 +2556,11 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk 
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await apiFetch('/dashboard/signals');
+        const params = new URLSearchParams();
+        if (focusedSignalId) params.set('signal_id', String(focusedSignalId));
+        if (focusAction) params.set('action', String(focusAction));
+        const endpoint = params.toString() ? `/dashboard/signals?${params.toString()}` : '/dashboard/signals';
+        const r = await apiFetch(endpoint);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         if (cancelled) return;
@@ -2537,11 +2576,14 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk 
     load();
     const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [focusedSignalId, focusAction]);
 
   const stamp = updatedAt ? updatedAt.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC+8' : '—';
 
   const sortedSignals = [...signals].sort((a, b) => {
+    const aFocused = (!!focusedSignalId && String(a.signal_id || '') === String(focusedSignalId)) || !!a.focus_match;
+    const bFocused = (!!focusedSignalId && String(b.signal_id || '') === String(focusedSignalId)) || !!b.focus_match;
+    if (aFocused !== bFocused) return aFocused ? -1 : 1;
     if (sortBy === 'confidence') return (b.confidence || 0) - (a.confidence || 0);
     if (sortBy === 'newest') return (Date.parse(b.generated_at || 0)) - (Date.parse(a.generated_at || 0));
     return 0;
@@ -2619,13 +2661,18 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk 
       {error && <div className="text-rose-400 text-sm font-bold bg-rose-500/10 border border-rose-500/20 px-4 py-3 rounded-xl">Failed to load live signals: {error}</div>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {sortedSignals.map((signal, idx) => (
-          <div key={signal.id || signal.pair} className="animate-in fade-in slide-in-from-bottom-8" style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'both' }}>
+          <div
+            key={signal.signal_id || signal.id || signal.pair}
+            className={`animate-in fade-in slide-in-from-bottom-8 rounded-[1.5rem] ${((focusedSignalId && String(signal.signal_id || '') === String(focusedSignalId)) || signal.focus_match) ? 'ring-2 ring-cyan-400/60 shadow-[0_0_35px_rgba(34,211,238,0.25)]' : ''}`}
+            style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'both' }}
+          >
             <SignalCard
               signal={signal}
               userIsPremium={user?.is_premium}
               riskSettings={riskSettings}
               oneClickRiskPct={oneClickRiskPct}
               onUpdateOneClickRisk={onUpdateOneClickRisk}
+              isFocused={((focusedSignalId && String(signal.signal_id || '') === String(focusedSignalId)) || !!signal.focus_match)}
             />
           </div>
         ))}
@@ -3093,7 +3140,7 @@ function BridgeCard({ name, status, logo, logoSrc, colors, onConnect, onDisconne
   );
 }
 
-function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUpdateOneClickRisk }) {
+function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUpdateOneClickRisk, isFocused = false }) {
   const [isPlaced, setIsPlaced] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -3107,11 +3154,16 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
   const [now, setNow] = useState(() => Date.now());
   const [riskDraft, setRiskDraft] = useState(null);
   const [sliderRisk, setSliderRisk] = useState(null);
+  const cardRef = useRef(null);
   const holdStartedAtRef = useRef(null);
   const holdIntervalRef = useRef(null);
   const isLong = signal.direction === 'LONG';
   const isLocked = signal.premium && !userIsPremium;
   const isExpired = !!signal.expired;
+  const gateStatus = String(signal.gate_status || 'approved').toLowerCase();
+  const gateReasons = Array.isArray(signal.gate_reasons) ? signal.gate_reasons : [];
+  const blockedByGate = gateStatus === 'blocked';
+  const blockedReason = String(signal.blocked_reason || gateReasons.join('; ') || '').trim();
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -3146,6 +3198,13 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
   useEffect(() => {
     return () => clearHold();
   }, []);
+
+  useEffect(() => {
+    if (!isFocused || !cardRef.current) return;
+    try {
+      cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch {}
+  }, [isFocused]);
 
   const closeConfirmModal = () => {
     clearHold();
@@ -3271,7 +3330,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
   }, [riskSettings?.loading, oneClickRisk]);
 
   return (
-    <div className={`bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-5 md:p-6 flex flex-col transition-all duration-500 relative overflow-hidden group hover:border-white/20 ${isLocked ? 'opacity-80' : ''} ${isExpired ? 'opacity-60 grayscale' : ''}`}>
+    <div ref={cardRef} className={`bg-[#0a0a0a]/60 backdrop-blur-2xl rounded-[1.5rem] md:rounded-[2rem] border border-white/5 p-5 md:p-6 flex flex-col transition-all duration-500 relative overflow-hidden group hover:border-white/20 ${isLocked ? 'opacity-80' : ''} ${isExpired ? 'opacity-60 grayscale' : ''}`}>
       <div className={`absolute top-0 left-0 w-full h-1 ${isLong ? 'bg-gradient-to-r from-lime-400 to-lime-600' : 'bg-gradient-to-r from-rose-400 to-rose-600'}`} />
       <div className="flex justify-between items-start mb-4">
         <div>
@@ -3286,7 +3345,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-1 mb-1"><Clock size={12} className="text-slate-500" /><span className="text-xs text-slate-400 font-medium">{signal.time}</span></div>
-          <div className="text-[10px] font-bold text-fuchsia-400 bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{signal.confidence}% AI CONF</div>
+          <div className="text-[10px] font-bold text-fuchsia-400 bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{Number(signal.confidence_effective ?? signal.confidence ?? 0).toFixed(1)}% AI CONF</div>
         </div>
       </div>
       {isExpired ? (
@@ -3347,6 +3406,11 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
           {signal.user_state && signal.user_state !== 'ready' && (
             <div className="rounded-lg p-2 border border-white/10 bg-white/5 text-[10px] text-slate-300">
               User State: <span className="font-bold uppercase tracking-wider">{String(signal.user_state).replace(/_/g, ' ')}</span>
+            </div>
+          )}
+          {blockedByGate && (
+            <div className="rounded-lg p-2 border border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-200">
+              Signal blocked by strict gate{blockedReason ? `: ${blockedReason}` : '.'}
             </div>
           )}
           {!isPlaced && !windowExpired && riskSettings?.equity > 0 && signal.stopLoss && (
@@ -3419,7 +3483,7 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
           </div>
           <button
             onClick={openPreviewModal}
-            disabled={isPlaced || previewing || confirming || windowExpired || isUserStateBlocked || !signal.signal_token}
+            disabled={isPlaced || previewing || confirming || windowExpired || isUserStateBlocked || blockedByGate || !signal.signal_token}
             className={`mt-1 w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isPlaced ? 'bg-lime-500/20 text-lime-400 border border-lime-500/30' : windowExpired ? 'bg-white/5 text-slate-500 border border-white/10' : isLong ? 'bg-lime-500/10 text-lime-400 hover:bg-lime-500/20 border border-lime-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'}`}
           >
             {isPlaced ? (
@@ -3428,6 +3492,8 @@ function SignalCard({ signal, userIsPremium, riskSettings, oneClickRiskPct, onUp
               <><Zap size={16} /> Previewing…</>
             ) : windowExpired ? (
               <>Entry Window Closed</>
+            ) : blockedByGate ? (
+              <>Blocked (strict gate)</>
             ) : isUserStateBlocked ? (
               <>Blocked ({userState.replace(/_/g, ' ')})</>
             ) : (
@@ -3745,7 +3811,7 @@ function OnboardingWizard({ onComplete, onLogout }) {
   const [testError, setTestError] = useState('');
   const [saving, setSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [riskPerTrade, setRiskPerTrade] = useState(0.5);
+  const [riskPerTrade, setRiskPerTrade] = useState(3);
   const [onboardingRiskMin, setOnboardingRiskMin] = useState(0.25);
   const [marginMode, setMarginMode] = useState('cross');
   const [starting, setStarting] = useState(false);

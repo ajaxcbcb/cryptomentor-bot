@@ -326,7 +326,7 @@ def get_risk_per_trade(telegram_id: int) -> float:
 
     Returns:
         Risk percentage as float in range 0.25 - 5.0.
-        Default: 1.0 if not set
+        Default: 3.0 if not set
     """
     try:
         s = _client()
@@ -346,16 +346,16 @@ def get_risk_per_trade(telegram_id: int) -> float:
                 logger.info(f"[RiskFetch:{telegram_id}] Retrieved risk_per_trade: {risk_value}")
                 return risk_value
 
-        # Default: 1.0 if not set
+        # Default: 3.0 if not set
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"[RiskFetch:{telegram_id}] No risk_per_trade found, using default 1.0")
-        return 1.0
+        logger.info(f"[RiskFetch:{telegram_id}] No risk_per_trade found, using default 3.0")
+        return 3.0
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"[RiskFetch:{telegram_id}] Error fetching risk_per_trade: {e}")
-        return 1.0  # Safe default
+        return 3.0  # Safe default
 
 
 def get_risk_mode(telegram_id: int) -> str:

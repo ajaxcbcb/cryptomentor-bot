@@ -44,7 +44,7 @@ def auto_risk_min_by_equity(equity: Any = None) -> float:
     return AUTO_RISK_MIN_PCT
 
 
-def clamp_auto_risk(value: Any, default: float = 1.0, equity: Any = None) -> float:
+def clamp_auto_risk(value: Any, default: float = 3.0, equity: Any = None) -> float:
     risk = _to_float(value, default)
     min_risk = auto_risk_min_by_equity(equity)
     return max(min_risk, min(AUTO_RISK_MAX_PCT, risk))
