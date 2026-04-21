@@ -315,7 +315,22 @@ def _engine_stop_reason(session: dict, has_api_keys: bool) -> str:
 
 
 async def send_daily_report(bot):
-    """Build and send the daily analytics report to all admins."""
+    """Build and send the daily analytics report to all admins.
+
+    Returns a structured payload so callers can surface real success/failure.
+    """
+    delivery = {
+        "ok": False,
+        "partial": False,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "metrics": {
+            "TOTAL_TARGET": 0,
+            "SENT": 0,
+            "FAILED": 0,
+            "BLOCKED_OR_FORBIDDEN": 0,
+        },
+        "errors": [],
+    }
     try:
         from app.supabase_repo import _client
         from app.autotrade_engine import is_running
@@ -869,15 +884,27 @@ async def send_daily_report(bot):
 
         # ── 10. Send to all admins ────────────────────────────────────
         admin_ids = _get_admin_ids()
+        delivery["metrics"]["TOTAL_TARGET"] = int(len(admin_ids))
+        if not admin_ids:
+            delivery["error"] = "No admin targets configured (ADMIN_IDS/ADMIN1/ADMIN2/ADMIN3)."
+            logger.error("[DailyReport] No admin targets configured; report not sent.")
+            return delivery
+
+        chunks = _split_message_lines(msg)
+        total_chunks = len(chunks)
+        sent_targets = 0
+        failed_targets = 0
+        blocked_targets = 0
+        delivery["chunk_count"] = int(total_chunks)
+
         for admin_id in admin_ids:
+            target_ok = True
             try:
-                chunks = _split_message_lines(msg)
-                total = len(chunks)
                 for idx, chunk in enumerate(chunks, start=1):
                     chunk_text = chunk
-                    if total > 1 and idx > 1:
+                    if total_chunks > 1 and idx > 1:
                         chunk_text = (
-                            f"📊 <b>CryptoMentor Daily Report (Cont. {idx}/{total})</b>\n\n"
+                            f"📊 <b>CryptoMentor Daily Report (Cont. {idx}/{total_chunks})</b>\n\n"
                             f"{chunk}"
                         )
                     await bot.send_message(
@@ -885,14 +912,42 @@ async def send_daily_report(bot):
                         text=chunk_text,
                         parse_mode='HTML'
                     )
-                logger.info(f"[DailyReport] ✅ Sent to admin {admin_id}")
             except Exception as e:
+                target_ok = False
+                err_txt = str(e or "")
+                lowered = err_txt.lower()
+                if any(token in lowered for token in ("blocked", "forbidden", "chat not found", "deactivated")):
+                    blocked_targets += 1
+                failed_targets += 1
+                delivery["errors"].append({"admin_id": int(admin_id), "error": err_txt})
                 logger.error(f"[DailyReport] ❌ Failed to send to admin {admin_id}: {e}")
+
+            if target_ok:
+                sent_targets += 1
+                logger.info(f"[DailyReport] ✅ Sent to admin {admin_id}")
+
+        delivery["metrics"]["SENT"] = int(sent_targets)
+        delivery["metrics"]["FAILED"] = int(failed_targets)
+        delivery["metrics"]["BLOCKED_OR_FORBIDDEN"] = int(blocked_targets)
+        delivery["partial"] = bool(failed_targets > 0 and sent_targets > 0)
+        delivery["ok"] = bool(sent_targets > 0)
+
+        if sent_targets > 0 and failed_targets == 0:
+            delivery["message"] = "Daily report sent to all admin targets."
+        elif sent_targets > 0:
+            delivery["message"] = f"Daily report sent with {failed_targets} failed target(s)."
+        else:
+            delivery["error"] = "Daily report delivery failed for all admin targets."
+
+        return delivery
 
     except Exception as e:
         logger.error(f"[DailyReport] Critical error: {e}")
         import traceback
         traceback.print_exc()
+        delivery["error"] = str(e)
+        delivery["exception_type"] = type(e).__name__
+        return delivery
 
 
 async def daily_report_task(application):

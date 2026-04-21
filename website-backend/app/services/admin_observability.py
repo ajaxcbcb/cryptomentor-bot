@@ -84,6 +84,35 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+_VERIFIED_ALIASES = {"approved", "uid_verified", "active", "verified"}
+
+
+def _fetch_table_rows(
+    client,
+    table_name: str,
+    columns: str,
+    *,
+    page_size: int = 1000,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    chunk = max(1, int(page_size))
+    while True:
+        batch = (
+            client.table(table_name)
+            .select(columns)
+            .range(offset, offset + chunk - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < chunk:
+            break
+        offset += chunk
+    return rows
+
+
 def get_decision_tree_snapshot(window: str = "30m", tail: int = 8) -> dict[str, Any]:
     dashboard = _get_dashboard_module()
     minutes = parse_window_minutes(window)
@@ -141,22 +170,62 @@ def set_signal_control(enabled: bool) -> dict[str, Any]:
 
 def get_user_stats_summary() -> dict[str, int]:
     s = _client()
-    total = s.table("users").select("telegram_id", count="exact").execute().count or 0
-    premium = (
-        s.table("users").select("telegram_id", count="exact").eq("is_premium", True).execute().count
-        or 0
+
+    user_rows = _fetch_table_rows(
+        s,
+        "users",
+        "telegram_id, is_premium, is_lifetime",
     )
-    lifetime = (
-        s.table("users").select("telegram_id", count="exact").eq("is_lifetime", True).execute().count
-        or 0
+    user_ids = {
+        int(row["telegram_id"])
+        for row in user_rows
+        if row.get("telegram_id") is not None
+    }
+    premium_ids = {
+        int(row["telegram_id"])
+        for row in user_rows
+        if row.get("telegram_id") is not None and bool(row.get("is_premium"))
+    }
+    lifetime_ids = {
+        int(row["telegram_id"])
+        for row in user_rows
+        if row.get("telegram_id") is not None and bool(row.get("is_lifetime"))
+    }
+
+    verification_rows = _fetch_table_rows(
+        s,
+        "user_verifications",
+        "telegram_id, status",
     )
-    verified_aliases = ["approved", "uid_verified", "active", "verified"]
-    approved_count = 0
-    for alias in verified_aliases:
-        approved_count += (
-            s.table("user_verifications").select("telegram_id", count="exact").eq("status", alias).execute().count
-            or 0
-        )
+    verified_ids = {
+        int(row["telegram_id"])
+        for row in verification_rows
+        if row.get("telegram_id") is not None and str(row.get("status") or "").strip().lower() in _VERIFIED_ALIASES
+    }
+    verified_count = len(user_ids & verified_ids)
+
+    session_rows = _fetch_table_rows(
+        s,
+        "autotrade_sessions",
+        "telegram_id, engine_active",
+    )
+    engine_active_ids = {
+        int(row["telegram_id"])
+        for row in session_rows
+        if row.get("telegram_id") is not None and bool(row.get("engine_active"))
+    }
+    engine_stopped_ids = {
+        int(row["telegram_id"])
+        for row in session_rows
+        if row.get("telegram_id") is not None and not bool(row.get("engine_active"))
+    }
+    # If duplicate rows exist, prioritize active state for the user to avoid double counting.
+    engine_stopped_ids -= engine_active_ids
+
+    total = len(user_ids)
+    premium = len(premium_ids)
+    lifetime = len(lifetime_ids)
+    unverified_count = max(int(total) - int(verified_count), 0)
     new_today = (
         s.table("users")
         .select("telegram_id", count="exact")
@@ -169,7 +238,10 @@ def get_user_stats_summary() -> dict[str, int]:
         "total_users": int(total),
         "premium_users": int(premium),
         "lifetime_users": int(lifetime),
-        "verified_users": int(approved_count),
+        "verified_users": int(verified_count),
+        "unverified_users": int(unverified_count),
+        "engine_active_users": int(len(engine_active_ids)),
+        "engine_stopped_users": int(len(engine_stopped_ids)),
         "free_users": max(int(total) - int(premium), 0),
         "new_today": int(new_today),
     }

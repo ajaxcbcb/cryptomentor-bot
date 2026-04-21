@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.2.84] — 2026-04-21 — Admin Counters, Targeted Broadcast Audiences, Daily Report Reliability
+
+### 📊 `/admin` User + Engine Counters
+- Extended web admin summary stats in `website-backend/app/services/admin_observability.py` and `/dashboard/admin/bootstrap` to include:
+  - `engine_active_users`
+  - `engine_stopped_users`
+  - `verified_users`
+  - `unverified_users`
+- Counting behavior now matches runtime policy:
+  - engine counts are deduped by `telegram_id` from `autotrade_sessions.engine_active`,
+  - verified users use approved aliases from `user_verifications`,
+  - unverified users are computed as `users - verified` (including users without verification rows).
+- Updated `website-frontend/src/AdminPanel.jsx` overview cards so `/admin` visibly shows verified/unverified and engine active/stopped counts.
+
+### 📢 Broadcast Audience Expansion
+- Added two new broadcast audiences in `website-backend/app/routes/admin.py`:
+  - `telegram_admins` (from admin allowlist env)
+  - `community_partners` (only `community_partners.status='active'`)
+- Preserved existing audience options (`all`, `premium`, `verified`, `non_verified`) and dedupe/sorted target behavior.
+- Added matching audience chips in `website-frontend/src/AdminPanel.jsx`.
+
+### 🛡️ Daily Report “Send Now” Reliability
+- Reworked `/dashboard/admin/daily-report-now` in `website-backend/app/routes/admin.py` to run the report in an isolated Bismillah subprocess context to avoid `app.*` module-resolution collisions.
+- Enhanced `Bismillah/app/admin_daily_report.py::send_daily_report` to return structured delivery results and metrics instead of silently swallowing failures.
+- Web admin daily report endpoint now:
+  - returns success only when send result is truly successful,
+  - returns HTTP 500 with actionable detail on failure,
+  - includes delivery metrics in success response for operator visibility.
+
+### ✅ Validation
+- Added/updated targeted tests:
+  - `tests/test_web_admin_api.py`
+  - `tests/test_admin_observability_user_stats.py`
+
 ## [2.2.83] — 2026-04-21 — Web Admin Symbol Table Overflow Guard
 
 ### 📐 Per-Symbol Scanner Row Stability

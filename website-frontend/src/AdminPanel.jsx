@@ -35,6 +35,8 @@ const BROADCAST_AUDIENCE_OPTIONS = [
   { value: 'premium', label: 'Premium' },
   { value: 'verified', label: 'Verified' },
   { value: 'non_verified', label: 'Non-verified' },
+  { value: 'telegram_admins', label: 'Telegram admins' },
+  { value: 'community_partners', label: 'Community partners' },
 ];
 
 const EMPTY_FILTERS = {
@@ -500,7 +502,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 Refresh
               </button>
             </div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <OverviewCard
                 label="Users"
                 value={fmtNumber(bootstrap?.summary_cards?.users?.total_users)}
@@ -508,22 +510,34 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 note={`${fmtNumber(bootstrap?.summary_cards?.users?.premium_users)} premium / ${fmtNumber(bootstrap?.summary_cards?.users?.lifetime_users)} lifetime`}
               />
               <OverviewCard
+                label="Verified"
+                value={fmtNumber(bootstrap?.summary_cards?.users?.verified_users)}
+                accent="text-emerald-200"
+                note="Approved aliases from verification table"
+              />
+              <OverviewCard
+                label="Unverified"
+                value={fmtNumber(bootstrap?.summary_cards?.users?.unverified_users)}
+                accent="text-amber-100"
+                note="Total users minus verified users"
+              />
+              <OverviewCard
+                label="Engine Active"
+                value={fmtNumber(bootstrap?.summary_cards?.users?.engine_active_users)}
+                accent="text-cyan-200"
+                note="autotrade_sessions.engine_active = true"
+              />
+              <OverviewCard
+                label="Engine Stopped"
+                value={fmtNumber(bootstrap?.summary_cards?.users?.engine_stopped_users)}
+                accent="text-rose-200"
+                note="autotrade_sessions.engine_active = false"
+              />
+              <OverviewCard
                 label="Signal Control"
                 value={bootstrap?.summary_cards?.signals?.enabled ? 'ON' : 'OFF'}
                 accent={bootstrap?.summary_cards?.signals?.enabled ? 'text-emerald-300' : 'text-rose-300'}
                 note={`${bootstrap?.summary_cards?.signals?.timeframe || '-'} | top ${bootstrap?.summary_cards?.signals?.top_n || '-'}`}
-              />
-              <OverviewCard
-                label="Candidate Rows"
-                value={fmtNumber(bootstrap?.summary_cards?.candidates?.live_candidate_count)}
-                accent="text-[#f2ddb0]"
-                note={`${fmtNumber(bootstrap?.summary_cards?.candidates?.rejected_count)} rejected live rows`}
-              />
-              <OverviewCard
-                label="Approved"
-                value={fmtNumber(bootstrap?.summary_cards?.candidates?.approved_count)}
-                accent="text-cyan-200"
-                note="Current live-window approvals"
               />
             </div>
           </section>

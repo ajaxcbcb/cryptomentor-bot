@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -10,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from telegram import Bot
 
-from app.auth.admin import require_admin_user
+from app.auth.admin import load_admin_ids, require_admin_user
 from app.db.supabase import _client, get_user_by_tid
 from app.services.admin_observability import (
     export_decision_tree_snapshot,
@@ -95,18 +99,40 @@ async def _send_telegram_html(client: httpx.AsyncClient, bot_token: str, chat_id
         return False, str(exc)
 
 
+def _fetch_table_rows(
+    client,
+    table_name: str,
+    columns: str,
+    *,
+    page_size: int = 1000,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    chunk = max(1, int(page_size))
+    while True:
+        batch = (
+            client.table(table_name)
+            .select(columns)
+            .range(offset, offset + chunk - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < chunk:
+            break
+        offset += chunk
+    return rows
+
+
 def _fetch_all_user_ids(audience: str = "all") -> list[int]:
     s = _client()
     audience_key = str(audience or "all").strip().lower()
-    rows: list[dict[str, Any]] = []
-    offset = 0
-    while True:
-        res = s.table("users").select("telegram_id, is_premium, is_lifetime").range(offset, offset + 999).execute()
-        batch = res.data or []
-        rows.extend(batch)
-        if len(batch) < 1000:
-            break
-        offset += 1000
+    rows = _fetch_table_rows(
+        s,
+        "users",
+        "telegram_id, is_premium, is_lifetime",
+    )
 
     if audience_key == "all":
         return sorted({int(row["telegram_id"]) for row in rows if row.get("telegram_id")})
@@ -120,21 +146,35 @@ def _fetch_all_user_ids(audience: str = "all") -> list[int]:
             }
         )
 
-    if audience_key in {"verified", "non-verified", "non_verified"}:
-        ver_rows: list[dict[str, Any]] = []
-        offset = 0
-        while True:
-            res = (
-                s.table("user_verifications")
-                .select("telegram_id, status")
-                .range(offset, offset + 999)
-                .execute()
+    if audience_key == "telegram_admins":
+        return sorted({int(uid) for uid in load_admin_ids()})
+
+    if audience_key == "community_partners":
+        try:
+            partner_rows = _fetch_table_rows(
+                s,
+                "community_partners",
+                "telegram_id, status",
             )
-            batch = res.data or []
-            ver_rows.extend(batch)
-            if len(batch) < 1000:
-                break
-            offset += 1000
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed loading community partners audience: {exc}",
+            ) from exc
+        return sorted(
+            {
+                int(row["telegram_id"])
+                for row in partner_rows
+                if row.get("telegram_id") is not None and str(row.get("status") or "").strip().lower() == "active"
+            }
+        )
+
+    if audience_key in {"verified", "non-verified", "non_verified"}:
+        ver_rows = _fetch_table_rows(
+            s,
+            "user_verifications",
+            "telegram_id, status",
+        )
         approved_aliases = {"approved", "uid_verified", "active", "verified"}
         approved = {
             int(row["telegram_id"])
@@ -143,7 +183,7 @@ def _fetch_all_user_ids(audience: str = "all") -> list[int]:
         }
         all_ids = {int(row["telegram_id"]) for row in rows if row.get("telegram_id")}
         if audience_key == "verified":
-            return sorted(approved)
+            return sorted(approved & all_ids)
         return sorted(all_ids - approved)
 
     raise HTTPException(status_code=400, detail=f"Unsupported audience: {audience}")
@@ -179,6 +219,81 @@ def _set_premium_normalized(tg_id: int, action: str, days: int | None = None) ->
     else:
         repo.set_premium_normalized(int(tg_id), f"{int(days or 30)}d")
     return get_user_by_tid(int(tg_id)) or {"telegram_id": int(tg_id)}
+
+
+def _extract_json_payload(text: str) -> dict[str, Any] | None:
+    for line in reversed((text or "").splitlines()):
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _run_daily_report_isolated(bot_token: str) -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[3]
+    bismillah = root / "Bismillah"
+    app_dir = bismillah / "app"
+    if not (app_dir / "admin_daily_report.py").is_file():
+        raise RuntimeError("Bismillah/app/admin_daily_report.py not found")
+
+    script = (
+        "import asyncio, json, os, sys\n"
+        "from pathlib import Path\n"
+        f"root = Path({root.as_posix()!r})\n"
+        "bismillah = root / 'Bismillah'\n"
+        "app_dir = bismillah / 'app'\n"
+        "sys.path = [str(bismillah), str(app_dir)] + [p for p in sys.path if p not in (str(bismillah), str(app_dir))]\n"
+        "try:\n"
+        "    from telegram import Bot\n"
+        "    from app.admin_daily_report import send_daily_report\n"
+        "    token = str(os.getenv('TELEGRAM_BOT_TOKEN') or '').strip()\n"
+        "    if not token:\n"
+        "        print(json.dumps({'ok': False, 'error': 'TELEGRAM_BOT_TOKEN not configured'}))\n"
+        "        raise SystemExit(3)\n"
+        "    async def _main():\n"
+        "        result = await send_daily_report(Bot(token=token))\n"
+        "        if not isinstance(result, dict):\n"
+        "            result = {'ok': False, 'error': 'invalid_report_result', 'raw_result_type': str(type(result))}\n"
+        "        print(json.dumps(result))\n"
+        "    asyncio.run(_main())\n"
+        "except SystemExit:\n"
+        "    raise\n"
+        "except Exception as exc:\n"
+        "    print(json.dumps({'ok': False, 'error': str(exc), 'exception_type': type(exc).__name__}))\n"
+        "    raise\n"
+    )
+
+    env = os.environ.copy()
+    env["TELEGRAM_BOT_TOKEN"] = bot_token
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=240,
+        check=False,
+    )
+
+    payload = _extract_json_payload(completed.stdout) or _extract_json_payload(completed.stderr)
+    if payload is None:
+        raise RuntimeError(
+            "Daily report runner did not return JSON payload. "
+            f"exit={completed.returncode} stderr={completed.stderr.strip()[:500]}"
+        )
+    payload["subprocess_exit_code"] = int(completed.returncode)
+    if completed.returncode != 0 and payload.get("ok") is not True:
+        payload.setdefault(
+            "error",
+            (completed.stderr or completed.stdout or f"subprocess_exit_{completed.returncode}").strip()[:500],
+        )
+    return payload
 
 
 @router.get("/bootstrap")
@@ -433,34 +548,35 @@ async def admin_broadcast(
 @router.post("/daily-report-now")
 async def admin_daily_report_now(requester: int = Depends(require_admin_user)):
     try:
-        from app.services import bitunix as _bitunix  # ensure Bismillah import path is ready
-        import importlib.util
-        import sys
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parents[3]
-        bismillah = root / "Bismillah"
-        app_dir = bismillah / "app"
-        if str(bismillah) not in sys.path:
-            sys.path.insert(0, str(bismillah))
-        if str(app_dir) not in sys.path:
-            sys.path.insert(1, str(app_dir))
-        key = "app.admin_daily_report"
-        if key not in sys.modules:
-            spec = importlib.util.spec_from_file_location("bismillah.app.admin_daily_report", str(app_dir / "admin_daily_report.py"))
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules["bismillah.app.admin_daily_report"] = mod
-            sys.modules[key] = mod
-            spec.loader.exec_module(mod)
-        report_mod = sys.modules[key]
-        bot = Bot(token=_load_bot_token())
-        await report_mod.send_daily_report(bot)
+        report = await asyncio.to_thread(
+            _run_daily_report_isolated,
+            _load_bot_token(),
+        )
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to send daily report: {exc}")
 
+    metrics = report.get("metrics") or {}
+    sent = int(metrics.get("SENT", 0) or 0)
+    failed = int(metrics.get("FAILED", 0) or 0)
+    if report.get("ok") is not True or sent <= 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": str(report.get("error") or "Daily report failed"),
+                "metrics": metrics,
+                "report": report,
+            },
+        )
+
+    result_message = "Daily report sent to admin targets."
+    if failed > 0:
+        result_message = f"Daily report sent with {failed} failed target(s)."
+
     return _action_result(
-        "Daily report sent to admin targets.",
+        result_message,
+        metrics=metrics,
+        report=report,
         audit={"requester": int(requester), "sent_at": _utc_now_iso()},
     )
