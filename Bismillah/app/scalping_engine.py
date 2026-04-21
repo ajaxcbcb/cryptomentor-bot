@@ -114,8 +114,25 @@ SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED = _env_flag(
     "SCALPING_UNHEALTHY_PLAYBOOK_TREND_GATE_RELAXATION_ENABLED",
     False,
 )
+TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED = _env_flag(
+    "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED",
+    True,
+)
+TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS = max(
+    60.0,
+    float(os.getenv("TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS", "300") or 300.0),
+)
+TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT = max(
+    5,
+    int(float(os.getenv("TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT", "20") or 20)),
+)
+TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TTL_SECONDS = max(
+    120.0,
+    float(os.getenv("TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TTL_SECONDS", "600") or 600.0),
+)
 _GLOBAL_V2_REJECTION_COOLDOWN_TS: Dict[str, float] = {}
 _GLOBAL_V2_REJECTION_REASON_BY_SIGNATURE: Dict[str, str] = {}
+_GLOBAL_TRADEABILITY_REJECT_TS: Dict[str, List[float]] = {}
 
 
 def _fmt_price(v: float) -> str:
@@ -454,6 +471,32 @@ class ScalpingEngine:
         local_remaining = max(1, int(round(local_expires_at - now_value)))
         local_reason = str(self._v2_rejection_reason_by_signature.get(signature, "") or "")
         return True, local_reason, local_remaining, "local"
+
+    @staticmethod
+    def _register_tradeability_reject_quarantine(
+        symbol: str,
+        now_ts: Optional[float] = None,
+    ) -> Optional[float]:
+        if not TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED:
+            return None
+        sym = str(symbol or "").upper().strip()
+        if not sym:
+            return None
+
+        now_value = time.time() if now_ts is None else float(now_ts)
+        window_start = now_value - float(TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS)
+        history = [ts for ts in _GLOBAL_TRADEABILITY_REJECT_TS.get(sym, []) if float(ts) >= window_start]
+        history.append(now_value)
+        _GLOBAL_TRADEABILITY_REJECT_TS[sym] = history
+
+        if len(history) < int(TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT):
+            return None
+
+        _GLOBAL_TRADEABILITY_REJECT_TS[sym] = []
+        try:
+            return float(mark_runtime_untradable_symbol(sym, ttl_sec=float(TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TTL_SECONDS)))
+        except Exception:
+            return None
 
     async def _prune_stale_local_positions(self) -> int:
         """
@@ -1114,21 +1157,33 @@ class ScalpingEngine:
                                     if decision.approved or v2_mode != "live":
                                         evaluated_signals.append(signal)
                                     else:
+                                        reject_reason = str(decision.reject_reason or "")
                                         cd_ttl_sec, cd_use_global = self._resolve_v2_rejection_cooldown_settings(
-                                            decision.reject_reason,
+                                            reject_reason,
                                         )
+                                        now_ts = time.time()
                                         cd_expiry = self._mark_v2_rejection_cooldown(
                                             signal,
-                                            decision.reject_reason,
+                                            reject_reason,
                                             ttl_sec=cd_ttl_sec,
                                             use_global=cd_use_global,
+                                            now_ts=now_ts,
                                         )
-                                        cd_remaining = max(1, int(round(cd_expiry - time.time())))
+                                        cd_remaining = max(1, int(round(cd_expiry - now_ts)))
+                                        quarantine_remaining = 0
+                                        if reject_reason == "tradeability_below_threshold":
+                                            quarantine_expiry = self._register_tradeability_reject_quarantine(
+                                                str(getattr(signal, "symbol", "") or ""),
+                                                now_ts=now_ts,
+                                            )
+                                            if quarantine_expiry:
+                                                quarantine_remaining = max(1, int(round(float(quarantine_expiry) - now_ts)))
                                         logger.info(
                                             f"[Scalping:{self.user_id}] V2 rejected signal "
-                                            f"symbol={signal.symbol} reason={decision.reject_reason or '-'} "
+                                            f"symbol={signal.symbol} reason={reject_reason or '-'} "
                                             f"score={float(decision.candidate.final_score or 0.0):.3f} "
                                             f"cooldown={cd_remaining}s scope={'global' if cd_use_global else 'local'}"
+                                            f"{f' quarantine={quarantine_remaining}s' if quarantine_remaining > 0 else ''}"
                                         )
                                 valid_signals = evaluated_signals
                         except Exception as v2_exc:

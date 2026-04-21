@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.2.89] — 2026-04-22 — Scalping Funnel Unblock (Adaptive Tradeability + Reject Quarantine)
+
+### 🎯 Adaptive Tradeability Threshold (Scalping-Only, Bounded)
+- Updated `Bismillah/app/candidate_approver.py` to add a safe adaptive tradeability threshold for prolonged no-entry stalls:
+  - applies only to scalping candidates,
+  - disabled when `market_context.event_risk == high`,
+  - only activates when user has no open positions, no daily entries, and extended inactivity.
+- Effective threshold is bounded by a hard floor and capped relaxation:
+  - `SCALPING_TRADEABILITY_RELAX_MAX` (default `0.10`, hard-capped at `0.15`)
+  - `SCALPING_TRADEABILITY_MIN_FLOOR` (default `0.56`)
+  - `SCALPING_TRADEABILITY_RELAX_MIN_INACTIVE_MINUTES` (default `60`)
+  - `SCALPING_TRADEABILITY_RELAX_FULL_MINUTES` (default `360`)
+- Tradeability rejection audit now records:
+  - `base_min_tradeability_score`
+  - `effective_min_tradeability_score`
+  - `relax_delta`
+
+### 🚧 Tradeability Reject Symbol Quarantine (Burst Dampener)
+- Updated `Bismillah/app/scalping_engine.py` to quarantine symbols that repeatedly fail on `tradeability_below_threshold` within a short window:
+  - uses runtime untradable marker via `mark_runtime_untradable_symbol(...)`,
+  - keeps existing V2 cooldown behavior, adding quarantine as a secondary burst control.
+- New env knobs:
+  - `TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED` (default `true`)
+  - `TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS` (default `300`)
+  - `TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT` (default `20`)
+  - `TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TTL_SECONDS` (default `600`)
+- V2 rejection logs now include `quarantine=<seconds>` when quarantine is triggered.
+
+### ✅ Tests Updated
+- Added `tests/test_candidate_approver_tradeability_relax.py` for:
+  - bounded scalping relaxation activation,
+  - no-relax behavior on high event risk,
+  - scalping-only enforcement.
+- Extended `tests/test_swing_scalp_parity.py` with quarantine trigger/window behavior checks.
+
 ## [2.2.88] — 2026-04-22 — Scalping Over-Blocking Reduction (Governor + V2 Cooldown)
 
 ### 🛡️ Sideways Governor Tuning (Safe Relaxation)

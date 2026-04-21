@@ -275,6 +275,57 @@ def test_scalping_v2_market_rejection_cooldown_still_shared(monkeypatch):
     assert scope == "global"
 
 
+def test_tradeability_reject_symbol_quarantine_triggers_after_repeated_rejects(monkeypatch):
+    import app.scalping_engine as scalping_engine_module  # type: ignore
+
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED", True)
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS", 120.0)
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT", 3)
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TTL_SECONDS", 600.0)
+    scalping_engine_module._GLOBAL_TRADEABILITY_REJECT_TS.clear()
+
+    called = {}
+
+    def _fake_mark_runtime_untradable_symbol(symbol, ttl_sec=0.0):
+        called["symbol"] = symbol
+        called["ttl_sec"] = float(ttl_sec)
+        return 1800.0
+
+    monkeypatch.setattr(scalping_engine_module, "mark_runtime_untradable_symbol", _fake_mark_runtime_untradable_symbol)
+
+    assert ScalpingEngine._register_tradeability_reject_quarantine("BTCUSDT", now_ts=1000.0) is None
+    assert ScalpingEngine._register_tradeability_reject_quarantine("BTCUSDT", now_ts=1020.0) is None
+    expiry = ScalpingEngine._register_tradeability_reject_quarantine("BTCUSDT", now_ts=1040.0)
+
+    assert expiry == pytest.approx(1800.0)
+    assert called == {"symbol": "BTCUSDT", "ttl_sec": 600.0}
+    assert scalping_engine_module._GLOBAL_TRADEABILITY_REJECT_TS["BTCUSDT"] == []
+
+
+def test_tradeability_reject_symbol_quarantine_window_prunes_old_rejects(monkeypatch):
+    import app.scalping_engine as scalping_engine_module  # type: ignore
+
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_ENABLED", True)
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_WINDOW_SECONDS", 5.0)
+    monkeypatch.setattr(scalping_engine_module, "TRADEABILITY_REJECT_SYMBOL_QUARANTINE_TRIGGER_COUNT", 3)
+    scalping_engine_module._GLOBAL_TRADEABILITY_REJECT_TS.clear()
+
+    mark_calls = {"count": 0}
+
+    def _fake_mark_runtime_untradable_symbol(_symbol, ttl_sec=0.0):
+        mark_calls["count"] += 1
+        return 9999.0
+
+    monkeypatch.setattr(scalping_engine_module, "mark_runtime_untradable_symbol", _fake_mark_runtime_untradable_symbol)
+
+    assert ScalpingEngine._register_tradeability_reject_quarantine("SOLUSDT", now_ts=1000.0) is None
+    assert ScalpingEngine._register_tradeability_reject_quarantine("SOLUSDT", now_ts=1001.0) is None
+    assert ScalpingEngine._register_tradeability_reject_quarantine("SOLUSDT", now_ts=1010.0) is None
+
+    assert mark_calls["count"] == 0
+    assert scalping_engine_module._GLOBAL_TRADEABILITY_REJECT_TS["SOLUSDT"] == [1010.0]
+
+
 def test_swing_queue_upsert_refreshes_symbol_and_respects_inflight():
     uid = 4242
     autotrade_engine._signal_queues[uid] = []
