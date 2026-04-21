@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.82] — 2026-04-21 — Web Admin Dark Mode Toggle
+
+### 🌗 Admin Theme Control
+- Added an enable/disable dark mode toggle to `website-frontend/src/AdminPanel.jsx`.
+- The `/admin` panel now supports both dark and light presentation using shared theme tokens instead of dark-only hardcoded surfaces.
+- The selected admin theme is persisted in browser storage so the panel remembers the last dark-mode preference on reload.
+
+### ✅ Validation
+- Rebuilt the frontend bundle after the admin theme update.
+
 ## [2.2.81] — 2026-04-21 — Web Admin Native Select Cleanup
 
 ### 🎚️ Styled Selector Pass

@@ -6,11 +6,13 @@ import {
   Bot,
   Download,
   ExternalLink,
+  MoonStar,
   RefreshCw,
   Radio,
   Send,
   Shield,
   Sparkles,
+  SunMedium,
   Users,
 } from 'lucide-react';
 
@@ -43,6 +45,8 @@ const EMPTY_FILTERS = {
   engine: '',
   regime: '',
 };
+
+const ADMIN_THEME_STORAGE_KEY = 'cm_admin_dark_mode';
 
 const readError = async (resp, fallback = 'Request failed') => {
   if (!resp) return fallback;
@@ -109,12 +113,12 @@ export function AdminDeniedScreen({ user, onLogout }) {
 
 function SectionShell({ eyebrow, title, action, children, className = '' }) {
   return (
-    <section className={`relative overflow-hidden rounded-[2rem] border border-white/8 bg-[#101415]/80 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.35)] backdrop-blur-2xl ${className}`}>
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),transparent_42%,transparent_70%,rgba(255,255,255,0.03))] pointer-events-none" />
+    <section className={`relative overflow-hidden rounded-[2rem] border border-[color:var(--panel-border)] bg-[var(--panel-bg)] p-6 shadow-[var(--panel-shadow)] backdrop-blur-2xl ${className}`}>
+      <div className="absolute inset-0 bg-[var(--panel-gloss)] pointer-events-none" />
       <div className="relative z-10 flex items-start justify-between gap-4">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-[#c7a56b]">{eyebrow}</p>
-          <h2 className="mt-3 text-xl font-black tracking-tight text-white">{title}</h2>
+          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-[var(--accent-text)]">{eyebrow}</p>
+          <h2 className="mt-3 text-xl font-black tracking-tight text-[var(--text-main)]">{title}</h2>
         </div>
         {action}
       </div>
@@ -125,19 +129,19 @@ function SectionShell({ eyebrow, title, action, children, className = '' }) {
 
 function OverviewCard({ label, value, accent, note }) {
   return (
-    <div className="rounded-[1.5rem] border border-white/8 bg-black/25 p-4">
-      <p className="text-[11px] uppercase tracking-[0.25em] text-stone-500">{label}</p>
+    <div className="rounded-[1.5rem] border border-[color:var(--soft-border)] bg-[var(--card-bg)] p-4">
+      <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--text-dim)]">{label}</p>
       <div className={`mt-3 text-3xl font-black ${accent}`}>{value}</div>
-      {note ? <p className="mt-2 text-xs text-stone-400">{note}</p> : null}
+      {note ? <p className="mt-2 text-xs text-[var(--text-muted)]">{note}</p> : null}
     </div>
   );
 }
 
 function Badge({ children, tone = 'neutral' }) {
   const tones = {
-    neutral: 'border-white/10 bg-white/5 text-stone-200',
+    neutral: 'border-[color:var(--soft-border)] bg-[var(--badge-neutral-bg)] text-[var(--text-soft)]',
     green: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200',
-    amber: 'border-amber-500/25 bg-amber-500/10 text-amber-100',
+    amber: 'border-[color:var(--accent-border)] bg-[var(--accent-soft-bg)] text-[var(--accent-soft-text)]',
     rose: 'border-rose-500/25 bg-rose-500/10 text-rose-200',
     cyan: 'border-cyan-500/25 bg-cyan-500/10 text-cyan-100',
   };
@@ -156,12 +160,12 @@ function ConfirmModal({ title, description, confirmLabel, tone = 'amber', onCanc
   };
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[2rem] border border-white/10 bg-[#0f1313] p-6 shadow-[0_25px_90px_rgba(0,0,0,0.5)]">
-        <p className="text-[11px] uppercase tracking-[0.35em] text-[#c7a56b]">Confirm Action</p>
-        <h3 className="mt-3 text-2xl font-black text-white">{title}</h3>
-        <p className="mt-3 text-sm leading-7 text-stone-300">{description}</p>
+      <div className="w-full max-w-lg rounded-[2rem] border border-[color:var(--panel-border)] bg-[var(--panel-bg-strong)] p-6 shadow-[var(--panel-shadow)]">
+        <p className="text-[11px] uppercase tracking-[0.35em] text-[var(--accent-text)]">Confirm Action</p>
+        <h3 className="mt-3 text-2xl font-black text-[var(--text-main)]">{title}</h3>
+        <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">{description}</p>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCancel} disabled={busy} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-stone-200 hover:bg-white/10 disabled:opacity-50">
+          <button onClick={onCancel} disabled={busy} className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-sm font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)] disabled:opacity-50">
             Cancel
           </button>
           <button onClick={onConfirm} disabled={busy} className={`rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-50 ${tones[tone] || tones.amber}`}>
@@ -175,13 +179,13 @@ function ConfirmModal({ title, description, confirmLabel, tone = 'amber', onCanc
 
 function ChipSelector({ options, value, onChange, tone = 'neutral', compact = false }) {
   const activeTone = {
-    neutral: 'border-white/15 bg-white/10 text-white',
+    neutral: 'border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] text-[var(--text-main)]',
     amber: 'border-[#c7a56b]/30 bg-[#c7a56b]/15 text-[#f2ddb0]',
     cyan: 'border-cyan-400/25 bg-cyan-500/12 text-cyan-100',
     rose: 'border-rose-400/25 bg-rose-500/12 text-rose-100',
   };
   return (
-    <div className={`flex flex-wrap gap-2 rounded-[1.4rem] border border-white/8 bg-white/[0.03] ${compact ? 'p-1.5' : 'p-2'}`}>
+    <div className={`flex flex-wrap gap-2 rounded-[1.4rem] border border-[color:var(--soft-border)] bg-[var(--card-bg)] ${compact ? 'p-1.5' : 'p-2'}`}>
       {options.map((option) => {
         const optValue = option.value ?? option;
         const optLabel = option.label ?? String(option);
@@ -194,7 +198,7 @@ function ChipSelector({ options, value, onChange, tone = 'neutral', compact = fa
             className={`rounded-full border px-4 py-2 text-xs font-bold transition ${
               isActive
                 ? (activeTone[tone] || activeTone.neutral)
-                : 'border-white/10 bg-black/20 text-stone-300 hover:bg-white/10'
+                : 'border-[color:var(--soft-border)] bg-[var(--input-bg)] text-[var(--text-muted)] hover:bg-[var(--button-muted-hover)]'
             }`}
           >
             {optLabel}
@@ -206,6 +210,14 @@ function ChipSelector({ options, value, onChange, tone = 'neutral', compact = fa
 }
 
 export default function AdminPanel({ user, apiFetch, onLogout }) {
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try {
+      const raw = localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
+      if (raw === 'light') return false;
+      if (raw === 'dark') return true;
+    } catch {}
+    return true;
+  });
   const [windowKey, setWindowKey] = useState('30m');
   const [bootstrap, setBootstrap] = useState(null);
   const [decisionTree, setDecisionTree] = useState(null);
@@ -222,6 +234,12 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
   const [premiumForm, setPremiumForm] = useState({ user_id: '', action: 'add', days: '30' });
   const [creditsForm, setCreditsForm] = useState({ user_id: '', amount: '100' });
   const [broadcastForm, setBroadcastForm] = useState({ audience: 'all', message: '' });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADMIN_THEME_STORAGE_KEY, isDarkMode ? 'dark' : 'light');
+    } catch {}
+  }, [isDarkMode]);
 
   const loadBootstrap = async () => {
     setLoading((prev) => ({ ...prev, bootstrap: true }));
@@ -365,36 +383,84 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
   const topPairs = decisionTree?.top_pairs?.pairs || [];
   const selectorHealth = decisionTree?.top_pairs?.health || {};
   const symbolEntries = Object.entries(symbolData?.symbols || {});
+  const themeVars = useMemo(
+    () => ({
+      '--page-bg': isDarkMode ? '#070a0b' : '#f4efe6',
+      '--selection-bg': isDarkMode ? 'rgba(199,165,107,0.30)' : 'rgba(179,130,57,0.24)',
+      '--hero-bg': isDarkMode
+        ? 'linear-gradient(135deg,#18130f 0%,#0d1011 48%,#081013 100%)'
+        : 'linear-gradient(135deg,#fffaf1 0%,#f7f0e1 48%,#eef5f6 100%)',
+      '--hero-border': isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(71,85,105,0.12)',
+      '--panel-bg': isDarkMode ? 'rgba(16,20,21,0.82)' : 'rgba(255,251,245,0.88)',
+      '--panel-bg-strong': isDarkMode ? '#0f1313' : '#fffaf2',
+      '--panel-border': isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(71,85,105,0.14)',
+      '--soft-border': isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(71,85,105,0.12)',
+      '--card-bg': isDarkMode ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.76)',
+      '--panel-shadow': isDarkMode ? '0 20px 70px rgba(0,0,0,0.35)' : '0 18px 60px rgba(15,23,42,0.12)',
+      '--panel-gloss': isDarkMode
+        ? 'linear-gradient(135deg,rgba(255,255,255,0.06),transparent 42%,transparent 70%,rgba(255,255,255,0.03))'
+        : 'linear-gradient(135deg,rgba(255,255,255,0.92),transparent 40%,transparent 70%,rgba(199,165,107,0.08))',
+      '--text-main': isDarkMode ? '#f5f5f4' : '#18212b',
+      '--text-soft': isDarkMode ? '#e7e5e4' : '#24303c',
+      '--text-muted': isDarkMode ? '#a8a29e' : '#52606d',
+      '--text-dim': isDarkMode ? '#78716c' : '#6b7280',
+      '--accent-text': '#c7a56b',
+      '--accent-border': isDarkMode ? 'rgba(199,165,107,0.30)' : 'rgba(179,130,57,0.32)',
+      '--accent-soft-bg': isDarkMode ? 'rgba(199,165,107,0.15)' : 'rgba(199,165,107,0.16)',
+      '--accent-soft-text': isDarkMode ? '#f2ddb0' : '#8a642a',
+      '--badge-neutral-bg': isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.78)',
+      '--button-muted-bg': isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.75)',
+      '--button-muted-hover': isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.95)',
+      '--input-bg': isDarkMode ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.82)',
+      '--input-border': isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(148,163,184,0.28)',
+      '--surface-strong': isDarkMode ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.68)',
+      '--surface-soft': isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.52)',
+      '--line-faint': isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(148,163,184,0.20)',
+    }),
+    [isDarkMode]
+  );
 
   return (
-    <div className="min-h-screen bg-[#070a0b] text-stone-100 selection:bg-[#c7a56b]/30">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(199,165,107,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(83,162,172,0.14),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%)]" />
+    <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-main)]" style={themeVars}>
+      <div className={`pointer-events-none fixed inset-0 ${isDarkMode ? 'bg-[radial-gradient(circle_at_top_left,rgba(199,165,107,0.16),transparent_34%),radial-gradient(circle_at_top_right,rgba(83,162,172,0.14),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.03),transparent_18%)]' : 'bg-[radial-gradient(circle_at_top_left,rgba(199,165,107,0.14),transparent_34%),radial-gradient(circle_at_top_right,rgba(83,162,172,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.55),transparent_22%)]'}`} />
       <div className="relative z-10 mx-auto max-w-[1600px] px-4 py-6 md:px-8 md:py-10">
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-[2.4rem] border border-white/8 bg-[linear-gradient(135deg,#18130f_0%,#0d1011_48%,#081013_100%)] p-6 md:p-8 shadow-[0_25px_100px_rgba(0,0,0,0.45)]">
+          <section className="rounded-[2.4rem] border border-[color:var(--hero-border)] bg-[var(--hero-bg)] p-6 md:p-8 shadow-[var(--panel-shadow)]">
             <div className="flex flex-wrap items-start justify-between gap-5">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-[#c7a56b]/25 bg-[#c7a56b]/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.35em] text-[#e9d3a7]">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--accent-border)] bg-[var(--accent-soft-bg)] px-3 py-1 text-[11px] font-black uppercase tracking-[0.35em] text-[var(--accent-soft-text)]">
                   <Sparkles className="h-3.5 w-3.5" />
                   Web Admin
                 </div>
-                <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight text-white md:text-5xl">
+                <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight text-[var(--text-main)] md:text-5xl">
                   Decision routing, candidate quality, and operational controls now live on the web.
                 </h1>
-                <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-300 md:text-base">
+                <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--text-muted)] md:text-base">
                   This panel is the canonical admin surface. Telegram stays as the gatekeeper and redirect layer, while the live control plane and Decision Tree telemetry sit here.
                 </p>
               </div>
-              <div className="min-w-[240px] rounded-[1.8rem] border border-white/8 bg-black/20 p-4">
-                <p className="text-[11px] uppercase tracking-[0.25em] text-stone-500">Signed In</p>
-                <p className="mt-2 text-xl font-black text-white">{user?.first_name || 'Admin'}</p>
-                <p className="text-sm text-stone-400">@{user?.username || 'unknown'}</p>
+              <div className="min-w-[240px] rounded-[1.8rem] border border-[color:var(--soft-border)] bg-[var(--card-bg)] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--text-dim)]">Signed In</p>
+                    <p className="mt-2 text-xl font-black text-[var(--text-main)]">{user?.first_name || 'Admin'}</p>
+                    <p className="text-sm text-[var(--text-muted)]">@{user?.username || 'unknown'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsDarkMode((prev) => !prev)}
+                    className="inline-flex items-center gap-2 rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-3 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]"
+                  >
+                    {isDarkMode ? <MoonStar className="h-3.5 w-3.5" /> : <SunMedium className="h-3.5 w-3.5" />}
+                    {isDarkMode ? 'Dark on' : 'Dark off'}
+                  </button>
+                </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Badge tone="amber">Admin JWT active</Badge>
                   <Badge tone="cyan">{humanWindow(windowKey)} live window</Badge>
                 </div>
                 <div className="mt-4 flex gap-2">
-                  <a href="/" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-100 hover:bg-white/10">
+                  <a href="/" className="inline-flex items-center gap-2 rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]">
                     User Dashboard
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
@@ -423,11 +489,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
             )}
           </section>
 
-          <section className="rounded-[2.4rem] border border-white/8 bg-[#0d1112]/85 p-6 shadow-[0_25px_100px_rgba(0,0,0,0.35)]">
+          <section className="rounded-[2.4rem] border border-[color:var(--panel-border)] bg-[var(--panel-bg)] p-6 shadow-[var(--panel-shadow)]">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.35em] text-[#c7a56b]">Overview</p>
-                <h2 className="mt-3 text-2xl font-black text-white">Admin heartbeat</h2>
+                <p className="text-[10px] font-black uppercase tracking-[0.35em] text-[var(--accent-text)]">Overview</p>
+                <h2 className="mt-3 text-2xl font-black text-[var(--text-main)]">Admin heartbeat</h2>
               </div>
               <button onClick={refreshAll} className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/20">
                 <RefreshCw className={`h-3.5 w-3.5 ${(loading.bootstrap || loading.dashboard || loading.candidates) ? 'animate-spin' : ''}`} />
@@ -476,7 +542,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                     className={`rounded-full border px-4 py-2 text-xs font-bold transition ${
                       windowKey === option.value
                         ? 'border-[#c7a56b]/40 bg-[#c7a56b]/15 text-[#f2ddb0]'
-                        : 'border-white/10 bg-white/5 text-stone-300 hover:bg-white/10'
+                        : 'border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] text-[var(--text-muted)] hover:bg-[var(--button-muted-hover)]'
                     }`}
                   >
                     {option.label}
@@ -486,12 +552,12 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
             )}
           >
             <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <div className="flex items-center gap-2 text-white">
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <div className="flex items-center gap-2 text-[var(--text-main)]">
                   <Radio className="h-4 w-4 text-cyan-300" />
                   <p className="text-sm font-black">Top-volume universe</p>
                 </div>
-                <p className="mt-3 text-sm leading-7 text-stone-300">
+                <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
                   {topPairs.length ? topPairs.join(', ') : 'No universe snapshot available yet.'}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -499,13 +565,13 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   <Badge tone="neutral">count {fmtNumber(selectorHealth?.pair_count || topPairs.length)}</Badge>
                 </div>
               </div>
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <div className="flex items-center gap-2 text-white">
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <div className="flex items-center gap-2 text-[var(--text-main)]">
                   <BarChart3 className="h-4 w-4 text-[#f2ddb0]" />
                   <p className="text-sm font-black">Live funnel</p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <OverviewCard label="Signals" value={fmtNumber(journalMetrics.signal_generated)} accent="text-white" />
+                  <OverviewCard label="Signals" value={fmtNumber(journalMetrics.signal_generated)} accent="text-[var(--text-main)]" />
                   <OverviewCard label="V2 Apply" value={fmtNumber(journalMetrics.decision_tree_live_apply)} accent="text-cyan-200" />
                   <OverviewCard label="Rejected" value={fmtNumber(journalMetrics.v2_rejected)} accent="text-rose-200" />
                   <OverviewCard label="Cooldown" value={fmtNumber(journalMetrics.v2_rejection_cooldown_active)} accent="text-amber-100" />
@@ -514,24 +580,24 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <p className="text-sm font-black text-white">Candidate mix</p>
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <p className="text-sm font-black text-[var(--text-main)]">Candidate mix</p>
                 <div className="mt-4 space-y-3 text-sm">
-                  <div className="flex items-center justify-between text-stone-300">
+                  <div className="flex items-center justify-between text-[var(--text-muted)]">
                     <span>Live rows</span>
-                    <span className="font-bold text-white">{fmtNumber(db.live_candidate_count)}</span>
+                    <span className="font-bold text-[var(--text-main)]">{fmtNumber(db.live_candidate_count)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-stone-300">
+                  <div className="flex items-center justify-between text-[var(--text-muted)]">
                     <span>Approved</span>
                     <span className="font-bold text-emerald-200">{fmtNumber(db.approved_count)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-stone-300">
+                  <div className="flex items-center justify-between text-[var(--text-muted)]">
                     <span>Rejected</span>
                     <span className="font-bold text-rose-200">{fmtNumber(db.rejected_count)}</span>
                   </div>
                 </div>
                 <div className="mt-5">
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-stone-500">Top rejection reasons</p>
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--text-dim)]">Top rejection reasons</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {Object.entries(db.reject_histogram || {}).slice(0, 6).map(([label, count]) => (
                       <Badge key={label} tone="rose">{label}:{count}</Badge>
@@ -539,16 +605,16 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   </div>
                 </div>
               </div>
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <p className="text-sm font-black text-white">Recent runtime lines</p>
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <p className="text-sm font-black text-[var(--text-main)]">Recent runtime lines</p>
                 <div className="mt-4 space-y-2">
                   {(decisionTree?.journal?.recent_lines || []).slice(-5).map((line, idx) => (
-                    <div key={`${line}-${idx}`} className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-stone-300">
+                    <div key={`${line}-${idx}`} className="rounded-xl border border-[color:var(--line-faint)] bg-[var(--surface-soft)] px-3 py-2 font-mono text-[11px] text-[var(--text-muted)]">
                       {line}
                     </div>
                   ))}
                   {!decisionTree?.journal?.recent_lines?.length ? (
-                    <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2 text-sm text-stone-400">
+                    <div className="rounded-xl border border-[color:var(--line-faint)] bg-[var(--surface-soft)] px-3 py-2 text-sm text-[var(--text-dim)]">
                       No recent runtime lines for this window.
                     </div>
                   ) : null}
@@ -558,8 +624,8 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
           </SectionShell>
 
           <SectionShell eyebrow="Symbols" title="Per-symbol funnel breakdown">
-            <div className="overflow-hidden rounded-[1.6rem] border border-white/8">
-              <div className="grid grid-cols-7 gap-2 bg-white/[0.04] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-stone-400">
+            <div className="overflow-hidden rounded-[1.6rem] border border-[color:var(--line-faint)]">
+              <div className="grid grid-cols-7 gap-2 bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-[var(--text-dim)]">
                 <span>Symbol</span>
                 <span>Scanned</span>
                 <span>Signals</span>
@@ -568,10 +634,10 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 <span>Rejected</span>
                 <span>Cooldown</span>
               </div>
-              <div className="divide-y divide-white/5">
+              <div className="divide-y" style={{ borderColor: 'var(--line-faint)' }}>
                 {symbolEntries.slice(0, 12).map(([symbol, stats]) => (
-                  <div key={symbol} className="grid grid-cols-7 gap-2 px-4 py-3 text-sm text-stone-200">
-                    <span className="font-bold text-white">{symbol}</span>
+                  <div key={symbol} className="grid grid-cols-7 gap-2 px-4 py-3 text-sm text-[var(--text-soft)]">
+                    <span className="font-bold text-[var(--text-main)]">{symbol}</span>
                     <span>{fmtNumber(stats.scanned)}</span>
                     <span>{fmtNumber(stats.signal_generated)}</span>
                     <span>{fmtNumber(stats.candidate_funnel)}</span>
@@ -581,7 +647,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   </div>
                 ))}
                 {!symbolEntries.length ? (
-                  <div className="px-4 py-6 text-sm text-stone-400">No symbol breakdown data yet for this window.</div>
+                  <div className="px-4 py-6 text-sm text-[var(--text-dim)]">No symbol breakdown data yet for this window.</div>
                 ) : null}
               </div>
             </div>
@@ -594,7 +660,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
             title="Searchable candidate explorer"
             action={(
               <div className="flex gap-2">
-                <button onClick={() => exportCandidates('json')} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-100 hover:bg-white/10">
+                <button onClick={() => exportCandidates('json')} className="inline-flex items-center gap-2 rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]">
                   <Download className="h-3.5 w-3.5" />
                   JSON
                 </button>
@@ -619,7 +685,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   value={filters[key]}
                   onChange={(e) => handleFilterChange(key, e.target.value)}
                   placeholder={placeholder}
-                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-[#c7a56b]/35"
+                  className="rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none transition placeholder:text-[var(--text-dim)] focus:border-[color:var(--accent-border)]"
                 />
               ))}
             </div>
@@ -627,10 +693,10 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               <button onClick={applyFilters} className="rounded-full border border-[#c7a56b]/30 bg-[#c7a56b]/15 px-4 py-2 text-xs font-bold text-[#f2ddb0] hover:bg-[#c7a56b]/25">
                 Apply filters
               </button>
-              <button onClick={resetFilters} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-200 hover:bg-white/10">
+              <button onClick={resetFilters} className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] hover:bg-[var(--button-muted-hover)]">
                 Reset
               </button>
-              <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-stone-400">
+              <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
                 <span>Page size</span>
                 <ChipSelector
                   options={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, label: String(size) }))}
@@ -646,8 +712,8 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               </div>
             </div>
 
-            <div className="mt-5 overflow-hidden rounded-[1.6rem] border border-white/8">
-              <div className="grid grid-cols-[1.2fr_0.6fr_0.7fr_0.7fr_1fr_0.7fr_0.7fr] gap-2 bg-white/[0.04] px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-stone-400">
+            <div className="mt-5 overflow-hidden rounded-[1.6rem] border border-[color:var(--line-faint)]">
+              <div className="grid grid-cols-[1.2fr_0.6fr_0.7fr_0.7fr_1fr_0.7fr_0.7fr] gap-2 bg-[var(--card-bg)] px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-[var(--text-dim)]">
                 <span>Candidate</span>
                 <span>Status</span>
                 <span>Tier</span>
@@ -656,28 +722,28 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 <span>Tradeability</span>
                 <span>Final</span>
               </div>
-              <div className="divide-y divide-white/5">
+              <div className="divide-y" style={{ borderColor: 'var(--line-faint)' }}>
                 {(candidates.rows || []).map((row) => (
                   <div key={`${row.id}-${row.created_at}`} className="grid grid-cols-[1.2fr_0.6fr_0.7fr_0.7fr_1fr_0.7fr_0.7fr] gap-2 px-4 py-3 text-sm">
                     <div>
-                      <p className="font-bold text-white">{row.symbol} {row.side}</p>
-                      <p className="text-xs text-stone-500">{row.regime || '-'} · {row.setup_name || '-'}</p>
+                      <p className="font-bold text-[var(--text-main)]">{row.symbol} {row.side}</p>
+                      <p className="text-xs text-[var(--text-dim)]">{row.regime || '-'} · {row.setup_name || '-'}</p>
                     </div>
                     <div>{row.approved ? <Badge tone="green">approved</Badge> : <Badge tone="rose">rejected</Badge>}</div>
-                    <div className="text-stone-200">{row.user_equity_tier || '-'}</div>
-                    <div className="text-stone-200">{row.engine || '-'}</div>
-                    <div className="truncate text-stone-300">{row.reject_reason || row.display_reason || '-'}</div>
-                    <div className="text-stone-200">{fmtScore(row.tradeability_score)}</div>
+                    <div className="text-[var(--text-soft)]">{row.user_equity_tier || '-'}</div>
+                    <div className="text-[var(--text-soft)]">{row.engine || '-'}</div>
+                    <div className="truncate text-[var(--text-muted)]">{row.reject_reason || row.display_reason || '-'}</div>
+                    <div className="text-[var(--text-soft)]">{fmtScore(row.tradeability_score)}</div>
                     <div className="text-[#f2ddb0]">{fmtScore(row.final_score)}</div>
                   </div>
                 ))}
                 {!(candidates.rows || []).length ? (
-                  <div className="px-4 py-6 text-sm text-stone-400">No candidate rows matched the current filters.</div>
+                  <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No candidate rows matched the current filters.</div>
                 ) : null}
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-4 text-sm text-stone-300">
+            <div className="mt-4 flex items-center justify-between gap-4 text-sm text-[var(--text-muted)]">
               <div>
                 Showing {fmtNumber((candidates.rows || []).length)} of {fmtNumber(candidates.total)} rows
               </div>
@@ -689,11 +755,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                     await loadCandidates(next, pageSize, filters, windowKey);
                   }}
                   disabled={page <= 1}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-100 disabled:opacity-40"
+                  className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] disabled:opacity-40"
                 >
                   Prev
                 </button>
-                <span className="text-xs uppercase tracking-[0.2em] text-stone-500">Page {page} / {totalPages}</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Page {page} / {totalPages}</span>
                 <button
                   onClick={async () => {
                     const next = Math.min(page + 1, totalPages);
@@ -701,7 +767,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                     await loadCandidates(next, pageSize, filters, windowKey);
                   }}
                   disabled={page >= totalPages}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-100 disabled:opacity-40"
+                  className="rounded-full border border-[color:var(--soft-border)] bg-[var(--button-muted-bg)] px-4 py-2 text-xs font-bold text-[var(--text-soft)] disabled:opacity-40"
                 >
                   Next
                 </button>
@@ -711,11 +777,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
 
           <SectionShell eyebrow="Controls" title="Admin actions and runtime switches">
             <div className="grid gap-4">
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-black text-white">Signal control</p>
-                    <p className="mt-1 text-xs text-stone-400">Toggles the shared autosignal state used by the runtime scanner.</p>
+                    <p className="text-sm font-black text-[var(--text-main)]">Signal control</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Toggles the shared autosignal state used by the runtime scanner.</p>
                   </div>
                   <Badge tone={signalEnabled ? 'green' : 'rose'}>{signalEnabled ? 'ON' : 'OFF'}</Badge>
                 </div>
@@ -735,9 +801,9 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 </div>
               </div>
 
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <p className="text-sm font-black text-white">Premium and lifetime</p>
-                <div className="mt-4 flex flex-wrap gap-2 rounded-[1.4rem] border border-white/8 bg-white/[0.03] p-2">
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <p className="text-sm font-black text-[var(--text-main)]">Premium and lifetime</p>
+                <div className="mt-4 flex flex-wrap gap-2 rounded-[1.4rem] border border-[color:var(--soft-border)] bg-[var(--card-bg)] p-2">
                   {PREMIUM_ACTION_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -748,7 +814,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                           ? option.value === 'remove'
                             ? 'border border-rose-400/25 bg-rose-500/15 text-rose-100'
                             : 'border border-[#c7a56b]/30 bg-[#c7a56b]/15 text-[#f2ddb0]'
-                          : 'border border-white/10 bg-black/20 text-stone-300 hover:bg-white/10'
+                          : 'border border-[color:var(--soft-border)] bg-[var(--input-bg)] text-[var(--text-muted)] hover:bg-[var(--button-muted-hover)]'
                       }`}
                     >
                       {option.label}
@@ -756,11 +822,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                   ))}
                 </div>
                 <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)_auto]">
-                  <input value={premiumForm.user_id} onChange={(e) => setPremiumForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  <input value={premiumForm.user_id} onChange={(e) => setPremiumForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]" />
                   {premiumForm.action === 'add' ? (
-                    <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                    <input value={premiumForm.days} onChange={(e) => setPremiumForm((prev) => ({ ...prev, days: e.target.value }))} placeholder="Days" className="min-w-0 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]" />
                   ) : (
-                    <div className="flex min-w-0 items-center rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-stone-400">
+                    <div className="flex min-w-0 items-center rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-muted)]">
                       {premiumForm.action === 'lifetime' ? 'Permanent premium access will be granted.' : 'Premium access will be removed immediately.'}
                     </div>
                   )}
@@ -787,11 +853,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 </div>
               </div>
 
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <p className="text-sm font-black text-white">Credits</p>
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <p className="text-sm font-black text-[var(--text-main)]">Credits</p>
                 <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <input value={creditsForm.user_id} onChange={(e) => setCreditsForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
-                  <input value={creditsForm.amount} onChange={(e) => setCreditsForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  <input value={creditsForm.user_id} onChange={(e) => setCreditsForm((prev) => ({ ...prev, user_id: e.target.value }))} placeholder="Telegram ID" className="min-w-0 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]" />
+                  <input value={creditsForm.amount} onChange={(e) => setCreditsForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="min-w-0 rounded-2xl border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]" />
                   <button
                     onClick={() => setConfirmState({
                       title: 'Grant credits?',
@@ -811,8 +877,8 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 </div>
               </div>
 
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
-                <p className="text-sm font-black text-white">Broadcast</p>
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
+                <p className="text-sm font-black text-[var(--text-main)]">Broadcast</p>
                 <div className="mt-4 grid gap-3">
                   <ChipSelector
                     options={BROADCAST_AUDIENCE_OPTIONS}
@@ -820,7 +886,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                     tone="amber"
                     onChange={(nextAudience) => setBroadcastForm((prev) => ({ ...prev, audience: nextAudience }))}
                   />
-                  <textarea value={broadcastForm.message} onChange={(e) => setBroadcastForm((prev) => ({ ...prev, message: e.target.value }))} rows={5} placeholder="Telegram HTML message" className="rounded-[1.4rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
+                  <textarea value={broadcastForm.message} onChange={(e) => setBroadcastForm((prev) => ({ ...prev, message: e.target.value }))} rows={5} placeholder="Telegram HTML message" className="rounded-[1.4rem] border border-[color:var(--input-border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-dim)]" />
                   <div className="flex justify-end">
                     <button
                       onClick={() => setConfirmState({
@@ -843,11 +909,11 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
                 </div>
               </div>
 
-              <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
+              <div className="rounded-[1.6rem] border border-[color:var(--line-faint)] bg-[var(--surface-strong)] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-black text-white">Daily report</p>
-                    <p className="mt-1 text-xs text-stone-400">Triggers the admin daily report immediately through the same report module used by the bot runtime.</p>
+                    <p className="text-sm font-black text-[var(--text-main)]">Daily report</p>
+                    <p className="mt-1 text-xs text-[var(--text-muted)]">Triggers the admin daily report immediately through the same report module used by the bot runtime.</p>
                   </div>
                   <button
                     onClick={() => setConfirmState({
@@ -867,7 +933,7 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
           </SectionShell>
         </div>
 
-        <div className="mt-6 text-center text-[10px] font-mono uppercase tracking-[0.25em] text-stone-600">
+        <div className="mt-6 text-center text-[10px] font-mono uppercase tracking-[0.25em] text-[var(--text-dim)]">
           Canonical admin surface · Telegram redirect layer preserved for rollback
         </div>
       </div>
