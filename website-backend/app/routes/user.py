@@ -7,6 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import httpx
 from app.auth.jwt import decode_token
+from app.auth.admin import augment_user_with_admin, is_admin_telegram_id, load_admin_ids
 from app.db.supabase import get_user_by_tid, _client
 
 logger = logging.getLogger(__name__)
@@ -44,25 +45,6 @@ def _normalize_verification_status(raw_status: str) -> str:
     if status in _REJECTED_ALIASES:
         return VER_REJECTED
     return status or "none"
-
-
-def _load_admin_ids() -> list[int]:
-    """Load admin IDs from multiple env keys for resilience."""
-    ids = set()
-    raw_values = [
-        os.getenv("ADMIN_IDS", ""),
-        os.getenv("ADMIN1", ""),
-        os.getenv("ADMIN2", ""),
-        os.getenv("ADMIN3", ""),
-        os.getenv("ADMIN_USER_ID", ""),
-        os.getenv("ADMIN2_USER_ID", ""),
-    ]
-    for raw in raw_values:
-        for token in str(raw).split(","):
-            token = token.strip()
-            if token.isdigit():
-                ids.add(int(token))
-    return sorted(ids)
 
 
 def _sanitize_community_code(raw: str | None) -> str | None:
@@ -156,12 +138,12 @@ async def get_me(tg_id: int = Depends(get_current_user)):
     user = get_user_by_tid(tg_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return augment_user_with_admin(user)
 
 @router.get("/verification-status")
 async def get_verification_status(tg_id: int = Depends(get_current_user)):
     """Single source of truth: user_verifications in Supabase."""
-    admin_ids = _load_admin_ids()
+    admin_ids = load_admin_ids()
     if tg_id in admin_ids:
         return {"status": VER_APPROVED, "exchange": "bitunix", "uid": None}
 
@@ -388,5 +370,6 @@ async def get_dashboard(tg_id: int = Depends(get_current_user)):
         "is_premium": user.get("is_premium", False),
         "premium_until": user.get("premium_until"),
         "is_lifetime": user.get("is_lifetime", False),
+        "is_admin": is_admin_telegram_id(user.get("telegram_id")),
     }
 

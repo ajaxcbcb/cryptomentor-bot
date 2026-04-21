@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import bitunixLogo from './assets/bitunix.jpg';
+import AdminPanel, { AdminDeniedScreen } from './AdminPanel';
 
 const _CONFIGURED_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 const _FALLBACK_BASE = '/api';
@@ -306,6 +307,7 @@ const resolveReferralUi = (referralUrl, referralSource, referralCode) => {
 
 export default function App() {
   const UPDATE_DISMISS_KEY = 'cm_update_dismissed_marker';
+  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem('cm_user');
@@ -389,6 +391,7 @@ export default function App() {
   const [verLoading, setVerLoading] = useState(true);
   const [bootIssue, setBootIssue] = useState(null);
   const [updateNotice, setUpdateNotice] = useState({ visible: false, latest: null });
+  const [userProfileHydrated, setUserProfileHydrated] = useState(false);
   const audioCtxRef = useRef(null);
   const audioUnlockedRef = useRef(false);
   const prevPositionIdsRef = useRef(new Set());
@@ -517,12 +520,14 @@ export default function App() {
           photo_url: (parsedUser && parsedUser.photo_url) || fallbackUser.photo_url,
           is_premium: Boolean((parsedUser && parsedUser.is_premium) || false),
           credits: Number((parsedUser && parsedUser.credits) || 0),
+          is_admin: Boolean((parsedUser && parsedUser.is_admin) || false),
         };
 
         localStorage.setItem('cm_token', urlToken);
         localStorage.setItem('cm_user', JSON.stringify(nextUser));
         setUser(nextUser);
         setIsLoggedIn(true);
+        setUserProfileHydrated(Boolean((parsedUser && typeof parsedUser.is_admin !== 'undefined') || nextUser.is_admin));
 
         // Remove params from URL to prevent re-login issues on refresh
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -577,9 +582,11 @@ export default function App() {
             photo_url: photoUrl,
             is_premium: data.user.is_premium || false,
             credits: data.user.credits || 0,
+            is_admin: data.user.is_admin || false,
           };
           setUser(nextUser);
           try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
+          setUserProfileHydrated(true);
         }
         // Only set logged in if we have a token
         if (data.access_token) {
@@ -626,9 +633,10 @@ export default function App() {
             _resolvedBase = _FALLBACK_BASE;
             localStorage.setItem('cm_token', data.access_token);
             if (data.user) {
-              const nextUser = { id: String(telegramUser.id), first_name: data.user.first_name || telegramUser.first_name, username: data.user.username || telegramUser.username || telegramUser.first_name, photo_url: photoUrl, is_premium: data.user.is_premium || false, credits: data.user.credits || 0 };
+              const nextUser = { id: String(telegramUser.id), first_name: data.user.first_name || telegramUser.first_name, username: data.user.username || telegramUser.username || telegramUser.first_name, photo_url: photoUrl, is_premium: data.user.is_premium || false, credits: data.user.credits || 0, is_admin: data.user.is_admin || false };
               setUser(nextUser);
               try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
+              setUserProfileHydrated(true);
             }
             setEngineState({
               autoModeEnabled: true,
@@ -683,6 +691,7 @@ export default function App() {
     setVerLoading(true);
     setPortfolioLoaded(false);
     setConnectorStatus({ linked: null, online: null, error: null });
+    setUserProfileHydrated(false);
   };
   const navigateTo = (tab) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
   const handleBotConnected = () => setShowBotStartModal(true);
@@ -1082,6 +1091,44 @@ export default function App() {
     fetchVerStatus();
   }, [isLoggedIn]);
 
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setUserProfileHydrated(false);
+      return;
+    }
+    let ignore = false;
+    const hydrateUserProfile = async () => {
+      try {
+        const resp = await apiFetch('/user/me');
+        if (!resp.ok) throw new Error(await readApiErrorMessage(resp, 'Failed to load user profile'));
+        const data = await resp.json();
+        if (ignore) return;
+        setUser((prev) => {
+          const nextUser = {
+            ...(prev || {}),
+            ...data,
+            id: String(data.telegram_id || data.id || prev?.id || ''),
+            first_name: data.first_name || prev?.first_name || 'User',
+            username: String(data.username || prev?.username || 'user').replace(/^@/, ''),
+            photo_url: prev?.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.first_name || prev?.first_name || 'User')}&background=1f2937&color=fff&bold=true`,
+            credits: Number(data.credits || 0),
+            is_premium: Boolean(data.is_premium || false),
+            is_lifetime: Boolean(data.is_lifetime || false),
+            is_admin: Boolean(data.is_admin || false),
+          };
+          try { localStorage.setItem('cm_user', JSON.stringify(nextUser)); } catch {}
+          return nextUser;
+        });
+      } catch (err) {
+        console.warn('[Profile] hydration failed:', err?.message || err);
+      } finally {
+        if (!ignore) setUserProfileHydrated(true);
+      }
+    };
+    hydrateUserProfile();
+    return () => { ignore = true; };
+  }, [isLoggedIn]);
+
   // Frontend update watcher: show a small popup when a newer bundle is live.
   useEffect(() => {
     let cancelled = false;
@@ -1272,6 +1319,20 @@ export default function App() {
     const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [isLoggedIn]);
+
+  if (isLoggedIn && isAdminRoute) {
+    if (!userProfileHydrated && typeof user?.is_admin === 'undefined') {
+      return (
+        <div className="min-h-screen bg-[#020202] flex items-center justify-center">
+          <div className="text-slate-400 text-sm animate-pulse">Loading admin profile...</div>
+        </div>
+      );
+    }
+    if (!user?.is_admin) {
+      return <AdminDeniedScreen user={user} onLogout={handleLogout} />;
+    }
+    return <AdminPanel user={user} apiFetch={apiFetch} onLogout={handleLogout} />;
+  }
 
   // Verification gate — block unverified users from dashboard
   // While loading, show spinner — never let through before we know the status

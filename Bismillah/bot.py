@@ -28,6 +28,11 @@ def _lazy_load_menu():
     return register_menu_handlers
 
 
+def get_telegram_admin_panel_mode() -> str:
+    mode = str(os.getenv("TELEGRAM_ADMIN_PANEL_MODE", "web") or "web").strip().lower()
+    return "legacy" if mode == "legacy" else "web"
+
+
 class TelegramBot:
     def __init__(self):
         import time
@@ -40,6 +45,53 @@ class TelegramBot:
         self._ai_assistant = None
         self._crypto_api = None
         print(f"✅ Bot initialized with {len(self.admin_ids)} admin(s)")
+
+    def _admin_panel_mode(self) -> str:
+        return get_telegram_admin_panel_mode()
+
+    def _build_admin_dashboard_url(self, user) -> str:
+        from app.lib.auth import generate_dashboard_url
+
+        return generate_dashboard_url(
+            int(user.id),
+            getattr(user, "username", "") or "",
+            getattr(user, "first_name", "") or "",
+            path="/admin",
+        )
+
+    def _admin_web_redirect_keyboard(self, user):
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 Open Admin Dashboard", url=self._build_admin_dashboard_url(user))]
+        ])
+
+    async def _send_admin_web_redirect(self, target, user, feature_label: str = "Admin panel"):
+        text = (
+            "🧭 <b>Admin moved to the web dashboard.</b>\n\n"
+            f"{feature_label} on Telegram is deprecated.\n"
+            "Use the signed admin dashboard below for Decision Tree telemetry, trade candidates, user controls, broadcast, and reporting."
+        )
+        keyboard = self._admin_web_redirect_keyboard(user)
+        if hasattr(target, "edit_text"):
+            await target.edit_text(
+                text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=keyboard,
+            )
+            return
+        await target.reply_text(
+            text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
+
+    async def admin_web_redirect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user.id not in self.admin_ids:
+            await update.message.reply_text("❌ Admin only.")
+            return
+        await self._send_admin_web_redirect(update.message, user, "This admin command")
 
     @property
     def ai_assistant(self):
@@ -109,16 +161,24 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("language", self.redirect_to_web))
 
         # Admin premium handlers
-        try:
-            from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_remove_premium, cmd_grant_credits
-            self.application.add_handler(CommandHandler("set_premium", cmd_set_premium))
-            self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
-            self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
-            self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
-            self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
-            print("✅ Admin premium handlers registered")
-        except Exception as e:
-            print(f"⚠️ Admin premium handlers failed: {e}")
+        if self._admin_panel_mode() == "legacy":
+            try:
+                from app.handlers_admin_premium import cmd_set_premium, cmd_revoke_premium, cmd_remove_premium, cmd_grant_credits
+                self.application.add_handler(CommandHandler("set_premium", cmd_set_premium))
+                self.application.add_handler(CommandHandler("setpremium", cmd_set_premium))
+                self.application.add_handler(CommandHandler("remove_premium", cmd_remove_premium))
+                self.application.add_handler(CommandHandler("revoke_premium", cmd_revoke_premium))
+                self.application.add_handler(CommandHandler("grant_credits", cmd_grant_credits))
+                print("✅ Admin premium handlers registered")
+            except Exception as e:
+                print(f"⚠️ Admin premium handlers failed: {e}")
+        else:
+            self.application.add_handler(CommandHandler("set_premium", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("setpremium", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("remove_premium", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("revoke_premium", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("grant_credits", self.admin_web_redirect_command))
+            print("✅ Admin premium commands redirected to web")
 
         # Admin callback handler (before menu handlers)
         self.application.add_handler(CallbackQueryHandler(self.admin_button_handler, pattern=r'^admin_'))
@@ -144,15 +204,22 @@ class TelegramBot:
         register_menu_handlers(self.application, self)
 
         # Auto signal admin
-        try:
-            from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
-            self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
-            self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
-            self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
-            self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
-            print("✅ Auto signal admin registered")
-        except Exception as e:
-            print(f"⚠️ Auto signal admin failed: {e}")
+        if self._admin_panel_mode() == "legacy":
+            try:
+                from app.handlers_autosignal_admin import cmd_signal_on, cmd_signal_off, cmd_signal_status, cmd_signal_tick
+                self.application.add_handler(CommandHandler("signal_on", cmd_signal_on))
+                self.application.add_handler(CommandHandler("signal_off", cmd_signal_off))
+                self.application.add_handler(CommandHandler("signal_status", cmd_signal_status))
+                self.application.add_handler(CommandHandler("signal_tick", cmd_signal_tick))
+                print("✅ Auto signal admin registered")
+            except Exception as e:
+                print(f"⚠️ Auto signal admin failed: {e}")
+        else:
+            self.application.add_handler(CommandHandler("signal_on", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("signal_off", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("signal_status", self.admin_web_redirect_command))
+            self.application.add_handler(CommandHandler("signal_tick", self.admin_web_redirect_command))
+            print("✅ Auto signal admin redirected to web")
 
         # AI handlers — retired, redirect to web
         # (handlers_deepseek.py removed)
@@ -212,7 +279,7 @@ class TelegramBot:
             "• Signals & market analysis\n"
             "• Risk & leverage settings\n"
             "• Performance metrics\n\n"
-            "👑 <b>Admin:</b> /admin, /set_premium, /signal_on, /signal_off, /daily_report_now",
+            "👑 <b>Admin:</b> use /admin to open the web admin panel",
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🌐 Open Dashboard", url=os.getenv("WEB_DASHBOARD_URL", "https://cryptomentor.id"))]
@@ -254,6 +321,9 @@ class TelegramBot:
         user_id = update.effective_user.id
         if user_id not in self.admin_ids:
             await update.message.reply_text("❌ Admin only.")
+            return
+        if self._admin_panel_mode() != "legacy":
+            await self._send_admin_web_redirect(update.message, update.effective_user, "Manual daily report")
             return
 
         status_msg = await update.message.reply_text(
@@ -438,6 +508,9 @@ class TelegramBot:
         if user_id not in self.admin_ids:
             await update.message.reply_text("❌ Access denied.")
             return
+        if self._admin_panel_mode() != "legacy":
+            await self._send_admin_web_redirect(update.message, update.effective_user)
+            return
         await update.message.reply_text(
             f"🔧 *Admin Panel*\n\nWelcome, Admin `{user_id}`",
             reply_markup=self._admin_main_keyboard(),
@@ -451,6 +524,9 @@ class TelegramBot:
             await query.answer("❌ Access denied", show_alert=True)
             return
         await query.answer()
+        if self._admin_panel_mode() != "legacy":
+            await self._send_admin_web_redirect(query, query.from_user)
+            return
         data = query.data
 
         back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_back")]])
@@ -658,6 +734,11 @@ class TelegramBot:
         # Handle admin awaiting inputs
         awaiting = user_data.get('awaiting_input')
         if awaiting:
+            if self._admin_panel_mode() != "legacy" and str(awaiting).startswith('admin_'):
+                user_data.pop('awaiting_input', None)
+                user_data.pop('state_timestamp', None)
+                await self._send_admin_web_redirect(update.message, update.effective_user, "This admin flow")
+                return
             parts = text.split()
             try:
                 from services import get_database

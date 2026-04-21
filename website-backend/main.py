@@ -5,6 +5,7 @@ from config import FRONTEND_URL, DEBUG
 from app.routes.auth import router as auth_router
 from app.routes.user import router as user_router
 from app.routes.dashboard import router as dashboard_router
+from app.routes.admin import router as admin_router
 from app.routes.bitunix import router as bitunix_router
 from app.routes.signals import router as signals_router
 from app.routes.performance import router as performance_router
@@ -42,6 +43,7 @@ app.add_middleware(VerificationGuardMiddleware)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(dashboard_router)
+app.include_router(admin_router)
 app.include_router(bitunix_router)
 app.include_router(signals_router)
 app.include_router(performance_router)

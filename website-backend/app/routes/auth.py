@@ -3,6 +3,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from app.auth.telegram import verify_telegram_auth
 from app.auth.jwt import create_token
+from app.auth.admin import augment_user_with_admin
 from app.db.supabase import upsert_web_login
 from app.models.user import TelegramAuthData
 
@@ -37,6 +38,7 @@ async def telegram_login(data: TelegramAuthData):
             last_name=data.last_name,
             referred_by=data.referred_by,
         )
+        user = augment_user_with_admin(user)
     except Exception:
         logger.exception("Failed to upsert web login for tg_id=%s", data.id)
         raise HTTPException(status_code=503, detail="Login service temporarily unavailable")

@@ -48,8 +48,16 @@ def create_access_token(telegram_id: int, username: str = "", first_name: str = 
     return jwt.encode(payload, _resolve_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def generate_dashboard_url(telegram_id: int, username: str = "", first_name: str = "", photo_url: str = "") -> str:
+def generate_dashboard_url(
+    telegram_id: int,
+    username: str = "",
+    first_name: str = "",
+    photo_url: str = "",
+    path: str = "/",
+) -> str:
     """Generate compact dashboard URL with token-only auto-login."""
+    _ = photo_url
     token = create_access_token(telegram_id, username, first_name)
-    return f"{_resolve_frontend_url()}/?t={token}"
+    clean_path = "/" + str(path or "/").lstrip("/")
+    return f"{_resolve_frontend_url()}{clean_path}?t={token}"
 

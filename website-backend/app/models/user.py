@@ -21,3 +21,5 @@ class UserProfile(BaseModel):
     credits: int
     is_premium: bool
     premium_until: Optional[str]
+    is_lifetime: bool = False
+    is_admin: bool = False

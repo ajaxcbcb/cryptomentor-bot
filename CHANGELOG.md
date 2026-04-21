@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.2.78] — 2026-04-21 — Web Admin Panel Migration
+
+### 🌐 Canonical Web Admin Surface
+- Added a dedicated web admin route at `/admin` inside the existing frontend shell.
+- Added `website-frontend/src/AdminPanel.jsx` with:
+  - overview summary cards,
+  - Decision Tree V2 live dashboard,
+  - per-symbol funnel breakdown,
+  - searchable/exportable trade candidate explorer,
+  - admin controls for signal state, premium/lifetime, credits, broadcast, and daily report.
+- Added hard admin-denied rendering for non-admin users on `/admin` instead of silent redirecting.
+
+### 🔐 Admin Auth and Backend Guardrails
+- Added shared backend admin auth helpers in `website-backend/app/auth/admin.py`.
+- Extended website auth/profile payloads so web sessions now expose canonical `is_admin`.
+- Added a dedicated `/dashboard/admin/*` API surface in `website-backend/app/routes/admin.py`.
+- Added shared admin observability service in `website-backend/app/services/admin_observability.py` for Decision Tree snapshots, candidate queries, signal control state, and export payloads.
+- Updated verification middleware so `/dashboard/admin/*` stays accessible to admins without Bitunix verification gating.
+
+### 📊 Decision Tree and Candidate Operations
+- Added admin API endpoints for:
+  - bootstrap summary,
+  - Decision Tree live summary,
+  - symbol-level funnel breakdown,
+  - filtered trade candidate listing,
+  - JSON/CSV trade candidate export,
+  - user stats,
+  - signal-control toggle,
+  - premium/lifetime actions,
+  - credits actions,
+  - broadcast,
+  - daily-report trigger.
+- Reused the existing Decision Tree V2 observability data model so web admin and bot fallback read from the same live telemetry shape.
+
+### 🤖 Telegram Admin Deprecation
+- Updated `Bismillah/bot.py` so Telegram admin functionality is deprecated to the web admin route when `TELEGRAM_ADMIN_PANEL_MODE=web`.
+- Added signed admin dashboard redirects for `/admin` and deprecated admin commands/buttons.
+- Preserved legacy Telegram admin behavior behind `TELEGRAM_ADMIN_PANEL_MODE=legacy` for rollback safety.
+- Extended `Bismillah/app/lib/auth.py` so dashboard links can target `/admin` directly with token auto-login.
+
+### ✅ Validation
+- Added `tests/test_web_admin_api.py`.
+- Added `tests/test_telegram_admin_web_mode.py`.
+- Verified targeted pytest coverage for admin auth/API and Telegram deprecation flow.
+- Verified frontend production build passes with the new `/admin` interface.
+
 ## [2.2.77] — 2026-04-21 — Admin Telegram Decision Tree V2 Dashboard
 
 ### 🧭 Admin-Only Telegram Dashboard

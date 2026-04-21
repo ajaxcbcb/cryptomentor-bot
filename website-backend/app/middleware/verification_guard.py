@@ -41,6 +41,7 @@ UNPROTECTED_PREFIXES = [
     "/user/dashboard",
     "/user/verification-status",
     "/user/submit-uid",
+    "/dashboard/admin/",
     "/dashboard/system",
     "/leaderboard",
     "/docs",
@@ -51,6 +52,7 @@ UNPROTECTED_PREFIXES = [
     "/api/user/dashboard",
     "/api/user/verification-status",
     "/api/user/submit-uid",
+    "/api/dashboard/admin/",
     "/api/leaderboard",
 ]
 
