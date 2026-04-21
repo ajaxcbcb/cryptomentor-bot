@@ -26,6 +26,15 @@ const PREMIUM_ACTION_OPTIONS = [
   { value: 'remove', label: 'Remove premium' },
 ];
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+
+const BROADCAST_AUDIENCE_OPTIONS = [
+  { value: 'all', label: 'All users' },
+  { value: 'premium', label: 'Premium' },
+  { value: 'verified', label: 'Verified' },
+  { value: 'non_verified', label: 'Non-verified' },
+];
+
 const EMPTY_FILTERS = {
   symbol: '',
   reject_reason: '',
@@ -160,6 +169,38 @@ function ConfirmModal({ title, description, confirmLabel, tone = 'amber', onCanc
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ChipSelector({ options, value, onChange, tone = 'neutral', compact = false }) {
+  const activeTone = {
+    neutral: 'border-white/15 bg-white/10 text-white',
+    amber: 'border-[#c7a56b]/30 bg-[#c7a56b]/15 text-[#f2ddb0]',
+    cyan: 'border-cyan-400/25 bg-cyan-500/12 text-cyan-100',
+    rose: 'border-rose-400/25 bg-rose-500/12 text-rose-100',
+  };
+  return (
+    <div className={`flex flex-wrap gap-2 rounded-[1.4rem] border border-white/8 bg-white/[0.03] ${compact ? 'p-1.5' : 'p-2'}`}>
+      {options.map((option) => {
+        const optValue = option.value ?? option;
+        const optLabel = option.label ?? String(option);
+        const isActive = value === optValue;
+        return (
+          <button
+            key={String(optValue)}
+            type="button"
+            onClick={() => onChange(optValue)}
+            className={`rounded-full border px-4 py-2 text-xs font-bold transition ${
+              isActive
+                ? (activeTone[tone] || activeTone.neutral)
+                : 'border-white/10 bg-black/20 text-stone-300 hover:bg-white/10'
+            }`}
+          >
+            {optLabel}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -589,20 +630,19 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               <button onClick={resetFilters} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-stone-200 hover:bg-white/10">
                 Reset
               </button>
-              <div className="ml-auto flex items-center gap-2 text-xs text-stone-400">
+              <div className="ml-auto flex flex-wrap items-center gap-2 text-xs text-stone-400">
                 <span>Page size</span>
-                <select
+                <ChipSelector
+                  options={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, label: String(size) }))}
                   value={pageSize}
-                  onChange={async (e) => {
-                    const nextSize = Number(e.target.value);
-                    setPageSize(nextSize);
+                  tone="cyan"
+                  compact
+                  onChange={async (nextSize) => {
+                    setPageSize(Number(nextSize));
                     setPage(1);
-                    await loadCandidates(1, nextSize, filters, windowKey);
+                    await loadCandidates(1, Number(nextSize), filters, windowKey);
                   }}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-stone-100 outline-none"
-                >
-                  {[25, 50, 100, 200].map((size) => <option key={size} value={size}>{size}</option>)}
-                </select>
+                />
               </div>
             </div>
 
@@ -774,12 +814,12 @@ export default function AdminPanel({ user, apiFetch, onLogout }) {
               <div className="rounded-[1.6rem] border border-white/8 bg-black/25 p-4">
                 <p className="text-sm font-black text-white">Broadcast</p>
                 <div className="mt-4 grid gap-3">
-                  <select value={broadcastForm.audience} onChange={(e) => setBroadcastForm((prev) => ({ ...prev, audience: e.target.value }))} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none">
-                    <option value="all">All users</option>
-                    <option value="premium">Premium</option>
-                    <option value="verified">Verified</option>
-                    <option value="non_verified">Non-verified</option>
-                  </select>
+                  <ChipSelector
+                    options={BROADCAST_AUDIENCE_OPTIONS}
+                    value={broadcastForm.audience}
+                    tone="amber"
+                    onChange={(nextAudience) => setBroadcastForm((prev) => ({ ...prev, audience: nextAudience }))}
+                  />
                   <textarea value={broadcastForm.message} onChange={(e) => setBroadcastForm((prev) => ({ ...prev, message: e.target.value }))} rows={5} placeholder="Telegram HTML message" className="rounded-[1.4rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500" />
                   <div className="flex justify-end">
                     <button

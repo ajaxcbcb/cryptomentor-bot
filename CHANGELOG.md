@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.2.81] — 2026-04-21 — Web Admin Native Select Cleanup
+
+### 🎚️ Styled Selector Pass
+- Replaced the remaining native selectors in `website-frontend/src/AdminPanel.jsx` with in-panel chip selectors.
+- The trade-candidate page size control now uses styled size chips instead of the browser dropdown.
+- The broadcast audience control now uses styled audience chips instead of the browser dropdown.
+- This keeps the `/admin` surface visually consistent and avoids OS-native select popups leaking into the design.
+
+### ✅ Validation
+- Rebuilt the frontend bundle after the selector cleanup.
+
 ## [2.2.80] — 2026-04-21 — Web Admin Premium Action UI Polish
 
 ### 🎛️ Premium Action Control
