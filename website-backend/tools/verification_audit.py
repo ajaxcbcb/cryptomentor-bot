@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+import sys
 from typing import Any
+
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from app.db.supabase import _client
 from app.services.verification_status import (
