@@ -63,7 +63,7 @@ def get_dist_files():
     
     return files_to_deploy
 
-def deploy_with_ssh(password=<REDACTED_PASSWORD> key_path=None):
+def deploy_with_ssh(password=None, key_path=None):
     """Deploy menggunakan SSH dengan SFTP"""
     try:
         ssh = paramiko.SSHClient()
@@ -77,7 +77,7 @@ def deploy_with_ssh(password=<REDACTED_PASSWORD> key_path=None):
         elif password:
             print(f"  Connecting dengan password...")
             ssh.connect(VPS_HOST, port=VPS_PORT, username=VPS_USER, 
-                       password=<REDACTED_PASSWORD> timeout=10)
+                       password=password, timeout=10)
         else:
             print("✗ Tidak ada SSH key atau password")
             return False
@@ -197,12 +197,12 @@ if __name__ == "__main__":
             sys.exit(0)
     
     # Fallback ke password
-    password = <REDACTED_PASSWORD>"VPS_PASSWORD")
+    password = os.getenv("VPS_PASSWORD")
     if not password:
-        password = <REDACTED_PASSWORD>"\n  Masukkan VPS password: ")
+        password = input("\n  Masukkan VPS password: ")
     
     # Step 4: Deploy
-    if deploy_with_ssh(password=<REDACTED_PASSWORD>
+    if deploy_with_ssh(password=password):
         print("\n✅ DEPLOY BERHASIL!")
         print(f"   Frontend deployed ke: {VPS_DEST_DIR}")
     else:

@@ -15,8 +15,8 @@ ADMIN_IDS  = [
 
 # ── Supabase ──────────────────────────────────────────
 SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
-SUPABASE_ANON_KEY    = <REDACTED_SUPABASE_KEY>
-SUPABASE_SERVICE_KEY = <REDACTED_SUPABASE_KEY>
+SUPABASE_ANON_KEY    = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 # ── AI ────────────────────────────────────────────────
 DEEPSEEK_API_KEY  = os.getenv("DEEPSEEK_API_KEY", "")
@@ -35,7 +35,7 @@ BITUNIX_WS_URL   = os.getenv("BITUNIX_WS_URL", "wss://fapi.bitunix.com/private")
 
 # ── License (WL#1 credentials untuk License Guard) ───
 WL_ID          = os.getenv("WL_ID", "")
-WL_SECRET_KEY  = <REDACTED_WL_SECRET_KEY> "")
+WL_SECRET_KEY  = os.getenv("WL_SECRET_KEY", "")
 LICENSE_API_URL = os.getenv("LICENSE_API_URL", "")
 
 # ── Bot Settings ──────────────────────────────────────

@@ -39,7 +39,7 @@ async def main():
     print()
     print("Isi ke Whitelabel #1/.env:")
     print(f"  WL_ID={result['wl_id']}")
-    print(f"  WL_SECRET_KEY=<REDACTED_WL_SECRET_KEY>
+    print("  WL_SECRET_KEY=replace_with_generated_wl_secret_key")
     print(f"  LICENSE_API_URL=http://YOUR_VPS_IP:8080")
     print()
     print(f"Berikan deposit address ini ke WL owner untuk top-up:")

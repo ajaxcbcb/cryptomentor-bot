@@ -29,7 +29,7 @@ def connect_ssh(*, host: str | None = None, user: str | None = None, port: int |
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     key_path = (os.getenv("VPS_SSH_KEY") or "").strip()
-    password = <REDACTED_PASSWORD>"VPS_PASSWORD") or "").strip()
+    password = (os.getenv("VPS_PASSWORD") or "").strip()
 
     if key_path:
         key_file = Path(key_path).expanduser()
@@ -39,7 +39,7 @@ def connect_ssh(*, host: str | None = None, user: str | None = None, port: int |
         return ssh
 
     if password:
-        ssh.connect(host, port=port, username=user, password=<REDACTED_PASSWORD> timeout=timeout)
+        ssh.connect(host, port=port, username=user, password=password, timeout=timeout)
         return ssh
 
     raise RuntimeError(

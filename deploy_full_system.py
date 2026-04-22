@@ -48,8 +48,8 @@ COMPONENTS = {
 }
 
 class DeploymentManager:
-    def __init__(self, password=<REDACTED_PASSWORD> key_path=None):
-        self.password = <REDACTED_PASSWORD>
+    def __init__(self, password=None, key_path=None):
+        self.password = password
         self.key_path = key_path
         self.ssh = None
         self.sftp = None
@@ -68,7 +68,7 @@ class DeploymentManager:
             elif self.password:
                 print(f"  🔐 Using password auth")
                 self.ssh.connect(VPS_HOST, port=VPS_PORT, username=VPS_USER,
-                               password=<REDACTED_PASSWORD> timeout=10)
+                               password=self.password, timeout=10)
             else:
                 print("  ✗ No SSH key or password")
                 return False
@@ -314,22 +314,22 @@ def main():
     print("=" * 60)
     
     key_path = os.path.expanduser("~/.ssh/id_rsa")
-    password = <REDACTED_PASSWORD>
+    password = os.getenv("VPS_PASSWORD")
     
     if os.path.exists(key_path):
         print(f"\n🔑 SSH key found: {key_path}")
         use_key = input("Use SSH key? (y/n): ").lower()
         if use_key != 'y':
-            password = <REDACTED_PASSWORD>"Enter VPS password: ")
+            password = input("Enter VPS password: ")
     else:
-        password = <REDACTED_PASSWORD>"\nEnter VPS password: ")
+        password = input("\nEnter VPS password: ")
     
     # Deploy
     print("\n" + "=" * 60)
     print("📤 DEPLOYING TO VPS")
     print("=" * 60)
     
-    deployer = DeploymentManager(password=<REDACTED_PASSWORD> key_path=key_path if os.path.exists(key_path) else None)
+    deployer = DeploymentManager(password=password, key_path=key_path if os.path.exists(key_path) else None)
     
     if not deployer.connect():
         sys.exit(1)

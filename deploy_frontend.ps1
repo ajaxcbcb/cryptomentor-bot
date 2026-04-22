@@ -10,7 +10,7 @@
 param(
     [string]$Host = "147.93.156.165",
     [string]$User = "root",
-    [string]$Password = <REDACTED_PASSWORD>
+    [string]$Password = "",
     [string]$DestDir = "/root/cryptomentor-bot/website-frontend/dist",
     [switch]$SkipBuild
 )
@@ -73,8 +73,7 @@ Write-Host ""
 Write-Host "🔐 Autentikasi ke VPS..." -ForegroundColor Yellow
 
 if (-not $Password) {
-    $Password = <REDACTED_PASSWORD> -AsSecureString "  Masukkan VPS password (SSH)"
-    $Password = <REDACTED_PASSWORD>
+    $Password = Read-Host "  Masukkan VPS password (SSH)"
 }
 
 # Step 4: Deploy dengan SCP

@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 try:
     import config as wl_config
     SUPABASE_URL = (wl_config.SUPABASE_URL or "").rstrip("/")
-    SUPABASE_SERVICE_KEY = <REDACTED_SUPABASE_KEY>
+    SUPABASE_SERVICE_KEY = getattr(wl_config, "SUPABASE_SERVICE_KEY", "") or ""
 except ImportError:
     SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
-    SUPABASE_SERVICE_KEY = <REDACTED_SUPABASE_KEY>
+    SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 def _client() -> Client:
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:

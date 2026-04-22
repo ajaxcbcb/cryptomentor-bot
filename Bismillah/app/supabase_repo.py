@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from datetime import datetime, timezone
 
 SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").rstrip("/")
-SUPABASE_SERVICE_KEY = <REDACTED_SUPABASE_KEY>
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 def _client() -> Client:
     # Re-read env vars at call time to handle cases where dotenv loads after module import
