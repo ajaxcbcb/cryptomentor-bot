@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Troubleshoot why migration changes not visible"""
-import paramiko
 import requests
 import json
 
-VPS_HOST = "147.93.156.165"
-VPS_USER = "root"
-VPS_PASSWORD = "<REDACTED_PASSWORD>"
+from vps_ssh_utils import connect_ssh, load_vps_config
 
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect(VPS_HOST, port=22, username=VPS_USER, password=<REDACTED_PASSWORD> timeout=10)
+VPS_HOST, VPS_USER, VPS_PORT = load_vps_config()
+ssh = connect_ssh(host=VPS_HOST, user=VPS_USER, port=VPS_PORT)
 
 print()
 print("=" * 80)

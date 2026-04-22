@@ -1,9 +1,8 @@
-import paramiko
 import time
 
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('147.93.156.165', port=22, username='root', password='<REDACTED_PASSWORD>', timeout=10)
+from vps_ssh_utils import connect_ssh
+
+ssh = connect_ssh()
 
 print('🔍 Checking requirements.txt...')
 stdin, stdout, stderr = ssh.exec_command('cat /root/cryptomentor-bot/Bismillah/requirements.txt')

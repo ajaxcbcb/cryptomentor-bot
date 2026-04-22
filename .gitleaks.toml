@@ -1,0 +1,33 @@
+title = "CryptoMentor Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow placeholders and template values"
+regexes = [
+  '''replace_with_[A-Za-z0-9_]+''',
+  '''your_[A-Za-z0-9_]+''',
+  '''<[^>]+>''',
+  '''CHANGE_ME''',
+  '''redacted_user_id''',
+]
+
+[[rules]]
+id = "hardcoded-vps-password"
+description = "Hardcoded VPS password assignment"
+regex = '''(?i)\bVPS_PASSWORD\s*=\s*['"][^'"]+['"]'''
+tags = ["password", "vps"]
+
+[[rules]]
+id = "hardcoded-ssh-password-connect"
+description = "Hardcoded password passed into ssh.connect"
+regex = '''ssh\.connect\([^\n]*password\s*=\s*['"][^'"]+['"]'''
+tags = ["password", "ssh"]
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram bot token pattern"
+regex = '''\b\d{8,10}:AA[A-Za-z0-9_-]{30,}\b'''
+tags = ["telegram", "token"]
+

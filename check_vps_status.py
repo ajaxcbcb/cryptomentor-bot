@@ -4,16 +4,13 @@ Check VPS status dan bandingkan dengan local files
 Untuk lihat apa yang belum di-update
 """
 import os
-import paramiko
 import hashlib
 from datetime import datetime
-from pathlib import Path
+
+from vps_ssh_utils import connect_ssh, load_vps_config
 
 # VPS Config
-VPS_HOST = "147.93.156.165"
-VPS_USER = "root"
-VPS_PASSWORD = "<REDACTED_PASSWORD>"
-VPS_PORT = 22
+VPS_HOST, VPS_USER, VPS_PORT = load_vps_config()
 
 # Paths
 FRONTEND_LOCAL = "website-frontend/dist"
@@ -51,10 +48,7 @@ def get_local_files(directory):
 def check_vps():
     """Check VPS files"""
     try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(VPS_HOST, port=VPS_PORT, username=VPS_USER, 
-                   password=<REDACTED_PASSWORD> timeout=10)
+        ssh = connect_ssh(host=VPS_HOST, user=VPS_USER, port=VPS_PORT)
         
         sftp = ssh.open_sftp()
         

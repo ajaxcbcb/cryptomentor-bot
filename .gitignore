@@ -74,6 +74,13 @@ tmp/
 api_keys.txt
 secrets.txt
 credentials.json
+.private_quarantine/
+Bismillah/data/users_local.json
+# Never commit local env/runtime secret files
+.env
+.env.local
+**/.env
+**/.env.local
 
 # Node modules (for marketing)
 node_modules/

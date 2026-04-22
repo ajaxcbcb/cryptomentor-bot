@@ -10,6 +10,6 @@ s = _client()
 res = s.table("autotrade_trades").select("telegram_id, pnl_usdt, closed_at").eq("status", "closed").limit(5).execute()
 print("Closed trades sample:", res.data)
 
-# Cek untuk user 1234500009
-res2 = s.table("autotrade_trades").select("pnl_usdt, closed_at").eq("telegram_id", 1234500009).eq("status", "closed").limit(5).execute()
-print("User 1234500009 trades:", res2.data)
+# Cek untuk user 123456789
+res2 = s.table("autotrade_trades").select("pnl_usdt, closed_at").eq("telegram_id", 123456789).eq("status", "closed").limit(5).execute()
+print("User 123456789 trades:", res2.data)

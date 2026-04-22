@@ -1,8 +1,6 @@
-import paramiko
+from vps_ssh_utils import connect_ssh
 
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('147.93.156.165', port=22, username='root', password='<REDACTED_PASSWORD>', timeout=10)
+ssh = connect_ssh()
 
 # Check venv
 stdin, stdout, stderr = ssh.exec_command('ls -la /root/cryptomentor-bot/Bismillah/venv/ 2>/dev/null || echo "No venv"')

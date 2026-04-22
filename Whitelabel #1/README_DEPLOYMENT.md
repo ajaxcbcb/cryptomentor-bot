@@ -3,7 +3,7 @@
 ## Bot Info
 - **Bot ID**: 8744237679
 - **Bot Name**: CryptoMentor AI (Whitelabel #1)
-- **Admin**: 1234500002
+- **Admin**: 123456789
 - **Focus**: Automated Trading Only (No Signal Generation)
 
 ## Features
@@ -45,16 +45,16 @@ nano .env
 Required settings:
 ```env
 # Telegram
-BOT_TOKEN=<REDACTED_TELEGRAM_BOT_TOKEN>
+BOT_TOKEN=replace_with_telegram_bot_token
 ADMIN1=<REDACTED_ADMIN_ID>
 
 # Supabase (separate instance for WL#1)
-SUPABASE_URL=https://jajtwunmngmturqwjpum.supabase.co
+SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_ANON_KEY=<REDACTED_SUPABASE_KEY>
 SUPABASE_SERVICE_KEY=<REDACTED_SUPABASE_KEY>
 
 # License Server (for production)
-WL_ID=<REDACTED_UUID>
+WL_ID=replace_with_whitelabel_id
 WL_SECRET_KEY=<REDACTED_WL_SECRET_KEY>
 LICENSE_API_URL=http://147.93.156.165:8080
 

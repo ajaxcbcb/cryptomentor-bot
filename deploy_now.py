@@ -7,13 +7,11 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-import paramiko
+
+from vps_ssh_utils import connect_ssh, load_vps_config
 
 # ===== KONFIGURASI =====
-VPS_HOST = "147.93.156.165"
-VPS_USER = "root"
-VPS_PASSWORD = "<REDACTED_PASSWORD>"  # Hardcoded untuk automation
-VPS_PORT = 22
+VPS_HOST, VPS_USER, VPS_PORT = load_vps_config()
 VPS_DEST_DIR = "/root/cryptomentor-bot/website-frontend/dist"
 
 FRONTEND_DIR = "website-frontend"
@@ -22,12 +20,8 @@ DIST_DIR = f"{FRONTEND_DIR}/dist"
 def deploy_files():
     """Deploy files ke VPS"""
     try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
         print(f"🔐 Connecting to {VPS_HOST}...")
-        ssh.connect(VPS_HOST, port=VPS_PORT, username=VPS_USER, 
-                   password=<REDACTED_PASSWORD> timeout=10)
+        ssh = connect_ssh(host=VPS_HOST, user=VPS_USER, port=VPS_PORT)
         
         sftp = ssh.open_sftp()
         print(f"✅ Connected!")

@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: repo-secrets-policy
+        name: repo-secrets-policy
+        entry: python tools/security/enforce_repo_secrets.py
+        language: system
+        pass_filenames: false
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+        args: ["protect", "--staged", "--redact", "--config=.gitleaks.toml"]
+
