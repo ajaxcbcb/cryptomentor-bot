@@ -6,32 +6,17 @@ Only users with status 'approved' in user_verifications
 can access protected routes. Returns 403 for unverified users.
 """
 
-from fastapi import Request, HTTPException
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from app.auth.jwt import decode_token
-from app.db.supabase import _client
+from app.services.verification_status import (
+    VER_APPROVED as APPROVED_STATUS,
+    load_verification_snapshot,
+)
 import logging
 
 logger = logging.getLogger(__name__)
-APPROVED_STATUS = "approved"
-PENDING_STATUS = "pending"
-REJECTED_STATUS = "rejected"
-
-_APPROVED_ALIASES = {"approved", "uid_verified", "active", "verified"}
-_PENDING_ALIASES = {"pending", "pending_verification", "awaiting_approval"}
-_REJECTED_ALIASES = {"rejected", "uid_rejected", "denied"}
-
-
-def _normalize_verification_status(raw_status: str) -> str:
-    status = str(raw_status or "").strip().lower()
-    if status in _APPROVED_ALIASES:
-        return APPROVED_STATUS
-    if status in _PENDING_ALIASES:
-        return PENDING_STATUS
-    if status in _REJECTED_ALIASES:
-        return REJECTED_STATUS
-    return status or "none"
 
 # Routes that do NOT require exchange verification
 # (Always allowed even if user is not verified on Bitunix)
@@ -129,28 +114,33 @@ class VerificationGuardMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # Check verification status from the central table.
+        # Check verification status with legacy fallback compatibility.
         try:
-            s = _client()
-            res = (
-                s.table("user_verifications")
-                .select("status")
-                .eq("telegram_id", tg_id)
-                .limit(1)
-                .execute()
-            )
-            row = (res.data or [None])[0]
-            raw_status = row.get("status") if row else "none"
-            status = _normalize_verification_status(raw_status)
+            snap = load_verification_snapshot(tg_id)
+            status = snap.get("status") or "none"
+            raw_status = snap.get("raw_status") or "none"
+            source = snap.get("source") or "none"
+            decision_reason = snap.get("decision_reason") or "none"
+            if snap.get("mismatch_detected"):
+                logger.warning(
+                    "verification_status_mismatch guard tg_id=%s meta=%s",
+                    tg_id,
+                    snap.get("mismatch_meta"),
+                )
 
             if status != APPROVED_STATUS:
-                logger.info(f"[Guard:{tg_id}] Blocked access to {path} — status: {status}")
+                logger.info(
+                    f"[Guard:{tg_id}] Blocked access to {path} — status: {status} "
+                    f"(raw={raw_status}, source={source}, decision_reason={decision_reason})"
+                )
                 return JSONResponse(
                     status_code=403,
                     content={
                         "error": "verification_required",
                         "status": status,
                         "raw_status": raw_status,
+                        "source": source,
+                        "decision_reason": decision_reason,
                         "message": "Your Bitunix UID is not approved yet. Submit UID and wait for Telegram admin approval." if status != "rejected" else "Your UID was rejected. Please resubmit a valid UID.",
                     },
                 )

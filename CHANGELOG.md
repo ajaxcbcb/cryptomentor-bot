@@ -1,5 +1,59 @@
 # Changelog
 
+## [2.3.06] — 2026-04-22 — Fleet Gatekeeper Sync + Verified Session Stability
+
+### 🔐 Shared Verification Resolver (Fleet-Safe)
+- Added shared resolver module `website-backend/app/services/verification_status.py` and wired both:
+  - `website-backend/app/middleware/verification_guard.py`
+  - `website-backend/app/routes/user.py` (`/user/verification-status`)
+- Resolver now returns deterministic metadata:
+  - `status`, `raw_status`, `source`, `decision_reason`, `mismatch_detected`
+- Added structured, redacted mismatch logging (`verification_status_mismatch`) for drift observability.
+
+### 🛡️ Legacy Session Compatibility Bug Fix
+- Fixed session normalization order so legacy statuses (`stopped`, `inactive`, `paused`, `halted`) correctly map to approved-compatible when UID exists.
+- Prevents verified users from being misclassified as blocked on protected dashboard routes.
+
+### 🌐 Frontend Gatekeeper Timeout Behavior
+- Updated `website-frontend/src/App.jsx` verification fetch flow:
+  - keeps approved sessions active during transient `/user/verification-status` network errors/timeouts/`5xx`,
+  - avoids hard downgrade to blocking `Session check issue` for transient failures when last known status is approved,
+  - retains fail-closed behavior for authoritative failures (`401`, explicit non-approved/unstable responses during bootstrap).
+
+### 📊 Fleet Audit Tool (Read-Only)
+- Added `website-backend/tools/verification_audit.py` for cron-safe drift checks across:
+  - `user_verifications`,
+  - `autotrade_sessions`,
+  - shared resolver decision output.
+- Supports `--fail-on-drift` for alerting pipelines without any DB writes.
+
+## [2.3.05] — 2026-04-22 — Admin Route Mount Recovery
+
+### 🌐 Admin Panel Availability
+- Updated `website-backend/main.py` so `app.routes.admin` and `app.routes.content` are always mounted, even when `WEB_ENABLE_OPTIONAL_ROUTES=0`.
+- Preserves auth/session stability mode for heavier optional routers while restoring `/dashboard/admin/*` and public testimonials availability.
+- Added explicit startup log for mounted route groups (`admin`, `content`, `optional`) to make VPS router state visible in `journalctl`.
+
+### ✅ Regression Coverage
+- Added `tests/test_web_main_optional_routes.py` to verify admin/content routes remain mounted when optional web routes are disabled, while optional engine routes stay gated.
+
+## [2.3.04] — 2026-04-22 — Verification Status Timeout Resilience
+
+### 🌐 Frontend Session Check Reliability
+- Updated `website-frontend/src/App.jsx` verification bootstrap:
+  - added one retry path for `/user/verification-status` on timeout or transient `5xx`,
+  - increased second-attempt timeout window (`25s`) after initial fast attempt (`12s`),
+  - reduces false “Session check issue” screens during short backend warm-up or upstream jitter.
+
+## [2.3.03] — 2026-04-22 — Telegram Login Payload Parsing Hardening
+
+### 🔐 Auth Endpoint Robustness
+- Updated `website-backend/app/routes/auth.py` `/auth/telegram`:
+  - switched to robust request payload reader with support for JSON and URL-encoded fallback formats,
+  - explicit `telegram_auth_payload_invalid` error contract for malformed/missing payloads instead of opaque failures,
+  - added safe parse-failure diagnostics (content-type, prefix, length) without logging secrets/raw auth payload.
+- Keeps existing strict Telegram signature and auth-age checks unchanged.
+
 ## [2.3.02] — 2026-04-22 — Verification Gate Unknown-Status Hardening
 
 ### 🌐 Frontend Verification Gate Stabilization
@@ -36,6 +90,12 @@
   - include Bismillah parent root in `sys.path` for `from Bismillah.app.*` imports,
   - preserve direct `Bismillah` and `Bismillah/app` path availability for existing fallback imports.
 - Resolves repeated runtime warnings like `No module named 'Bismillah'` during confluence scoring and reduces avoidable per-request failure overhead.
+
+### ⚙️ Web Service Runtime Stabilization
+- Updated `website-backend/cryptomentor-web.service` template to match live VPS runtime:
+  - canonical path `/opt/cryptomentor/website-backend`,
+  - uvicorn worker pool tuned to `--workers 8`,
+  - startup stability guard set to `--timeout-worker-healthcheck 60`.
 
 ## [2.2.99] — 2026-04-22 — Telegram Auth Stabilization (Auth-Focused)
 
@@ -74,6 +134,7 @@
 - Updated `admin_bootstrap` to fetch snapshot, user stats, and one-click metrics concurrently, so response latency is bounded by the slowest source instead of cumulative waits.
 - Added timeout-guarded signal-control read in `admin_bootstrap` to prevent synchronous signal snapshot stalls from blocking admin card responses.
 - Raised web API Uvicorn worker healthcheck timeout to reduce worker churn under blocking Bitunix/Supabase load (`--timeout-worker-healthcheck 60`).
+- Tightened default timeout caps for `/dashboard/admin/decision-tree*` and `/dashboard/admin/trade-candidates` fallback paths to reduce panel stalls during upstream latency spikes.
 
 ## [2.2.97] — 2026-04-22 — Adaptive + Decision Tree Runtime Parity Verification Patch
 

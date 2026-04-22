@@ -29,6 +29,7 @@ let _lastUnauthorizedEventAt = 0;
 const _APPROVED_STATUSES = new Set(['approved', 'uid_verified', 'active', 'verified']);
 const _PENDING_STATUSES = new Set(['pending', 'pending_verification', 'awaiting_approval']);
 const _REJECTED_STATUSES = new Set(['rejected', 'uid_rejected', 'denied']);
+const _VERIFICATION_BOOT_GRACE_MS = 45000;
 
 const _normalizeVerificationStatus = (value) => String(value || '').trim().toLowerCase();
 
@@ -495,6 +496,9 @@ export default function App() {
   const referralReqSeqRef = useRef(0);
   const telegramLoginGuardRef = useRef({ inFlight: false, lastAttemptAt: 0 });
   const authResetInProgressRef = useRef(false);
+  const normalizedVerStatus = _normalizeVerificationStatus(verStatus?.status);
+  const hasDashboardAccess = isLoggedIn && !verLoading && _APPROVED_STATUSES.has(normalizedVerStatus);
+  const hasApprovedSnapshot = _APPROVED_STATUSES.has(normalizedVerStatus);
 
   const resetAuthSession = (reason = 'unauthorized') => {
     if (authResetInProgressRef.current) return;
@@ -1212,7 +1216,7 @@ export default function App() {
 
   // Hydrate engine running state on login
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!hasDashboardAccess) return;
     let cancelled = false;
     apiFetch('/dashboard/engine/state')
       .then(r => r.ok ? r.json() : null)
@@ -1223,13 +1227,13 @@ export default function App() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isLoggedIn]);
+  }, [hasDashboardAccess]);
 
   // Fetch risk settings on login
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!hasDashboardAccess) return;
     fetchRiskSettings();
-  }, [isLoggedIn]);
+  }, [hasDashboardAccess]);
 
   const applyReferralContext = (next, opts = {}) => {
     const allowDowngrade = !!opts.allowDowngrade;
@@ -1278,8 +1282,38 @@ export default function App() {
   // Fetch verification status on login
   const fetchVerStatus = async () => {
     if (!isLoggedIn) { setVerLoading(false); return; }
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const requestVerificationStatus = async () => {
+      let lastResp = null;
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const timeoutMs = attempt === 0 ? 12000 : 25000;
+          const resp = await apiFetch('/user/verification-status', { timeoutMs });
+          lastResp = resp;
+          // Retry once on transient upstream failures.
+          if (resp.status >= 500 && attempt === 0) {
+            await sleep(600);
+            continue;
+          }
+          return resp;
+        } catch (err) {
+          lastErr = err;
+          const isTimeout = String(err?.name || '').toLowerCase() === 'timeouterror'
+            || String(err?.message || '').toLowerCase().includes('timed out');
+          if (isTimeout && attempt === 0) {
+            await sleep(600);
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (lastResp) return lastResp;
+      throw lastErr || new Error('verification_status_request_failed');
+    };
+
     try {
-      const resp = await apiFetch('/user/verification-status', { timeoutMs: 12000 });
+      const resp = await requestVerificationStatus();
       if (resp.status === 401) {
         // Token expired — force logout and stop poll loops.
         resetAuthSession('verification_status_401');
@@ -1289,6 +1323,10 @@ export default function App() {
         const data = await resp.json();
         const normalizedStatus = _normalizeVerificationStatus(data?.status);
         if (!normalizedStatus) {
+          if (hasApprovedSnapshot) {
+            setBootIssue('Temporary verification response issue detected. Dashboard access is kept active.');
+            return;
+          }
           setVerStatus({ status: 'unknown' });
           setBootIssue('Verification response missing status field.');
           return;
@@ -1309,15 +1347,24 @@ export default function App() {
         }
         setBootIssue(null);
       } else {
-        // Fail closed on backend/status errors.
+        const isTransientHttp = Number(resp.status) >= 500;
+        if (isTransientHttp && hasApprovedSnapshot) {
+          setBootIssue(`Temporary network issue while refreshing access (HTTP ${resp.status}).`);
+          return;
+        }
+        // Fail closed on authoritative status failures.
         setVerStatus({ status: 'unknown' });
         setBootIssue(`Session check failed (HTTP ${resp.status}).`);
       }
     } catch (err) {
       console.error('[Verification] Failed:', err);
-      // Fail closed on network errors.
-      setVerStatus({ status: 'unknown' });
-      setBootIssue(`Network error while checking access: ${err.message}`);
+      if (hasApprovedSnapshot) {
+        setBootIssue(`Network issue while refreshing access: ${err.message}`);
+      } else {
+        // Fail closed on initial bootstrap failures.
+        setVerStatus({ status: 'unknown' });
+        setBootIssue(`Network error while checking access: ${err.message}`);
+      }
     } finally {
       setVerLoading(false);
     }
@@ -1414,7 +1461,7 @@ export default function App() {
     if (!isLoggedIn || !verLoading) return;
     const id = setTimeout(() => {
       setBootIssue(prev => prev || 'Taking longer than expected to verify session.');
-    }, 10000);
+    }, _VERIFICATION_BOOT_GRACE_MS);
     return () => clearTimeout(id);
   }, [isLoggedIn, verLoading]);
 
@@ -1449,7 +1496,7 @@ export default function App() {
 
   // Live unrealized PnL + positions polling
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!hasDashboardAccess) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -1517,13 +1564,13 @@ export default function App() {
       } catch {}
     };
     load();
-    const id = setInterval(load, 3000);
+    const id = setInterval(load, 7000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [isLoggedIn]);
+  }, [hasDashboardAccess]);
 
   // Cumulative PnL (closed trades, last 30d) + balance
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!hasDashboardAccess) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -1571,9 +1618,9 @@ export default function App() {
       }
     };
     load();
-    const id = setInterval(load, 5000);
+    const id = setInterval(load, 10000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [isLoggedIn]);
+  }, [hasDashboardAccess]);
 
   useEffect(() => {
     if (!isLoggedIn || !isAdminRoute) return;
@@ -1601,18 +1648,21 @@ export default function App() {
   // Verification gate — block unverified users from dashboard
   // While loading, show spinner — never let through before we know the status
   if (isLoggedIn && verLoading) {
-    if (bootIssue) {
+    if (!hasApprovedSnapshot && bootIssue && !String(bootIssue).toLowerCase().startsWith('taking longer than expected')) {
       return renderSessionIssue('We could not complete dashboard access verification.', bootIssue);
     }
     return (
       <div className="min-h-screen bg-[#020202] flex items-center justify-center">
-        <div className="text-slate-400 text-sm animate-pulse">Checking access...</div>
+        <div className="text-center">
+          <div className="text-slate-400 text-sm animate-pulse">Checking access...</div>
+          {bootIssue ? <div className="text-slate-500 text-xs mt-2">{bootIssue}</div> : null}
+        </div>
       </div>
     );
   }
 
   if (isLoggedIn && !verLoading) {
-    if (bootIssue) {
+    if (bootIssue && !hasDashboardAccess) {
       return renderSessionIssue('Dashboard access check returned an unstable response.', bootIssue);
     }
     if (!verStatus || verStatus.status === 'none') {
