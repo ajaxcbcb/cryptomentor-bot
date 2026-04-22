@@ -24,18 +24,41 @@ let _resolvedBase = null;
 let _runtimeToken = null;
 const _isServerError = (status) => Number(status) >= 500;
 
+const _fetchWithTimeout = async (url, opts, timeoutMs) => {
+  const ms = Number(timeoutMs);
+  if (!Number.isFinite(ms) || ms <= 0 || opts?.signal) {
+    return fetch(url, opts);
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      const seconds = Math.max(1, Math.round(ms / 1000));
+      const timeoutErr = new Error(`Request timed out after ${seconds}s`);
+      timeoutErr.name = 'TimeoutError';
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 const apiFetch = async (path, opts = {}) => {
+  const { timeoutMs = null, ...restOpts } = opts || {};
   let token = null;
   try { token = localStorage.getItem('cm_token'); } catch {}
   if (!token && _runtimeToken) token = _runtimeToken;
   const headers = {
-    ...(opts.headers || {}),
+    ...(restOpts.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
   // If we already confirmed a working base, use it directly.
   if (_resolvedBase) {
-    let r = await fetch(`${_resolvedBase}${path}`, { ...opts, headers });
+    let r = await _fetchWithTimeout(`${_resolvedBase}${path}`, { ...restOpts, headers }, timeoutMs);
     // If configured base starts returning 5xx, fail over to same-origin /api.
     if (
       _resolvedBase === _CONFIGURED_BASE &&
@@ -44,7 +67,7 @@ const apiFetch = async (path, opts = {}) => {
     ) {
       console.warn(`[apiFetch] ${_CONFIGURED_BASE} returned ${r.status}, retrying via ${_FALLBACK_BASE}`);
       try {
-        const fallbackResp = await fetch(`${_FALLBACK_BASE}${path}`, { ...opts, headers });
+        const fallbackResp = await _fetchWithTimeout(`${_FALLBACK_BASE}${path}`, { ...restOpts, headers }, timeoutMs);
         if (!_isServerError(fallbackResp.status)) {
           _resolvedBase = _FALLBACK_BASE;
         }
@@ -59,13 +82,13 @@ const apiFetch = async (path, opts = {}) => {
 
   // Try the configured base first.
   try {
-    const r = await fetch(`${_CONFIGURED_BASE}${path}`, { ...opts, headers });
+    const r = await _fetchWithTimeout(`${_CONFIGURED_BASE}${path}`, { ...restOpts, headers }, timeoutMs);
     if (!_isServerError(r.status)) {
       _resolvedBase = _CONFIGURED_BASE; // mark as working only when not 5xx
     } else if (_CONFIGURED_BASE !== _FALLBACK_BASE) {
       console.warn(`[apiFetch] ${_CONFIGURED_BASE} returned ${r.status}, falling back to ${_FALLBACK_BASE}`);
       try {
-        const fallbackResp = await fetch(`${_FALLBACK_BASE}${path}`, { ...opts, headers });
+        const fallbackResp = await _fetchWithTimeout(`${_FALLBACK_BASE}${path}`, { ...restOpts, headers }, timeoutMs);
         if (!_isServerError(fallbackResp.status)) {
           _resolvedBase = _FALLBACK_BASE;
         }
@@ -84,7 +107,7 @@ const apiFetch = async (path, opts = {}) => {
     if (_CONFIGURED_BASE !== _FALLBACK_BASE) {
       console.warn(`[apiFetch] ${_CONFIGURED_BASE} unreachable, falling back to ${_FALLBACK_BASE}`);
       try {
-        const r = await fetch(`${_FALLBACK_BASE}${path}`, { ...opts, headers });
+        const r = await _fetchWithTimeout(`${_FALLBACK_BASE}${path}`, { ...restOpts, headers }, timeoutMs);
         _resolvedBase = _FALLBACK_BASE; // remember fallback works
         if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
         return r;
@@ -1091,7 +1114,7 @@ export default function App() {
   const fetchVerStatus = async () => {
     if (!isLoggedIn) { setVerLoading(false); return; }
     try {
-      const resp = await apiFetch('/user/verification-status');
+      const resp = await apiFetch('/user/verification-status', { timeoutMs: 12000 });
       if (resp.status === 401) {
         // Token expired — force logout and show login screen
         try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}

@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.2.96] — 2026-04-22 — Session Verification Timeout Guard + Web Service Activation
+
+### ✅ Dashboard Session Check Reliability
+- Updated `website-frontend/src/App.jsx` `apiFetch` with optional request timeout support via abortable fetch wrapper.
+- Applied explicit timeout for `GET /user/verification-status` during boot (`12s`) so verification checks cannot hang indefinitely.
+- Prevents persistent "Session check issue" lock caused by unresolved verification fetch promises.
+
+### 🚀 Production Activation Alignment
+- Restarted `cryptomentor-web.service` after deploying backend one-click risk route updates to ensure web API workers load latest code.
+- Synced latest frontend bundle (`website-frontend/dist`) so live dashboard serves current one-click and session-check logic.
+
 ## [2.2.95] — 2026-04-22 — Web 1-Click Tiered Risk Unlocked + 5% Snapback Fix
 
 ### ⚡ Web 1-Click Risk Policy (Tiered + All-In)
