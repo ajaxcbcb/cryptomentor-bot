@@ -231,6 +231,12 @@ const oneClickRiskFromSliderValue = (sliderValue) => {
   return ONE_CLICK_RISK_OPTIONS[safeIdx];
 };
 
+const formatOneClickRiskButtonLabel = (risk) => {
+  const r = Number(risk) || 0;
+  if (r >= 100) return 'ALL IN (100%)';
+  return `${r}%`;
+};
+
 const makeClientRequestId = () => {
   try {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -2686,7 +2692,7 @@ function SignalsTab({ user, riskSettings, oneClickRiskPct, onUpdateOneClickRisk,
                   <button key={risk} onClick={() => onUpdateOneClickRisk(risk)} disabled={riskSettings?.loading}
                     className={`px-4 py-2 rounded-xl font-bold text-xs transition-all ${
                       getOneClickRiskButtonTone(risk, oneClickRiskPct === risk)
-                    } disabled:opacity-50`}>{`${risk}%`}</button>
+                    } disabled:opacity-50`}>{formatOneClickRiskButtonLabel(risk)}</button>
                 ))}
               </div>
             </div>
@@ -3593,6 +3599,14 @@ function SignalCard({
                   className="w-14 px-2 py-1 rounded bg-[#050505] border border-white/10 text-white text-xs font-mono text-center focus:outline-none focus:border-amber-500/50 disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="text-[10px] text-slate-500 font-bold">%</span>
+                <button
+                  type="button"
+                  onClick={() => commitRisk(100)}
+                  disabled={riskSettings?.loading}
+                  className="px-2.5 py-1 rounded bg-rose-500/20 border border-rose-400/40 text-[10px] font-black tracking-wide text-rose-200 hover:bg-rose-500/30 disabled:opacity-50"
+                >
+                  ALL IN
+                </button>
               </div>
             </div>
           )}

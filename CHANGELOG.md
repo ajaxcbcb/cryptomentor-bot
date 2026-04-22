@@ -1,11 +1,29 @@
 # Changelog
 
+## [2.2.97] — 2026-04-22 — Adaptive + Decision Tree Runtime Parity Verification Patch
+
+### ✅ Reliability Contract Alignment (Local)
+- Updated `tests/test_swing_scalp_parity.py` to match canonical scalping sizing contract:
+  - `calculate_position_size_pro(...) -> (qty, used_risk_sizing, sizing_meta)`.
+- Added explicit `sizing_meta` assertions (`equity`, `risk_target_pct`, `applied_risk_pct`, `cap_hit`) to prevent silent future interface drift.
+
+### 🚀 VPS Runtime Parity Scope
+- Standardized deploy target path for active operations to `/opt/cryptomentor/Bismillah` (matches live systemd WorkingDirectory).
+- Synced engine-adjacent runtime module set to close VPS/local drift for adaptive + playbook + decision-tree surroundings.
+
+### 🧭 Operational Path Normalization
+- Updated deploy/reference path defaults from `/root/cryptomentor-bot` to `/opt/cryptomentor/Bismillah` in active operator docs/scripts:
+  - `AGENTS.md` deploy/sync sequence
+  - `scripts/deploy_admin_dashboard_patch.sh` (`REMOTE_ROOT` default + usage example)
+  - `Bismillah/main.py` production env path comment
+
 ## [2.2.96] — 2026-04-22 — Session Verification Timeout Guard + Web Service Activation
 
 ### ✅ Dashboard Session Check Reliability
 - Updated `website-frontend/src/App.jsx` `apiFetch` with optional request timeout support via abortable fetch wrapper.
 - Applied explicit timeout for `GET /user/verification-status` during boot (`12s`) so verification checks cannot hang indefinitely.
 - Prevents persistent "Session check issue" lock caused by unresolved verification fetch promises.
+- Added explicit one-click `ALL IN (100%)` risk button labeling in the web risk selector and a direct `ALL IN` shortcut in signal-card risk controls.
 
 ### 🚀 Production Activation Alignment
 - Restarted `cryptomentor-web.service` after deploying backend one-click risk route updates to ensure web API workers load latest code.
@@ -943,7 +961,7 @@
 
 ### ✅ Approval Completion Follow-Up (Target User)
 - Completed post-reset approval for:
-  - `telegram_id=6273965862`
+  - `telegram_id=redacted_user_id`
   - `bitunix_uid=471766124`
 - Final state after approval:
   - `user_verifications.status=approved`
@@ -986,7 +1004,7 @@
 - Persists run log artifact JSON under `logs/`.
 
 ### 🧾 One-Time Execution (Target User)
-- Target: `telegram_id=6273965862`
+- Target: `telegram_id=redacted_user_id`
 - Old UID: `447138181`
 - New UID: `471766124`
 - Result:
@@ -1829,7 +1847,7 @@
 ## [2.2.31] — 2026-04-17 — API Key DB Population + Hardcode Removal
 
 ### 🔐 Bitunix Key Source Normalization
-- Populated `user_api_keys` for Telegram user `8263889133` (`exchange=bitunix`) via encrypted save path.
+- Populated `user_api_keys` for Telegram user `redacted_user_id` (`exchange=bitunix`) via encrypted save path.
 - Removed temporary UID-scoped hardcoded API-key override from:
   - `Bismillah/app/handlers_autotrade.py`
   - `website-backend/app/services/bitunix.py`
@@ -1837,7 +1855,7 @@
 
 ### ✅ Validation
 - DB verification:
-  - `user_api_keys` row exists for `telegram_id=8263889133`, `exchange=bitunix`, with non-empty `api_secret_enc`.
+  - `user_api_keys` row exists for `telegram_id=redacted_user_id`, `exchange=bitunix`, with non-empty `api_secret_enc`.
 - Compile/syntax pass:
   - `python -m py_compile Bismillah/app/handlers_autotrade.py website-backend/app/services/bitunix.py`
 
@@ -2791,7 +2809,7 @@
   - Supports **trade opened** + **trade closed** messages.
   - Professional emoji-rich formatting and CTA button.
   - Added optional `target_chat_id` for single-user test sends before mass broadcast.
-- Sent verified sample open/close notifications to Telegram user `1187119989`.
+- Sent verified sample open/close notifications to Telegram user `123456789`.
 
 #### 6) Realized PnL / Closed Trades Accuracy Fix
 - Fixed backend trade aggregation that incorrectly filtered only `status = closed`.
@@ -2810,7 +2828,7 @@
 
 1. Frontend was rebuilt and redeployed multiple times with final responsive + audio updates.
 2. Backend (`cryptomentor-web.service`) was restarted with notification and PnL-status fixes.
-3. Telegram sample notification delivery to `1187119989` returned Telegram API `ok: true` for both open and close messages.
+3. Telegram sample notification delivery to `123456789` returned Telegram API `ok: true` for both open and close messages.
 
 ## [2.1.1] — 2026-04-10 — Unified Verification, Anti-Flip Stabilization, StackMentor 1:3, UI Hardening
 
