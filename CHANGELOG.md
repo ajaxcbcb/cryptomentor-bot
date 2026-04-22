@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.02] — 2026-04-22 — Verification Gate Unknown-Status Hardening
+
+### 🌐 Frontend Verification Gate Stabilization
+- Updated `website-frontend/src/App.jsx`:
+  - normalize verification status values before gate branching,
+  - include explicit approved/pending/rejected alias sets in client-side gate checks,
+  - prevent unknown status values from being rendered as `Verification Pending`,
+  - show a dedicated session-check issue panel (with retry/reset) when verification response is unstable or malformed.
+
 ## [2.3.01] — 2026-04-22 — Verification Pending Reconciliation + Refresh Guard
 
 ### 🔄 Verification Status Compatibility Reconciliation
@@ -63,6 +72,8 @@
 - Added timeout-guarded admin route execution in `website-backend/app/routes/admin.py` for snapshot, user-stats, and candidate reads.
 - Added cache-backed fallback responses so admin panel cards stay responsive during transient Supabase/API latency instead of hanging.
 - Updated `admin_bootstrap` to fetch snapshot, user stats, and one-click metrics concurrently, so response latency is bounded by the slowest source instead of cumulative waits.
+- Added timeout-guarded signal-control read in `admin_bootstrap` to prevent synchronous signal snapshot stalls from blocking admin card responses.
+- Raised web API Uvicorn worker healthcheck timeout to reduce worker churn under blocking Bitunix/Supabase load (`--timeout-worker-healthcheck 60`).
 
 ## [2.2.97] — 2026-04-22 — Adaptive + Decision Tree Runtime Parity Verification Patch
 

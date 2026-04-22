@@ -26,6 +26,11 @@ let _runtimeToken = null;
 const _isServerError = (status) => Number(status) >= 500;
 const _JWT_EXPIRY_SKEW_SECONDS = 15;
 let _lastUnauthorizedEventAt = 0;
+const _APPROVED_STATUSES = new Set(['approved', 'uid_verified', 'active', 'verified']);
+const _PENDING_STATUSES = new Set(['pending', 'pending_verification', 'awaiting_approval']);
+const _REJECTED_STATUSES = new Set(['rejected', 'uid_rejected', 'denied']);
+
+const _normalizeVerificationStatus = (value) => String(value || '').trim().toLowerCase();
 
 const _decodeJwtPayload = (jwtToken) => {
   try {
@@ -510,6 +515,31 @@ export default function App() {
       authResetInProgressRef.current = false;
     }, 0);
   };
+
+  const renderSessionIssue = (reason, detail = '') => (
+    <div className="min-h-screen bg-[#020202] flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-[#0a0a0a]/70 border border-rose-500/30 rounded-2xl p-6 text-center">
+        <h2 className="text-white text-xl font-black mb-2">Session check issue</h2>
+        <p className="text-slate-300 text-sm mb-2">{reason}</p>
+        {detail ? <p className="text-rose-300 text-xs mb-5">{detail}</p> : null}
+        <button
+          onClick={() => {
+            setVerLoading(true);
+            fetchVerStatus();
+          }}
+          className="w-full bg-cyan-500 text-white font-bold py-2.5 rounded-xl hover:bg-cyan-600 transition-colors mb-2"
+        >
+          Retry
+        </button>
+        <button
+          onClick={handleLogout}
+          className="w-full bg-white/10 text-slate-200 font-bold py-2.5 rounded-xl hover:bg-white/20 transition-colors"
+        >
+          Reset Session
+        </button>
+      </div>
+    </div>
+  );
 
   const unlockAudio = () => {
     try {
@@ -1257,7 +1287,13 @@ export default function App() {
       }
       if (resp.ok) {
         const data = await resp.json();
-        setVerStatus(data);
+        const normalizedStatus = _normalizeVerificationStatus(data?.status);
+        if (!normalizedStatus) {
+          setVerStatus({ status: 'unknown' });
+          setBootIssue('Verification response missing status field.');
+          return;
+        }
+        setVerStatus({ ...data, status: normalizedStatus });
         if (data.community_code) {
           const normalized = String(data.community_code).toLowerCase();
           setRefCode(normalized);
@@ -1566,32 +1602,7 @@ export default function App() {
   // While loading, show spinner — never let through before we know the status
   if (isLoggedIn && verLoading) {
     if (bootIssue) {
-      return (
-        <div className="min-h-screen bg-[#020202] flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-[#0a0a0a]/70 border border-rose-500/30 rounded-2xl p-6 text-center">
-            <h2 className="text-white text-xl font-black mb-2">Session check issue</h2>
-            <p className="text-slate-300 text-sm mb-2">
-              We could not complete dashboard access verification.
-            </p>
-            <p className="text-rose-300 text-xs mb-5">{bootIssue}</p>
-            <button
-              onClick={() => {
-                setVerLoading(true);
-                fetchVerStatus();
-              }}
-              className="w-full bg-cyan-500 text-white font-bold py-2.5 rounded-xl hover:bg-cyan-600 transition-colors mb-2"
-            >
-              Retry
-            </button>
-            <button
-              onClick={handleLogout}
-              className="w-full bg-white/10 text-slate-200 font-bold py-2.5 rounded-xl hover:bg-white/20 transition-colors"
-            >
-              Reset Session
-            </button>
-          </div>
-        </div>
-      );
+      return renderSessionIssue('We could not complete dashboard access verification.', bootIssue);
     }
     return (
       <div className="min-h-screen bg-[#020202] flex items-center justify-center">
@@ -1601,6 +1612,9 @@ export default function App() {
   }
 
   if (isLoggedIn && !verLoading) {
+    if (bootIssue) {
+      return renderSessionIssue('Dashboard access check returned an unstable response.', bootIssue);
+    }
     if (!verStatus || verStatus.status === 'none') {
       return <GatekeeperScreen
         user={user}
@@ -1628,10 +1642,10 @@ export default function App() {
         onLogout={handleLogout}
       />;
     }
-    if (verStatus.status === 'pending' || verStatus.status === 'pending_verification') {
+    if (_PENDING_STATUSES.has(_normalizeVerificationStatus(verStatus.status))) {
       return <VerificationPendingScreen onRefresh={fetchVerStatus} onLogout={handleLogout} />;
     }
-    if (verStatus.status === 'rejected' || verStatus.status === 'uid_rejected') {
+    if (_REJECTED_STATUSES.has(_normalizeVerificationStatus(verStatus.status))) {
       return <RejectedScreen
         referralUrl={referralContext.bitunix_referral_url}
         referralSource={referralContext.ref_source}
@@ -1653,10 +1667,10 @@ export default function App() {
       />;
     }
     // approved only — wait for portfolio data, then check API key
-    const isVerified = verStatus?.status === 'approved' || verStatus?.status === 'uid_verified' || verStatus?.status === 'active';
+    const isVerified = _APPROVED_STATUSES.has(_normalizeVerificationStatus(verStatus?.status));
     if (!isVerified) {
-      // Any unrecognized or unhandled status — block access, show generic pending screen
-      return <VerificationPendingScreen onRefresh={fetchVerStatus} onLogout={handleLogout} />;
+      const statusText = _normalizeVerificationStatus(verStatus?.status) || 'unknown';
+      return renderSessionIssue('Verification status is not recognized by this client.', `Received status: ${statusText}`);
     }
     if (!portfolioLoaded) {
       return (
