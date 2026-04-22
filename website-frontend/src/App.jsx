@@ -14,6 +14,7 @@ import AdminPanel, { AdminDeniedScreen } from './AdminPanel';
 
 const _CONFIGURED_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 const _FALLBACK_BASE = '/api';
+const _TELEGRAM_WIDGET_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'CryptoMentorAI_bot';
 const FALLBACK_REFERRAL_URL = 'https://www.bitunix.com/register?vipCode=sq45';
 const BUILD_MARKER = (typeof __APP_BUILD_MARKER__ !== 'undefined' && __APP_BUILD_MARKER__) || import.meta.env.VITE_BUILD_MARKER || 'dev-local';
 const MIXED_AUTO_LOCK_REASON = 'Mixed mode uses per-symbol auto routing and bypasses legacy global auto-switch.';
@@ -23,6 +24,46 @@ const MIXED_AUTO_LOCK_REASON = 'Mixed mode uses per-symbol auto routing and bypa
 let _resolvedBase = null;
 let _runtimeToken = null;
 const _isServerError = (status) => Number(status) >= 500;
+const _JWT_EXPIRY_SKEW_SECONDS = 15;
+let _lastUnauthorizedEventAt = 0;
+
+const _decodeJwtPayload = (jwtToken) => {
+  try {
+    const parts = String(jwtToken || '').split('.');
+    if (parts.length < 2) return null;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+};
+
+const _isJwtExpired = (jwtToken, skewSeconds = _JWT_EXPIRY_SKEW_SECONDS) => {
+  const payload = _decodeJwtPayload(jwtToken);
+  const exp = Number(payload?.exp);
+  if (!Number.isFinite(exp) || exp <= 0) return false;
+  const now = Math.floor(Date.now() / 1000);
+  return exp <= (now + Number(skewSeconds || 0));
+};
+
+const _clearStoredAuth = () => {
+  _runtimeToken = null;
+  try {
+    localStorage.removeItem('cm_user');
+    localStorage.removeItem('cm_token');
+  } catch {}
+};
+
+const _emitUnauthorized = (path, status) => {
+  if (typeof window === 'undefined') return;
+  const now = Date.now();
+  if ((now - _lastUnauthorizedEventAt) < 2000) return;
+  _lastUnauthorizedEventAt = now;
+  window.dispatchEvent(new CustomEvent('cm:unauthorized', {
+    detail: { path, status },
+  }));
+};
 
 const _fetchWithTimeout = async (url, opts, timeoutMs) => {
   const ms = Number(timeoutMs);
@@ -76,6 +117,7 @@ const apiFetch = async (path, opts = {}) => {
         // Keep original response from configured base.
       }
     }
+    if (r.status === 401) _emitUnauthorized(path, r.status);
     if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
     return r;
   }
@@ -92,13 +134,17 @@ const apiFetch = async (path, opts = {}) => {
         if (!_isServerError(fallbackResp.status)) {
           _resolvedBase = _FALLBACK_BASE;
         }
+        if (fallbackResp.status === 401) _emitUnauthorized(path, fallbackResp.status);
         if (fallbackResp.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
         return fallbackResp;
       } catch (_fallbackErr) {
         // Return original 5xx response from configured base.
       }
     }
-    if (r.status === 401) console.warn('[apiFetch] 401 on:', path);
+    if (r.status === 401) {
+      console.warn('[apiFetch] 401 on:', path);
+      _emitUnauthorized(path, r.status);
+    }
     if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
     return r;
   } catch (_networkErr) {
@@ -109,6 +155,7 @@ const apiFetch = async (path, opts = {}) => {
       try {
         const r = await _fetchWithTimeout(`${_FALLBACK_BASE}${path}`, { ...restOpts, headers }, timeoutMs);
         _resolvedBase = _FALLBACK_BASE; // remember fallback works
+        if (r.status === 401) _emitUnauthorized(path, r.status);
         if (r.status === 403) window.dispatchEvent(new CustomEvent('cm:verification_required'));
         return r;
       } catch (fallbackErr) {
@@ -354,15 +401,26 @@ export default function App() {
     } catch { return null; }
   });
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    // Only consider logged in if BOTH cm_user AND cm_token exist
-    const hasUser = !!localStorage.getItem('cm_user');
-    const hasToken = !!localStorage.getItem('cm_token');
-    if (hasUser && !hasToken) {
-      // Stale session — clear it so user re-authenticates properly
-      try { localStorage.removeItem('cm_user'); } catch {}
+    try {
+      // Only consider logged in if BOTH cm_user AND cm_token exist.
+      const userRaw = localStorage.getItem('cm_user');
+      const token = localStorage.getItem('cm_token');
+      if (!userRaw || !token) {
+        if (userRaw && !token) {
+          _clearStoredAuth();
+        }
+        return false;
+      }
+      if (_isJwtExpired(token)) {
+        console.warn('[Auth] Stored token expired; forcing re-login');
+        _clearStoredAuth();
+        return false;
+      }
+      _runtimeToken = token;
+      return true;
+    } catch {
       return false;
     }
-    return hasUser && hasToken;
   });
   const [activeTab, setActiveTab] = useState(() => parseDashboardDeepLink().tab || 'portfolio');
   const [positions] = useState(INITIAL_POSITIONS);
@@ -430,6 +488,28 @@ export default function App() {
   const prevPositionIdsRef = useRef(new Set());
   const positionsBaselineSetRef = useRef(false);
   const referralReqSeqRef = useRef(0);
+  const telegramLoginGuardRef = useRef({ inFlight: false, lastAttemptAt: 0 });
+  const authResetInProgressRef = useRef(false);
+
+  const resetAuthSession = (reason = 'unauthorized') => {
+    if (authResetInProgressRef.current) return;
+    authResetInProgressRef.current = true;
+    console.warn(`[Auth] Resetting session: ${reason}`);
+    _clearStoredAuth();
+    prevPositionIdsRef.current = new Set();
+    positionsBaselineSetRef.current = false;
+    setIsLoggedIn(false);
+    setUser(null);
+    setBotRunning(false);
+    setVerStatus(null);
+    setVerLoading(true);
+    setPortfolioLoaded(false);
+    setConnectorStatus({ linked: null, online: null, error: null });
+    setUserProfileHydrated(false);
+    setTimeout(() => {
+      authResetInProgressRef.current = false;
+    }, 0);
+  };
 
   const unlockAudio = () => {
     try {
@@ -511,22 +591,26 @@ export default function App() {
       console.log('[Phase1] Captured referral code:', normalizedRef);
     }
 
-    const parseJwtPayload = (jwtToken) => {
-      try {
-        const parts = String(jwtToken || '').split('.');
-        if (parts.length < 2) return null;
-        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
-        return JSON.parse(atob(padded));
-      } catch {
-        return null;
-      }
-    };
-
     if (urlToken) {
       try {
+        if (_isJwtExpired(urlToken)) {
+          console.warn('[Phase1] Ignoring expired dashboard link token');
+          _clearStoredAuth();
+          params.delete('t');
+          params.delete('token');
+          params.delete('u');
+          params.delete('user');
+          const retained = params.toString();
+          window.history.replaceState(
+            {},
+            document.title,
+            retained ? `${window.location.pathname}?${retained}` : window.location.pathname
+          );
+          return;
+        }
+
         _runtimeToken = urlToken;
-        const payload = parseJwtPayload(urlToken) || {};
+        const payload = _decodeJwtPayload(urlToken) || {};
         const baseName = payload.first_name || payload.username || String(payload.sub || 'User');
         const fallbackUser = {
           id: String(payload.sub || ''),
@@ -590,8 +674,60 @@ export default function App() {
   }, [isLoggedIn, deepLinkContext?.tab]);
 
   const handleTelegramLogin = async (telegramUser) => {
+    const now = Date.now();
+    if (telegramLoginGuardRef.current.inFlight) {
+      console.warn('[Auth] Telegram login ignored: another auth request is in-flight');
+      return;
+    }
+    if ((now - telegramLoginGuardRef.current.lastAttemptAt) < 3000) {
+      console.warn('[Auth] Telegram login throttled to prevent duplicate requests');
+      return;
+    }
+    telegramLoginGuardRef.current.inFlight = true;
+    telegramLoginGuardRef.current.lastAttemptAt = now;
+
     const photoUrl = telegramUser.photo_url ||
       `https://ui-avatars.com/api/?name=${encodeURIComponent(telegramUser.first_name)}&background=d946ef&color=fff&bold=true`;
+
+    const parseAuthError = async (resp) => {
+      const out = { errorCode: '', message: '' };
+      try {
+        const json = await resp.clone().json();
+        const detail = json?.detail;
+        if (detail && typeof detail === 'object') {
+          out.errorCode = String(detail.error_code || '').trim();
+          out.message = String(detail.message || '').trim();
+          return out;
+        }
+        if (typeof detail === 'string' && detail.trim()) {
+          out.message = detail.trim();
+          return out;
+        }
+        if (typeof json?.message === 'string' && json.message.trim()) {
+          out.message = json.message.trim();
+          return out;
+        }
+      } catch {}
+      const text = await resp.text().catch(() => '');
+      out.message = String(text || '').trim();
+      return out;
+    };
+
+    const toUserFacingAuthMessage = (status, errorCode, fallbackMessage) => {
+      if (errorCode === 'telegram_auth_expired') {
+        return 'Login expired. Please tap "Login with Telegram" again.';
+      }
+      if (errorCode === 'telegram_auth_invalid') {
+        return 'Telegram login verification failed. Please retry from Telegram widget.';
+      }
+      if (status === 422) {
+        return 'Login payload invalid. Please retry from Telegram widget.';
+      }
+      if (status === 502 || status === 503) {
+        return 'Login service is temporarily unavailable. Please try again in a moment.';
+      }
+      return fallbackMessage || `Login failed (${status}). Please try again.`;
+    };
 
     // Call backend to verify Telegram auth and get JWT
     try {
@@ -617,11 +753,11 @@ export default function App() {
         }
       }
       if (resp.ok) {
-        const data = await resp.json();
-        if (data.access_token) {
-          _runtimeToken = data.access_token;
-          localStorage.setItem('cm_token', data.access_token);
-          console.log('[Auth] JWT token saved, length:', data.access_token.length);
+          const data = await resp.json();
+          if (data.access_token) {
+            _runtimeToken = data.access_token;
+            localStorage.setItem('cm_token', data.access_token);
+            console.log('[Auth] JWT token saved, length:', data.access_token.length);
         } else {
           console.warn('[Auth] No access_token in response:', data);
         }
@@ -660,13 +796,9 @@ export default function App() {
           alert('Login failed: no access token received. Please try again.');
         }
       } else {
-        const errText = await resp.text().catch(() => '');
-        console.error('[Auth] Backend auth failed:', resp.status, errText);
-        if (resp.status === 502) {
-          alert('Login failed (502): backend is temporarily unavailable. Please try again in a moment.');
-        } else {
-          alert(`Login failed (${resp.status}). Please try again.`);
-        }
+        const err = await parseAuthError(resp);
+        console.error('[Auth] Backend auth failed:', resp.status, err.errorCode, err.message);
+        alert(toUserFacingAuthMessage(resp.status, err.errorCode, err.message));
       }
     } catch (err) {
       console.error('[Auth] Network error:', err);
@@ -705,9 +837,17 @@ export default function App() {
             setIsLoggedIn(true);
             return;
           }
+          alert('Login failed: no access token received. Please try again.');
+          return;
         }
+        const err2 = await parseAuthError(resp2);
+        alert(toUserFacingAuthMessage(resp2.status, err2.errorCode, err2.message));
+        return;
       } catch {}
       alert('Login failed: unable to reach the server. Please try again.');
+    } finally {
+      telegramLoginGuardRef.current.inFlight = false;
+      telegramLoginGuardRef.current.lastAttemptAt = Date.now();
     }
   };
 
@@ -718,7 +858,7 @@ export default function App() {
     // Inject Telegram Login Widget script
     const script = document.createElement('script');
     script.src = 'https://telegram.org/js/telegram-widget.js?22';
-    script.setAttribute('data-telegram-login', 'CryptoMentorAI_bot');
+    script.setAttribute('data-telegram-login', _TELEGRAM_WIDGET_BOT_USERNAME);
     script.setAttribute('data-size', 'large');
     script.setAttribute('data-radius', '10');
     script.setAttribute('data-onauth', 'onTelegramAuth(user)');
@@ -731,18 +871,7 @@ export default function App() {
   }, []);
 
   const handleLogout = () => {
-    _runtimeToken = null;
-    try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
-    prevPositionIdsRef.current = new Set();
-    positionsBaselineSetRef.current = false;
-    setIsLoggedIn(false);
-    setUser(null);
-    setBotRunning(false);
-    setVerStatus(null);
-    setVerLoading(true);
-    setPortfolioLoaded(false);
-    setConnectorStatus({ linked: null, online: null, error: null });
-    setUserProfileHydrated(false);
+    resetAuthSession('manual_logout');
   };
   const navigateTo = (tab) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
   const handleBotConnected = () => setShowBotStartModal(true);
@@ -1122,11 +1251,8 @@ export default function App() {
     try {
       const resp = await apiFetch('/user/verification-status', { timeoutMs: 12000 });
       if (resp.status === 401) {
-        // Token expired — force logout and show login screen
-        try { localStorage.removeItem('cm_user'); localStorage.removeItem('cm_token'); } catch {}
-        setIsLoggedIn(false);
-        setUser(null);
-        setVerStatus(null);
+        // Token expired — force logout and stop poll loops.
+        resetAuthSession('verification_status_401');
         return;
       }
       if (resp.ok) {
@@ -1261,6 +1387,17 @@ export default function App() {
     if (!isLoggedIn) return;
     const id = setInterval(fetchVerStatus, 60000);
     return () => clearInterval(id);
+  }, [isLoggedIn]);
+
+  // Centralized unauthorized handling — clear stale token once and stop request loops.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const handler = (event) => {
+      const path = event?.detail?.path || 'unknown_path';
+      resetAuthSession(`api_401:${path}`);
+    };
+    window.addEventListener('cm:unauthorized', handler);
+    return () => window.removeEventListener('cm:unauthorized', handler);
   }, [isLoggedIn]);
 
   // Listen for 403 verification_required events — immediately re-check status

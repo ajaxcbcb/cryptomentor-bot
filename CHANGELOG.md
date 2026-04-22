@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.2.99] — 2026-04-22 — Telegram Auth Stabilization (Auth-Focused)
+
+### 🔐 Backend Auth Diagnostics + Deterministic Error Codes
+- Updated `website-backend/app/auth/telegram.py`:
+  - added `verify_telegram_auth_detailed(...)` returning `(is_valid, reason_code)`,
+  - preserved `verify_telegram_auth(...)` as backward-compatible boolean wrapper.
+- Updated `website-backend/app/routes/auth.py`:
+  - auth max-age now configurable via `TELEGRAM_AUTH_MAX_AGE_SECONDS` (default `86400` / 24h),
+  - explicit auth failure responses:
+    - `error_code=telegram_auth_invalid` (invalid signature/payload/date),
+    - `error_code=telegram_auth_expired` (auth payload too old),
+  - structured redacted failure logs (`telegram_auth_failure meta=...`) with no secrets/raw payload.
+
+### 🌐 Frontend Session/Auth Loop Hardening
+- Updated `website-frontend/src/App.jsx`:
+  - centralized `401` handling via `cm:unauthorized` event and one-shot session reset path,
+  - URL/local token expiry precheck to prevent expired JWT bootstrap into logged-in state,
+  - Telegram login callback in-flight + cooldown guard to suppress duplicate rapid `/auth/telegram` posts,
+  - widget bot username now env-aware via `VITE_TELEGRAM_BOT_USERNAME` (fallback preserved),
+  - improved login error UX for invalid vs expired Telegram auth responses.
+- Added `VITE_TELEGRAM_BOT_USERNAME` to `website-frontend/.env.production`.
+
+### 📘 Env Documentation
+- Updated `website-backend/.env.example` with:
+  - `TELEGRAM_AUTH_MAX_AGE_SECONDS=86400`
+
+## [2.2.98] — 2026-04-22 — Admin Dashboard Decision-Tree Runtime Hotfix
+
+### 🩹 Web Admin Snapshot Stability
+- Fixed missing `os` import in `Bismillah/app/decision_tree_v2_live_dashboard.py`.
+- Resolves runtime `NameError: name 'os' is not defined` during journal-window parsing for decision-tree dashboard snapshots.
+- Restores `/dashboard/admin/bootstrap` and `/dashboard/admin/decision-tree*` data path reliability when snapshot generation is invoked from web admin panel.
+- Added timeout-guarded admin route execution in `website-backend/app/routes/admin.py` for snapshot, user-stats, and candidate reads.
+- Added cache-backed fallback responses so admin panel cards stay responsive during transient Supabase/API latency instead of hanging.
+
 ## [2.2.97] — 2026-04-22 — Adaptive + Decision Tree Runtime Parity Verification Patch
 
 ### ✅ Reliability Contract Alignment (Local)
