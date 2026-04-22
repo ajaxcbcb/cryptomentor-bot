@@ -6,8 +6,10 @@ from typing import Any
 
 AUTO_RISK_MIN_PCT = 0.25
 AUTO_RISK_MAX_PCT = 10.0
-ONE_CLICK_RISK_MIN_PCT = 0.25
-ONE_CLICK_RISK_MAX_PCT = 10.0
+ONE_CLICK_RISK_TIERS = (3.0, 5.0, 10.0, 25.0, 50.0, 100.0)
+ONE_CLICK_RISK_MIN_PCT = ONE_CLICK_RISK_TIERS[0]
+ONE_CLICK_RISK_MAX_PCT = ONE_CLICK_RISK_TIERS[-1]
+ONE_CLICK_WARN_THRESHOLD_PCT = 10.0
 HIGH_RISK_WARN_PCT = 5.0
 LOW_EQUITY_THRESHOLD_USD = 30.0
 LOW_EQUITY_MIN_RISK_PCT = 3.0
@@ -49,9 +51,32 @@ def clamp_auto_risk(value: Any, default: float = 3.0, equity: Any = None) -> flo
     return max(min_risk, min(AUTO_RISK_MAX_PCT, risk))
 
 
-def clamp_one_click_risk(value: Any, default: float = 1.0) -> float:
+def one_click_risk_tiers() -> tuple[float, ...]:
+    return ONE_CLICK_RISK_TIERS
+
+
+def is_valid_one_click_tier(value: Any) -> bool:
+    risk = _to_float(value, float(ONE_CLICK_RISK_MIN_PCT))
+    return any(abs(risk - tier) <= 1e-9 for tier in ONE_CLICK_RISK_TIERS)
+
+
+def clamp_one_click_risk(value: Any, default: float = ONE_CLICK_RISK_MIN_PCT) -> float:
     risk = _to_float(value, default)
     return max(ONE_CLICK_RISK_MIN_PCT, min(ONE_CLICK_RISK_MAX_PCT, risk))
+
+
+def snap_one_click_risk_tier(value: Any, default: float = ONE_CLICK_RISK_MIN_PCT) -> float:
+    risk = clamp_one_click_risk(value, default=default)
+    # Tie-break upward (e.g., 7.5 -> 10 instead of 5) to avoid silent downshift.
+    return float(min(ONE_CLICK_RISK_TIERS, key=lambda tier: (abs(float(tier) - float(risk)), -float(tier))))
+
+
+def normalize_one_click_shared_risk(value: Any, default: float = ONE_CLICK_RISK_MIN_PCT) -> float:
+    return snap_one_click_risk_tier(value, default=default)
+
+
+def one_click_warn_required(risk_pct: Any) -> bool:
+    return _to_float(risk_pct, ONE_CLICK_RISK_MIN_PCT) > ONE_CLICK_WARN_THRESHOLD_PCT
 
 
 def is_high_risk(risk_pct: float) -> bool:
@@ -62,7 +87,7 @@ def risk_band(risk_pct: float, all_in: bool = False) -> RiskBand:
     if all_in or float(risk_pct) >= ONE_CLICK_RISK_MAX_PCT:
         return RISK_BANDS[-1]
     v = float(risk_pct)
-    for band in RISK_BANDS[:-1]:
+    for band in RISK_BANDS:
         if v >= band.min_inclusive and (band.max_exclusive is None or v < band.max_exclusive):
             return band
-    return RISK_BANDS[0]
+    return RISK_BANDS[-1]

@@ -10,6 +10,7 @@ import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.one_click_signal_hub import (
+    ONE_CLICK_WARN_THRESHOLD_PCT,
     build_dashboard_signal_url,
     detect_tp_hit,
     fetch_verified_recipients,
@@ -74,9 +75,19 @@ def _signal_keyboard(user_id: int, signal_id: str) -> InlineKeyboardMarkup:
     )
 
 
+def _high_risk_warning_text(risk_pct: float) -> str:
+    if float(risk_pct) > float(ONE_CLICK_WARN_THRESHOLD_PCT):
+        return (
+            f"⚠️ <b>High-risk warning:</b> You selected <b>{float(risk_pct):.2f}%</b> risk/trade "
+            f"(above {float(ONE_CLICK_WARN_THRESHOLD_PCT):.0f}%).\n"
+        )
+    return ""
+
+
 def _push_message(signal: Dict[str, Any], *, risk_pct: float) -> str:
     direction = str(signal.get("direction") or "LONG").upper()
     reasons = " | ".join([str(r) for r in list(signal.get("reasons") or [])[:3]])
+    warning = _high_risk_warning_text(risk_pct)
     return (
         "🚨 <b>High-Confidence 1-Click Signal</b>\n\n"
         f"🪙 <b>Pair:</b> {signal.get('pair')}\n"
@@ -86,6 +97,7 @@ def _push_message(signal: Dict[str, Any], *, risk_pct: float) -> str:
         f"🛡️ <b>SL:</b> {float(signal.get('stop_loss', 0.0)):.4f}\n"
         f"🤖 <b>AI Confidence:</b> {float(signal.get('confidence_effective', signal.get('confidence', 0.0))):.1f}%\n"
         f"⚙️ <b>Your risk/trade (synced):</b> {float(risk_pct):.2f}%\n"
+        f"{warning}"
         f"📌 <b>Type:</b> {signal.get('type')}\n"
         f"🧠 <b>Signal Reason:</b> {reasons or 'Multi-factor confluence'}\n\n"
         "<i>Only high-confidence setups are pushed. Stay disciplined.</i>"
@@ -100,6 +112,7 @@ def _fomo_message(event: Dict[str, Any], *, tp_level: str, projection: Dict[str,
     risk_pct = _as_float(projection.get("risk_pct_used"), 0.0)
     equity_used = _as_float(projection.get("equity_used_usdt"), 0.0)
     trade_value = _as_float(projection.get("trade_value_usdt"), 0.0)
+    warning = _high_risk_warning_text(risk_pct)
     if projection.get("example_used"):
         example_equity = _as_float(projection.get("example_equity_usdt"), 100.0)
         example_risk_pct = _as_float(projection.get("example_risk_pct"), 10.0)
@@ -120,6 +133,7 @@ def _fomo_message(event: Dict[str, Any], *, tp_level: str, projection: Dict[str,
         f"✅ <b>Outcome:</b> {tp_level} was hit\n\n"
         f"💰 <b>Account equity:</b> ${equity_used:.2f}\n"
         f"⚙️ <b>Risk/trade (synced):</b> {risk_pct:.2f}%\n"
+        f"{warning}"
         f"📦 <b>Trade value (risk amount):</b> ${trade_value:.2f}\n"
         f"📊 <b>Potential profit missed:</b> <b>+${projected:.2f}</b> (RR {rr:.2f})\n\n"
         f"{extra}\n"

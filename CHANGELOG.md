@@ -1,5 +1,94 @@
 # Changelog
 
+## [2.2.95] — 2026-04-22 — Web 1-Click Tiered Risk Unlocked + 5% Snapback Fix
+
+### ⚡ Web 1-Click Risk Policy (Tiered + All-In)
+- Implemented exact one-click risk tiers: `3%`, `5%`, `10%`, `25%`, `50%`, `100%`.
+- Updated one-click policy max/all-in to `100%` (one-click context only), while preserving AutoTrade risk safety paths.
+- Added nearest-tier normalization for shared `autotrade_sessions.risk_per_trade` reads used by one-click paths.
+
+### 🌐 Backend Scope-Aware Risk Setting
+- Updated `website-backend/app/routes/dashboard.py` `PUT /dashboard/settings/risk` to support:
+  - `scope=one_click` (exact-tier validation and persistence),
+  - `scope=autotrade` (legacy/autotrade validation).
+- Added backward-safe fallback: if legacy clients omit `scope` but submit one-click tier values above AutoTrade max (e.g. `25/50/100`), backend auto-routes request to one-click scope.
+- `GET /dashboard/settings` now returns:
+  - `risk_per_trade` (autotrade-safe view),
+  - `one_click_risk_per_trade` (tier-normalized one-click view),
+  - `one_click_risk_policy` metadata.
+
+### 🧮 One-Click Preview/Execute Risk Integrity
+- Removed forced-base lock behavior in `website-backend/app/routes/signals.py`.
+- One-click preview/execute now honors:
+  - tier-synced base risk when no override is given,
+  - exact-tier override when provided,
+  - `all_in=true` => accepted risk `100%`.
+- Preserved sizing integrity: accepted risk feeds risk amount, quantity is recomputed against final SL distance and auto-safe leverage, with balance margin cap enforcement.
+
+### 📱 Telegram 1-Click Push/FOMO Sync + Warning
+- Updated one-click risk read path in `Bismillah/app/one_click_signal_hub.py` to tier-sync from shared stored risk.
+- Added explicit warning line in push and FOMO messages when synced risk is above `10%` in `Bismillah/app/one_click_signal_push_worker.py`.
+
+### 🛠️ 5% Snapback Edge-Case Fix
+- Adjusted nearest-tier tie-break rule to choose upward tier on exact midpoint ties (e.g., `7.5 -> 10` instead of `5`) across backend/frontend and bot-side one-click helpers.
+
+## [2.2.94] — 2026-04-22 — Verified /start Legacy Session Compatibility + Admin Route Safety Redirect
+
+### ✅ Verified Users No Longer Fall Back to Registration on Legacy Session States
+- Updated legacy status compatibility so verified users with legacy engine lifecycle states (`stopped`, `inactive`, `paused`, `halted`) and existing UID are still treated as approved in verification checks.
+- Applied consistently across:
+  - `Bismillah/app/handlers_autotrade.py` (`/start` gatekeeper flow)
+  - `website-backend/app/routes/user.py` (`/user/verification-status` compatibility snapshot)
+  - `website-backend/app/middleware/verification_guard.py` (protected route guard)
+- This prevents false downgrade-to-registration for verified legacy users whose session state is not a pure verification status alias.
+
+### 🌐 Non-Admin `/admin` Route Safety Redirect
+- Updated `website-frontend/src/App.jsx` to auto-redirect signed-in non-admin users from `/admin` to `/`, preserving querystring.
+- Reduces confusion where verified users reached admin-only route and saw access-denied panel despite valid user dashboard access.
+- Added hydration guard so redirect executes only after `/user/me` profile hydration completes, preventing real admins from being redirected during initial token bootstrap.
+
+## [2.2.93] — 2026-04-22 — Verified User Web Access Compatibility Fix
+
+### 🔐 Telegram/Bot Verified Users Can Access Web Dashboard Again
+- Fixed website verification gate to use compatibility lookup:
+  - canonical source: `user_verifications`
+  - legacy fallback: `autotrade_sessions`
+- Updated `website-backend/app/middleware/verification_guard.py` so protected routes no longer reject legacy-verified users (`uid_verified`, `active`, `verified`) when canonical rows are missing.
+- Updated `website-backend/app/routes/user.py`:
+  - `GET /user/verification-status` now mirrors the same fallback compatibility logic.
+  - `POST /user/submit-uid` now blocks re-submission for already-approved users even when approval exists only in legacy session state.
+- Synced bot `/start` gatekeeper behavior on VPS to the current handler logic in `Bismillah/app/handlers_autotrade.py`, so verified users are detected via unified snapshot and shown direct dashboard access instead of registration prompts.
+- Added response metadata (`source`, `raw_status`) for better diagnostics during verification/access incidents.
+
+## [2.2.92] — 2026-04-22 — Supabase RLS Hardening (CMAI + WL#1)
+
+### 🔒 Critical Security Fix: Public Table Exposure
+- Hardened SQL policies from permissive `USING (true)` to strict service-only checks (`auth.role() = 'service_role'`) in:
+  - `db/setup_supabase.sql`
+  - `db/user_api_keys.sql`
+  - `db/autotrade_trades.sql`
+  - `db/user_skills.sql`
+  - `db/add_decision_tree_v2.sql`
+  - `Bismillah/db/user_api_keys.sql`
+- Added missing RLS + service-only policy for previously unprotected tables:
+  - `db/add_adaptive_config_state.sql` (`adaptive_config_state`)
+  - `Bismillah/db/autotrade_reminder_log.sql` (`autotrade_reminder_log`)
+  - `Bismillah/db/community_partners.sql` (`community_partners`)
+  - `website-backend/app/db/migrations/signal_queue_table.sql` (`signal_queue`)
+  - `website-backend/app/db/migrations/one_click_trades.sql` (`one_click_trades`)
+  - `website-backend/app/db/migrations/20260422_one_click_signal_push_fomo.sql` (`one_click_signal_events`, `one_click_signal_receipts`)
+  - `Whitelabel #1/db/setup.sql` (`users`, `user_api_keys`, `autotrade_sessions`, `autotrade_trades`)
+- Added one-shot production hotfix SQL files for immediate Supabase SQL Editor execution:
+  - `db/fix_rls_public_tables_20260422.sql` (Database CMAI)
+  - `Whitelabel #1/db/fix_rls_public_tables_20260422.sql` (White Label #1)
+- Added security-definer view hardening hotfix:
+  - `db/fix_security_definer_views_20260422.sql` sets `security_invoker = true` for:
+    - `public.v_user_deposit_summary`
+    - `public.v_users`
+    - `public.v_recent_deposits`
+    - `public.vw_referral_dashboard`
+- Updated `db/setup_supabase.sql` so `public.v_users` is created with `WITH (security_invoker = true)` by default.
+
 ## [2.2.91] — 2026-04-22 — True Instant 1-Click + Expanded FOMO Payload
 
 ### ⚡ True Instant 1-Click Execution (Deep-Link Auto Execute)

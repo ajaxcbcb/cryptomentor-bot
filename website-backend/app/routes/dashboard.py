@@ -7,13 +7,19 @@ from app.services import bitunix as bsvc
 from app.services.risk_policy import (
     AUTO_RISK_MAX_PCT,
     AUTO_RISK_MIN_PCT,
+    ONE_CLICK_WARN_THRESHOLD_PCT,
     HIGH_RISK_WARN_PCT,
     LOW_EQUITY_THRESHOLD_USD,
     LOW_EQUITY_MIN_RISK_PCT,
     auto_risk_min_by_equity,
     clamp_auto_risk,
     is_high_risk,
+    is_valid_one_click_tier,
+    normalize_one_click_shared_risk,
+    one_click_risk_tiers,
+    one_click_warn_required,
     risk_band,
+    snap_one_click_risk_tier,
 )
 import asyncio
 import os
@@ -687,13 +693,16 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
         logger.warning(f"Failed to fetch live equity for {tg_id}: {e}")
 
     min_risk_pct = auto_risk_min_by_equity(equity)
-    risk_value = clamp_auto_risk(row.get("risk_per_trade"), default=3.0, equity=equity)
+    stored_risk = row.get("risk_per_trade")
+    risk_value = clamp_auto_risk(stored_risk, default=3.0, equity=equity)
+    one_click_risk_value = normalize_one_click_shared_risk(stored_risk, default=3.0)
     leverage_baseline = int(row.get("leverage") or 10)
     leverage_baseline = max(AUTOTRADE_LEVERAGE_MIN, min(AUTOTRADE_LEVERAGE_MAX, leverage_baseline))
     band = risk_band(risk_value, all_in=False)
     return {
         "success": True,
         "risk_per_trade": risk_value,
+        "one_click_risk_per_trade": one_click_risk_value,
         "leverage": leverage_baseline,
         "leverage_baseline": leverage_baseline,
         "leverage_mode": AUTOTRADE_LEVERAGE_MODE,
@@ -721,6 +730,14 @@ async def get_settings(tg_id: int = Depends(get_current_user)):
             "band_label": band.label,
             "high_risk": is_high_risk(risk_value),
         },
+        "one_click_risk_policy": {
+            "mode": "one_click",
+            "tiers": list(one_click_risk_tiers()),
+            "all_in_pct": float(max(one_click_risk_tiers())),
+            "warning_threshold_pct": ONE_CLICK_WARN_THRESHOLD_PCT,
+            "snap_rule": "nearest_tier",
+            "high_risk_warning": one_click_warn_required(one_click_risk_value),
+        },
     }
 
 
@@ -729,7 +746,10 @@ async def update_risk_setting(    payload: dict,
     tg_id: int = Depends(get_current_user)
 ):
     """
-    Update risk_per_trade for user (0.25% up to 10.0%).
+    Update shared risk_per_trade for user.
+
+    scope=autotrade: 0.25% up to 10.0% (auto risk policy).
+    scope=one_click: exact tier only (3/5/10/25/50/100).
 
     Fixed dollar risk: position_size = (balance × risk%) / SL_distance
     - Tight SL → Larger position (same dollar risk)
@@ -743,10 +763,22 @@ async def update_risk_setting(    payload: dict,
     """
     from datetime import datetime
 
+    raw_scope = payload.get("scope")
+    scope = str(raw_scope or "").strip().lower()
+
     try:
         risk = float(payload.get("risk_per_trade") or 3.0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="risk_per_trade must be a number")
+
+    # Backward compatibility: old clients may omit scope while sending one-click tiers.
+    if not scope:
+        if is_valid_one_click_tier(risk) and risk > ALLOWED_RISK_MAX:
+            scope = "one_click"
+        else:
+            scope = "autotrade"
+    if scope not in {"autotrade", "one_click"}:
+        raise HTTPException(status_code=400, detail="scope must be 'autotrade' or 'one_click'")
 
     s = _client()
     row_res = (
@@ -773,32 +805,47 @@ async def update_risk_setting(    payload: dict,
         equity = float(row.get("current_balance") or row.get("initial_deposit") or 0)
 
     min_risk_pct = auto_risk_min_by_equity(equity)
-    if risk < min_risk_pct or risk > ALLOWED_RISK_MAX:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid risk: {risk}. Must be between {min_risk_pct}% and {ALLOWED_RISK_MAX}%"
-        )
+    if scope == "one_click":
+        tiers = list(one_click_risk_tiers())
+        if not is_valid_one_click_tier(risk):
+            tiers_text = ", ".join(str(int(t)) for t in tiers)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid one_click risk: {risk}. Must be one of [{tiers_text}]",
+            )
+        requested = float(risk)
+        accepted = snap_one_click_risk_tier(requested, default=3.0)
+        risk_value = accepted
+    else:
+        if risk < min_risk_pct or risk > ALLOWED_RISK_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid risk: {risk}. Must be between {min_risk_pct}% and {ALLOWED_RISK_MAX}%"
+            )
+        requested = float(risk)
+        accepted = clamp_auto_risk(requested, default=3.0, equity=equity)
+        risk_value = accepted
+
     try:
-        # Ensure we're storing as a float for consistency
-        risk_value = clamp_auto_risk(risk, default=3.0, equity=equity)
         s.table("autotrade_sessions").update({
-            "risk_per_trade": risk_value,
+            "risk_per_trade": float(risk_value),
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("telegram_id", tg_id).execute()
-
-        logger.info(f"[RiskSetting:{tg_id}] Updated risk_per_trade to {risk_value}%")
+        logger.info(f"[RiskSetting:{tg_id}] Updated risk_per_trade to {risk_value}% (scope={scope})")
     except Exception as e:
         logger.error(f"[RiskSetting:{tg_id}] Failed to update risk: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update risk: {e}")
 
-    accepted = clamp_auto_risk(risk, default=3.0, equity=equity)
-    band = risk_band(accepted, all_in=False)
+    one_click_synced = normalize_one_click_shared_risk(risk_value, default=3.0)
+    band = risk_band(accepted, all_in=(scope == "one_click" and accepted >= max(one_click_risk_tiers())))
     return {
         "success": True,
+        "scope": scope,
         "risk_per_trade": accepted,
+        "one_click_risk_per_trade": one_click_synced,
         "risk_policy": {
-            "mode": "autotrade",
-            "requested_pct": float(risk),
+            "mode": "autotrade" if scope == "autotrade" else "one_click",
+            "requested_pct": requested,
             "accepted_pct": accepted,
             "min_pct": min_risk_pct,
             "max_pct": ALLOWED_RISK_MAX,
@@ -809,9 +856,17 @@ async def update_risk_setting(    payload: dict,
             "equity_used_usd": round(float(equity), 2),
             "band_key": band.key,
             "band_label": band.label,
-            "high_risk": is_high_risk(accepted),
+            "high_risk": is_high_risk(float(min(accepted, ALLOWED_RISK_MAX))),
         },
-        "note": f"Risk updated to {accepted}% per trade"
+        "one_click_risk_policy": {
+            "mode": "one_click",
+            "tiers": list(one_click_risk_tiers()),
+            "all_in_pct": float(max(one_click_risk_tiers())),
+            "warning_threshold_pct": ONE_CLICK_WARN_THRESHOLD_PCT,
+            "snap_rule": "nearest_tier",
+            "high_risk_warning": one_click_warn_required(one_click_synced),
+        },
+        "note": f"Risk updated to {accepted}% per trade (scope={scope})",
     }
 
 

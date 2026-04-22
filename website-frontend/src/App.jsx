@@ -160,7 +160,7 @@ const MOCK_COURSES = [
 ];
 
 const RISK_OPTIONS = [0.25, 0.5, 1, 2, 3, 5, 7.5, 10];
-const ONE_CLICK_RISK_OPTIONS = [0.25, 0.5, 1, 2, 3, 5, 7.5, 10];
+const ONE_CLICK_RISK_OPTIONS = [3, 5, 10, 25, 50, 100];
 const LOW_EQUITY_THRESHOLD_USD = 30;
 const LOW_EQUITY_MIN_RISK_PCT = 3;
 
@@ -183,20 +183,29 @@ const getAutoRiskFloorByEquity = (equity) => {
 const normalizeOneClickRisk = (raw) => {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 3;
-  if (n <= 0.25) return 0.25;
-  if (n >= 10) return 10;
-  return Math.round(n * 100) / 100;
+  let closest = ONE_CLICK_RISK_OPTIONS[0];
+  let minDiff = Math.abs(n - closest);
+  for (const tier of ONE_CLICK_RISK_OPTIONS) {
+    const diff = Math.abs(n - tier);
+    if (diff < minDiff || (diff === minDiff && tier > closest)) {
+      closest = tier;
+      minDiff = diff;
+    }
+  }
+  return closest;
 };
 
 const oneClickSliderValueFromRisk = (risk) => {
   const normalized = normalizeOneClickRisk(risk);
-  return Math.round((normalized - 0.25) / 0.25);
+  const idx = ONE_CLICK_RISK_OPTIONS.findIndex((tier) => tier === normalized);
+  return idx >= 0 ? idx : 0;
 };
 
 const oneClickRiskFromSliderValue = (sliderValue) => {
-  const v = Number(sliderValue);
-  if (!Number.isFinite(v) || v <= 0) return 0.25;
-  return normalizeOneClickRisk(0.25 + (v * 0.25));
+  const idx = Number(sliderValue);
+  if (!Number.isFinite(idx)) return ONE_CLICK_RISK_OPTIONS[0];
+  const safeIdx = Math.max(0, Math.min(ONE_CLICK_RISK_OPTIONS.length - 1, Math.round(idx)));
+  return ONE_CLICK_RISK_OPTIONS[safeIdx];
 };
 
 const makeClientRequestId = () => {
@@ -267,9 +276,10 @@ const getOneClickRiskValueTone = (risk) => {
 
 const getOneClickRiskDescription = (risk) => {
   const r = Number(risk) || 0;
+  if (r >= 100) return '🔴 All-In (100%) — maximum exposure, use only with strict discipline';
+  if (r > 10) return '🟠 High-Risk Zone (>10%) — elevated drawdown sensitivity';
   if (r >= 10) return '🟡 Elevated Risk Zone (10%) — high volatility sensitivity';
-  if (r >= 5) return '🟢/🟡 Guarded Risk Zone (5%) — upper conservative boundary';
-  return '🟢 Green Risk Zone (0.25% – 5%) — conservative exposure and smoother drawdowns';
+  return '🟢 Guarded Zone (3% / 5%) — lower exposure tiers';
 };
 
 const getOneClickRiskPanelTone = (risk) => {
@@ -829,18 +839,19 @@ export default function App() {
       const resp = await apiFetch('/dashboard/settings/risk', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ risk_per_trade: normalized }),
+        body: JSON.stringify({ risk_per_trade: normalized, scope: 'one_click' }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         throw new Error(data.detail || `Error ${resp.status}`);
       }
-      const accepted = normalizeOneClickRisk(data?.risk_per_trade ?? normalized);
+      const accepted = normalizeOneClickRisk(data?.one_click_risk_per_trade ?? data?.risk_per_trade ?? normalized);
       setOneClickRiskPct(accepted);
       setRiskSettings(prev => ({
         ...prev,
-        risk_per_trade: accepted,
+        risk_per_trade: normalizeAutoRisk(data?.risk_per_trade ?? prev.risk_per_trade ?? accepted),
         risk_policy: data.risk_policy || prev.risk_policy || null,
+        one_click_risk_policy: data.one_click_risk_policy || prev.one_click_risk_policy || null,
         loading: false,
         error: null,
       }));
@@ -879,7 +890,7 @@ export default function App() {
       const resp = await apiFetch('/dashboard/settings');
       if (resp.ok) {
         const data = await resp.json();
-        const syncedRisk = normalizeOneClickRisk(data.risk_per_trade || 3);
+        const syncedRisk = normalizeOneClickRisk(data.one_click_risk_per_trade || data.risk_per_trade || 3);
         setRiskSettings({
           risk_per_trade: normalizeAutoRisk(data.risk_per_trade || 3),
           leverage: data.leverage || 10,
@@ -893,6 +904,7 @@ export default function App() {
           frozen: data.frozen || 0,          // locked in positions
           unrealized_pnl: data.unrealized_pnl || 0,
           risk_policy: data.risk_policy || null,
+          one_click_risk_policy: data.one_click_risk_policy || null,
           loading: false,
           error: null,
         });
@@ -924,11 +936,12 @@ export default function App() {
       });
       const data = await resp.json().catch(() => ({}));
       if (resp.ok) {
-        const acceptedRisk = normalizeOneClickRisk(data.risk_per_trade ?? effectiveRisk);
+        const acceptedRisk = normalizeOneClickRisk(data.one_click_risk_per_trade ?? data.risk_per_trade ?? effectiveRisk);
         setRiskSettings(prev => ({
           ...prev,
-          risk_per_trade: acceptedRisk,
+          risk_per_trade: normalizeAutoRisk(data.risk_per_trade ?? effectiveRisk),
           risk_policy: data.risk_policy || prev.risk_policy || null,
+          one_click_risk_policy: data.one_click_risk_policy || prev.one_click_risk_policy || null,
           loading: false,
           error: null,
         }));
@@ -1359,6 +1372,15 @@ export default function App() {
     const id = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !isAdminRoute) return;
+    if (!userProfileHydrated) return;
+    if (user?.is_admin) return;
+
+    const qs = typeof window !== 'undefined' ? window.location.search : '';
+    window.location.replace(qs ? `/${qs}` : '/');
+  }, [isLoggedIn, isAdminRoute, userProfileHydrated, user?.is_admin]);
 
   if (isLoggedIn && isAdminRoute) {
     if (!userProfileHydrated && typeof user?.is_admin === 'undefined') {
@@ -3513,12 +3535,12 @@ function SignalCard({
           )}
           {!isPlaced && !windowExpired && riskSettings && onUpdateOneClickRisk && (
             <div className="bg-white/5 rounded-lg p-2.5">
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Risk Slider (1-Click, 0.25% – 10%, step 0.25%)</p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-2">Risk Slider (1-Click tiers: 3%, 5%, 10%, 25%, 50%, 100%)</p>
               <div className="flex items-center gap-2">
                 <input
                   type="range"
                   min="0"
-                  max="39"
+                  max={String(ONE_CLICK_RISK_OPTIONS.length - 1)}
                   step="1"
                   value={sliderValue}
                   disabled={riskSettings?.loading}
@@ -3529,9 +3551,9 @@ function SignalCard({
                 />
                 <input
                   type="number"
-                  min="0.25"
-                  max="10"
-                  step="0.25"
+                  min="3"
+                  max="100"
+                  step="1"
                   value={riskDraft !== null ? riskDraft : controlRiskPct}
                   disabled={riskSettings?.loading}
                   onChange={e => setRiskDraft(e.target.value)}

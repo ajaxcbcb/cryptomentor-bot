@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 VERIFIED_ALIASES = {"approved", "uid_verified", "active", "verified"}
 DEFAULT_RISK_PCT = 3.0
+ONE_CLICK_RISK_TIERS = (3.0, 5.0, 10.0, 25.0, 50.0, 100.0)
+ONE_CLICK_WARN_THRESHOLD_PCT = 10.0
 STRICT_MIN_CONFIDENCE = 90.0
 PUSH_THRESHOLD = 90.0
 
@@ -100,6 +102,15 @@ def _clamp_risk_pct(raw: Any, default: float = DEFAULT_RISK_PCT) -> float:
     return max(0.25, min(10.0, risk))
 
 
+def _snap_one_click_risk_tier(raw: Any, default: float = DEFAULT_RISK_PCT) -> float:
+    risk = _as_float(raw, default)
+    if risk <= ONE_CLICK_RISK_TIERS[0]:
+        return float(ONE_CLICK_RISK_TIERS[0])
+    if risk >= ONE_CLICK_RISK_TIERS[-1]:
+        return float(ONE_CLICK_RISK_TIERS[-1])
+    return float(min(ONE_CLICK_RISK_TIERS, key=lambda tier: (abs(float(tier) - float(risk)), -float(tier))))
+
+
 def _entry_band(entry: float) -> tuple[float, float]:
     band = abs(float(entry)) * 0.001
     return float(entry - band), float(entry + band)
@@ -135,7 +146,7 @@ def build_dashboard_signal_url(
 
 def build_signal_id(symbol: str, generated_at: datetime, model_source: str = "canonical_pro_v1") -> str:
     base = f"{_norm_symbol(symbol)}|{generated_at.isoformat()}|{model_source}|v1"
-    digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
     return f"ocs_{digest}"
 
 
@@ -147,7 +158,7 @@ def build_signal_fingerprint(signal: Dict[str, Any]) -> str:
     tp1 = round(_as_float(signal.get("tp1"), 0.0), 4)
     sig_type = str(signal.get("type") or "Scalp")
     raw = f"{symbol}|{direction}|{entry}|{sl}|{tp1}|{sig_type}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
 def strict_gate_enabled() -> bool:
@@ -672,9 +683,9 @@ def get_user_risk_pct(telegram_id: int) -> float:
             .execute()
         )
         row = (res.data or [{}])[0]
-        return _clamp_risk_pct(row.get("risk_per_trade"), default=DEFAULT_RISK_PCT)
+        return _snap_one_click_risk_tier(row.get("risk_per_trade"), default=DEFAULT_RISK_PCT)
     except Exception:
-        return float(DEFAULT_RISK_PCT)
+        return float(_snap_one_click_risk_tier(DEFAULT_RISK_PCT, default=DEFAULT_RISK_PCT))
 
 
 def get_user_equity_snapshot(telegram_id: int) -> Dict[str, Any]:

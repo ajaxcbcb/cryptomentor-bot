@@ -19,7 +19,8 @@ from fastapi import HTTPException
 
 
 SIGNAL_TOKEN_VERSION = 1
-ONE_CLICK_RISK_MAX_PCT = 10.0
+ONE_CLICK_RISK_TIERS = (3.0, 5.0, 10.0, 25.0, 50.0, 100.0)
+ONE_CLICK_RISK_MAX_PCT = 100.0
 
 # Keep parity with core pair set used across runtime paths.
 _WATCHLIST_SYMBOLS = {
@@ -279,4 +280,3 @@ def _replay_open_response(row: Dict[str, Any]) -> Dict[str, Any]:
         "sizing": sizing,
         "warnings": [],
     }
-

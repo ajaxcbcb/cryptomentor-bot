@@ -39,7 +39,10 @@ from app.services.risk_policy import (
     AUTO_RISK_MIN_PCT,
     ONE_CLICK_RISK_MAX_PCT,
     clamp_auto_risk,
-    clamp_one_click_risk,
+    is_valid_one_click_tier,
+    normalize_one_click_shared_risk,
+    one_click_risk_tiers,
+    snap_one_click_risk_tier,
     is_high_risk,
     risk_band,
 )
@@ -133,8 +136,8 @@ def _normalize_risk_pct(raw_value: Any, default: float = 3.0) -> float:
     return clamp_auto_risk(raw_value, default=default)
 
 
-def _normalize_one_click_risk_pct(raw_value: Any, default: float = 1.0) -> float:
-    return clamp_one_click_risk(raw_value, default=default)
+def _normalize_one_click_risk_pct(raw_value: Any, default: float = 3.0) -> float:
+    return snap_one_click_risk_tier(raw_value, default=default)
 
 
 def _risk_profile(user_risk_pct: float) -> Dict[str, float]:
@@ -623,7 +626,7 @@ def _decode_signal_token(token: str) -> Dict[str, Any]:
 
 def _build_signal_id(symbol: str, generated_at: datetime, model_source: str) -> str:
     base = f"{_norm_symbol(symbol)}|{generated_at.isoformat()}|{model_source}|v{SIGNAL_TOKEN_VERSION}"
-    digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:12]
     return f"sig_{digest}"
 
 
@@ -987,14 +990,22 @@ def _resolve_risk_inputs(
     risk_override_pct: Optional[float],
     all_in: bool,
 ) -> Tuple[float, float]:
-    # Locked policy: one-click risk follows dashboard user risk_per_trade.
-    # Keep requested payload for observability, but enforce accepted risk to base.
-    requested = float(base_risk_pct)
+    base_synced = float(_normalize_one_click_risk_pct(base_risk_pct, default=3.0))
+    requested = float(base_synced)
     if all_in:
         requested = ONE_CLICK_RISK_MAX_PCT
+        accepted = float(ONE_CLICK_RISK_MAX_PCT)
     elif risk_override_pct is not None:
         requested = float(risk_override_pct)
-    accepted = float(_normalize_risk_pct(base_risk_pct, default=3.0))
+        if not is_valid_one_click_tier(requested):
+            tiers_text = ", ".join(str(int(t)) for t in one_click_risk_tiers())
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid one-click risk override: {requested}. Must be one of [{tiers_text}]",
+            )
+        accepted = float(_normalize_one_click_risk_pct(requested, default=base_synced))
+    else:
+        accepted = float(base_synced)
     return requested, accepted
 
 
@@ -1436,7 +1447,7 @@ async def preview_signal_execution(
         .execute()
     )
     sess = (sess_res.data or [{}])[0]
-    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=3.0)
+    base_risk_pct = normalize_one_click_shared_risk(sess.get("risk_per_trade"), default=3.0)
     requested_risk_pct, accepted_risk_pct = _resolve_risk_inputs(
         base_risk_pct=base_risk_pct,
         risk_override_pct=payload.risk_override_pct,
@@ -1591,7 +1602,7 @@ async def execute_signal(
         .execute()
     )
     sess = (sess_res.data or [{}])[0]
-    base_risk_pct = _normalize_risk_pct(sess.get("risk_per_trade"), default=3.0)
+    base_risk_pct = normalize_one_click_shared_risk(sess.get("risk_per_trade"), default=3.0)
     requested_risk_pct, accepted_risk_pct = _resolve_risk_inputs(
         base_risk_pct=base_risk_pct,
         risk_override_pct=payload.risk_override_pct,
