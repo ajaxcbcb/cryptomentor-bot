@@ -34,6 +34,7 @@ VER_REJECTED = "rejected"
 _APPROVED_ALIASES = {VER_APPROVED, "uid_verified", "active", "verified"}
 _PENDING_ALIASES = {VER_PENDING, "pending_verification", "awaiting_approval"}
 _REJECTED_ALIASES = {VER_REJECTED, "uid_rejected", "denied"}
+_LEGACY_SESSION_APPROVED_COMPAT = {"stopped", "inactive", "paused", "halted"}
 
 
 def _normalize_verification_status(raw_status: str) -> str:
@@ -45,6 +46,122 @@ def _normalize_verification_status(raw_status: str) -> str:
     if status in _REJECTED_ALIASES:
         return VER_REJECTED
     return status or "none"
+
+
+def _normalize_session_verification_status(raw_status: str, raw_uid: str) -> str:
+    normalized = _normalize_verification_status(raw_status)
+    if normalized != "none":
+        return normalized
+
+    status = str(raw_status or "").strip().lower()
+    has_uid = bool(str(raw_uid or "").strip())
+    if has_uid and status in _LEGACY_SESSION_APPROVED_COMPAT:
+        return VER_APPROVED
+    return "none"
+
+
+def _uids_compatible(uv_uid: str | None, session_uid: str | None) -> bool:
+    uv = str(uv_uid or "").strip()
+    sess = str(session_uid or "").strip()
+    if not uv or not sess:
+        return True
+    return uv == sess
+
+
+def _load_verification_snapshot(tg_id: int) -> dict:
+    """
+    Compatibility lookup:
+    1) user_verifications (canonical)
+    2) autotrade_sessions (legacy fallback)
+    """
+    s = _client()
+    try:
+        uv_res = (
+            s.table("user_verifications")
+            .select("status, bitunix_uid, submitted_via, reviewed_at, reviewed_by_admin_id, community_code")
+            .eq("telegram_id", tg_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        uv_res = (
+            s.table("user_verifications")
+            .select("status, bitunix_uid, submitted_via, reviewed_at, reviewed_by_admin_id")
+            .eq("telegram_id", tg_id)
+            .limit(1)
+            .execute()
+        )
+
+    sess_res = (
+        s.table("autotrade_sessions")
+        .select("status, bitunix_uid")
+        .eq("telegram_id", tg_id)
+        .limit(1)
+        .execute()
+    )
+    sess_row = (sess_res.data or [None])[0]
+
+    uv_row = (uv_res.data or [None])[0]
+    if uv_row:
+        raw_status = uv_row.get("status")
+        normalized = _normalize_verification_status(raw_status)
+        if normalized == VER_PENDING and sess_row:
+            sess_raw_status = sess_row.get("status")
+            sess_uid = sess_row.get("bitunix_uid")
+            sess_normalized = _normalize_session_verification_status(sess_raw_status, sess_uid)
+            if sess_normalized in {VER_APPROVED, VER_REJECTED} and _uids_compatible(uv_row.get("bitunix_uid"), sess_uid):
+                logger.warning(
+                    "[Verification] Using compat override for tg_id=%s uv_status=%s session_status=%s",
+                    tg_id,
+                    raw_status,
+                    sess_raw_status,
+                )
+                return {
+                    "status": sess_normalized,
+                    "raw_status": raw_status or "none",
+                    "uid": sess_uid or uv_row.get("bitunix_uid"),
+                    "submitted_via": uv_row.get("submitted_via"),
+                    "reviewed_at": uv_row.get("reviewed_at"),
+                    "reviewed_by_admin_id": uv_row.get("reviewed_by_admin_id"),
+                    "community_code": uv_row.get("community_code"),
+                    "source": "compat_session_override",
+                }
+        if normalized != "none":
+            return {
+                "status": normalized,
+                "raw_status": raw_status or "none",
+                "uid": uv_row.get("bitunix_uid"),
+                "submitted_via": uv_row.get("submitted_via"),
+                "reviewed_at": uv_row.get("reviewed_at"),
+                "reviewed_by_admin_id": uv_row.get("reviewed_by_admin_id"),
+                "community_code": uv_row.get("community_code"),
+                "source": "user_verifications",
+            }
+
+    if sess_row:
+        raw_status = sess_row.get("status")
+        raw_uid = sess_row.get("bitunix_uid")
+        return {
+            "status": _normalize_session_verification_status(raw_status, raw_uid),
+            "raw_status": raw_status or "none",
+            "uid": raw_uid,
+            "submitted_via": None,
+            "reviewed_at": None,
+            "reviewed_by_admin_id": None,
+            "community_code": None,
+            "source": "autotrade_sessions",
+        }
+
+    return {
+        "status": "none",
+        "raw_status": "none",
+        "uid": None,
+        "submitted_via": None,
+        "reviewed_at": None,
+        "reviewed_by_admin_id": None,
+        "community_code": None,
+        "source": "none",
+    }
 
 
 def _sanitize_community_code(raw: str | None) -> str | None:
@@ -145,48 +262,39 @@ async def get_verification_status(tg_id: int = Depends(get_current_user)):
     """Single source of truth: user_verifications in Supabase."""
     admin_ids = load_admin_ids()
     if tg_id in admin_ids:
-        return {"status": VER_APPROVED, "exchange": "bitunix", "uid": None}
+        return {
+            "status": VER_APPROVED,
+            "raw_status": VER_APPROVED,
+            "exchange": "bitunix",
+            "uid": None,
+            "source": "admin_bypass",
+        }
 
-    s = _client()
-    try:
-        res = (
-            s.table("user_verifications")
-            .select("status, bitunix_uid, submitted_via, reviewed_at, reviewed_by_admin_id, community_code")
-            .eq("telegram_id", tg_id)
-            .limit(1)
-            .execute()
-        )
-    except Exception:
-        res = (
-            s.table("user_verifications")
-            .select("status, bitunix_uid, submitted_via, reviewed_at, reviewed_by_admin_id")
-            .eq("telegram_id", tg_id)
-            .limit(1)
-            .execute()
-        )
-    row = (res.data or [None])[0]
-    if not row:
+    snap = _load_verification_snapshot(tg_id)
+    if snap.get("status") == "none":
         return {
             "status": "none",
+            "raw_status": "none",
             "exchange": None,
             "uid": None,
             "community_code": None,
             "bitunix_referral_url": _fallback_referral_url(),
             "ref_source": "fallback",
+            "source": "none",
         }
-    normalized_status = _normalize_verification_status(row.get("status"))
-    referral = _resolve_referral_context(row.get("community_code"))
+    referral = _resolve_referral_context(snap.get("community_code"))
     return {
-        "status": normalized_status,
-        "raw_status": row.get("status") or "none",
+        "status": snap.get("status"),
+        "raw_status": snap.get("raw_status") or "none",
         "exchange": "bitunix",
-        "uid": row.get("bitunix_uid"),
-        "submitted_via": row.get("submitted_via"),
-        "reviewed_at": row.get("reviewed_at"),
-        "reviewed_by_admin_id": row.get("reviewed_by_admin_id"),
+        "uid": snap.get("uid"),
+        "submitted_via": snap.get("submitted_via"),
+        "reviewed_at": snap.get("reviewed_at"),
+        "reviewed_by_admin_id": snap.get("reviewed_by_admin_id"),
         "community_code": referral.get("community_code"),
         "bitunix_referral_url": referral.get("bitunix_referral_url"),
         "ref_source": referral.get("ref_source"),
+        "source": snap.get("source") or "none",
     }
 
 
@@ -209,16 +317,8 @@ async def submit_uid(payload: SubmitUIDRequest, tg_id: int = Depends(get_current
     s = _client()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # Check current verification status (central source).
-    res = (
-        s.table("user_verifications")
-        .select("status")
-        .eq("telegram_id", tg_id)
-        .limit(1)
-        .execute()
-    )
-    row = (res.data or [None])[0]
-    current_status = _normalize_verification_status(row.get("status") if row else "none")
+    # Check current verification status with legacy fallback compatibility.
+    current_status = _load_verification_snapshot(tg_id).get("status", "none")
     if current_status == VER_APPROVED:
         raise HTTPException(status_code=400, detail="Your UID is already verified.")
 

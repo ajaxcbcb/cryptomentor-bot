@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.3.01] — 2026-04-22 — Verification Pending Reconciliation + Refresh Guard
+
+### 🔄 Verification Status Compatibility Reconciliation
+- Updated `website-backend/app/routes/user.py`:
+  - added safe UID-compat check helper for cross-table status reconciliation,
+  - when `user_verifications.status` is stale `pending` but `autotrade_sessions.status` is already approved/rejected-compatible for the same UID, `/user/verification-status` now resolves to the compatible final status,
+  - keeps canonical `user_verifications` behavior for normal flows while unblocking legacy-mirrored approval paths.
+
+### 🌐 Pending Screen Refresh Stability
+- Updated `website-frontend/src/App.jsx` (`VerificationPendingScreen`):
+  - hardened manual refresh button with an anti-stuck guard (`Promise.race` timeout + `finally` reset),
+  - prevents `Checking...` from remaining indefinitely when refresh request hangs,
+  - updated polling effect dependency to use current `onRefresh`.
+
+## [2.3.00] — 2026-04-22 — Admin Gateway Error UX + Web Confluence Import Path Fix
+
+### 🌐 Admin Panel Error Rendering Hardening
+- Updated `website-frontend/src/AdminPanel.jsx`:
+  - sanitize non-JSON error payloads and prevent raw HTML (`502/503/504`) from being rendered directly in alert cards,
+  - map upstream gateway statuses to concise operator-friendly messages,
+  - dedupe repeated error cards across bootstrap/dashboard/candidates/action failures.
+
+### 🧠 Web Signal Confluence Reliability
+- Updated `website-backend/app/routes/signals.py` Bismillah path bootstrap:
+  - include Bismillah parent root in `sys.path` for `from Bismillah.app.*` imports,
+  - preserve direct `Bismillah` and `Bismillah/app` path availability for existing fallback imports.
+- Resolves repeated runtime warnings like `No module named 'Bismillah'` during confluence scoring and reduces avoidable per-request failure overhead.
+
 ## [2.2.99] — 2026-04-22 — Telegram Auth Stabilization (Auth-Focused)
 
 ### 🔐 Backend Auth Diagnostics + Deterministic Error Codes
@@ -34,6 +62,7 @@
 - Restores `/dashboard/admin/bootstrap` and `/dashboard/admin/decision-tree*` data path reliability when snapshot generation is invoked from web admin panel.
 - Added timeout-guarded admin route execution in `website-backend/app/routes/admin.py` for snapshot, user-stats, and candidate reads.
 - Added cache-backed fallback responses so admin panel cards stay responsive during transient Supabase/API latency instead of hanging.
+- Updated `admin_bootstrap` to fetch snapshot, user stats, and one-click metrics concurrently, so response latency is bounded by the slowest source instead of cumulative waits.
 
 ## [2.2.97] — 2026-04-22 — Adaptive + Decision Tree Runtime Parity Verification Patch
 

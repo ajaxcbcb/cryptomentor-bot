@@ -4000,9 +4000,24 @@ function VerificationPendingScreen({ onRefresh, onLogout }) {
   const [polling, setPolling] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(onRefresh, 30000);
+    const interval = setInterval(() => {
+      void onRefresh();
+    }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [onRefresh]);
+
+  const handleRefresh = async () => {
+    if (polling) return;
+    setPolling(true);
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => onRefresh()),
+        new Promise((resolve) => setTimeout(resolve, 15000)),
+      ]);
+    } finally {
+      setPolling(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#020202] p-4 relative overflow-hidden">
@@ -4013,7 +4028,7 @@ function VerificationPendingScreen({ onRefresh, onLogout }) {
         <h1 className="text-2xl font-black text-white mb-4">Verification Pending</h1>
         <p className="text-slate-300 mb-2">Your Bitunix UID is being verified by an admin.</p>
         <p className="text-slate-400 text-sm mb-8">You'll receive a Telegram notification once approved. This usually takes a few minutes.</p>
-        <button onClick={async () => { setPolling(true); await onRefresh(); setPolling(false); }}
+        <button onClick={handleRefresh}
           className="bg-white/10 text-white font-bold px-6 py-3 rounded-xl hover:bg-white/20 transition-colors">
           {polling ? 'Checking...' : 'Refresh Status'}
         </button>
