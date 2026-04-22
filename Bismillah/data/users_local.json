@@ -1,0 +1,47 @@
+{
+  "8030312242": {
+    "telegram_id": 8030312242,
+    "credits": 100,
+    "is_premium": true,
+    "premium_until": null,
+    "banned": false,
+    "created_at": "2025-08-10T10:45:22.875051",
+    "updated_at": "2025-08-10T10:45:22.875066"
+  },
+  "985106924": {
+    "telegram_id": 985106924,
+    "credits": 100,
+    "is_premium": true,
+    "premium_until": null,
+    "banned": false,
+    "created_at": "2025-08-10T10:46:08.736741",
+    "updated_at": "2025-08-10T10:46:08.736749"
+  },
+  "7582955848": {
+    "telegram_id": 7582955848,
+    "credits": 100,
+    "is_premium": true,
+    "premium_until": null,
+    "banned": false,
+    "created_at": "2025-08-10T10:47:30.366240",
+    "updated_at": "2025-08-10T10:47:30.366247"
+  },
+  "6581870752": {
+    "telegram_id": 6581870752,
+    "credits": 100,
+    "is_premium": true,
+    "premium_until": null,
+    "banned": false,
+    "created_at": "2025-08-10T10:48:24.025695",
+    "updated_at": "2025-08-10T10:48:24.025705"
+  },
+  "1341077864": {
+    "telegram_id": 1341077864,
+    "credits": 100,
+    "is_premium": true,
+    "premium_until": null,
+    "banned": false,
+    "created_at": "2025-08-20T11:30:59.733555",
+    "updated_at": "2025-08-20T11:52:40.103628"
+  }
+}
